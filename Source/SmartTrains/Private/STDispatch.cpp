@@ -727,6 +727,7 @@ void ASTSubsystem::Dispatch()
 		{
 			UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s done: %s (next job chosen before leaving)"), State.Job.Id, *STLayout::Name(State.Train), *State.Job.Summary);
 		}
+		State.bChainedWhileDocked = State.Train->IsDocked();
 		State.Job = MoveTemp(Job);
 		State.bHasJob = true;
 		UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s"), State.Job.Id, *Line);
@@ -755,6 +756,20 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why)
 	{
 		SendToStation(State, Depot, Why);
 		return;
+	}
+	// A train still at speed isn't stopped on the line: it drives on to the stop it was heading for and parks there.
+	const AFGRailroadVehicle* First = State.Train->GetFirstVehicle();
+	const bool bMoving = First && First->GetVelocity().Size() > 300.0;
+	AFGRailroadTimeTable* TimeTable = State.Train->GetTimeTable();
+	AFGTrainStationIdentifier* Heading = TimeTable && TimeTable->IsValidStop(TimeTable->GetCurrentStop()) ? TimeTable->GetStop(TimeTable->GetCurrentStop()).Station.Get() : nullptr;
+	if (bMoving)
+	{
+		Heading = Heading ? Heading : FindNearestStation(State.Train);
+		if (Heading)
+		{
+			SendToStation(State, Heading, *FString::Printf(TEXT("%s, still moving"), Why));
+			return;
+		}
 	}
 	Park(State, Why);
 }

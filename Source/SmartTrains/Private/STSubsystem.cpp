@@ -417,9 +417,25 @@ void ASTSubsystem::MonitorTrains()
 				{
 					Listed += (Listed.IsEmpty() ? TEXT("") : TEXT(", ")) + STLayout::Name(Stop.Station);
 				}
-				UE_LOG(LogSmartTrains, Warning, TEXT("EXTERNAL TIMETABLE CHANGE on %s: stops are now [%s]; writing job %d back (another mod such as DynamicTimeTable, or a player, changed it)"),
-					*STLayout::Name(Train), *Listed, State.Job.Id);
-				WriteJob(State, TEXT("written back after an external change"));
+				if (Time - State.ExternalChangesSince > 60.0)
+				{
+					State.ExternalChanges = 0;
+					State.ExternalChangesSince = Time;
+				}
+				if (++State.ExternalChanges <= 3)
+				{
+					UE_LOG(LogSmartTrains, Warning, TEXT("EXTERNAL TIMETABLE CHANGE on %s: stops are now [%s]; writing job %d back (another mod such as DynamicTimeTable, or a player, changed it)"),
+						*STLayout::Name(Train), *Listed, State.Job.Id);
+					WriteJob(State, TEXT("written back after an external change"));
+				}
+				else
+				{
+					UE_LOG(LogSmartTrains, Error, TEXT("EXTERNAL TIMETABLE CHANGE on %s keeps happening (stops now [%s]): job %d dropped. If DynamicTimeTable does this, take these stations out of its groups."),
+						*STLayout::Name(Train), *Listed, State.Job.Id);
+					State.bHasJob = false;
+					State.Phase = ESTTrainPhase::Idle;
+					State.WrittenStations.Reset();
+				}
 			}
 		}
 		if (State.Phase == ESTTrainPhase::Parked && Train->IsSelfDrivingEnabled() && !bDocked)
@@ -482,6 +498,12 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 		{
 			SettleIdle(State, TEXT("left a station without a job"));
 		}
+		return;
+	}
+	if (State.bChainedWhileDocked)
+	{
+		State.bChainedWhileDocked = false;
+		UE_LOG(LogSmartTrains, Log, TEXT("%s left %s after %.0f s, on to job %d"), *STLayout::Name(Train), *STLayout::Name(Station), Stay, State.Job.Id);
 		return;
 	}
 	if (!State.Job.Legs.IsValidIndex(State.Job.Leg) || State.Job.Legs[State.Job.Leg].Station != Station)

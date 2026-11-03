@@ -269,7 +269,11 @@ struct SMARTTRAINS_API FSTTrainState
 	TWeakObjectPtr<AFGTrainStationIdentifier> DockedStation;
 	// Runtime only: when SmartTrains last told the train to drive, for the stuck report.
 	double LastCommandAt = 0.0;
-	bool bWarnedNoFit = false;
+	// Runtime only: the job was replaced while the train was docked, so the coming departure ends the old job's dock.
+	bool bChainedWhileDocked = false;
+	// Runtime only: timetable changes by others this minute, and when the count started.
+	int32 ExternalChanges = 0;
+	double ExternalChangesSince = 0.0;
 };
 
 // Which vehicle stood beside each platform of a station the last time a train docked there.
