@@ -10,6 +10,7 @@
 #include "STLayout.h"
 #include "STMigration.h"
 #include "STSubsystem.h"
+#include "UI/STMigrationWindow.h"
 
 namespace
 {
@@ -313,6 +314,12 @@ void USTRemoteCallObject::Client_Migration_Implementation(const FSTMigrationView
 {
 	mMigration = View;
 	++mRevision;
+}
+
+void USTRemoteCallObject::Client_OpenMigrationWindow_Implementation()
+{
+	UE_LOG(LogSmartTrains, Log, TEXT("Opening the migration window"));
+	USTMigrationWindow::Open(GetOwnerPlayerController());
 }
 
 void USTRemoteCallObject::Client_Message_Implementation(const FString& Message, bool bError)

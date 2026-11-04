@@ -32,7 +32,7 @@ the console.
   as an error: the game's UI changed.
 - `USTPlatformPanel shown in ...` / `Platform panel geometry: ...` when a platform menu opens. If the panel is drawn
   outside the window or cut off, the geometry line shows where it landed.
-- `Platform menu: role on ... (edit N)`, `Locomotive menu: ...`, `Station menu: ...`, `Migration window: step ...`
+- `Platform menu: role on ... (edit N)`, `Locomotive menu: ...`, `Station menu: ...`, `Opening the migration window` / `Migration window opened|closed`, `Migration window: step ...`
   on the client. The server logs the change itself (`PLATFORM`, `MANAGE`, `STATION`, ...) with the player's name.
 - `Remote call object not registered on the local player`: SmartTrains isn't on the server. Its menus stay empty.
 - **SML slot setup:** `UWidgetBlueprintHookSlot_Generic::SetupPanelSlot` dereferences a null `HorizontalBoxSlot` when

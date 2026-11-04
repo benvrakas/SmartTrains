@@ -1,7 +1,8 @@
 # Migration tool
 
 Converts an existing train network (vanilla timetables, DynamicTimeTable groups) to SmartTrains roles and managed
-trains, with a preview, a CSV report and undo.
+trains, with a preview, a CSV report and undo. `/st migrate` opens it as a window; the chat steps below do the same
+without it.
 
 ## Evidence per cargo platform
 

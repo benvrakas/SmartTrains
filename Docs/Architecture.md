@@ -178,7 +178,7 @@ widget blueprint hooks at `POST_INITIALIZATION`, and not on dedicated servers:
 | `Widget_Train_DockingStation` (freight platform) | `CanvasPanel_149` at x 448 | `USTPlatformPanel`, beside the window |
 | `BPW_Train_DockingStation_Fluid` | `CanvasPanel_0` at x 765 | `USTPlatformPanel` |
 | `Widget_Locomotive_Menu` | `VerticalBox_0` (info column) | `USTTrainPanel` |
-| `Widget_TrainStationNew` | `VerticalBox_2` (under the train and station lists) | `USTStationPanel` with the migration window |
+| `Widget_TrainStationNew` | `VerticalBox_2` (under the train and station lists) | `USTStationPanel` |
 
 Panel names and positions come from the starter project's widget assets, dumped with Telescreen's `TSDumpWidgets`
 commandlet. It now also lists named-slot content, canvas slot layout and size box overrides
@@ -193,6 +193,12 @@ second after it opens, to check that.
   game's own copy/paste-settings key isn't hooked yet: the platform implements it in Blueprint.
 - **Train panel.** Managed toggle, keep vanilla (only while unmanaged), pool tag, job legs and cargo. While the train is
   managed, the vanilla "Edit timetable" button is disabled on every refresh, and enabled again when the menu closes.
-- **Station panel.** Depot toggle, pool tag, layout, fleet status. The migration window runs the same steps as
-  `/st migrate`. Its rows are the preview's stations and trains, ticked as proposed. Apply sends the ticked numbers.
-  Without a test copy or backup this session, Apply takes a second click (the chat command's `confirm`).
+- **Station panel.** Depot toggle, pool tag, layout, fleet status. Depot and pool are per station, and a depot may
+  have no platforms, so they stay in the station menu; everything per platform is in the platform menus.
+- **Migration window** (`USTMigrationWindow`). Not part of any vanilla menu: `/st migrate` without a step sends
+  `Client_OpenMigrationWindow` to the player, which adds the window to the viewport 0.2 s later (after the chat has
+  closed and given the input back) and takes the input in UI-only mode. Close or Escape removes it and gives the
+  input back to the game. A dimmed full-screen layer behind it catches clicks, so it keeps the keyboard focus. It
+  runs the same steps as `/st migrate`. Its rows are the preview's stations and trains, ticked as proposed. Apply
+  sends the ticked numbers. Without a test copy or backup this session, Apply takes a second click (the chat
+  command's `confirm`).

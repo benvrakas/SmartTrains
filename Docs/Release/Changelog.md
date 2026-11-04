@@ -8,8 +8,9 @@
     rate and inbound trains. When nothing is coming, it says why.
   - The locomotive menu has the managed toggle, keep vanilla, the pool tag and the current job. A managed train's
     timetable shows read-only.
-  - The station menu has the depot toggle, the pool tag, the station's platform roles and the fleet status. It also
-    holds the migration window: preview with tickable stations and trains, apply, undo, test copy and backup.
+  - The station menu has the depot toggle, the pool tag, the station's platform roles and the fleet status.
+  - `/st migrate` opens the migration window: preview with tickable stations and trains, apply, undo, test copy and
+    backup.
 - In multiplayer, every player's edits go to the host and are logged with their name.
 - `/st platform` also explains why no train is coming.
 

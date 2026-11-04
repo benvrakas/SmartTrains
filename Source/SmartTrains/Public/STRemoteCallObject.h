@@ -58,6 +58,10 @@ public:
 	UFUNCTION(Client, Reliable)
 	void Client_Migration(const FSTMigrationView& View);
 
+	// Opens the migration window ("/st migrate").
+	UFUNCTION(Client, Reliable)
+	void Client_OpenMigrationWindow();
+
 	// Tells the player why an edit was refused or what it did.
 	UFUNCTION(Client, Reliable)
 	void Client_Message(const FString& Message, bool bError);

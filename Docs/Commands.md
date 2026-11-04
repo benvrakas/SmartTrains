@@ -43,6 +43,8 @@ Setting a role switches the platform to load (supply) or unload (demand).
 
 ## Migration (see Migration.md)
 
+- `/st migrate`: opens the migration window (preview with tickable rows, apply, undo, test copy, backup). From the
+  server console it runs the preview instead.
 - `/st migrate preview`: proposes roles and managed trains and writes a CSV report to the game's log folder.
 - `/st migrate apply all [confirm]`: applies every unflagged station and every ticked train.
 - `/st migrate apply stations 1,2 trains 3`: applies chosen ones by their preview numbers.

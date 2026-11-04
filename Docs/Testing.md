@@ -58,6 +58,8 @@ On a test copy of the user's network:
 3. Fluid platform menu: same, with fluids only and m³/min.
 4. Locomotive menu: turning Managed on locks "Edit timetable"; turning it off unlocks it and puts the old timetable
    back. With Keep vanilla on, the train can't be managed. The pool tag saves on Enter.
-5. Station menu: depot toggle and pool tag. In the Migration tool: Preview, untick a row, Apply (it asks for a second
-   click without a test copy), Undo. Save a test copy and a backup (beta tools on).
-6. Multiplayer, if possible: a client sees the same readouts, and the host logs its edits with its name.
+5. Station menu: depot toggle and pool tag; no migration tool there.
+6. `/st migrate`: the migration window opens over the game with the mouse free, and the player doesn't move while it
+   is open. Preview, untick a row, Apply (it asks for a second click without a test copy), Undo. Save a test copy and
+   a backup (beta tools on). Close and Escape both give the controls back.
+7. Multiplayer, if possible: a client sees the same readouts, and the host logs its edits with its name.

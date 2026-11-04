@@ -14,6 +14,7 @@
 #include "SmartTrains.h"
 #include "STLayout.h"
 #include "STMigration.h"
+#include "STRemoteCallObject.h"
 #include "STSubsystem.h"
 #include "UObject/UObjectIterator.h"
 
@@ -190,6 +191,7 @@ namespace
 		TEXT("/st station [depot on|off] [pool <name>|pool -]"),
 		TEXT("/st train [manage|unmanage] [keepvanilla on|off] [pool <name>|pool -]"),
 		TEXT("/st job <item> from <station> to <station>   (a test job for the train you drive or look at)"),
+		TEXT("/st migrate   (opens the migration window)"),
 		TEXT("/st migrate preview | apply all [confirm] | apply stations 1,2 trains 3 | undo"),
 		TEXT("/st testcopy [session name] | /st backup"),
 	};
@@ -438,8 +440,20 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 
 	if (Verb == TEXT("migrate"))
 	{
-		const FString Step = Arguments.Num() > 1 ? Arguments[1].ToLower() : FString(TEXT("preview"));
-		if (Step == TEXT("preview"))
+		AFGPlayerController* Controller = Sender ? Sender->GetPlayer() : nullptr;
+		USTRemoteCallObject* RCO = Controller ? Controller->GetRemoteCallObjectOfClass<USTRemoteCallObject>() : nullptr;
+		// A player without a step gets the window; the server console gets the preview.
+		const FString Step = Arguments.Num() > 1 ? Arguments[1].ToLower() : FString(RCO ? TEXT("window") : TEXT("preview"));
+		if (Step == TEXT("window"))
+		{
+			if (!RCO)
+			{
+				Sender->SendChatMessage(TEXT("The migration window needs a player; use /st migrate preview."), FLinearColor::Red);
+				return EExecutionStatus::UNCOMPLETED;
+			}
+			RCO->Client_OpenMigrationWindow();
+		}
+		else if (Step == TEXT("preview"))
 		{
 			Send(Sender, STMigration::Preview(Subsystem, World));
 		}
@@ -453,7 +467,7 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		}
 		else
 		{
-			Sender->SendChatMessage(TEXT("/st migrate preview | apply ... | undo"), FLinearColor::Red);
+			Sender->SendChatMessage(TEXT("/st migrate [window] | preview | apply ... | undo"), FLinearColor::Red);
 			return EExecutionStatus::BAD_ARGUMENTS;
 		}
 		return EExecutionStatus::COMPLETED;
