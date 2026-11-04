@@ -45,5 +45,5 @@ the console.
 
 ## Known gaps (0.2.0)
 
-- Each job has one pickup and one delivery (milk runs are M4).
+- A trip moves one item: milk runs combine stops of the same item, not different items.
 - A train that is parked counts as standing at the station where it last docked.

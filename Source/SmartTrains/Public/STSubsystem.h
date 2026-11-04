@@ -170,6 +170,9 @@ private:
 		double Score = 0.0;
 		bool bDeliveryOnly = false;
 		FString Why;
+		// Milk run: its legs, and the node each leg serves. Empty for a direct job.
+		TArray<FSTJobLeg> Legs;
+		TArray<int32> LegNodes;
 	};
 
 	// Fast checks of every managed train: docking, job progress, external timetable changes. [0.25 s]
@@ -194,6 +197,8 @@ private:
 	// Where Train will be free and when (game seconds); false if it isn't free soon.
 	bool GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifier*& OutStation, double& OutTime) const;
 
+	// Gives State's train Job (or only logs it in observe-only mode).
+	void CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& Line);
 	// Writes State's job into its train's timetable (from the current leg on) and lets it drive.
 	void WriteJob(FSTTrainState& State, const TCHAR* Why);
 	// Ends State's job after its last leg: next job, depot, or parks where it is.
@@ -210,6 +215,14 @@ private:
 	void SettleIdle(FSTTrainState& State, const TCHAR* Why);
 	// Like ComputeFit for a train that already carries Item: which loaded cars can unload it at To.
 	FSTFit ComputeDeliveryFit(const AFGTrain* Train, const AFGTrainStationIdentifier* To, TSubclassOf<UFGItemDescriptor> Item) const;
+	// Adds milk run candidates for the free train at TrainIndex (STMilkRuns.cpp).
+	void AddMilkRuns(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, const TArray<FSTNode>& Nodes,
+		const TMap<const AFGTrainStationIdentifier*, double>& BusyUntil, TArray<FCandidate>& OutCandidates) const;
+	// Checks the first delivery of a split load: which of Cars unload Item at Station, and which must skip it.
+	FSTFit CheckDropOnTheWay(const AFGTrain* Train, const AFGTrainStationIdentifier* Station, TSubclassOf<UFGItemDescriptor> Item,
+		const TArray<AFGFreightWagon*>& Cars) const;
+	// Trims a milk run's leg amounts to what earlier assignments this round left; false if too little is left.
+	bool RecheckMilkRun(FCandidate& Candidate, const TArray<FSTNode>& Nodes) const;
 	// Room for Item at a sink node: free slots of its platforms times the item's stack size.
 	int32 GetSinkRoom(const FSTNode& Node, TSubclassOf<UFGItemDescriptor> Item) const;
 	// Adds a line to the station's recent job history.

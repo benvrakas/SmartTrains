@@ -66,3 +66,15 @@ On a test copy of the user's network:
    is open. Preview, untick a row, Apply (it asks for a second click without a test copy), Undo. Save a test copy and
    a backup (beta tools on). Close and Escape both give the controls back.
 7. Multiplayer, if possible: a client sees the same readouts, and the host logs its edits with its name.
+
+## M4: milk runs (0.3.0)
+
+1. Two suppliers of one item that each hold about half a train load, one consumer below target: the log shows
+   `JOB ... <item> A -> B -> C ... (milk run, two pickups ...)`. The train takes what A has without waiting, fills
+   up at B and delivers at C.
+2. One supplier with a full load, two consumers each with room for about half: `milk run, two deliveries`. The
+   first consumer takes what it can, the rest goes to the second.
+3. A station layout where a car would unload into a platform that doesn't demand the item at the first consumer:
+   with Freight Car Control the car skips that stop (`skipped cars` in the `WRITE` line); without it no such run
+   is made.
+4. Mods menu "Milk runs" off: only direct jobs.

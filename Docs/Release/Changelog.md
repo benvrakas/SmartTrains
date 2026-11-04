@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 (beta, not released)
+
+- **Milk runs** (Mods menu, on by default): a train may pick up at two suppliers when neither has a full load, or
+  split a load between two consumers when neither has room for all of it. The first stop takes or leaves what it
+  can and moves on.
+
 ## 0.2.0 (beta, not released)
 
 - **Menus.** SmartTrains settings are now in the game's menus as well as in chat:

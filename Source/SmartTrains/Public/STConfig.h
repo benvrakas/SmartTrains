@@ -11,6 +11,8 @@ struct FSTSettings
 	bool bObserveOnly = false;
 	// Enables /st testcopy and /st backup.
 	bool bBetaTools = true;
+	// Allows milk runs: two pickups to fill one train, or one load split between two deliveries.
+	bool bMilkRuns = true;
 	// Shows each managed train's job in its name.
 	bool bJobNames = false;
 	// How often jobs are handed out. [s]

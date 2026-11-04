@@ -50,7 +50,14 @@ namespace
 		FTrainDockingRuleSet Rules;
 		Rules.IsDurationAndRule = false;
 		const TSubclassOf<UFGItemDescriptor> None = nullptr;
-		if (!Leg.Item)
+		if (Leg.Item && Leg.bPartial)
+		{
+			Rules.DockingDefinition = ETrainDockingDefinition::TDD_LoadUnloadOnce;
+			Rules.DockForDuration = 0.f;
+			Rules.LoadFilterDescriptors = {Leg.bLoad ? Leg.Item : None};
+			Rules.UnloadFilterDescriptors = {Leg.bLoad ? None : Leg.Item};
+		}
+		else if (!Leg.Item)
 		{
 			Rules.DockingDefinition = ETrainDockingDefinition::TDD_LoadUnloadOnce;
 			Rules.DockForDuration = 0.f;
@@ -637,6 +644,10 @@ void ASTSubsystem::Dispatch()
 				Candidates.Add(MoveTemp(Candidate));
 			}
 		}
+		if (mSettings.bMilkRuns)
+		{
+			AddMilkRuns(TrainIndex, Anchor, FreeAt, Nodes, BusyUntil, Candidates);
+		}
 	}
 
 	Candidates.Sort([](const FCandidate& A, const FCandidate& B) { return A.Score > B.Score; });
@@ -645,6 +656,31 @@ void ASTSubsystem::Dispatch()
 	{
 		if (Assigned.Contains(Candidate.TrainIndex))
 		{
+			continue;
+		}
+		if (Candidate.Legs.Num() > 0)
+		{
+			if (!RecheckMilkRun(Candidate, Nodes))
+			{
+				continue;
+			}
+			Assigned.Add(Candidate.TrainIndex);
+			TArray<FString> Stops;
+			for (int32 Index = 0; Index < Candidate.Legs.Num(); ++Index)
+			{
+				Nodes[Candidate.LegNodes[Index]].Reserved += Candidate.Legs[Index].PlannedAmount;
+				Stops.Add(STLayout::Name(Candidate.Legs[Index].Station.Get()));
+			}
+			FSTJob Job;
+			Job.Id = mNextJobId++;
+			Job.StartedAt = Time;
+			Job.LegStartedAt = Time;
+			Job.Legs = Candidate.Legs;
+			Job.Summary = FString::Printf(TEXT("%s %s"), *STNames::Item(Candidate.Item), *FString::Join(Stops, TEXT(" -> ")));
+			FSTTrainState& State = mTrains[Candidate.TrainIndex];
+			const FString Line = FString::Printf(TEXT("%s: %s, %s with %d cars, score %.2f (%s)"), *STLayout::Name(State.Train), *Job.Summary,
+				*STNames::Amount(Candidate.Item, Candidate.Amount), Job.Legs.Last().Cars.Num(), Candidate.Score, *Candidate.Why);
+			CommitJob(State, MoveTemp(Job), Line);
 			continue;
 		}
 		FSTNode& Consumer = Nodes[Candidate.To];
@@ -712,32 +748,36 @@ void ASTSubsystem::Dispatch()
 			: FString::Printf(TEXT("%s -> %s"), *STNames::Item(Candidate.Item), *STLayout::Name(Consumer.Station.Get()));
 		const FString Line = FString::Printf(TEXT("%s: %s, %s with %d cars, score %.2f (%s)"), *STLayout::Name(State.Train), *Job.Summary,
 			*STNames::Amount(Candidate.Item, Candidate.Amount), Candidate.Fit.Cars.Num(), Candidate.Score, *Candidate.Why);
-
-		if (mSettings.bObserveOnly)
-		{
-			FString& Last = mObserved.FindOrAdd(State.Train.Get());
-			if (Last != Job.Summary)
-			{
-				Last = Job.Summary;
-				UE_LOG(LogSmartTrains, Log, TEXT("WOULD JOB %s"), *Line);
-			}
-			continue;
-		}
-		if (State.bHasJob)
-		{
-			UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s done: %s (next job chosen before leaving)"), State.Job.Id, *STLayout::Name(State.Train), *State.Job.Summary);
-		}
-		State.bChainedWhileDocked = State.Train->IsDocked();
-		State.Job = MoveTemp(Job);
-		State.bHasJob = true;
-		UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s"), State.Job.Id, *Line);
-		WriteJob(State, TEXT("new job"));
+		CommitJob(State, MoveTemp(Job), Line);
 	}
 
 	if (!mSettings.bObserveOnly)
 	{
 		ClearNeededBays();
 	}
+}
+
+void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& Line)
+{
+	if (mSettings.bObserveOnly)
+	{
+		FString& Last = mObserved.FindOrAdd(State.Train.Get());
+		if (Last != Job.Summary)
+		{
+			Last = Job.Summary;
+			UE_LOG(LogSmartTrains, Log, TEXT("WOULD JOB %s"), *Line);
+		}
+		return;
+	}
+	if (State.bHasJob)
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s done: %s (next job chosen before leaving)"), State.Job.Id, *STLayout::Name(State.Train), *State.Job.Summary);
+	}
+	State.bChainedWhileDocked = State.Train->IsDocked();
+	State.Job = MoveTemp(Job);
+	State.bHasJob = true;
+	UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s"), State.Job.Id, *Line);
+	WriteJob(State, TEXT("new job"));
 }
 
 void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why)

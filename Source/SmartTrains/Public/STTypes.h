@@ -158,6 +158,10 @@ struct SMARTTRAINS_API FSTJobLeg
 	UPROPERTY(SaveGame)
 	bool bLoad = false;
 
+	// First stop of a milk run: transfer what can be moved now and go on, without waiting for full or empty cars.
+	UPROPERTY(SaveGame)
+	bool bPartial = false;
+
 	// Cars that transfer here.
 	UPROPERTY(SaveGame)
 	TArray<TObjectPtr<AFGRailroadVehicle>> Cars;

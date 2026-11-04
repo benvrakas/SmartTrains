@@ -38,6 +38,8 @@ namespace
 				LOCTEXT("ObserveOnlyTip", "SmartTrains works out jobs for managed trains and writes them to the log (and /st jobs), but never changes a train's timetable or autopilot. Use it to check what it would do before letting it drive.")},
 			{TEXT("BetaTools"), &FSTSettings::bBetaTools, LOCTEXT("BetaTools", "Beta testing tools"),
 				LOCTEXT("BetaToolsTip", "Enables /st testcopy (saves the world as a separate session to test in) and /st backup (a timestamped save of this session).")},
+			{TEXT("MilkRuns"), &FSTSettings::bMilkRuns, LOCTEXT("MilkRuns", "Milk runs"),
+				LOCTEXT("MilkRunsTip", "A train may pick up at two suppliers to fill up when neither has a full load, or split a load between two consumers when neither has room for all of it.")},
 			{TEXT("JobNames"), &FSTSettings::bJobNames, LOCTEXT("JobNames", "Show jobs in train names"),
 				LOCTEXT("JobNamesTip", "Renames each managed train to show what it is doing, e.g. \"ST: Iron Plate -> Steel Mill\". The original name comes back when this is turned off or the train is no longer managed.")},
 		};

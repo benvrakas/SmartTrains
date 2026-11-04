@@ -10,6 +10,7 @@ in the plan (`C:\Users\benvr\.claude\plans\smarttrains.md`); this file records h
 | `STTypes.h` | Saved data: platform settings (`FSTPlatformConfig`), station settings, train state and jobs, learned dock maps, trip and stay times, the migration undo record. |
 | `STSubsystem.h`, `STSubsystem.cpp` | `ASTSubsystem` (server only, saved with the world): settings API, train monitoring, docking events, learning, rate sampling, readouts. |
 | `STDispatch.cpp` | The rest of `ASTSubsystem`: supply/demand nodes, the fit model, dispatching, the flow plan, writing timetables. |
+| `STMilkRuns.cpp` | Milk run candidates for `Dispatch` (two pickups or two deliveries per trip). |
 | `STLayout.*` | Station platform chains and train consists, walked the way the game docks. `FSTPlatformAccess` reads protected platform fields (access-transformer friend). |
 | `STTravel.*` | Track distances between stations by a directed search over the track network. |
 | `STBridges.*` | Freight Car Control and DynamicTimeTable, both reached by reflection only. |
@@ -99,14 +100,32 @@ Every **Dispatch interval**, and as soon as a train docks for its last leg or le
      (send-at share of the fitting capacity) by the time the train gets there. The consumer's projected stock at
      arrival must be below target, unless the supplier is nearly full.
    - Any-item sinks only take items from nearly full suppliers.
+   - Milk runs (setting, on by default), see below.
 4. **Score** = priority weight × urgency × flow-plan factor × amount ÷ time to the end of the delivery.
    - Priority weights: Low 0.5, Normal 1, High 2, Critical 8.
    - Urgency is 1, plus up to 2 for the share below target, plus 2 if starved; at least 1.5 when the supplier is
      nearly full.
    - The plan factor is 1 for routes in the flow plan, 0.6 otherwise, and 0.1 for sinks.
-5. Greedy assignment by score, rechecking supply and room after each assignment. Station bays are booked by arrival
+5. Greedy assignment by score, rechecking supply and room after each assignment (`RecheckMilkRun` for milk runs). Station bays are booked by arrival
    plus expected stay, and a later arrival waits behind them.
 6. Parked trains standing at a station a job needs are sent to a depot, or else to the nearest station no job uses.
+
+### Milk runs
+
+Same item only, at most three stops:
+
+- **Two pickups, one delivery:** for a consumer below target and two suppliers that each have less than their
+  own batch, but together at least a batch of the cars that fit either pickup. Both orders are tried. The fit is
+  `ComputeFit` from each supplier to the consumer, and the train's cars are the union of both.
+- **One pickup, two deliveries:** for a supplier with a batch and two consumers below target, when neither has room
+  for the whole load. Every loaded car must fit the last consumer (`ComputeFit`). At the first consumer,
+  `CheckDropOnTheWay` takes the cars beside its demand platforms; cars beside other unloading platforms skip it
+  through Freight Car Control, or the run isn't made without it.
+- The first stop is **partial** (`FSTJobLeg::bPartial`): "load/unload once", so the train takes or leaves what can
+  be moved then and goes on. The last stop waits as a direct job does. Whatever is left in the cars is a loaded
+  train's delivery afterwards.
+- Score: as a direct job (each delivery's weight × urgency × amount, summed), ÷ time to the end of the last stop,
+  × 0.9, so a direct job of the same worth wins.
 
 **Flow plan** (every **Flow plan interval**): for each item, consumers are taken by priority. Within a priority,
 the cheapest open supplier → consumer route by travel time is filled repeatedly, a greedy transportation plan.
