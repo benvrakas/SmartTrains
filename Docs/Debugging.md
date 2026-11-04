@@ -35,12 +35,15 @@ the console.
 - `Platform menu: role on ... (edit N)`, `Locomotive menu: ...`, `Station menu: ...`, `Opening the migration window` / `Migration window opened|closed`, `Migration window: step ...`
   on the client. The server logs the change itself (`PLATFORM`, `MANAGE`, `STATION`, ...) with the player's name.
 - `Remote call object not registered on the local player`: SmartTrains isn't on the server. Its menus stay empty.
+- `Clipboard hooks installed` at start-up. `Game clipboard: copy from ...` / `paste onto ...` on the player's side
+  when the game's copy/paste-settings is used on a platform, and `CLIPBOARD <player> copied|pasted ...` on the
+  server. No `Game clipboard` line after the game's copy key on a platform means the game doesn't route that key
+  through `AFGPlayerState::CopyFactoryClipboard` for platforms; the panel's Copy / Paste still work.
 - **SML slot setup:** `UWidgetBlueprintHookSlot_Generic::SetupPanelSlot` dereferences a null `HorizontalBoxSlot` when
   the parent is a vertical box (SML 3.12). So hooks into vertical boxes pass no slot setup, and the panels pad
   themselves (`USTPanel::GetOuterPadding`).
 
 ## Known gaps (0.2.0)
 
-- The game's copy/paste-settings key doesn't carry SmartTrains settings; use the panel's Copy / Paste.
 - Each job has one pickup and one delivery (milk runs are M4).
 - A train that is parked counts as standing at the station where it last docked.

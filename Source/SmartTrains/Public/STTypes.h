@@ -88,6 +88,12 @@ struct SMARTTRAINS_API FSTItemRule
 	float ManualRatePerMinute = 0.f;
 };
 
+namespace STNames
+{
+	// Returns a one-line summary such as "Supply: Iron Plate, Copper Sheet", or "Off".
+	SMARTTRAINS_API FString Settings(ESTRole InRole, const TArray<FSTItemRule>& InItems);
+}
+
 // A platform's SmartTrains settings.
 USTRUCT()
 struct SMARTTRAINS_API FSTPlatformConfig

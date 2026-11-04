@@ -115,6 +115,72 @@ void USTRemoteCallObject::Server_SetPlatform_Implementation(AFGBuildableTrainPla
 	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
 }
 
+bool USTRemoteCallObject::Server_CopyPlatformSettings_Validate(AFGBuildableTrainPlatformCargo* Platform, bool bFromGameKey)
+{
+	return true;
+}
+
+void USTRemoteCallObject::Server_CopyPlatformSettings_Implementation(AFGBuildableTrainPlatformCargo* Platform, bool bFromGameKey)
+{
+	const ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	if (!Subsystem || !IsValid(Platform))
+	{
+		return;
+	}
+	const bool bFluid = STLayout::GetPlatformCargoType(Platform) == EFreightCargoType::FCT_Liquid;
+	FSTPlatformSettings& Slot = bFluid ? mFluidClipboard : mFreightClipboard;
+	Slot.bValid = true;
+	Slot.Role = ESTRole::Off;
+	Slot.Items.Reset();
+	if (const FSTPlatformConfig* Config = Subsystem->FindPlatformConfig(Platform))
+	{
+		Slot.Role = Config->Role;
+		Slot.Items = Config->Items;
+	}
+	const FString Summary = STNames::Settings(Slot.Role, Slot.Items);
+	UE_LOG(LogSmartTrains, Log, TEXT("CLIPBOARD %s copied %s from %s (%s)"), *GetPlayerName(), *Summary, *Platform->GetName(), bFromGameKey ? TEXT("game key") : TEXT("panel"));
+	Client_Clipboard(bFluid, true);
+	Client_Message(FString::Printf(TEXT("Copied SmartTrains settings: %s."), *Summary), false);
+}
+
+bool USTRemoteCallObject::Server_PastePlatformSettings_Validate(AFGBuildableTrainPlatformCargo* Platform, bool bFromGameKey, int32 Edit)
+{
+	return true;
+}
+
+void USTRemoteCallObject::Server_PastePlatformSettings_Implementation(AFGBuildableTrainPlatformCargo* Platform, bool bFromGameKey, int32 Edit)
+{
+	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	if (!Subsystem || !IsValid(Platform))
+	{
+		return;
+	}
+	const bool bFluid = STLayout::GetPlatformCargoType(Platform) == EFreightCargoType::FCT_Liquid;
+	const FSTPlatformSettings& Slot = bFluid ? mFluidClipboard : mFreightClipboard;
+	if (!Slot.bValid)
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("CLIPBOARD %s pasted onto %s, but nothing was copied from a %s platform"), *GetPlayerName(), *Platform->GetName(), bFluid ? TEXT("fluid") : TEXT("freight"));
+		if (!bFromGameKey)
+		{
+			Client_Message(FString::Printf(TEXT("Copy a %s platform's settings first."), bFluid ? TEXT("fluid") : TEXT("freight")), true);
+		}
+		return;
+	}
+	const FString Cause = FString::Printf(TEXT("paste (%s)"), *GetPlayerName());
+	// Through the game's key the game pastes the load/unload setting itself, so removing a role keeps that setting.
+	if (bFromGameKey && Slot.Role == ESTRole::Off)
+	{
+		if (FSTPlatformConfig* Config = Subsystem->FindPlatformConfig(Platform))
+		{
+			Config->bHasOriginalLoadMode = false;
+		}
+	}
+	Subsystem->SetPlatformConfig(Platform, Slot.Role, Slot.Items, Cause);
+	Client_Message(FString::Printf(TEXT("Pasted SmartTrains settings: %s."), *STNames::Settings(Slot.Role, Slot.Items)), false);
+	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
+}
+
 bool USTRemoteCallObject::Server_CopyPlatformToStation_Validate(AFGBuildableTrainPlatformCargo* Platform, int32 Edit)
 {
 	return true;
@@ -313,6 +379,12 @@ void USTRemoteCallObject::Client_Station_Implementation(const FSTStationView& Vi
 void USTRemoteCallObject::Client_Migration_Implementation(const FSTMigrationView& View)
 {
 	mMigration = View;
+	++mRevision;
+}
+
+void USTRemoteCallObject::Client_Clipboard_Implementation(bool bFluid, bool bValid)
+{
+	(bFluid ? bHasFluidClipboard : bHasFreightClipboard) = bValid;
 	++mRevision;
 }
 

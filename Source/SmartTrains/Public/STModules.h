@@ -7,7 +7,8 @@
 
 class UWidgetBlueprintHookData;
 
-// SmartTrains' root game instance module; registers the configuration, the remote call object and the UI.
+// SmartTrains' root game instance module; registers the configuration, the remote call object, the UI and the
+// clipboard hooks.
 UCLASS()
 class SMARTTRAINS_API USTGameInstanceModule : public UGameInstanceModule
 {

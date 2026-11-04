@@ -54,6 +54,9 @@ On a test copy of the user's network:
      cycle priority (right click goes back), type a manual rate and press Enter.
    - The platform's load/unload switch follows the role. `/st platform` shows the same settings.
    - Copy, open another platform, Paste. "To station" fills the station's other freight platforms.
+   - The game's copy/paste-settings (keys or menu) on a platform also copies and pastes the SmartTrains settings: the
+     log shows `Game clipboard: copy from ...`, the panel shows "Copied SmartTrains settings: ...". A fluid
+     platform's settings don't paste onto a freight platform.
    - The readout updates every second: stock, rate, inbound trains, and a reason when nothing comes.
 3. Fluid platform menu: same, with fluids only and m³/min.
 4. Locomotive menu: turning Managed on locks "Edit timetable"; turning it off unlocks it and puts the old timetable

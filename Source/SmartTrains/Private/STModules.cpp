@@ -1,5 +1,6 @@
 #include "STModules.h"
 #include "STChatCommand.h"
+#include "STClipboardHooks.h"
 #include "STConfig.h"
 #include "STRemoteCallObject.h"
 #include "STSubsystem.h"
@@ -22,6 +23,7 @@ void USTGameInstanceModule::DispatchLifecycleEvent(ELifecyclePhase Phase)
 	}
 	else if (Phase == ELifecyclePhase::POST_INITIALIZATION && mWidgetHooks.Num() == 0)
 	{
+		STClipboardHooks::Install();
 		TArray<UWidgetBlueprintHookData*> Hooks;
 		STUIHooks::Register(this, Hooks);
 		mWidgetHooks.Append(Hooks);

@@ -50,6 +50,22 @@ struct SMARTTRAINS_API FSTPlatformView
 };
 
 // What the server sends the locomotive menu about one train.
+// Platform settings held by a player's clipboard, one per cargo form (as the game keeps one per building kind).
+USTRUCT()
+struct SMARTTRAINS_API FSTPlatformSettings
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	bool bValid = false;
+
+	UPROPERTY()
+	ESTRole Role = ESTRole::Off;
+
+	UPROPERTY()
+	TArray<FSTItemRule> Items;
+};
+
 USTRUCT()
 struct SMARTTRAINS_API FSTTrainView
 {

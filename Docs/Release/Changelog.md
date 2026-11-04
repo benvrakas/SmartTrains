@@ -11,6 +11,8 @@
   - The station menu has the depot toggle, the pool tag, the station's platform roles and the fleet status.
   - `/st migrate` opens the migration window: preview with tickable stations and trains, apply, undo, test copy and
     backup.
+- The game's copy/paste-settings on a platform also carries its SmartTrains settings, and shares one clipboard with
+  the panel's Copy / Paste.
 - In multiplayer, every player's edits go to the host and are logged with their name.
 - `/st platform` also explains why no train is coming.
 

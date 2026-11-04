@@ -189,8 +189,15 @@ second after it opens, to check that.
 - **Platform panel.** Role buttons (Off / Supply / Demand); per item: priority (click cycles, right click goes back),
   send-at or target in 10 % steps, and a manual rate (m³/min for fluids). The item picker lists the items on the
   platform first, then every item that available recipes make plus raw resources, of the platform's form; "Any item"
-  only on demand platforms. Copy / Paste use a clipboard inside the mod. "To station" is `CopyPlatformToStation`. The
-  game's own copy/paste-settings key isn't hooked yet: the platform implements it in Blueprint.
+  only on demand platforms. Copy / Paste use the player's SmartTrains clipboard (below). "To station" is
+  `CopyPlatformToStation`.
+- **Clipboard** (`STClipboardHooks.cpp`). Each player has two slots on the server, freight and fluid
+  (`USTRemoteCallObject::mFreightClipboard` / `mFluidClipboard`), as the game keeps one clipboard entry per building
+  kind. The panel's Copy / Paste and the game's copy/paste-settings both use them: SML hooks after
+  `AFGPlayerState::CopyFactoryClipboard` / `PasteFactoryClipboard` send `Server_CopyPlatformSettings` /
+  `Server_PastePlatformSettings` when the object is a cargo platform and the player is local. Copying a platform
+  without a role copies "Off", so pasting it removes the target's role, as the game's paste makes the target like
+  the source. Through the game's key the load/unload setting is then left as the game pasted it.
 - **Train panel.** Managed toggle, keep vanilla (only while unmanaged), pool tag, job legs and cargo. While the train is
   managed, the vanilla "Edit timetable" button is disabled on every refresh, and enabled again when the menu closes.
 - **Station panel.** Depot toggle, pool tag, layout, fleet status. Depot and pool are per station, and a depot may

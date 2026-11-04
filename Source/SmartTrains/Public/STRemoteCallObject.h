@@ -26,6 +26,14 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_CopyPlatformToStation(AFGBuildableTrainPlatformCargo* Platform, int32 Edit);
 
+	// Copies Platform's settings to this player's clipboard, or pastes them onto Platform. bFromGameKey: the game's
+	// copy/paste-settings key rather than the panel; an empty clipboard is then skipped without a message.
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_CopyPlatformSettings(AFGBuildableTrainPlatformCargo* Platform, bool bFromGameKey);
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_PastePlatformSettings(AFGBuildableTrainPlatformCargo* Platform, bool bFromGameKey, int32 Edit);
+
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_SetStation(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Pool, int32 Edit);
 
@@ -58,6 +66,10 @@ public:
 	UFUNCTION(Client, Reliable)
 	void Client_Migration(const FSTMigrationView& View);
 
+	// Tells the player which clipboard slot now holds settings.
+	UFUNCTION(Client, Reliable)
+	void Client_Clipboard(bool bFluid, bool bValid);
+
 	// Opens the migration window ("/st migrate").
 	UFUNCTION(Client, Reliable)
 	void Client_OpenMigrationWindow();
@@ -80,6 +92,9 @@ public:
 	const FSTTrainView* GetTrainView(const AFGTrain* Train) const;
 	const FSTStationView* GetStationView(const AFGTrainStationIdentifier* Station) const;
 	const FSTMigrationView& GetMigrationView() const { return mMigration; }
+
+	// True once this player copied settings from a platform of that form.
+	bool HasClipboard(bool bFluid) const { return bFluid ? bHasFluidClipboard : bHasFreightClipboard; }
 
 	// Changes whenever a view or message arrives.
 	uint32 GetRevision() const { return mRevision; }
@@ -104,6 +119,17 @@ private:
 	int32 mAppliedEdit = 0;
 	// Server side: counts migration answers.
 	int32 mMigrationSerial = 0;
+
+	// Server side: this player's clipboard.
+	UPROPERTY()
+	FSTPlatformSettings mFreightClipboard;
+
+	UPROPERTY()
+	FSTPlatformSettings mFluidClipboard;
+
+	// Client side: which clipboard slots hold settings.
+	bool bHasFreightClipboard = false;
+	bool bHasFluidClipboard = false;
 
 	TMap<TWeakObjectPtr<AFGBuildableTrainPlatformCargo>, FSTPlatformView> mPlatforms;
 	TMap<TWeakObjectPtr<AFGTrain>, FSTTrainView> mTrains;

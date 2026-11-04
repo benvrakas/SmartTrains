@@ -112,3 +112,17 @@ const FSTItemRule* FSTPlatformConfig::FindRule(TSubclassOf<UFGItemDescriptor> It
 	}
 	return Any;
 }
+
+FString STNames::Settings(ESTRole InRole, const TArray<FSTItemRule>& InItems)
+{
+	if (InRole == ESTRole::Off)
+	{
+		return TEXT("Off");
+	}
+	TArray<FString> Names;
+	for (const FSTItemRule& Rule : InItems)
+	{
+		Names.Add(Item(Rule.Item));
+	}
+	return FString::Printf(TEXT("%s: %s"), Role(InRole), Names.Num() > 0 ? *FString::Join(Names, TEXT(", ")) : TEXT("no items"));
+}

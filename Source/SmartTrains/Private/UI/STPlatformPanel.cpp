@@ -29,15 +29,6 @@ namespace
 	// Step of the batch and target buttons. [%]
 	constexpr float PercentStep = 10.f;
 
-	// Settings copied with the Copy button, for Paste on another platform of the same kind.
-	struct FClipboard
-	{
-		bool bValid = false;
-		bool bFluid = false;
-		ESTRole Role = ESTRole::Off;
-		TArray<FSTItemRule> Items;
-	};
-	FClipboard GClipboard;
 
 	FText RoleHint(ESTRole Role)
 	{
@@ -128,20 +119,21 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 	mMain->AddChildToVerticalBox(Tools)->SetPadding(FMargin(0.f, 8.f, 0.f, 2.f));
 	AddToLine(Tools, MakeButton(nullptr, LOCTEXT("Copy", "Copy"), [this]()
 	{
-		GClipboard.bValid = true;
-		GClipboard.bFluid = bFluid;
-		GClipboard.Role = mRole;
-		GClipboard.Items = mItems;
-		UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: settings copied (%s, %d items)"), STNames::Role(mRole), mItems.Num());
-		RefreshEditor();
+		USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
+		if (RCO && GetPlatform())
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: copy settings of %s"), *GetPlatform()->GetName());
+			RCO->Server_CopyPlatformSettings(GetPlatform(), false);
+		}
 	}), true);
 	mPaste = MakeButton(nullptr, LOCTEXT("Paste", "Paste"), [this]()
 	{
-		if (GClipboard.bValid && GClipboard.bFluid == bFluid)
+		USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
+		if (RCO && GetPlatform())
 		{
-			mRole = GClipboard.Role;
-			mItems = GClipboard.Items;
-			SendEdit(TEXT("paste"));
+			mLastEdit = RCO->NextEdit();
+			UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: paste settings onto %s (edit %d)"), *GetPlatform()->GetName(), mLastEdit);
+			RCO->Server_PastePlatformSettings(GetPlatform(), false, mLastEdit);
 		}
 	});
 	AddToLine(Tools, mPaste, true);
@@ -351,7 +343,8 @@ void USTPlatformPanel::RefreshEditor()
 	}
 	mRoleHint->SetText(RoleHint(mRole));
 	mAddItem->SetIsEnabled(bHasSettings);
-	mPaste->SetIsEnabled(bHasSettings && GClipboard.bValid && GClipboard.bFluid == bFluid);
+	const USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
+	mPaste->SetIsEnabled(bHasSettings && RCO && RCO->HasClipboard(bFluid));
 
 	TArray<TSubclassOf<UFGItemDescriptor>> Items;
 	for (const FSTItemRule& Rule : mItems)
