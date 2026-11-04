@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "STTypes.h"
+#include "STViews.h"
 
 class AFGBuildableTrainPlatformCargo;
 class AFGTrain;
@@ -61,6 +62,9 @@ namespace STMigration
 
 	// Puts back what the last apply changed. Returns chat lines.
 	TArray<FString> Undo(ASTSubsystem* Subsystem, UWorld* World, const FString& Cause);
+
+	// The migration window's rows from the last preview, and whether applying or undoing is possible.
+	FSTMigrationView MakeView(ASTSubsystem* Subsystem, UWorld* World);
 }
 
 // Save copies for testing (Docs/Commands.md, "Beta tools").

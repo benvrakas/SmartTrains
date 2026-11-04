@@ -1,0 +1,326 @@
+#include "STRemoteCallObject.h"
+#include "Buildables/FGBuildableTrainPlatformCargo.h"
+#include "FGPlayerController.h"
+#include "FGTrain.h"
+#include "FGTrainStationIdentifier.h"
+#include "GameFramework/PlayerState.h"
+#include "Kismet/GameplayStatics.h"
+#include "Net/UnrealNetwork.h"
+#include "SmartTrains.h"
+#include "STLayout.h"
+#include "STMigration.h"
+#include "STSubsystem.h"
+
+namespace
+{
+	// Most item rules one platform may have.
+	constexpr int32 MaxItems = 32;
+
+	// Longest pool tag.
+	constexpr int32 MaxPoolLength = 64;
+
+	// Most words a migration selection may have.
+	constexpr int32 MaxSelectionWords = 256;
+}
+
+void USTRemoteCallObject::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(USTRemoteCallObject, mForceNetField_USTRemoteCallObject);
+}
+
+USTRemoteCallObject* USTRemoteCallObject::GetLocal(const UObject* WorldContext)
+{
+	AFGPlayerController* Controller = WorldContext ? Cast<AFGPlayerController>(UGameplayStatics::GetPlayerController(WorldContext, 0)) : nullptr;
+	if (!Controller)
+	{
+		return nullptr;
+	}
+	USTRemoteCallObject* RCO = Controller->GetRemoteCallObjectOfClass<USTRemoteCallObject>();
+	if (!RCO)
+	{
+		static bool bWarned = false;
+		if (!bWarned)
+		{
+			bWarned = true;
+			UE_LOG(LogSmartTrains, Warning, TEXT("Remote call object not registered on the local player (is SmartTrains installed on the server?); menus stay empty"));
+		}
+	}
+	return RCO;
+}
+
+FString USTRemoteCallObject::GetPlayerName() const
+{
+	const AFGPlayerController* Controller = GetOwnerPlayerController();
+	const APlayerState* State = Controller ? Controller->GetPlayerState<APlayerState>() : nullptr;
+	return State ? State->GetPlayerName() : GetNameSafe(Controller);
+}
+
+const FSTPlatformView* USTRemoteCallObject::GetPlatformView(const AFGBuildableTrainPlatformCargo* Platform) const
+{
+	return mPlatforms.Find(const_cast<AFGBuildableTrainPlatformCargo*>(Platform));
+}
+
+const FSTTrainView* USTRemoteCallObject::GetTrainView(const AFGTrain* Train) const
+{
+	return mTrains.Find(const_cast<AFGTrain*>(Train));
+}
+
+const FSTStationView* USTRemoteCallObject::GetStationView(const AFGTrainStationIdentifier* Station) const
+{
+	return mStations.Find(const_cast<AFGTrainStationIdentifier*>(Station));
+}
+
+//~ Edits
+
+bool USTRemoteCallObject::Server_SetPlatform_Validate(AFGBuildableTrainPlatformCargo* Platform, ESTRole Role, const TArray<FSTItemRule>& Items, int32 Edit)
+{
+	return Items.Num() <= MaxItems && Role <= ESTRole::Demand;
+}
+
+void USTRemoteCallObject::Server_SetPlatform_Implementation(AFGBuildableTrainPlatformCargo* Platform, ESTRole Role, const TArray<FSTItemRule>& Items, int32 Edit)
+{
+	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	if (!Subsystem || !IsValid(Platform))
+	{
+		UE_LOG(LogSmartTrains, Warning, TEXT("Server_SetPlatform from %s: %s"), *GetPlayerName(), Subsystem ? TEXT("platform gone") : TEXT("no subsystem"));
+		return;
+	}
+	const bool bFluid = STLayout::GetPlatformCargoType(Platform) == EFreightCargoType::FCT_Liquid;
+	TArray<FSTItemRule> Clean;
+	for (const FSTItemRule& Rule : Items)
+	{
+		if (!Rule.Item && Role == ESTRole::Supply)
+		{
+			continue;
+		}
+		if (Rule.Item && !STLayout::ItemFitsCargoType(Rule.Item, bFluid ? EFreightCargoType::FCT_Liquid : EFreightCargoType::FCT_Standard))
+		{
+			Client_Message(FString::Printf(TEXT("%s doesn't fit this kind of platform."), *STNames::Item(Rule.Item)), true);
+			continue;
+		}
+		if (Clean.ContainsByPredicate([&](const FSTItemRule& Each) { return Each.Item == Rule.Item; }))
+		{
+			continue;
+		}
+		FSTItemRule& Kept = Clean.Add_GetRef(Rule);
+		Kept.TargetPercent = FMath::Clamp(Kept.TargetPercent, 1.f, 100.f);
+		Kept.SendAtPercent = FMath::Clamp(Kept.SendAtPercent, 0.f, 100.f);
+		Kept.ManualRatePerMinute = FMath::Max(0.f, Kept.ManualRatePerMinute);
+		Kept.Priority = static_cast<ESTPriority>(FMath::Min(static_cast<uint8>(Kept.Priority), static_cast<uint8>(ESTPriority::Critical)));
+	}
+	Subsystem->SetPlatformConfig(Platform, Role, Clean, FString::Printf(TEXT("platform menu (%s)"), *GetPlayerName()));
+	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
+}
+
+bool USTRemoteCallObject::Server_CopyPlatformToStation_Validate(AFGBuildableTrainPlatformCargo* Platform, int32 Edit)
+{
+	return true;
+}
+
+void USTRemoteCallObject::Server_CopyPlatformToStation_Implementation(AFGBuildableTrainPlatformCargo* Platform, int32 Edit)
+{
+	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	if (!Subsystem || !IsValid(Platform))
+	{
+		return;
+	}
+	FString Result;
+	const int32 Copied = Subsystem->CopyPlatformToStation(Platform, FString::Printf(TEXT("platform menu copy (%s)"), *GetPlayerName()), Result);
+	Client_Message(Result, Copied < 0);
+	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
+}
+
+bool USTRemoteCallObject::Server_SetStation_Validate(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Pool, int32 Edit)
+{
+	return Pool.Len() <= MaxPoolLength;
+}
+
+void USTRemoteCallObject::Server_SetStation_Implementation(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Pool, int32 Edit)
+{
+	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	if (!Subsystem || !IsValid(Station))
+	{
+		return;
+	}
+	const FString Cause = FString::Printf(TEXT("station menu (%s)"), *GetPlayerName());
+	const FSTStationConfig* Config = Subsystem->FindStationConfig(Station);
+	if (!Config || Config->bDepot != bDepot)
+	{
+		Subsystem->SetStationDepot(Station, bDepot, Cause);
+	}
+	const FString Trimmed = Pool.TrimStartAndEnd();
+	if ((Config ? Config->Pool : FString()) != Trimmed)
+	{
+		Subsystem->SetStationPool(Station, Trimmed, Cause);
+	}
+	Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
+}
+
+bool USTRemoteCallObject::Server_SetTrain_Validate(AFGTrain* Train, ESTTrainAction Action, const FString& Pool, int32 Edit)
+{
+	return Pool.Len() <= MaxPoolLength && Action <= ESTTrainAction::SetPool;
+}
+
+void USTRemoteCallObject::Server_SetTrain_Implementation(AFGTrain* Train, ESTTrainAction Action, const FString& Pool, int32 Edit)
+{
+	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	if (!Subsystem || !IsValid(Train))
+	{
+		return;
+	}
+	const FString Cause = FString::Printf(TEXT("locomotive menu (%s)"), *GetPlayerName());
+	FString Why;
+	switch (Action)
+	{
+	case ESTTrainAction::Manage:
+	case ESTTrainAction::Unmanage:
+		if (!Subsystem->SetTrainManaged(Train, Action == ESTTrainAction::Manage, Cause, Why))
+		{
+			Client_Message(FString::Printf(TEXT("Can't manage %s: %s"), *STLayout::Name(Train), *Why), true);
+		}
+		break;
+	case ESTTrainAction::KeepVanillaOn:
+	case ESTTrainAction::KeepVanillaOff:
+		Subsystem->SetTrainKeepVanilla(Train, Action == ESTTrainAction::KeepVanillaOn, Cause);
+		break;
+	case ESTTrainAction::SetPool:
+		Subsystem->SetTrainPool(Train, Pool.TrimStartAndEnd(), Cause);
+		break;
+	}
+	Client_Train(Subsystem->MakeTrainView(Train, mAppliedEdit));
+}
+
+bool USTRemoteCallObject::Server_Migrate_Validate(ESTMigrationStep Step, const TArray<FString>& Selection)
+{
+	return Selection.Num() <= MaxSelectionWords && Step <= ESTMigrationStep::Backup;
+}
+
+void USTRemoteCallObject::Server_Migrate_Implementation(ESTMigrationStep Step, const TArray<FString>& Selection)
+{
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	UWorld* World = GetWorld();
+	if (!Subsystem || !World)
+	{
+		return;
+	}
+	const FString Cause = FString::Printf(TEXT("migration window (%s)"), *GetPlayerName());
+	UE_LOG(LogSmartTrains, Log, TEXT("Migration window: step %d [%s] by %s"), static_cast<int32>(Step), *FString::Join(Selection, TEXT(" ")), *GetPlayerName());
+	TArray<FString> Lines;
+	switch (Step)
+	{
+	case ESTMigrationStep::Refresh:
+		break;
+	case ESTMigrationStep::Preview:
+		Lines = STMigration::Preview(Subsystem, World);
+		// The rows show the stations and trains; keep only the summary and notes.
+		Lines.RemoveAll([](const FString& Line)
+		{
+			const bool bRow = Line.Len() > 1 && (Line[0] == TEXT('S') || Line[0] == TEXT('T')) && FChar::IsDigit(Line[1]);
+			return bRow || Line.StartsWith(TEXT("Apply with /st"));
+		});
+		break;
+	case ESTMigrationStep::Apply:
+		Lines = STMigration::Apply(Subsystem, World, Selection, Cause);
+		break;
+	case ESTMigrationStep::Undo:
+		Lines = STMigration::Undo(Subsystem, World, Cause);
+		break;
+	case ESTMigrationStep::TestCopy:
+	case ESTMigrationStep::Backup:
+	{
+		FString Message;
+		if (!Subsystem->GetSettings().bBetaTools)
+		{
+			Message = TEXT("Turn on 'Beta testing tools' in the Mods menu first.");
+		}
+		else
+		{
+			const bool bOk = Step == ESTMigrationStep::Backup ? STSaveTools::Backup(World, Message) : STSaveTools::TestCopy(World, FString(), Message);
+			Subsystem->bMadeBackupThisSession |= bOk;
+		}
+		Lines.Add(Message);
+		break;
+	}
+	}
+	FSTMigrationView View = STMigration::MakeView(Subsystem, World);
+	View.Lines = MoveTemp(Lines);
+	View.Serial = ++mMigrationSerial;
+	Client_Migration(View);
+}
+
+//~ Readouts
+
+void USTRemoteCallObject::Server_RequestPlatform_Implementation(AFGBuildableTrainPlatformCargo* Platform)
+{
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	if (Subsystem && IsValid(Platform))
+	{
+		Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
+	}
+}
+
+void USTRemoteCallObject::Server_RequestTrain_Implementation(AFGTrain* Train)
+{
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	if (Subsystem && IsValid(Train))
+	{
+		Client_Train(Subsystem->MakeTrainView(Train, mAppliedEdit));
+	}
+}
+
+void USTRemoteCallObject::Server_RequestStation_Implementation(AFGTrainStationIdentifier* Station)
+{
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	if (Subsystem && IsValid(Station))
+	{
+		Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
+	}
+}
+
+void USTRemoteCallObject::Client_Platform_Implementation(const FSTPlatformView& View)
+{
+	if (View.AppliedEdit >= mSentEdit && View.Platform)
+	{
+		mPlatforms.Add(View.Platform.Get(), View);
+		++mRevision;
+	}
+}
+
+void USTRemoteCallObject::Client_Train_Implementation(const FSTTrainView& View)
+{
+	if (View.AppliedEdit >= mSentEdit && View.Train)
+	{
+		mTrains.Add(View.Train.Get(), View);
+		++mRevision;
+	}
+}
+
+void USTRemoteCallObject::Client_Station_Implementation(const FSTStationView& View)
+{
+	if (View.AppliedEdit >= mSentEdit && View.Station)
+	{
+		mStations.Add(View.Station.Get(), View);
+		++mRevision;
+	}
+}
+
+void USTRemoteCallObject::Client_Migration_Implementation(const FSTMigrationView& View)
+{
+	mMigration = View;
+	++mRevision;
+}
+
+void USTRemoteCallObject::Client_Message_Implementation(const FString& Message, bool bError)
+{
+	mLastMessage = Message;
+	bLastMessageError = bError;
+	const UWorld* World = GetWorld();
+	mLastMessageTime = World ? World->GetTimeSeconds() : 0.0;
+	++mRevision;
+	UE_LOG(LogSmartTrains, Log, TEXT("Server message%s: %s"), bError ? TEXT(" (error)") : TEXT(""), *Message);
+}

@@ -16,6 +16,9 @@ in the plan (`C:\Users\benvr\.claude\plans\smarttrains.md`); this file records h
 | `STMigration.*`, `STSaveTools.cpp` | The migration tool and the save copy commands. |
 | `STChatCommand.*` | `/st` (see `Commands.md`). |
 | `STConfig.*` | Mods menu settings. |
+| `STViews.h`, `STReadouts.cpp` | What the menus show: view structs, and the subsystem functions that fill them (`MakePlatformView`, `ExplainPlatform`, ...). |
+| `STRemoteCallObject.*` | Carries menu edits to the server and readouts back. |
+| `UI/*` | The panels added to vanilla menus, and the controls they are built from. |
 
 ## How trains are controlled
 
@@ -150,3 +153,46 @@ walked generically: a name-like field, plus an array of members. Each member is 
 holding a station object or name and a slot count. The migration log line names the struct it read. A managed
 train's timetable that DTT (or anyone) changes is noticed within 0.25 s, logged as `EXTERNAL TIMETABLE CHANGE`, and
 the job is written back.
+
+## UI
+
+The subsystem exists on the server only, so every menu (the host's too) talks to it through
+`USTRemoteCallObject`:
+
+- A panel asks for its readout once a second while it is shown (`Server_Request*`). The server answers with a view
+  struct (`Client_Platform`, `Client_Train`, `Client_Station`, `Client_Migration`).
+- An edit is sent at once with the next edit number of that player (`NextEdit`). The server applies it, logs the
+  player's name as the cause, and echoes the number in its views. Views made before the player's latest edit are
+  dropped, so a readout already on its way can't undo a click. The platform panel also keeps its own copy of the
+  settings until a view includes its edit.
+- Refusals come back as `Client_Message` and show under the panel for 8 s.
+
+Panels are C++ `UUserWidget`s (`USTPanel` and subclasses) built from the game's own widgets, as in Freight Car
+Control: `Widget_StandardButton` (`USTButton`), `Widget_InputBox` (`USTTextInput`), `BPW_TrainMenuLabel` headings,
+and `Widget_Window_ContentBackground_DarkMode` as a background. Texts copy the font of a neighbouring vanilla text.
+Each control falls back to a plain UMG one, with a warning, if the game's widget is missing. They are added with SML
+widget blueprint hooks at `POST_INITIALIZATION`, and not on dedicated servers:
+
+| Vanilla widget | Panel | SmartTrains panel |
+|---|---|---|
+| `Widget_Train_DockingStation` (freight platform) | `CanvasPanel_149` at x 448 | `USTPlatformPanel`, beside the window |
+| `BPW_Train_DockingStation_Fluid` | `CanvasPanel_0` at x 765 | `USTPlatformPanel` |
+| `Widget_Locomotive_Menu` | `VerticalBox_0` (info column) | `USTTrainPanel` |
+| `Widget_TrainStationNew` | `VerticalBox_2` (under the train and station lists) | `USTStationPanel` with the migration window |
+
+Panel names and positions come from the starter project's widget assets, dumped with Telescreen's `TSDumpWidgets`
+commandlet. It now also lists named-slot content, canvas slot layout and size box overrides
+(`Tools/Spikes/SmartTrainsUI` holds the output). The platform panel sits right of the vanilla layout in an
+auto-sized canvas slot, so the canvas, and with it the window, grows wider. The panel logs its geometry half a
+second after it opens, to check that.
+
+- **Platform panel.** Role buttons (Off / Supply / Demand); per item: priority (click cycles, right click goes back),
+  send-at or target in 10 % steps, and a manual rate (m³/min for fluids). The item picker lists the items on the
+  platform first, then every item that available recipes make plus raw resources, of the platform's form; "Any item"
+  only on demand platforms. Copy / Paste use a clipboard inside the mod. "To station" is `CopyPlatformToStation`. The
+  game's own copy/paste-settings key isn't hooked yet: the platform implements it in Blueprint.
+- **Train panel.** Managed toggle, keep vanilla (only while unmanaged), pool tag, job legs and cargo. While the train is
+  managed, the vanilla "Edit timetable" button is disabled on every refresh, and enabled again when the menu closes.
+- **Station panel.** Depot toggle, pool tag, layout, fleet status. The migration window runs the same steps as
+  `/st migrate`. Its rows are the preview's stations and trains, ticked as proposed. Apply sends the ticked numbers.
+  Without a test copy or backup this session, Apply takes a second click (the chat command's `confirm`).

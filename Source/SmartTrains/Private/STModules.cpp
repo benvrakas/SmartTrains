@@ -1,12 +1,16 @@
 #include "STModules.h"
 #include "STChatCommand.h"
 #include "STConfig.h"
+#include "STRemoteCallObject.h"
 #include "STSubsystem.h"
+#include "Patching/WidgetBlueprintHookManager.h"
+#include "UI/STUIHooks.h"
 
 USTGameInstanceModule::USTGameInstanceModule()
 {
 	bRootModule = true;
 	ModConfigurations.Add(USTConfig::StaticClass());
+	RemoteCallObjects.Add(USTRemoteCallObject::StaticClass());
 }
 
 void USTGameInstanceModule::DispatchLifecycleEvent(ELifecyclePhase Phase)
@@ -15,6 +19,12 @@ void USTGameInstanceModule::DispatchLifecycleEvent(ELifecyclePhase Phase)
 	if (Phase == ELifecyclePhase::INITIALIZATION)
 	{
 		USTConfig::UseSMLEditorClasses();
+	}
+	else if (Phase == ELifecyclePhase::POST_INITIALIZATION && mWidgetHooks.Num() == 0)
+	{
+		TArray<UWidgetBlueprintHookData*> Hooks;
+		STUIHooks::Register(this, Hooks);
+		mWidgetHooks.Append(Hooks);
 	}
 	Super::DispatchLifecycleEvent(Phase);
 }

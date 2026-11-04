@@ -818,62 +818,20 @@ void ASTSubsystem::UpdateTrainName(FSTTrainState& State)
 TArray<FString> ASTSubsystem::DescribePlatform(const AFGBuildableTrainPlatformCargo* Platform) const
 {
 	TArray<FString> Lines;
-	int32 Index = INDEX_NONE;
-	const AFGBuildableRailroadStation* Station = STLayout::FindStation(Platform, &Index);
-	const FSTPlatformConfig* Config = FindPlatformConfig(Platform);
-	const bool bFluid = STLayout::GetPlatformCargoType(Platform) == EFreightCargoType::FCT_Liquid;
-	Lines.Add(FString::Printf(TEXT("%s platform %d of %s: %s, %s mode"), bFluid ? TEXT("Fluid") : TEXT("Freight"), Index + 1, *STLayout::Name(Station),
-		Config ? STNames::Role(Config->Role) : TEXT("Off"), Platform && Platform->GetIsInLoadMode() ? TEXT("load") : TEXT("unload")));
-	if (!Station)
-	{
-		Lines.Add(TEXT("  Not on the output side of a station: trains can't dock here."));
-	}
-	const UFGInventoryComponent* Inventory = Platform ? Platform->GetInventory() : nullptr;
-	if (!Config || Config->Role == ESTRole::Off)
+	const FSTPlatformView View = MakePlatformView(Platform, 0);
+	Lines.Add(FString::Printf(TEXT("%s: %s, %s mode"), *View.Title, STNames::Role(View.Role), Platform && Platform->GetIsInLoadMode() ? TEXT("load") : TEXT("unload")));
+	if (View.Role == ESTRole::Off)
 	{
 		Lines.Add(TEXT("  Vanilla. Set a role with /st platform supply|demand <item>."));
 		return Lines;
 	}
-	const AFGTrainStationIdentifier* Identifier = STLayout::GetIdentifier(Station);
-	for (const FSTItemRule& Rule : Config->Items)
+	for (int32 Index = 0; Index < View.Items.Num() && Index < View.ItemLines.Num(); ++Index)
 	{
-		if (!Rule.Item)
-		{
-			Lines.Add(FString::Printf(TEXT("  Any item (sink), %s"), STNames::Priority(Rule.Priority)));
-			continue;
-		}
-		bool bKnown = false;
-		const double Rate = Rule.ManualRatePerMinute > 0.f ? Rule.ManualRatePerMinute / 60.0 : GetMeasuredRate(Platform, Rule.Item, &bKnown);
-		const int32 Stock = Inventory ? Inventory->GetNumItems(Rule.Item) : 0;
-		const int32 Capacity = STLayout::GetCapacity(Inventory, Rule.Item);
-		Lines.Add(FString::Printf(TEXT("  %s: %s / %s, %s%s/min%s, %s, %s"), *STNames::Item(Rule.Item), *STNames::Amount(Rule.Item, Stock),
-			*STNames::Amount(Rule.Item, Capacity), Rule.ManualRatePerMinute > 0.f ? TEXT("manual ") : TEXT(""), *STNames::Amount(Rule.Item, Rate * 60.0),
-			bKnown || Rule.ManualRatePerMinute > 0.f ? TEXT("") : TEXT(" (still measuring)"),
-			Config->Role == ESTRole::Supply ? *FString::Printf(TEXT("send at %.0f%% of a load"), Rule.SendAtPercent > 0.f ? Rule.SendAtPercent : 100.f)
-				: *FString::Printf(TEXT("target %.0f%%"), Rule.TargetPercent), STNames::Priority(Rule.Priority)));
+		Lines.Add(FString::Printf(TEXT("  %s: %s"), *STNames::Item(View.Items[Index].Item), *View.ItemLines[Index]));
 	}
-	for (const FSTTrainState& State : mTrains)
+	for (const FString& Line : View.Lines)
 	{
-		if (!State.bManaged || !State.bHasJob)
-		{
-			continue;
-		}
-		for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
-		{
-			const FSTJobLeg& Each = State.Job.Legs[Leg];
-			if (Each.Station == Identifier && Each.Item)
-			{
-				Lines.Add(FString::Printf(TEXT("  Inbound: %s to %s %s %s, ETA %.0f s"), *STLayout::Name(State.Train), Each.bLoad ? TEXT("load") : TEXT("unload"),
-					*STNames::Amount(Each.Item, Each.PlannedAmount), *STNames::Item(Each.Item), FMath::Max(0.0, Each.PlannedArrival - Now())));
-			}
-		}
-	}
-	if (const TArray<FString>* History = mHistory.Find(const_cast<AFGTrainStationIdentifier*>(Identifier)))
-	{
-		for (const FString& Line : *History)
-		{
-			Lines.Add(TEXT("  Recent: ") + Line);
-		}
+		Lines.Add(TEXT("  ") + Line);
 	}
 	return Lines;
 }

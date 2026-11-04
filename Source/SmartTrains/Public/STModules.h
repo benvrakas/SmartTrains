@@ -5,7 +5,9 @@
 #include "Module/GameWorldModule.h"
 #include "STModules.generated.h"
 
-// SmartTrains' root game instance module; registers the configuration.
+class UWidgetBlueprintHookData;
+
+// SmartTrains' root game instance module; registers the configuration, the remote call object and the UI.
 UCLASS()
 class SMARTTRAINS_API USTGameInstanceModule : public UGameInstanceModule
 {
@@ -15,6 +17,10 @@ public:
 	USTGameInstanceModule();
 
 	virtual void DispatchLifecycleEvent(ELifecyclePhase Phase) override;
+
+private:
+	UPROPERTY()
+	TArray<TObjectPtr<UWidgetBlueprintHookData>> mWidgetHooks;
 };
 
 // SmartTrains' root game world module; registers the subsystem and the chat command.

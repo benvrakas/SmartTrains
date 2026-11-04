@@ -45,3 +45,19 @@ On a test copy of the user's network:
 2. Turn on Observe only, then `/st migrate apply all`, and watch the `WOULD JOB` lines.
 3. Turn off Observe only and watch the network.
 4. `/st migrate undo`: platforms and trains should be back as they were.
+
+## M2: menus (0.2.0)
+
+1. Start-up log: `4 of 4 UI hooks registered`.
+2. Freight platform menu: the SmartTrains panel stands right of the window, inside it (check the geometry log line).
+   - Set Supply, add an item through the picker (search works, items on the platform come first), step send-at,
+     cycle priority (right click goes back), type a manual rate and press Enter.
+   - The platform's load/unload switch follows the role. `/st platform` shows the same settings.
+   - Copy, open another platform, Paste. "To station" fills the station's other freight platforms.
+   - The readout updates every second: stock, rate, inbound trains, and a reason when nothing comes.
+3. Fluid platform menu: same, with fluids only and m³/min.
+4. Locomotive menu: turning Managed on locks "Edit timetable"; turning it off unlocks it and puts the old timetable
+   back. With Keep vanilla on, the train can't be managed. The pool tag saves on Enter.
+5. Station menu: depot toggle and pool tag. In the Migration tool: Preview, untick a row, Apply (it asks for a second
+   click without a test copy), Undo. Save a test copy and a backup (beta tools on).
+6. Multiplayer, if possible: a client sees the same readouts, and the host logs its edits with its name.

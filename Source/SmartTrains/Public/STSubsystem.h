@@ -4,6 +4,7 @@
 #include "FGSaveInterface.h"
 #include "STConfig.h"
 #include "STTypes.h"
+#include "STViews.h"
 #include "Subsystem/ModSubsystem.h"
 #include "STSubsystem.generated.h"
 
@@ -85,6 +86,18 @@ public:
 
 	// Gives Train a job by hand (for testing): pick up Item at From with the cars that fit, deliver it to To.
 	bool AssignManualJob(AFGTrain* Train, AFGTrainStationIdentifier* From, AFGTrainStationIdentifier* To, TSubclassOf<UFGItemDescriptor> Item, FString& OutResult);
+
+	// Gives every other platform of the same cargo type in Platform's station Platform's settings. Returns how many
+	// were changed, or -1 with OutResult saying why nothing was.
+	int32 CopyPlatformToStation(AFGBuildableTrainPlatformCargo* Platform, const FString& Cause, FString& OutResult);
+
+	//~ Readouts for the menus (sent through USTRemoteCallObject). AppliedEdit is echoed for the receiving player.
+	FSTPlatformView MakePlatformView(const AFGBuildableTrainPlatformCargo* Platform, int32 AppliedEdit) const;
+	FSTTrainView MakeTrainView(const AFGTrain* Train, int32 AppliedEdit) const;
+	FSTStationView MakeStationView(const AFGTrainStationIdentifier* Station, int32 AppliedEdit) const;
+
+	// Says why no train is coming to Platform, one line per item that has none on the way; empty when all is well.
+	TArray<FString> ExplainPlatform(const AFGBuildableTrainPlatformCargo* Platform) const;
 
 	//~ Readouts for chat and the migration report.
 	TArray<FString> DescribePlatform(const AFGBuildableTrainPlatformCargo* Platform) const;
@@ -215,6 +228,9 @@ private:
 
 	// Returns true if Train may serve Station (rail network and pool tags).
 	bool CanServe(const FSTTrainState& State, const AFGTrainStationIdentifier* Station) const;
+
+	// One readout line for Rule of Platform: stock, capacity, rate, batch or target, priority.
+	FString DescribeItemRule(const AFGBuildableTrainPlatformCargo* Platform, const FSTPlatformConfig& Config, const FSTItemRule& Rule) const;
 
 	// Items carried by Train's freight cars, by item class.
 	static TMap<UClass*, int32> GetCargo(const AFGTrain* Train);

@@ -258,26 +258,10 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		}
 		if (Arguments.Num() >= 2 && Arguments[1].Equals(TEXT("copy"), ESearchCase::IgnoreCase))
 		{
-			const FSTPlatformConfig* Source = Subsystem->FindPlatformConfig(Platform);
-			const AFGBuildableRailroadStation* Station = STLayout::FindStation(Platform);
-			if (!Source || !Station)
-			{
-				Sender->SendChatMessage(TEXT("This platform has no settings to copy, or no station."), FLinearColor::Red);
-				return EExecutionStatus::UNCOMPLETED;
-			}
-			const FSTPlatformConfig Copy = *Source;
-			int32 Copied = 0;
-			for (AFGBuildableTrainPlatform* Each : STLayout::GetPlatforms(Station))
-			{
-				AFGBuildableTrainPlatformCargo* Other = Cast<AFGBuildableTrainPlatformCargo>(Each);
-				if (Other && Other != Platform && STLayout::GetPlatformCargoType(Other) == STLayout::GetPlatformCargoType(Platform))
-				{
-					Subsystem->SetPlatformConfig(Other, Copy.Role, Copy.Items, Who + TEXT(" (copy)"));
-					++Copied;
-				}
-			}
-			Sender->SendChatMessage(FString::Printf(TEXT("Copied to %d platforms of %s."), Copied, *STLayout::Name(Station)));
-			return EExecutionStatus::COMPLETED;
+			FString Result;
+			const int32 Copied = Subsystem->CopyPlatformToStation(Platform, Who + TEXT(" (copy)"), Result);
+			Sender->SendChatMessage(Result, Copied < 0 ? FLinearColor::Red : FLinearColor::White);
+			return Copied < 0 ? EExecutionStatus::UNCOMPLETED : EExecutionStatus::COMPLETED;
 		}
 		if (Arguments.Num() >= 2)
 		{

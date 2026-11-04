@@ -26,8 +26,21 @@ the console.
 | `MIGRATION` | Preview, apply and undo summaries; the CSV path. |
 | `Test copy` / `Backup` | Save copies and the session name being put back. |
 
-## Known gaps (0.1.0)
+## Menus
 
-- No in-game menu yet (plan M2); everything is done with `/st`.
+- `UI hook ... added` at start-up, and `4 of 4 UI hooks registered`. A missing vanilla widget or panel name is logged
+  as an error: the game's UI changed.
+- `USTPlatformPanel shown in ...` / `Platform panel geometry: ...` when a platform menu opens. If the panel is drawn
+  outside the window or cut off, the geometry line shows where it landed.
+- `Platform menu: role on ... (edit N)`, `Locomotive menu: ...`, `Station menu: ...`, `Migration window: step ...`
+  on the client. The server logs the change itself (`PLATFORM`, `MANAGE`, `STATION`, ...) with the player's name.
+- `Remote call object not registered on the local player`: SmartTrains isn't on the server. Its menus stay empty.
+- **SML slot setup:** `UWidgetBlueprintHookSlot_Generic::SetupPanelSlot` dereferences a null `HorizontalBoxSlot` when
+  the parent is a vertical box (SML 3.12). So hooks into vertical boxes pass no slot setup, and the panels pad
+  themselves (`USTPanel::GetOuterPadding`).
+
+## Known gaps (0.2.0)
+
+- The game's copy/paste-settings key doesn't carry SmartTrains settings; use the panel's Copy / Paste.
 - Each job has one pickup and one delivery (milk runs are M4).
 - A train that is parked counts as standing at the station where it last docked.

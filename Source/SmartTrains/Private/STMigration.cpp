@@ -30,6 +30,24 @@ namespace
 		return Text.IsEmpty() ? FString(TEXT("?")) : Text;
 	}
 
+	// "Name: P1=Supply[Iron Ore] P2=...  [flag]" for one proposed station.
+	FString StationText(const STMigration::FStationProposal& Station)
+	{
+		FString Layout;
+		for (const STMigration::FPlatformProposal& Platform : Station.Platforms)
+		{
+			Layout += FString::Printf(TEXT(" P%d=%s[%s]"), Platform.Index + 1, STNames::Role(Platform.Role), *ItemList(Platform.Items));
+		}
+		return FString::Printf(TEXT("%s:%s%s"), *STLayout::Name(Station.Station.Get()), *Layout,
+			Station.Flag.IsEmpty() ? TEXT("") : *FString::Printf(TEXT("  [%s]"), *Station.Flag));
+	}
+
+	// "Name: route (note)" for one proposed train.
+	FString TrainText(const STMigration::FTrainProposal& Train)
+	{
+		return FString::Printf(TEXT("%s: %s (%s)"), *STLayout::Name(Train.Train.Get()), *Train.Route, *Train.Note);
+	}
+
 	FString Csv(const FString& Text)
 	{
 		return TEXT("\"") + Text.Replace(TEXT("\""), TEXT("\"\"")) + TEXT("\"");
@@ -267,16 +285,13 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World)
 	{
 		const FStationProposal& Station = Preview.Stations[Index];
 		Ready += Station.Flag.IsEmpty() ? 1 : 0;
-		FString Layout;
 		for (const FPlatformProposal& Platform : Station.Platforms)
 		{
-			Layout += FString::Printf(TEXT(" P%d=%s[%s]"), Platform.Index + 1, STNames::Role(Platform.Role), *ItemList(Platform.Items));
 			Report += FString::Printf(TEXT("station,%d,%s,%d,%s,%s,%s,%s,%s\n"), Index + 1, *Csv(STLayout::Name(Station.Station.Get())), Platform.Index + 1,
 				STNames::Role(Platform.Role), *Csv(ItemList(Platform.Items)), *Csv(Platform.Evidence), *Csv(Platform.Conflict.IsEmpty() ? Station.Flag : Platform.Conflict),
 				*Csv(FString::Join(Station.Users, TEXT("; "))));
 		}
-		Lines.Add(FString::Printf(TEXT("S%d %s:%s%s"), Index + 1, *STLayout::Name(Station.Station.Get()), *Layout,
-			Station.Flag.IsEmpty() ? TEXT("") : *FString::Printf(TEXT("  [%s]"), *Station.Flag)));
+		Lines.Add(FString::Printf(TEXT("S%d %s"), Index + 1, *StationText(Station)));
 	}
 	int32 Ticked = 0;
 	for (int32 Index = 0; Index < Preview.Trains.Num(); ++Index)
@@ -285,7 +300,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World)
 		Ticked += Train.bPreselected ? 1 : 0;
 		Report += FString::Printf(TEXT("train,%d,%s,,%s,,%s,%s,\n"), Index + 1, *Csv(STLayout::Name(Train.Train.Get())), Train.bPreselected ? TEXT("manage") : TEXT("keep"),
 			*Csv(Train.Route), *Csv(Train.Note));
-		Lines.Add(FString::Printf(TEXT("T%d %s %s: %s (%s)"), Index + 1, Train.bPreselected ? TEXT("[x]") : TEXT("[ ]"), *STLayout::Name(Train.Train.Get()), *Train.Route, *Train.Note));
+		Lines.Add(FString::Printf(TEXT("T%d %s %s"), Index + 1, Train.bPreselected ? TEXT("[x]") : TEXT("[ ]"), *TrainText(Train)));
 	}
 	Preview.CsvPath = FPaths::Combine(FPaths::ProjectLogDir(), FString::Printf(TEXT("SmartTrains-migration-%s.csv"), *FDateTime::Now().ToString(TEXT("%Y%m%d-%H%M%S"))));
 	const bool bWritten = FFileHelper::SaveStringToFile(Report, *Preview.CsvPath);
@@ -502,4 +517,35 @@ TArray<FString> STMigration::Undo(ASTSubsystem* Subsystem, UWorld* World, const 
 	Lines.Add(FString::Printf(TEXT("Migration undone: %d platforms and %d trains put back (keep-vanilla marks stay; clear them with /st train keepvanilla off)."), Platforms, Trains));
 	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION undone by %s: %d platforms, %d trains"), *Cause, Platforms, Trains);
 	return Lines;
+}
+
+FSTMigrationView STMigration::MakeView(ASTSubsystem* Subsystem, UWorld* World)
+{
+	FSTMigrationView View;
+	View.bNeedsConfirm = Subsystem && !Subsystem->bMadeBackupThisSession;
+	View.bCanUndo = Subsystem && Subsystem->GetMigrationUndo().bValid;
+	View.bBetaTools = Subsystem && Subsystem->GetSettings().bBetaTools;
+	const FPreview* Preview = GPreviews.Find(World);
+	View.bHasPreview = Preview != nullptr;
+	if (!Preview)
+	{
+		return View;
+	}
+	for (int32 Index = 0; Index < Preview->Stations.Num(); ++Index)
+	{
+		FSTMigrationRow& Row = View.Rows.AddDefaulted_GetRef();
+		Row.bStation = true;
+		Row.Number = Index + 1;
+		Row.Text = StationText(Preview->Stations[Index]);
+		Row.bProposed = Preview->Stations[Index].Flag.IsEmpty();
+	}
+	for (int32 Index = 0; Index < Preview->Trains.Num(); ++Index)
+	{
+		FSTMigrationRow& Row = View.Rows.AddDefaulted_GetRef();
+		Row.bStation = false;
+		Row.Number = Index + 1;
+		Row.Text = TrainText(Preview->Trains[Index]);
+		Row.bProposed = Preview->Trains[Index].bPreselected;
+	}
+	return View;
 }
