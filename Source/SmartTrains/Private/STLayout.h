@@ -20,6 +20,9 @@ public:
 
 	// Counts the platform's belt or pipe inputs and outputs that are connected to something.
 	static void CountConnections(const AFGBuildableTrainPlatformCargo* Platform, int32& OutInputs, int32& OutOutputs);
+
+	// The platform's connected pipe connections that fill it (bInputs) or empty it.
+	static TArray<class UFGPipeConnectionComponent*> GetPipeConnections(const AFGBuildableTrainPlatformCargo* Platform, bool bInputs);
 };
 
 // Station layouts and consists, read the way the game docks a train (Docs/Architecture.md, "Fit model").

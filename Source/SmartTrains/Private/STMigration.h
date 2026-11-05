@@ -21,6 +21,10 @@ namespace STMigration
 		TArray<TSubclassOf<class UFGItemDescriptor>> Items;
 		FString Evidence;
 		FString Conflict;
+		// What the belt or pipe trace to the machines found (empty when it wasn't needed or reached nothing).
+		FString TraceText;
+		// "high", "medium" or "unclear": how far the items can be trusted.
+		FString Confidence;
 	};
 
 	struct FStationProposal

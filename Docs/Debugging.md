@@ -1,5 +1,8 @@
 # Debugging SmartTrains
 
+**Detailed log** (Mods menu) shows the Verbose lines below without any console command; turn it on before
+reproducing a problem. For even more (every move and fit check), use the console: `log LogSmartTrains VeryVerbose`.
+
 The log is `%LOCALAPPDATA%\FactoryGame\Saved\Logs\FactoryGame.log`; every SmartTrains line starts with
 `LogSmartTrains:`. More detail: add `LogSmartTrains Verbose` (or `VeryVerbose`, which includes every rejected fit) under
 `[Core.Log]` in `%LOCALAPPDATA%\FactoryGame\Saved\Config\Windows\Engine.ini`, or type `log LogSmartTrains Verbose` in
@@ -22,8 +25,12 @@ the console.
 | `WOULD JOB` | Observe-only mode: the job it would have given. |
 | `REPLAN <train> job n: [before] -> [after]` | The rest of a trip after a stop: trimmed, extended, or planned again. Stops are `Station (+loaded -unloaded)`. |
 | `... carries cargo no trip wants now` | A free train's cargo has no delivery; see "Unwanted cargo" in Architecture.md. |
-| `PLANNER <train>: n moves` (VeryVerbose) | How many moves a free train had to choose from. |
-| `Dispatch: planning time used up` (Verbose) | The round's 25 ms budget ran out; the rest are planned in the next round. |
+| `IDLE <train>: no trip: ...` | Why a free managed train got nothing, logged when the reason changes. Also in its locomotive menu ("Why no trip") and `/st jobs`. |
+| `DISPATCH: n free trains ... x ms` (Verbose) | One line per dispatch round: free trains, assignments, trips, planning time. |
+| `PLANNER <train>: n moves` (Verbose) | How many moves a free train had to choose from. |
+| `Dispatch: planning time (n ms) ran out` (Warning, at most every 5 min) | Free trains were left for later rounds; raise "Planning time per round". |
+| `Settings: ...` / `Settings changed: Key=value (was ...)` | All Mods menu settings at start, then every change. |
+| `TRACE <platform> upstream/downstream: ...` (Verbose) | The migration tool's belt and pipe trace of a platform. |
 | `EXTERNAL TIMETABLE CHANGE` | Someone else changed a managed train's timetable; the job was written back. |
 | `DOCK MAP MISMATCH` | A train docked with different cars beside the platforms than expected. The new map is kept. |
 | `NO FIT` (VeryVerbose) | Why a train can't do a supplier → consumer pair. |

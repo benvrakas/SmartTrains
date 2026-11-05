@@ -628,14 +628,28 @@ void ASTSubsystem::DispatchRound()
 		return ValueA > ValueB;
 	});
 
+	// Records why a free train got no trip; logged when the reason changes.
+	auto NoTrip = [this](const FSTTrainState& State, const FString& Reason)
+	{
+		FString& Last = mIdleReasons.FindOrAdd(State.Train.Get());
+		if (Last != Reason)
+		{
+			Last = Reason;
+			UE_LOG(LogSmartTrains, Log, TEXT("IDLE %s: no trip: %s"), *STLayout::Name(State.Train), *Reason);
+		}
+	};
+	int32 Planned = 0;
+	int32 Trips = 0;
+	bool bOutOfTime = false;
 	// Each train's trip: its assigned first move, then regret insertion; reservations go to the trains after it.
 	for (const int32 Row : Order)
 	{
 		if (Planner.IsOverBudget())
 		{
-			UE_LOG(LogSmartTrains, Verbose, TEXT("Dispatch: planning time used up; the remaining trains are planned next round"));
+			bOutOfTime = true;
 			break;
 		}
+		++Planned;
 		const FFree& Entry = Free[Row];
 		FSTTrainState& State = mTrains[Entry.TrainIndex];
 		if (!Planner.BeginTrain(Entry.TrainIndex, Entry.Anchor, Entry.FreeAt, Entry.bDocked))
@@ -664,8 +678,13 @@ void ASTSubsystem::DispatchRound()
 				State.UnwantedCargoSince = Time;
 				UE_LOG(LogSmartTrains, Log, TEXT("%s carries cargo no trip wants now"), *STLayout::Name(State.Train));
 			}
+			NoTrip(State, !Planner.GetLastProblem().IsEmpty()
+				? FString::Printf(TEXT("the best trip doesn't work (%s)"), *Planner.GetLastProblem())
+				: FString(TEXT("no trip is worth running now (consumers stocked, or no batch ready)")));
 			continue;
 		}
+		mIdleReasons.Remove(State.Train.Get());
+		++Trips;
 		FSTJob Job;
 		Job.Id = mNextJobId++;
 		Job.StartedAt = Time;
@@ -692,6 +711,27 @@ void ASTSubsystem::DispatchRound()
 		State.UnwantedCargoSince = bCarrying && !bDelivers ? (State.UnwantedCargoSince > 0.0 ? State.UnwantedCargoSince : Time) : 0.0;
 		Planner.Reserve(Stops, Result);
 		CommitJob(State, MoveTemp(Job), Line);
+	}
+
+	// Free trains with no move at all.
+	for (int32 TrainIndex = 0; TrainIndex < mTrains.Num(); ++TrainIndex)
+	{
+		const FSTTrainState& State = mTrains[TrainIndex];
+		AFGTrainStationIdentifier* Anchor = nullptr;
+		double FreeAt = 0.0;
+		if (!State.bHasJob && GetFreeAt(State, Anchor, FreeAt) && !Free.ContainsByPredicate([TrainIndex](const FFree& Entry) { return Entry.TrainIndex == TrainIndex; }))
+		{
+			NoTrip(State, TEXT("no supplier and consumer that its cars stop beside at both ends, or nothing wanted (see the platform menus)"));
+		}
+	}
+	UE_LOG(LogSmartTrains, Verbose, TEXT("DISPATCH: %d free trains with moves, %d assigned a first move, %d planned, %d trips, %.1f ms%s"), Free.Num(),
+		Assigned.FilterByPredicate([](int32 Column) { return Column != INDEX_NONE; }).Num(), Planned, Trips, Planner.GetElapsedMs(),
+		bOutOfTime ? TEXT(", out of time") : TEXT(""));
+	if (bOutOfTime && Time - mLastBudgetWarning > 300.0)
+	{
+		mLastBudgetWarning = Time;
+		UE_LOG(LogSmartTrains, Warning, TEXT("Dispatch: planning time (%.0f ms) ran out with %d free trains left; they are planned in the next rounds. Raise \"Planning time per round\" if this keeps happening."),
+			mSettings.PlanBudgetMs, Free.Num() - Planned);
 	}
 
 	if (!mSettings.bObserveOnly)
@@ -731,9 +771,18 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	{
 		FSTTripPlanner::Trim(Stops, Result, 0);
 	}
+	const bool bKeptWorks = Result.bValid && Stops.Num() > 0;
+	const TArray<FSTPlanStop> Kept = Stops;
+	const FSTPlanResult KeptResult = bKeptWorks ? Planner.Simulate(Stops) : FSTPlanResult();
 	Result = Planner.Improve(Stops, 0);
 	FSTTripPlanner::Trim(Stops, Result, 0);
 	Result = Planner.Simulate(Stops);
+	// Stability: additions to a trip that still works must beat it by the re-plan threshold.
+	if (bKeptWorks && KeptResult.bValid && Result.bValid && Result.Score < KeptResult.Score * FMath::Max(1.f, mSettings.ReplanThreshold))
+	{
+		Stops = Kept;
+		Result = KeptResult;
+	}
 	if (!Result.bValid || Stops.Num() == 0)
 	{
 		UE_LOG(LogSmartTrains, Log, TEXT("REPLAN %s job %d: nothing left to do after %s"), *STLayout::Name(State.Train), State.Job.Id, *STLayout::Name(From));

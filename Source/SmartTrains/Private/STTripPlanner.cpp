@@ -14,8 +14,6 @@
 
 namespace
 {
-	// Planning time per dispatch round; trains not planned in time wait for the next round. [s]
-	constexpr double PlanBudgetSeconds = 0.025;
 	// Moves kept per train, best solo score first (cargo already on board is always kept).
 	constexpr int32 MaxMovesPerTrain = 24;
 	// Shortest trip time the score divides by, so very short trips don't get huge scores. [s]
@@ -85,7 +83,8 @@ FSTTripPlanner::FSTTripPlanner(const ASTSubsystem& InSubsystem, TArray<FSTNode>&
 	: mSubsystem(InSubsystem), mNodes(InNodes), mBusyUntil(InBusyUntil)
 {
 	mTime = mSubsystem.Now();
-	mDeadline = FPlatformTime::Seconds() + PlanBudgetSeconds;
+	mStarted = FPlatformTime::Seconds();
+	mDeadline = mStarted + FMath::Clamp(mSubsystem.mSettings.PlanBudgetMs, 5.f, 200.f) / 1000.0;
 	bFcc = mSubsystem.IsFccAvailable();
 	mMaxStops = FMath::Clamp(FMath::RoundToInt(mSubsystem.mSettings.MaxStops), 2, 8);
 	mMaxTripSeconds = FMath::Max(60.0, mSubsystem.mSettings.MaxTripMinutes * 60.0);
@@ -106,6 +105,11 @@ FSTTripPlanner::FSTTripPlanner(const ASTSubsystem& InSubsystem, TArray<FSTNode>&
 bool FSTTripPlanner::IsOverBudget() const
 {
 	return FPlatformTime::Seconds() > mDeadline;
+}
+
+double FSTTripPlanner::GetElapsedMs() const
+{
+	return (FPlatformTime::Seconds() - mStarted) * 1000.0;
 }
 
 int32 FSTTripPlanner::FindNode(const AFGTrainStationIdentifier* Station, UClass* Item, bool bSupply) const
@@ -282,6 +286,7 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 	mCars.Reset();
 	mMoves.Reset();
 	mCarPlatforms.Reset();
+	mLastProblem.Reset();
 	const FSTTrainState& State = mSubsystem.mTrains[TrainIndex];
 	const AFGTrain* Train = State.Train;
 	if (!IsValid(Train) || !Anchor)
@@ -436,7 +441,7 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 			mMoves.Add(Move);
 		}
 	}
-	UE_LOG(LogSmartTrains, VeryVerbose, TEXT("PLANNER %s: %d moves (%d kept), %d cars, from %s at %+.0f s%s"), *STLayout::Name(Train), Moves.Num(), mMoves.Num(),
+	UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: %d moves (%d kept), %d cars, from %s at %+.0f s%s"), *STLayout::Name(Train), Moves.Num(), mMoves.Num(),
 		mCars.Num(), *STLayout::Name(Anchor), FreeAt - mTime, bRelaxed ? TEXT(", unwanted cargo may go anywhere") : TEXT(""));
 	return true;
 }
@@ -785,6 +790,7 @@ bool FSTTripPlanner::InsertBest(TArray<FSTPlanStop>& InOutStops, const FSTPlanMo
 		FSTPlanResult Result = Simulate(Candidate);
 		if (!Result.bValid)
 		{
+			mLastProblem = Result.Problem;
 			return;
 		}
 		if (Result.Score > Best)

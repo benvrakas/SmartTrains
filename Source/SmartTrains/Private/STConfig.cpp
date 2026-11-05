@@ -38,6 +38,8 @@ namespace
 				LOCTEXT("ObserveOnlyTip", "SmartTrains works out jobs for managed trains and writes them to the log (and /st jobs), but never changes a train's timetable or autopilot. Use it to check what it would do before letting it drive.")},
 			{TEXT("BetaTools"), &FSTSettings::bBetaTools, LOCTEXT("BetaTools", "Beta testing tools"),
 				LOCTEXT("BetaToolsTip", "Enables /st testcopy (saves the world as a separate session to test in) and /st backup (a timestamped save of this session).")},
+			{TEXT("DetailedLog"), &FSTSettings::bDetailedLog, LOCTEXT("DetailedLog", "Detailed log"),
+				LOCTEXT("DetailedLogTip", "Writes much more to FactoryGame.log: every dispatch round, why each free train got no trip, re-plans, connection traces and dock maps. Turn it on to report a problem.")},
 			{TEXT("JobNames"), &FSTSettings::bJobNames, LOCTEXT("JobNames", "Show jobs in train names"),
 				LOCTEXT("JobNamesTip", "Renames each managed train to show what it is doing, e.g. \"ST: Iron Plate -> Steel Mill\". The original name comes back when this is turned off or the train is no longer managed.")},
 		};
@@ -61,8 +63,10 @@ namespace
 				LOCTEXT("LoadWaitTip", "A train picking up leaves when its cars are full or after this long, 0 to 600 seconds.")},
 			{TEXT("UnloadWaitSeconds"), &FSTSettings::UnloadWaitSeconds, 0.f, 1800.f, LOCTEXT("UnloadWait", "Delivery: longest wait (seconds)"),
 				LOCTEXT("UnloadWaitTip", "A train delivering leaves when its cars are empty or after this long, 0 to 1800 seconds. Whatever is left is delivered somewhere else.")},
-			{TEXT("RetargetFactor"), &FSTSettings::RetargetFactor, 1.f, 10.f, LOCTEXT("Retarget", "Retarget threshold (x)"),
-				LOCTEXT("RetargetTip", "An empty train already on its way to a pickup switches to a new job only if it is this many times better, 1 to 10.")},
+			{TEXT("ReplanThreshold"), &FSTSettings::ReplanThreshold, 1.f, 3.f, LOCTEXT("Replan", "Re-plan threshold (x)"),
+				LOCTEXT("ReplanTip", "After each stop the rest of a trip is planned again. Stops are added to it only if the trip then scores this many times higher, 1 to 3. Higher keeps trips steadier; 1 takes every improvement. Stops that can no longer work are always dropped.")},
+			{TEXT("PlanBudgetMs"), &FSTSettings::PlanBudgetMs, 5.f, 200.f, LOCTEXT("Budget", "Planning time per round (ms)"),
+				LOCTEXT("BudgetTip", "Most time one dispatch round may spend planning trips, 5 to 200 milliseconds. Trains not planned in time wait for the next round. Raise it on big networks if trains wait long for jobs; lower it if the game stutters every few seconds.")},
 			{TEXT("MaxStops"), &FSTSettings::MaxStops, 2.f, 8.f, LOCTEXT("MaxStops", "Most stops per trip"),
 				LOCTEXT("MaxStopsTip", "A trip may visit up to this many stations, 2 to 8. 2 means only direct trips: one pickup, one delivery.")},
 			{TEXT("MaxTripMinutes"), &FSTSettings::MaxTripMinutes, 5.f, 120.f, LOCTEXT("MaxTrip", "Longest trip (minutes)"),
@@ -224,6 +228,20 @@ bool USTConfig::Read(const UObject* WorldContext, FSTSettings& OutSettings)
 		OutSettings.*Setting.Field = FMath::Clamp(Property ? Property->Value : Defaults.*Setting.Field, Setting.Min, Setting.Max);
 	}
 	return true;
+}
+
+TArray<FString> USTConfig::Describe(const FSTSettings& Settings)
+{
+	TArray<FString> Out;
+	for (const FBoolSetting& Setting : GetBoolSettings())
+	{
+		Out.Add(FString::Printf(TEXT("%s=%s"), Setting.Key, Settings.*Setting.Field ? TEXT("on") : TEXT("off")));
+	}
+	for (const FNumberSetting& Setting : GetNumberSettings())
+	{
+		Out.Add(FString::Printf(TEXT("%s=%g"), Setting.Key, Settings.*Setting.Field));
+	}
+	return Out;
 }
 
 #undef LOCTEXT_NAMESPACE

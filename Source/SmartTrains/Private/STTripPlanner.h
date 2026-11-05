@@ -96,6 +96,10 @@ public:
 
 	// True when this round's planning time is used up.
 	bool IsOverBudget() const;
+	// Milliseconds spent since the planner was made.
+	double GetElapsedMs() const;
+	// Why the last trip tried for the current train didn't work, empty if none failed.
+	const FString& GetLastProblem() const { return mLastProblem; }
 
 private:
 	struct FPlatformInfo
@@ -140,7 +144,9 @@ private:
 	TMap<TTuple<const AFGTrainStationIdentifier*, UClass*, bool>, int32> mNodeIndex;
 	TMap<const AFGTrainStationIdentifier*, int32> mAnyNode;
 	double mTime = 0.0;
+	double mStarted = 0.0;
 	double mDeadline = 0.0;
+	mutable FString mLastProblem;
 	bool bFcc = false;
 	int32 mMaxStops = 4;
 	double mMaxTripSeconds = 1200.0;

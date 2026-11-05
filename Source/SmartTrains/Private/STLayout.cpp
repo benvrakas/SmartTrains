@@ -54,6 +54,22 @@ void FSTPlatformAccess::CountConnections(const AFGBuildableTrainPlatformCargo* P
 	}
 }
 
+TArray<UFGPipeConnectionComponent*> FSTPlatformAccess::GetPipeConnections(const AFGBuildableTrainPlatformCargo* Platform, bool bInputs)
+{
+	TArray<UFGPipeConnectionComponent*> Out;
+	if (Platform)
+	{
+		for (UFGPipeConnectionComponent* Pipe : bInputs ? Platform->mPipeInputConnections : Platform->mPipeOutputConnections)
+		{
+			if (Pipe && Pipe->IsConnected())
+			{
+				Out.Add(Pipe);
+			}
+		}
+	}
+	return Out;
+}
+
 TArray<AFGBuildableTrainPlatform*> STLayout::GetPlatforms(const AFGBuildableRailroadStation* Station)
 {
 	TArray<AFGBuildableTrainPlatform*> Platforms;

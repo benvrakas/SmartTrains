@@ -145,12 +145,35 @@ void ASTSubsystem::ReadSettings()
 	const FSTSettings Before = mSettings;
 	if (!USTConfig::Read(this, mSettings))
 	{
+		if (!bSettingsRead)
+		{
+			UE_LOG(LogSmartTrains, Warning, TEXT("Settings: Mods menu configuration not found; defaults used"));
+			bSettingsRead = true;
+		}
 		return;
 	}
-	if (Before.bObserveOnly != mSettings.bObserveOnly)
+	const TArray<FString> Old = USTConfig::Describe(Before);
+	const TArray<FString> New = USTConfig::Describe(mSettings);
+	if (!bSettingsRead)
 	{
-		UE_LOG(LogSmartTrains, Log, TEXT("Settings: observe only %s"), mSettings.bObserveOnly ? TEXT("on") : TEXT("off"));
+		UE_LOG(LogSmartTrains, Log, TEXT("Settings: %s"), *FString::Join(New, TEXT(", ")));
 	}
+	else
+	{
+		for (int32 Index = 0; Index < New.Num(); ++Index)
+		{
+			if (!Old.IsValidIndex(Index) || Old[Index] != New[Index])
+			{
+				UE_LOG(LogSmartTrains, Log, TEXT("Settings changed: %s (was %s)"), *New[Index], Old.IsValidIndex(Index) ? *Old[Index] : TEXT("?"));
+			}
+		}
+	}
+	if (!bSettingsRead || Before.bDetailedLog != mSettings.bDetailedLog)
+	{
+		LogSmartTrains.SetVerbosity(mSettings.bDetailedLog ? ELogVerbosity::Verbose : ELogVerbosity::Log);
+		UE_LOG(LogSmartTrains, Log, TEXT("Detailed log %s"), mSettings.bDetailedLog ? TEXT("on") : TEXT("off"));
+	}
+	bSettingsRead = true;
 	if (Before.bJobNames != mSettings.bJobNames)
 	{
 		for (FSTTrainState& State : mTrains)
@@ -936,8 +959,9 @@ TArray<FString> ASTSubsystem::DescribeJobs() const
 		if (!State.bHasJob)
 		{
 			const FString* Observed = mObserved.Find(State.Train.Get());
-			Lines.Add(FString::Printf(TEXT("%s: %s%s"), *STLayout::Name(State.Train), STNames::Phase(State.Phase),
-				Observed ? *FString::Printf(TEXT(" - would: %s"), **Observed) : TEXT("")));
+			const FString* Reason = mIdleReasons.Find(State.Train.Get());
+			Lines.Add(FString::Printf(TEXT("%s: %s%s%s"), *STLayout::Name(State.Train), STNames::Phase(State.Phase),
+				Observed ? *FString::Printf(TEXT(" - would: %s"), **Observed) : TEXT(""), Reason ? *FString::Printf(TEXT(" - no trip: %s"), **Reason) : TEXT("")));
 			continue;
 		}
 		const FSTJobLeg* Leg = State.Job.Legs.IsValidIndex(State.Job.Leg) ? &State.Job.Legs[State.Job.Leg] : nullptr;

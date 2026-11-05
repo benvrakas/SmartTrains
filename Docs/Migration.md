@@ -13,10 +13,28 @@ without it.
 | Platform inventory | Items. |
 | Load filters (load-mode platforms) and unload filters (unload-mode platforms) of every timetable stop at the station | Items, if they fit the platform's cargo type. |
 
-Not yet used, though the plan lists them:
+| Connection trace (`STTrace`) | Items, from the machines behind the belts and pipes, even when the factory is empty or idle. |
 
-- what is on the attached belts;
-- the recipes of the machines upstream and downstream;
+### Connection trace
+
+A load platform is traced upstream to what produces, an unload platform downstream to what consumes. The walk goes
+through belts, lifts, splitters, mergers, pipes, junctions and pumps and stops at the first machine with a recipe
+(manufacturer, miner, pump). It reads the configured recipe and the clock speed, so the rate is a starting target.
+
+- Smart splitters are walked through but their filters are not mapped to outputs, so items reached through one are
+  marked shared (medium at best).
+- Limits: 40 hops and 80 nodes; hitting one marks the result incomplete (medium).
+- Confidence: **high** when the platform's inventory or timetable filters agree with the trace, or a clean single
+  path ends at machines with a recipe; **medium** through splits, merges, shared outputs or a limit; **unclear**
+  when no machine is reached, a recipe is missing, or the pipes show several fluids.
+- A disagreement between the trace and the platform's own history is a conflict, and the station is not applied by
+  `all`.
+- The preview chat lines mark non-high platforms, e.g. `P2=Supply[Wire](medium)`. The CSV has the columns
+  Confidence and Connection trace, with the path, e.g. `Belt x3 > SplitterSmart > ConstructorMk1`.
+
+Not yet used:
+
+- what is on the attached belts (belt contents);
 - rates measured beforehand. Rates are only measured for platforms that have a role, so after migrating, observe
   only mode gives them before trains are handed over.
 

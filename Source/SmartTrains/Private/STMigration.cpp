@@ -15,6 +15,7 @@
 #include "STBridges.h"
 #include "STLayout.h"
 #include "STSubsystem.h"
+#include "STTrace.h"
 
 namespace
 {
@@ -36,7 +37,8 @@ namespace
 		FString Layout;
 		for (const STMigration::FPlatformProposal& Platform : Station.Platforms)
 		{
-			Layout += FString::Printf(TEXT(" P%d=%s[%s]"), Platform.Index + 1, STNames::Role(Platform.Role), *ItemList(Platform.Items));
+			Layout += FString::Printf(TEXT(" P%d=%s[%s]%s"), Platform.Index + 1, STNames::Role(Platform.Role), *ItemList(Platform.Items),
+				Platform.Confidence.IsEmpty() || Platform.Confidence == TEXT("none") || Platform.Confidence == TEXT("high") ? TEXT("") : *FString::Printf(TEXT("(%s)"), *Platform.Confidence));
 		}
 		return FString::Printf(TEXT("%s:%s%s"), *STLayout::Name(Station.Station.Get()), *Layout,
 			Station.Flag.IsEmpty() ? TEXT("") : *FString::Printf(TEXT("  [%s]"), *Station.Flag));
@@ -233,11 +235,59 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World)
 					Items.Add(Item);
 				}
 			}
+			const int32 FromFilters = Items.Num() - FromInventory;
+
+			// The connection trace: what the machines behind the belts and pipes make or use.
+			TSet<UClass*> Traced;
+			if (Platform.Role != ESTRole::Off)
+			{
+				const STTrace::FResult Trace = STTrace::Trace(Cargo, bLoadMode);
+				Platform.TraceText = Trace.Summary();
+				const EFreightCargoType CargoType = STLayout::GetPlatformCargoType(Cargo);
+				for (const TSubclassOf<UFGItemDescriptor>& Item : Trace.Items())
+				{
+					if (Item && STLayout::ItemFitsCargoType(Item.Get(), CargoType))
+					{
+						Traced.Add(Item.Get());
+					}
+				}
+				if (Traced.Num() == 0 && Trace.PipeFluidHint && STLayout::ItemFitsCargoType(Trace.PipeFluidHint.Get(), CargoType))
+				{
+					Traced.Add(Trace.PipeFluidHint.Get());
+				}
+				// Settings and history agreeing with the trace is the strongest case; the trace alone is as good as it is clean.
+				const bool bKnown = Items.Num() > 0;
+				bool bAgrees = false;
+				for (UClass* Item : Traced)
+				{
+					bAgrees |= Items.Contains(Item);
+				}
+				if (bKnown && Traced.Num() > 0 && !bAgrees && Platform.Conflict.IsEmpty())
+				{
+					Platform.Conflict = FString::Printf(TEXT("belts and machines say %s, but the platform and timetables say otherwise"), *Trace.Summary());
+				}
+				if (bKnown && bAgrees)
+				{
+					Platform.Confidence = TEXT("high");
+				}
+				else if (Traced.Num() > 0)
+				{
+					Platform.Confidence = STTrace::ConfidenceName(Trace.Confidence);
+				}
+				else
+				{
+					Platform.Confidence = bKnown ? TEXT("medium") : TEXT("unclear");
+				}
+			}
+			for (UClass* Item : Traced)
+			{
+				Items.Add(Item);
+			}
 			for (UClass* Item : Items)
 			{
 				Platform.Items.Add(Item);
 			}
-			Platform.Evidence += FString::Printf(TEXT(", items: %d in its inventory, %d from timetable filters"), FromInventory, Items.Num() - FromInventory);
+			Platform.Evidence += FString::Printf(TEXT(", items: %d in its inventory, %d from timetable filters, %d from the connection trace"), FromInventory, FromFilters, Traced.Num());
 			if (Platform.Role != ESTRole::Off && Platform.Items.Num() == 0 && Platform.Conflict.IsEmpty())
 			{
 				Platform.Conflict = TEXT("no item found (empty and no train filter names one)");
@@ -279,7 +329,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World)
 	}
 
 	// The report.
-	FString Report = TEXT("Kind,Number,Station or train,Platform,Role,Items,Evidence,Flag or note,Used by\n");
+	FString Report = TEXT("Kind,Number,Station or train,Platform,Role,Items,Evidence,Flag or note,Used by,Confidence,Connection trace\n");
 	int32 Ready = 0;
 	for (int32 Index = 0; Index < Preview.Stations.Num(); ++Index)
 	{
@@ -287,9 +337,9 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World)
 		Ready += Station.Flag.IsEmpty() ? 1 : 0;
 		for (const FPlatformProposal& Platform : Station.Platforms)
 		{
-			Report += FString::Printf(TEXT("station,%d,%s,%d,%s,%s,%s,%s,%s\n"), Index + 1, *Csv(STLayout::Name(Station.Station.Get())), Platform.Index + 1,
+			Report += FString::Printf(TEXT("station,%d,%s,%d,%s,%s,%s,%s,%s,%s,%s\n"), Index + 1, *Csv(STLayout::Name(Station.Station.Get())), Platform.Index + 1,
 				STNames::Role(Platform.Role), *Csv(ItemList(Platform.Items)), *Csv(Platform.Evidence), *Csv(Platform.Conflict.IsEmpty() ? Station.Flag : Platform.Conflict),
-				*Csv(FString::Join(Station.Users, TEXT("; "))));
+				*Csv(FString::Join(Station.Users, TEXT("; "))), *Platform.Confidence, *Csv(Platform.TraceText));
 		}
 		Lines.Add(FString::Printf(TEXT("S%d %s"), Index + 1, *StationText(Station)));
 	}
@@ -298,7 +348,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World)
 	{
 		const FTrainProposal& Train = Preview.Trains[Index];
 		Ticked += Train.bPreselected ? 1 : 0;
-		Report += FString::Printf(TEXT("train,%d,%s,,%s,,%s,%s,\n"), Index + 1, *Csv(STLayout::Name(Train.Train.Get())), Train.bPreselected ? TEXT("manage") : TEXT("keep"),
+		Report += FString::Printf(TEXT("train,%d,%s,,%s,,%s,%s,,,\n"), Index + 1, *Csv(STLayout::Name(Train.Train.Get())), Train.bPreselected ? TEXT("manage") : TEXT("keep"),
 			*Csv(Train.Route), *Csv(Train.Note));
 		Lines.Add(FString::Printf(TEXT("T%d %s %s"), Index + 1, Train.bPreselected ? TEXT("[x]") : TEXT("[ ]"), *TrainText(Train)));
 	}

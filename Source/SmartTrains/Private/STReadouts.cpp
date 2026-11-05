@@ -325,6 +325,10 @@ FSTTrainView ASTSubsystem::MakeTrainView(const AFGTrain* Train, int32 AppliedEdi
 		{
 			View.Lines.Add(TEXT("Would do: ") + *Observed);
 		}
+		if (const FString* Reason = mIdleReasons.Find(const_cast<AFGTrain*>(Train)))
+		{
+			View.Lines.Add(TEXT("Why no trip: ") + *Reason);
+		}
 	}
 	for (const TPair<UClass*, int32>& Pair : GetCargo(Train))
 	{

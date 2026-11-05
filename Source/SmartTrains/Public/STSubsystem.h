@@ -297,6 +297,12 @@ private:
 	double mStartTime = 0.0;
 	// Platform settings changed: trips under way are re-planned in the next dispatch.
 	bool bReplanAll = false;
+	// The settings have been read once (the first read logs them all).
+	bool bSettingsRead = false;
+	// Per free train: why it got no trip in the last round, logged when it changes and shown in its menu.
+	TMap<TWeakObjectPtr<AFGTrain>, FString> mIdleReasons;
+	// When the planning time last ran out (for a throttled warning). [game s]
+	double mLastBudgetWarning = -1000.0;
 	// A dispatch round is running; trains that become idle in it are settled when it ends (mToSettle).
 	bool bInDispatch = false;
 	TArray<TWeakObjectPtr<AFGTrain>> mToSettle;

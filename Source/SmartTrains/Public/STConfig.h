@@ -11,6 +11,8 @@ struct FSTSettings
 	bool bObserveOnly = false;
 	// Enables /st testcopy and /st backup.
 	bool bBetaTools = true;
+	// Writes SmartTrains' Verbose lines (planner rounds, re-plans, traces, dock maps) to the log.
+	bool bDetailedLog = false;
 	// Shows each managed train's job in its name.
 	bool bJobNames = false;
 	// How often jobs are handed out. [s]
@@ -27,8 +29,10 @@ struct FSTSettings
 	float LoadWaitSeconds = 30.f;
 	// Longest wait at a delivery for the platform to take everything. [s]
 	float UnloadWaitSeconds = 120.f;
-	// An empty train already heading for a pickup takes a new job only if it scores this many times higher.
-	float RetargetFactor = 1.5f;
+	// A re-plan after a stop adds to the rest of the trip only if that scores this many times higher. [x]
+	float ReplanThreshold = 1.1f;
+	// Planning time per dispatch round; trains not planned in time wait for the next round. [ms]
+	float PlanBudgetMs = 25.f;
 	// Most stops in one trip.
 	float MaxStops = 4.f;
 	// Longest trip planned. [min]
@@ -55,4 +59,7 @@ public:
 
 	// Fills OutSettings from the registered configuration; returns false, leaving the defaults, if it isn't available.
 	static bool Read(const UObject* WorldContext, FSTSettings& OutSettings);
+
+	// "Key=value" for every setting, for the log.
+	static TArray<FString> Describe(const FSTSettings& Settings);
 };

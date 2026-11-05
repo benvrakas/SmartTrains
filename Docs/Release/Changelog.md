@@ -19,6 +19,10 @@
   warns when many trains carry some.
 - **Dock maps** are learned per way round and dropped when the train's cars change.
 - Milk runs (0.3.0) are part of the new planner; their Mods menu switch is gone.
+- **Mods menu:** "Detailed log" (planner rounds, re-plans, traces and dock maps in the log), "Planning time per
+  round" (25 ms) and "Re-plan threshold" (1.1 x, replaces the unused "Retarget threshold"). All settings are logged
+  at start and whenever one changes.
+- **Why no trip:** a free managed train logs, and shows in its menu and `/st jobs`, why it got nothing.
 - **"Same for every platform in this station"** in the platform menu (and `/st station same`). Editing one platform
   then sets every platform of that kind in the station. By default it is on without Freight Car Control (where a
   station works as one big platform) as long as the platforms match, and off with it. The "To station" button is gone.
