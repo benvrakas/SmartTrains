@@ -25,7 +25,7 @@ int32 ASTSubsystem::CopyPlatformToStation(AFGBuildableTrainPlatformCargo* Platfo
 		AFGBuildableTrainPlatformCargo* Other = Cast<AFGBuildableTrainPlatformCargo>(Each);
 		if (Other && Other != Platform && STLayout::GetPlatformCargoType(Other) == Type)
 		{
-			SetPlatformConfig(Other, Copy.Role, Copy.Items, Cause, false);
+			SetPlatformConfig(Other, Copy.Role, Copy.Items, Cause);
 			++Copied;
 		}
 	}
@@ -66,8 +66,6 @@ FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCa
 		? FString::Printf(TEXT("%s platform %d of %s"), View.bFluid ? TEXT("Fluid") : TEXT("Freight"), Index + 1, *STLayout::Name(Station))
 		: FString::Printf(TEXT("%s platform, not on a station's output side"), View.bFluid ? TEXT("Fluid") : TEXT("Freight"));
 	View.bFcc = IsFccAvailable();
-	View.Link = GetStationLink(STLayout::GetIdentifier(Station));
-	View.bLinked = IsPlatformLinked(Platform);
 	const FSTPlatformConfig* Config = FindPlatformConfig(Platform);
 	if (!Config)
 	{

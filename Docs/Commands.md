@@ -11,6 +11,14 @@ or train from up to 60 m away.
   would do.
 - `/st fit`: for the train you drive or look at, its consist and the dock map (which car stops beside which
   platform) at every station with platform roles, seen or predicted.
+- `/st monitor`: opens the throughput monitor. For each item it shows what limits deliveries over the last half hour:
+  - not enough supply;
+  - not enough trains;
+  - no train that fits;
+  - a congested station.
+
+  It also lists starved and backed-up platforms, and why idle trains wait. `/st monitor text` prints it in chat;
+  from the server console it always prints.
 
 ## Platforms (look at a freight or fluid platform)
 
@@ -31,9 +39,6 @@ Setting a role switches the platform to load (supply) or unload (demand).
 ## Stations (look at a station or one of its platforms)
 
 - `/st station depot on|off`: idle managed trains park at the nearest depot.
-- `/st station same on|off|auto`: whether editing one platform sets every platform of that kind in the station.
-  Turning it on copies the platform you look at (if any) to the others. Auto: on without Freight Car Control while the
-  platforms match.
 
 ## Trains (drive or look at a train)
 

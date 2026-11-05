@@ -11,6 +11,7 @@
 #include "STMigration.h"
 #include "STSubsystem.h"
 #include "UI/STMigrationWindow.h"
+#include "UI/STMonitorWindow.h"
 
 namespace
 {
@@ -178,25 +179,6 @@ void USTRemoteCallObject::Server_PastePlatformSettings_Implementation(AFGBuildab
 	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
 }
 
-bool USTRemoteCallObject::Server_SetStationLink_Validate(AFGBuildableTrainPlatformCargo* Platform, ESTPlatformLink Link, int32 Edit)
-{
-	return Link <= ESTPlatformLink::Separate;
-}
-
-void USTRemoteCallObject::Server_SetStationLink_Implementation(AFGBuildableTrainPlatformCargo* Platform, ESTPlatformLink Link, int32 Edit)
-{
-	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
-	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
-	AFGTrainStationIdentifier* Station = IsValid(Platform) ? STLayout::GetIdentifier(STLayout::FindStation(Platform)) : nullptr;
-	if (!Subsystem || !Station)
-	{
-		Client_Message(TEXT("This platform isn't part of a station."), true);
-		return;
-	}
-	Subsystem->SetStationLink(Station, Link, Platform, FString::Printf(TEXT("platform menu (%s)"), *GetPlayerName()));
-	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
-}
-
 bool USTRemoteCallObject::Server_CopyPlatformToStation_Validate(AFGBuildableTrainPlatformCargo* Platform, int32 Edit)
 {
 	return true;
@@ -355,6 +337,26 @@ void USTRemoteCallObject::Server_RequestStation_Implementation(AFGTrainStationId
 	{
 		Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
 	}
+}
+
+void USTRemoteCallObject::Server_RequestMonitor_Implementation()
+{
+	if (const ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController()))
+	{
+		Client_Monitor(Subsystem->MakeMonitorView());
+	}
+}
+
+void USTRemoteCallObject::Client_Monitor_Implementation(const FSTMonitorView& View)
+{
+	mMonitor = View;
+	++mRevision;
+}
+
+void USTRemoteCallObject::Client_OpenMonitorWindow_Implementation()
+{
+	UE_LOG(LogSmartTrains, Log, TEXT("Opening the monitor window"));
+	USTMonitorWindow::Open(GetOwnerPlayerController());
 }
 
 void USTRemoteCallObject::Client_Platform_Implementation(const FSTPlatformView& View)

@@ -14,6 +14,7 @@ class AFGFreightWagon;
 class AFGRailroadVehicle;
 class AFGTrain;
 class AFGTrainStationIdentifier;
+class FSTThroughput;
 class FSTTravel;
 class FSTTripPlanner;
 class UFGItemDescriptor;
@@ -60,6 +61,7 @@ class SMARTTRAINS_API ASTSubsystem : public AModSubsystem, public IFGSaveInterfa
 {
 	GENERATED_BODY()
 	friend class FSTTripPlanner;
+	friend class FSTThroughput;
 
 public:
 	ASTSubsystem();
@@ -75,19 +77,7 @@ public:
 	FSTTrainState& FindOrAddTrainState(AFGTrain* Train);
 
 	// Sets Platform's role and items, switching its load/unload setting to match; Off puts its own setting back.
-	// With bWholeStation, a station whose platforms are linked (IsPlatformLinked) gets them on every platform of that
-	// kind.
-	void SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, ESTRole NewRole, const TArray<FSTItemRule>& Items, const FString& Cause,
-		bool bWholeStation = true);
-
-	// Station platform linking (STStationLink.cpp).
-	ESTPlatformLink GetStationLink(const AFGTrainStationIdentifier* Station) const;
-	// Turning linking on copies Source's settings to every platform of its kind in the station.
-	void SetStationLink(AFGTrainStationIdentifier* Station, ESTPlatformLink Link, AFGBuildableTrainPlatformCargo* Source, const FString& Cause);
-	// True if an edit of Platform applies to every platform of its kind in its station.
-	bool IsPlatformLinked(const AFGBuildableTrainPlatformCargo* Platform) const;
-	// True if every platform of Platform's kind in its station has the same role and items.
-	bool DoStationPlatformsMatch(const AFGBuildableTrainPlatformCargo* Platform) const;
+	void SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, ESTRole NewRole, const TArray<FSTItemRule>& Items, const FString& Cause);
 	void SetStationDepot(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Cause);
 
 	// Starts or ends management of Train. Starting saves its timetable; ending puts it back and lets it drive on.
@@ -115,6 +105,9 @@ public:
 	TArray<FString> DescribeStation(const AFGTrainStationIdentifier* Station) const;
 	TArray<FString> DescribeTrain(const AFGTrain* Train) const;
 	TArray<FString> DescribeStatus() const;
+	// What limits throughput per item, from the last half hour ("/st monitor").
+	FSTMonitorView MakeMonitorView() const;
+	TArray<FString> DescribeMonitor() const;
 	TArray<FString> DescribeJobs() const;
 	TArray<FString> DescribeFit(const AFGTrain* Train) const;
 
@@ -321,6 +314,10 @@ private:
 	// Last flow plan: (station, item, role) -> planned flow per second.
 	TArray<FSTNode> mPlannedNodes;
 	FSTTravel* mTravel = nullptr;
+	FSTThroughput* mThroughput = nullptr;
+	FTimerHandle mThroughputTimer;
+	// When the monitor report was last logged. [game s]
+	double mLastMonitorLog = 0.0;
 	FTimerHandle mMonitorTimer;
 	FTimerHandle mSampleTimer;
 	FTimerHandle mDispatchTimer;

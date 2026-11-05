@@ -50,6 +50,8 @@ namespace STMigration
 		bool bPreselected = false;
 		FString Route;
 		FString Note;
+		// The timetable's stations, in order.
+		TArray<TWeakObjectPtr<AFGTrainStationIdentifier>> Stops;
 	};
 
 	struct FPreview

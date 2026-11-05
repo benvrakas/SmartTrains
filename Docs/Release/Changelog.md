@@ -2,13 +2,27 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Push-pull shuttles run:** a train that can dock either way round no longer has every car skipped at stations whose
+  platforms are identical, the reason the water shuttles never moved.
+- **Platform readouts** count a car holding the same item as fitting (it tops up), not only empty cars.
+- **Idle reasons:** a train with no trip lists its three most frequent rejection reasons with counts, not just the
+  last.
+- **`/st monitor`:** a throughput monitor window. Per item it shows whether supply, trains, fit or a congested
+  station limits deliveries over the last half hour. It also lists starved and backed-up platforms, and why idle
+  trains wait. Logged as `MONITOR` lines every 5 minutes.
+- **Station linking removed:** platforms always keep their own settings, with or without Freight Car Control. The
+  platform window's **Copy to the station's other platforms** button copies settings once. Without Freight Car
+  Control the only difference is that no car can skip a stop, which the planner checks.
+- **Migration route inference:** platforms the trace, stock and timetables can't settle get their items from the
+  routes of trains that stop there.
+- Idle trains are named "ST: parked at <station>" (with train names on).
 - **Locomotive menu:** the SmartTrains section moved to the Timetable column, under the stop list, and is smaller:
   the managed switch, a status line and the job. It no longer covers the power and speed stats or runs off the
   bottom. "Keep vanilla" is set with `/st train keepvanilla` only.
 - **Pool tags removed.** Trains go wherever platform items match. Tags in older saves are logged and dropped.
 - **Platform-to-platform trips.** One trip can now serve several platforms and items: each car has its own plan
-  (load this here, unload it there, skip the rest). With Freight Car Control every platform can have its own items;
-  without it a station works as one big platform. Trips have up to 4 stops and 45 minutes (Mods menu). They pick up
+  (load this here, unload it there, skip the rest). Every platform has its own items; without Freight Car Control a
+  trip only works when every car fits the platform it stops beside. Trips have up to 4 stops and 45 minutes (Mods menu). They pick up
   where they deliver when that fits, and deliver leftovers on the way.
 - **Re-planned after every stop** from what the cars really hold, so short pickups, full consumers and hand-moved
   cargo are handled at the next stop.

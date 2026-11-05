@@ -44,13 +44,6 @@ struct SMARTTRAINS_API FSTPlatformView
 	UPROPERTY()
 	FString EditedBy;
 
-	// The station's linking setting, and whether an edit here applies to the whole station now.
-	UPROPERTY()
-	ESTPlatformLink Link = ESTPlatformLink::Auto;
-
-	UPROPERTY()
-	bool bLinked = false;
-
 	UPROPERTY()
 	bool bFcc = false;
 
@@ -218,4 +211,57 @@ enum class ESTTrainAction : uint8
 	Unmanage,
 	KeepVanillaOn,
 	KeepVanillaOff,
+};
+
+// One item or station in the throughput monitor.
+USTRUCT()
+struct SMARTTRAINS_API FSTMonitorRow
+{
+	GENERATED_BODY()
+
+	// Item or station name.
+	UPROPERTY()
+	FString Title;
+
+	// What limits it: OK, Measuring, Supply short, Trains short, No train fits, Congested, Blocked, No demand, No supply.
+	UPROPERTY()
+	FString Verdict;
+
+	// 0 fine, 1 worth a look, 2 limits deliveries.
+	UPROPERTY()
+	uint8 Severity = 0;
+
+	UPROPERTY()
+	TArray<FString> Details;
+};
+
+// The throughput monitor's content ("/st monitor").
+USTRUCT()
+struct SMARTTRAINS_API FSTMonitorView
+{
+	GENERATED_BODY()
+
+	// Fleet lines.
+	UPROPERTY()
+	TArray<FString> Summary;
+
+	// Per item, the ones that limit deliveries first.
+	UPROPERTY()
+	TArray<FSTMonitorRow> Items;
+
+	// Congested stations.
+	UPROPERTY()
+	TArray<FSTMonitorRow> Stations;
+
+	// Starved demand platforms and backed-up supply platforms.
+	UPROPERTY()
+	TArray<FString> Platforms;
+
+	// Idle managed trains grouped by why they got no trip.
+	UPROPERTY()
+	TArray<FString> Idle;
+
+	// Minutes of history behind the verdicts.
+	UPROPERTY()
+	int32 WindowMinutes = 0;
 };

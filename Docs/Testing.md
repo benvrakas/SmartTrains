@@ -54,9 +54,8 @@ On a test copy of the user's network:
      cycle priority (right click goes back), type a manual rate and press Enter.
    - The platform's load/unload switch follows the role. `/st platform` shows the same settings.
    - Copy, open another platform, Paste.
-   - "Same for every platform in this station" (0.4.0): without FCC it shows "on (automatic)" on a new station, and
-     setting one platform sets the others. With platforms set differently it shows off; turning it on copies this
-     platform to the others. With FCC it is off by default.
+   - "Copy to the station's other platforms": every platform of that kind in the station gets these settings, once;
+     editing one afterwards changes only that one.
    - The game's copy/paste-settings (keys or menu) on a platform also copies and pastes the SmartTrains settings: the
      log shows `Game clipboard: copy from ...`, the panel shows "Copied SmartTrains settings: ...". A fluid
      platform's settings don't paste onto a freight platform.
@@ -91,3 +90,15 @@ On a test copy of the user's network:
 8. Mods menu "Most stops per trip" = 2: only direct trips.
 9. Old save from 0.3.0 with a job running: the log says `Converted n job stops from an older save to per-car work`,
    and the job carries on.
+
+## After 2026-11-05: push-pull, monitor, route inference
+
+1. Water push-pull shuttles: both trains get trips again (`JOB ... Water SRC ... -> Water SNK ...`). The water
+   platforms no longer say "no managed train fits" while a car holds water.
+2. A train with no trip: its `IDLE` line lists reasons with counts (`... (4 times); ...`).
+3. `/st monitor`: the window opens; after a minute items show verdicts. Starve a consumer by setting its supplier to
+   Off: within a few minutes it shows "No supply" or "Supply short". `/st monitor text` prints the same in chat, and
+   the log gets `MONITOR` lines every 5 minutes.
+4. Migration on a station with an empty platform that no belt reaches: the preview fills it from a train's route
+   ("inferred from ... route"), at medium confidence.
+5. Idle trains are named "ST: parked at <station>".

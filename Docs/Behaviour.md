@@ -1,6 +1,6 @@
 # SmartTrains: methods and emergent behaviour
 
-State: 0.4.0 (commit aaa465e). Architecture.md has the implementation details; this file lists the methods in one
+State: 0.4.0 beta. Architecture.md has the implementation details; this file lists the methods in one
 place and the behaviour that comes out of them working together.
 
 Status tags for behaviour: **seen** (in a test log), **designed** (intended, not yet seen), **risk** (possible
@@ -91,8 +91,8 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
     drives to the nearest station, then gets trips from there.
 21. **Learned times replace guesses** (designed). After one trip on a pair, its real time is used. One slow trip
     (traffic, a long wait) makes that pair look slow for a while (weight 0.3).
-22. **Identical names** (seen). With JobNames on, every idle train is "ST: parked", so logs and menus can't tell
-    them apart.
+22. **Idle names carry the station** (designed, fixed after 2026-11-05). With JobNames on, an idle train is "ST: parked
+    at <station>". It used to be plain "ST: parked" for all of them.
 
 ### Push-pull and orientation
 
@@ -101,10 +101,10 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 24. **Unseen orientations restrict a train until it has docked both ways** (designed). Until then a car is only
     planned if it fits whichever way round the train arrives. At stations whose platforms differ along their length
     this can block trips without Freight Car Control.
-25. **Water shuttles stand still** (bug?, seen 2026-11-05). Both water trains plan every round and never start a
-    trip, and the platforms say "no managed train fits". Suspected: one train still carries water. (a) A car only
-    fits a pickup when completely empty, so it can't top up. (b) It may not deliver where it is parked. (c) The
-    other sink can't be reached from there. To be confirmed before fixing.
+25. **Push-pull shuttles at identical platforms** (bug seen 2026-11-05, fixed). A push-pull train may dock either way
+    round, so each car meets a different platform depending on the way. The planner treated that as "works
+    differently" and skipped every car, so the water shuttles never got a trip. Equivalent platforms now count as
+    agreeing. The platform readout also counted only empty cars as fitting; a car holding the same item now counts.
 
 ### Interactions
 
@@ -112,8 +112,7 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
     owner "SmartTrains", which locks the car rules in FCC's menus. Unmanaged trains keep the player's FCC rules.
 27. **Without Freight Car Control a car can't skip a stop** (designed). Every car beside an active platform moves
     what the stop allows. Trips where a car would load or unload the wrong thing are rejected, so fewer trips
-    work. The station's platform settings are linked by default while they match (Auto). That default is under
-    review: per-platform roles also work without FCC.
+    work. Platforms keep their own settings either way (station linking was removed).
 28. **External timetable changes are fought** (seen with DynamicTimeTable). A managed train's timetable changed by
     anything else is noticed within 0.25 s and written back. With DynamicTimeTable installed this looped; it is now
     uninstalled.
@@ -124,15 +123,18 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 
 30. **Big networks plan in pieces** (risk). With the 25 ms budget, trains planned late in a round may get only
     their first move. The rest is added at later stops. A throttled warning logs when the budget runs out.
-31. **Last reason only** (seen). The idle message keeps only the last rejected trip, which can hide the real
-    blocker (as with the water shuttles).
+31. **Idle reasons with counts** (designed, after 2026-11-05). The idle message lists the three most frequent reasons
+    trips were rejected, with counts. It used to keep only the last one, which hid the water shuttles' blocker.
+32. **Throughput verdicts** (designed). `/st monitor` names one limit per item from the last half hour: supply, trains,
+    fit, congestion, or "Blocked" when supply and trains are there but no trips are made. A verdict needs a minute of
+    samples, and the thresholds are shares of the window, so a short quiet spell doesn't flip it.
 
 ### Migration
 
-32. **The trace decides items** (designed). Belts and pipes to machines win over stock and timetables. Those only
+33. **The trace decides items** (designed). Belts and pipes to machines win over stock and timetables. Those only
     break ties or fill in when the trace finds nothing.
-33. **One item per platform by default** (designed). A platform fed by a multi-input machine gets the item it holds
+34. **One item per platform by default** (designed). A platform fed by a multi-input machine gets the item it holds
     most of, then one its timetables send, then the largest flow (marked "check it").
-34. **Empty, untraceable platforms stay unset** (designed). With no machine, no stock and no timetable filter, the
-    platform is flagged "no item found". Route inference (planned) would fill these from the other end of a train's
-    route.
+35. **Route inference fills empty platforms** (designed). With no machine, no stock and no timetable filter, a
+    platform gets the items trains carry between it and the other stations on their routes. Only platforms nothing
+    else settled, marked medium confidence. A platform no route explains is flagged "no item found".

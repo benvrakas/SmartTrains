@@ -108,6 +108,125 @@ namespace
 	}
 }
 
+namespace
+{
+	const TCHAR* NoItemConflict = TEXT("no item found: the trace reached no machine, and it is empty and no timetable names one");
+
+	// Route inference: a platform the other evidence left without items gets the items that trains stopping there
+	// carry from or to the other stations on their timetables (loads elsewhere for a demand platform, deliveries
+	// elsewhere for a supply platform). Repeats while it fills platforms, so items carry along chains of routes.
+	void InferFromRoutes(STMigration::FPreview& Preview, bool bOneItem)
+	{
+		TMap<const AFGTrainStationIdentifier*, int32> StationIndex;
+		for (int32 Index = 0; Index < Preview.Stations.Num(); ++Index)
+		{
+			StationIndex.Add(Preview.Stations[Index].Station.Get(), Index);
+		}
+		int32 Filled = 0;
+		for (int32 Pass = 0; Pass < 4; ++Pass)
+		{
+			int32 FilledThisPass = 0;
+			for (const STMigration::FTrainProposal& Train : Preview.Trains)
+			{
+				// What the route's other stations supply and take, counted by platforms.
+				TMap<UClass*, int32> Loaded;
+				TMap<UClass*, int32> Delivered;
+				for (const TWeakObjectPtr<AFGTrainStationIdentifier>& Stop : Train.Stops)
+				{
+					const int32* Index = StationIndex.Find(Stop.Get());
+					if (!Index)
+					{
+						continue;
+					}
+					for (const STMigration::FPlatformProposal& Platform : Preview.Stations[*Index].Platforms)
+					{
+						for (const TSubclassOf<UFGItemDescriptor>& Item : Platform.Items)
+						{
+							if (Platform.Role == ESTRole::Supply)
+							{
+								++Loaded.FindOrAdd(Item.Get());
+							}
+							else if (Platform.Role == ESTRole::Demand)
+							{
+								++Delivered.FindOrAdd(Item.Get());
+							}
+						}
+					}
+				}
+				for (const TWeakObjectPtr<AFGTrainStationIdentifier>& Stop : Train.Stops)
+				{
+					const int32* Index = StationIndex.Find(Stop.Get());
+					if (!Index)
+					{
+						continue;
+					}
+					for (STMigration::FPlatformProposal& Platform : Preview.Stations[*Index].Platforms)
+					{
+						if (Platform.Role == ESTRole::Off || Platform.Items.Num() > 0 || Platform.Conflict != NoItemConflict || !Platform.Platform.IsValid())
+						{
+							continue;
+						}
+						const EFreightCargoType CargoType = STLayout::GetPlatformCargoType(Platform.Platform.Get());
+						TArray<TPair<UClass*, int32>> Candidates;
+						for (const TPair<UClass*, int32>& Each : Platform.Role == ESTRole::Demand ? Loaded : Delivered)
+						{
+							if (STLayout::ItemFitsCargoType(Each.Key, CargoType))
+							{
+								Candidates.Emplace(Each.Key, Each.Value);
+							}
+						}
+						if (Candidates.Num() == 0)
+						{
+							continue;
+						}
+						Candidates.Sort([](const TPair<UClass*, int32>& A, const TPair<UClass*, int32>& B) { return A.Value > B.Value; });
+						const int32 Take = bOneItem ? 1 : Candidates.Num();
+						for (int32 Each = 0; Each < Take; ++Each)
+						{
+							Platform.Items.Add(Candidates[Each].Key);
+						}
+						Platform.Conflict.Reset();
+						Platform.Confidence = TEXT("medium");
+						Platform.Note = FString::Printf(TEXT("inferred from %s's route (%s)%s"), *STLayout::Name(Train.Train.Get()), *Train.Route,
+							bOneItem && Candidates.Num() > 1 ? TEXT("; one item per platform: the one most platforms on the route move, check it") : TEXT(""));
+						Platform.Evidence += TEXT(", route inference");
+						UE_LOG(LogSmartTrains, Verbose, TEXT("MIGRATION route inference: %s platform %d gets %s from %s"), *STLayout::Name(Preview.Stations[*Index].Station.Get()),
+							Platform.Index + 1, *STNames::Item(Platform.Items[0]), *STLayout::Name(Train.Train.Get()));
+						++FilledThisPass;
+					}
+				}
+			}
+			Filled += FilledThisPass;
+			if (FilledThisPass == 0)
+			{
+				break;
+			}
+		}
+		if (Filled == 0)
+		{
+			return;
+		}
+		// Flags that came from a platform conflict are worked out again.
+		for (STMigration::FStationProposal& Station : Preview.Stations)
+		{
+			if (!Station.Flag.StartsWith(TEXT("platform ")))
+			{
+				continue;
+			}
+			Station.Flag.Reset();
+			for (const STMigration::FPlatformProposal& Platform : Station.Platforms)
+			{
+				if (!Platform.Conflict.IsEmpty())
+				{
+					Station.Flag = FString::Printf(TEXT("platform %d: %s"), Platform.Index + 1, *Platform.Conflict);
+					break;
+				}
+			}
+		}
+		UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION route inference filled %d platforms"), Filled);
+	}
+}
+
 TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int32 TraceLimit, bool bOneItem)
 {
 	TArray<FString> Lines;
@@ -167,6 +286,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 		for (const FTimeTableStop& Stop : Stops)
 		{
 			Proposal.Route += (Proposal.Route.IsEmpty() ? TEXT("") : TEXT(" > ")) + STLayout::Name(Stop.Station);
+			Proposal.Stops.Add(Stop.Station);
 			Proposal.bPullBased |= GroupMembers.Contains(Stop.Station);
 			for (const TSubclassOf<UFGItemDescriptor>& Item : Stop.DockingRuleSet.LoadFilterDescriptors)
 			{
@@ -424,7 +544,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 			Platform.Evidence += FString::Printf(TEXT(", items from: %s (trace %d, inventory %d, timetable filters %d)"), *Source, Traced.Num(), FromInventory, FromFilters);
 			if (Platform.Role != ESTRole::Off && Platform.Items.Num() == 0 && Platform.Conflict.IsEmpty())
 			{
-				Platform.Conflict = TEXT("no item found: the trace reached no machine, and it is empty and no timetable names one");
+				Platform.Conflict = NoItemConflict;
 			}
 			Station.Platforms.Add(Platform);
 		}
@@ -461,6 +581,8 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 		}
 		Preview.Stations.Add(MoveTemp(Station));
 	}
+
+	InferFromRoutes(Preview, bOneItem);
 
 	// The report.
 	FString Report = TEXT("Kind,Number,Station or train,Platform,Role,Items,Evidence,Flag or note,Used by,Confidence,Connection trace\n");
@@ -598,7 +720,7 @@ TArray<FString> STMigration::Apply(ASTSubsystem* Subsystem, UWorld* World, const
 				FSTItemRule& Rule = Rules.AddDefaulted_GetRef();
 				Rule.Item = Item;
 			}
-			Subsystem->SetPlatformConfig(Cargo, Platform.Role, Rules, Cause + TEXT(" (migration)"), false);
+			Subsystem->SetPlatformConfig(Cargo, Platform.Role, Rules, Cause + TEXT(" (migration)"));
 			++PlatformsSet;
 		}
 	}
@@ -691,7 +813,7 @@ TArray<FString> STMigration::Undo(ASTSubsystem* Subsystem, UWorld* World, const 
 		{
 			continue;
 		}
-		Subsystem->SetPlatformConfig(Platform, Before.Role, Before.Items, Cause + TEXT(" (migration undo)"), false);
+		Subsystem->SetPlatformConfig(Platform, Before.Role, Before.Items, Cause + TEXT(" (migration undo)"));
 		if (Before.Role == ESTRole::Off && Before.bHasOriginalLoadMode)
 		{
 			Platform->SetIsInLoadMode(Before.bOriginalLoadMode);

@@ -187,8 +187,9 @@ namespace
 
 	const TCHAR* Help[] = {
 		TEXT("/st status | jobs | fit"),
+		TEXT("/st monitor [text]   (what limits throughput: supply, trains, fit or congestion; text prints it in chat)"),
 		TEXT("/st platform [supply|demand|off] [item, item...] [target %] [sendat %] [priority low|normal|high|critical] [rate n/min] | /st platform copy"),
-		TEXT("/st station [depot on|off] [same on|off|auto]   (same: editing one platform sets every platform of that kind in the station)"),
+		TEXT("/st station [depot on|off]"),
 		TEXT("/st train [manage|unmanage] [keepvanilla on|off]"),
 		TEXT("/st job <item> from <station> to <station>   (a test job for the train you drive or look at)"),
 		TEXT("/st migrate   (opens the migration window)"),
@@ -230,6 +231,21 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 	if (Verb == TEXT("status"))
 	{
 		Send(Sender, Subsystem->DescribeStatus());
+		return EExecutionStatus::COMPLETED;
+	}
+	if (Verb == TEXT("monitor"))
+	{
+		AFGPlayerController* Controller = Sender ? Sender->GetPlayer() : nullptr;
+		USTRemoteCallObject* RCO = Controller ? Controller->GetRemoteCallObjectOfClass<USTRemoteCallObject>() : nullptr;
+		const bool bText = Arguments.Num() > 1 && Arguments[1].Equals(TEXT("text"), ESearchCase::IgnoreCase);
+		if (RCO && !bText)
+		{
+			RCO->Client_OpenMonitorWindow();
+		}
+		else
+		{
+			Send(Sender, Subsystem->DescribeMonitor());
+		}
 		return EExecutionStatus::COMPLETED;
 	}
 	if (Verb == TEXT("jobs"))
@@ -366,13 +382,6 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			if (Word == TEXT("depot"))
 			{
 				Subsystem->SetStationDepot(Station, IsOn(Arguments[Index + 1]), Who);
-			}
-			else if (Word == TEXT("same"))
-			{
-				const FString Value = Arguments[Index + 1].ToLower();
-				const ESTPlatformLink Link = Value == TEXT("auto") ? ESTPlatformLink::Auto : (IsOn(Value) ? ESTPlatformLink::Same : ESTPlatformLink::Separate);
-				// The platform looked at, if any, is the one whose settings the others get.
-				Subsystem->SetStationLink(Station, Link, FindAimed<AFGBuildableTrainPlatformCargo>(Sender), Who);
 			}
 		}
 		Send(Sender, Subsystem->DescribeStation(Station));

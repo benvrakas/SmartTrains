@@ -104,7 +104,8 @@ public:
 	// Milliseconds spent since the planner was made.
 	double GetElapsedMs() const;
 	// Why the last trip tried for the current train didn't work, empty if none failed.
-	const FString& GetLastProblem() const { return mLastProblem; }
+	// Why trips tried for the current train were rejected: the most frequent reasons with their counts, or empty.
+	FString DescribeProblems() const;
 
 private:
 	struct FPlatformInfo
@@ -141,6 +142,8 @@ private:
 	// Car's room for Item with Cargo on board.
 	double GetCarRoom(const FCarInfo& Car, const TArray<TPair<UClass*, double>>& Cargo, UClass* Item) const;
 	bool IsSupplyFull(int32 Node) const;
+	// True if platforms A and B (indices into mPlatforms) have the same role, mode, form and items.
+	bool IsSameKind(int32 A, int32 B) const;
 	FSTPlanResult SimulateWithSkips(const TArray<FSTPlanStop>& Stops, TSet<TPair<int32, int32>>& InOutSkips) const;
 
 	const ASTSubsystem& mSubsystem;
@@ -151,7 +154,8 @@ private:
 	double mTime = 0.0;
 	double mStarted = 0.0;
 	double mDeadline = 0.0;
-	mutable FString mLastProblem;
+	// Rejection reason -> how often it came up for the current train.
+	mutable TMap<FString, int32> mProblems;
 	bool bFcc = false;
 	int32 mMaxStops = 4;
 	double mMaxTripSeconds = 1200.0;

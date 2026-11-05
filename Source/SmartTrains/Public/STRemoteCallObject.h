@@ -22,10 +22,6 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_SetPlatform(AFGBuildableTrainPlatformCargo* Platform, ESTRole Role, const TArray<FSTItemRule>& Items, int32 Edit);
 
-	// Sets the linking of Platform's station; turning it on copies Platform's settings to the station.
-	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_SetStationLink(AFGBuildableTrainPlatformCargo* Platform, ESTPlatformLink Link, int32 Edit);
-
 	// Gives every platform of the same cargo type in Platform's station Platform's settings.
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_CopyPlatformToStation(AFGBuildableTrainPlatformCargo* Platform, int32 Edit);
@@ -58,6 +54,9 @@ public:
 	UFUNCTION(Server, Unreliable)
 	void Server_RequestStation(AFGTrainStationIdentifier* Station);
 
+	UFUNCTION(Server, Unreliable)
+	void Server_RequestMonitor();
+
 	UFUNCTION(Client, Reliable)
 	void Client_Platform(const FSTPlatformView& View);
 
@@ -70,6 +69,9 @@ public:
 	UFUNCTION(Client, Reliable)
 	void Client_Migration(const FSTMigrationView& View);
 
+	UFUNCTION(Client, Unreliable)
+	void Client_Monitor(const FSTMonitorView& View);
+
 	// Tells the player which clipboard slot now holds settings.
 	UFUNCTION(Client, Reliable)
 	void Client_Clipboard(bool bFluid, bool bValid);
@@ -77,6 +79,10 @@ public:
 	// Opens the migration window ("/st migrate").
 	UFUNCTION(Client, Reliable)
 	void Client_OpenMigrationWindow();
+
+	// Opens the throughput monitor window ("/st monitor").
+	UFUNCTION(Client, Reliable)
+	void Client_OpenMonitorWindow();
 
 	// Tells the player why an edit was refused or what it did.
 	UFUNCTION(Client, Reliable)
@@ -96,6 +102,7 @@ public:
 	const FSTTrainView* GetTrainView(const AFGTrain* Train) const;
 	const FSTStationView* GetStationView(const AFGTrainStationIdentifier* Station) const;
 	const FSTMigrationView& GetMigrationView() const { return mMigration; }
+	const FSTMonitorView& GetMonitorView() const { return mMonitor; }
 
 	// True once this player copied settings from a platform of that form.
 	bool HasClipboard(bool bFluid) const { return bFluid ? bHasFluidClipboard : bHasFreightClipboard; }
@@ -139,6 +146,7 @@ private:
 	TMap<TWeakObjectPtr<AFGTrain>, FSTTrainView> mTrains;
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, FSTStationView> mStations;
 	FSTMigrationView mMigration;
+	FSTMonitorView mMonitor;
 	uint32 mRevision = 0;
 	FString mLastMessage;
 	bool bLastMessageError = false;

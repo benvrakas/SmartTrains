@@ -23,16 +23,6 @@ enum class ESTRole : uint8
 	Demand,
 };
 
-// Whether editing one platform of a station sets every platform of that kind (freight or fluid) there.
-UENUM()
-enum class ESTPlatformLink : uint8
-{
-	// Same without Freight Car Control while all the station's platforms of a kind match; separate otherwise.
-	Auto,
-	Same,
-	Separate,
-};
-
 // How urgent a platform item is.
 UENUM()
 enum class ESTPriority : uint8
@@ -146,9 +136,6 @@ struct SMARTTRAINS_API FSTStationConfig
 	// Idle managed trains park here.
 	UPROPERTY(SaveGame)
 	bool bDepot = false;
-
-	UPROPERTY(SaveGame)
-	ESTPlatformLink Link = ESTPlatformLink::Auto;
 
 	// Pool tag from 0.1.0 to 0.3.0; no longer used, only logged and cleared on load.
 	UPROPERTY(SaveGame)

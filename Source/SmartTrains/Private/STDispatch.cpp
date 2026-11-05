@@ -342,7 +342,21 @@ FSTFit ASTSubsystem::ComputeFit(const AFGTrain* Train, const AFGTrainStationIden
 			bFitsTo &= Platform && Config && Config->Role == ESTRole::Demand && Config->FindRule(Item)
 				&& STLayout::ItemFitsCargoType(Item, STLayout::GetPlatformCargoType(Platform));
 		}
-		const bool bEmpty = STLayout::GetCargoType(Car) == EFreightCargoType::FCT_NONE;
+		// Empty, or holding only this item (it tops up or delivers it first).
+		bool bEmpty = true;
+		if (const UFGInventoryComponent* Inventory = Car->GetFreightInventory())
+		{
+			TArray<FInventoryStack> Stacks;
+			Inventory->GetInventoryStacks(Stacks, true);
+			for (const FInventoryStack& Stack : Stacks)
+			{
+				if (!Stack.HasItems())
+				{
+					continue;
+				}
+				bEmpty &= Stack.Item.GetItemClass() == Item;
+			}
+		}
 		if (bFitsFrom && bFitsTo && bEmpty)
 		{
 			Fit.Cars.Add(Car);
@@ -357,7 +371,7 @@ FSTFit ASTSubsystem::ComputeFit(const AFGTrain* Train, const AFGTrainStationIden
 			else if (Fit.Problem.IsEmpty())
 			{
 				Fit.Problem = FString::Printf(TEXT("%s would load %s at %s but %s"), *STLayout::DescribeVehicle(Train, Car), *STNames::Item(Item), *STLayout::Name(From),
-					!bEmpty ? TEXT("already carries something") : *FString::Printf(TEXT("doesn't stop beside a demand platform for it at %s (needs Freight Car Control to skip that car)"), *STLayout::Name(To)));
+					!bEmpty ? TEXT("already carries another item") : *FString::Printf(TEXT("doesn't stop beside a demand platform for it at %s (needs Freight Car Control to skip that car)"), *STLayout::Name(To)));
 			}
 		}
 	}
@@ -697,9 +711,10 @@ void ASTSubsystem::DispatchRound()
 				State.UnwantedCargoSince = Time;
 				UE_LOG(LogSmartTrains, Log, TEXT("%s carries cargo no trip wants now"), *STLayout::Name(State.Train));
 			}
-			NoTrip(State, !Planner.GetLastProblem().IsEmpty()
-				? FString::Printf(TEXT("nothing worth running now; the last trip tried was rejected: %s"), *Planner.GetLastProblem())
-				: FString(TEXT("nothing worth running now (consumers stocked, or no batch ready)")));
+			const FString Problems = Planner.DescribeProblems();
+			NoTrip(State, !Problems.IsEmpty()
+				? FString::Printf(TEXT("nothing worth running now; trips tried were rejected: %s"), *Problems)
+				: FString(TEXT("nothing worth running now (consumers at target, or no batch ready)")));
 			continue;
 		}
 		mIdleReasons.Remove(State.Train.Get());

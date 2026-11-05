@@ -12,7 +12,7 @@ in the plan (`C:\Users\benvr\.claude\plans\smarttrains.md`); this file records h
 | `STDispatch.cpp` | The rest of `ASTSubsystem`: supply/demand nodes, the fit model, dispatching, the flow plan, writing timetables. |
 | `STTripPlanner.*` | Trip planning: car-by-car simulation, regret insertion, the exact train assignment. |
 | `STMinCostFlow.*` | Minimum-cost flow for the flow plan. |
-| `STStationLink.cpp` | "Same for every platform in this station". |
+| `STThroughput.*` | The throughput monitor behind `/st monitor`. |
 | `STLayout.*` | Station platform chains and train consists, walked the way the game docks. `FSTPlatformAccess` reads protected platform fields (access-transformer friend). |
 | `STTravel.*` | Track distances between stations by a directed search over the track network. |
 | `STBridges.*` | Freight Car Control and DynamicTimeTable, both reached by reflection only. |
@@ -77,7 +77,8 @@ station). A stored map is used while the train still has those vehicles. A dock 
 logs `DOCK MAP MISMATCH`.
 
 A car **fits** a job (item X, pickup S, delivery D) when, at S, it stops beside a Supply platform with X, and at D,
-beside a Demand platform that accepts X. It must also be empty, and the cargo type (solid or fluid) must match. A car
+beside a Demand platform that accepts X. It must be empty or hold only X (it tops up), and the cargo type (solid or
+fluid) must match. A car
 that would **stray** sits at S beside a load-mode platform that has or supplies X but doesn't fit at D:
 
 - with Freight Car Control the job sets it to Skip at S;
@@ -126,7 +127,9 @@ trains. Then each car, stop by stop, beside the platform it meets there (from th
 - At an unloading platform, a car unloads every filter item it carries. The platform must be a demand platform
   that takes all of them (or an any-item sink); otherwise it is harm.
 - If the possible dock maps disagree, or the car would do harm, the car skips the stop through Freight Car Control.
-  Without FCC the trip is invalid.
+  Without FCC the trip is invalid. Maps that put a car beside different platforms agree when those platforms are
+  equivalent (same role, mode, form and items), as at a push-pull shuttle's station. The car's amounts then come from
+  the smallest of their pools, and each is reduced by what it moves.
 - Amounts come from the platform's stock plus its share of the node's production up to the end of the stay (a fluid
   platform fed by pipes keeps filling while the train loads), less what other trips reserved. Unloads are limited by the platform's free slots.
 - Cargo loaded on the trip that no later stop unloads is stranded: with FCC that car skips the pickup and the
@@ -254,8 +257,8 @@ second after it opens, to check that.
 - **Platform panel.** Role buttons (Off / Supply / Demand); per item: priority (click cycles, right click goes back),
   send-at or target in 10 % steps, and a manual rate (m³/min for fluids). The item picker lists the items on the
   platform first, then every item that available recipes make plus raw resources, of the platform's form; "Any item"
-  only on demand platforms. Copy / Paste use the player's SmartTrains clipboard (below). The station switch is
-  described under "Station linking".
+  only on demand platforms. Copy / Paste use the player's SmartTrains clipboard (below). "Copy to the station's other
+  platforms" gives every platform of its kind in the station these settings once.
 - **Clipboard** (`STClipboardHooks.cpp`). Each player has two slots on the server, freight and fluid
   (`USTRemoteCallObject::mFreightClipboard` / `mFluidClipboard`), as the game keeps one clipboard entry per building
   kind. The panel's Copy / Paste and the game's copy/paste-settings both use them: SML hooks after
@@ -278,20 +281,46 @@ second after it opens, to check that.
   sends the ticked numbers. Without a test copy or backup this session, Apply takes a second click (the chat
   command's `confirm`).
 
-## Station linking
+## Without Freight Car Control
 
-"Same for every platform in this station" (`FSTStationConfig::Link`, `STStationLink.cpp`):
+Every platform keeps its own role and items with or without Freight Car Control. The only difference is that without
+it no car can skip a stop: each car loads or unloads at the platform it stops beside, within the stop's filters. The
+planner's simulation already follows that rule. A trip where some car would load an item nobody planned, unload where
+it shouldn't, or work differently depending on how the train docks is invalid without FCC. With FCC that car skips the
+stop. 0.4.0 betas also had "Same for every platform in this station" (station linking); it was removed. The saved
+field is skipped when an older save loads. `/st platform copy` and the platform window's copy button still give the
+station's other platforms one platform's settings, once.
 
-- **Same:** an edit of one platform (`SetPlatformConfig` with `bWholeStation`) is applied to every platform of its
-  kind (freight or fluid) in the station. Turning it on copies the platform it was turned on from to the others.
-- **Separate:** platforms are set one by one.
-- **Auto** (default): same without Freight Car Control while every platform of that kind in the station already
-  has the same role and items (`DoStationPlatformsMatch`), separate otherwise or with FCC.
+## Idle reasons
 
-Without FCC every car beside a platform transfers, so a station only works for multi-item trips when it works the
-same along its whole length. Auto never overwrites platforms that were set differently (by hand, by the migration
-tool, or in a 0.3.0 save): those count as separate until the switch is turned on. The migration tool, its undo and
-`CopyPlatformToStation` set platforms one by one.
+A free train that gets no trip has its reasons recorded per round (`FSTTripPlanner::DescribeProblems`): every
+rejected candidate trip adds its reason, and the three most frequent are kept with their counts. The `IDLE` log line,
+the train panel and the monitor's idle list show them.
+
+## Throughput monitor
+
+`FSTThroughput` samples every 10 s and judges the last 30 minutes:
+
+- Fleet: managed trains driving a trip, at a stop of a trip, going to park, or idle. Busy = driving or at a stop.
+- Nodes (station, item, role, from `BuildNodes`): below target, starved, full (≥ 90 %), nearly empty (≤ 10 %).
+- Stations with roles: whether any train is docked. Arrivals of trip legs are recorded with their lateness against
+  the plan (`RecordArrival` from `OnDocked`).
+
+Verdict per item, first match:
+
+1. no demand platforms: "No demand"; no supply platforms: "No supply";
+2. less than a minute of samples: "Measuring";
+3. consumers below target less than 25 % of the time: "OK";
+4. no planned route, or no managed train fits one: "No train fits";
+5. suppliers nearly empty half the time, or supply rate under 90 % of demand: "Supply short";
+6. suppliers full 30 % of the time (or the flow plan needs more trains than fit) while the fleet is busy 80 % of the
+   time: "Trains short";
+7. one of its stations congested (a train docked 85 % of the time, or arrivals 120 s late on average): "Congested";
+8. otherwise "Blocked": supply and trains are there but trips aren't made, so the idle reasons tell why.
+
+The view (`FSTMonitorView`) goes to `USTMonitorWindow` through `Server_RequestMonitor` / `Client_Monitor` once a second
+while the window is open. `/st monitor text` and the server console print the same report, and it is logged as
+`MONITOR` lines every 5 minutes while trains are managed.
 
 ## Pool tags (removed in 0.4.0)
 

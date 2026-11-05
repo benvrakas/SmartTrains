@@ -183,6 +183,53 @@ double FSTTripPlanner::GetUrgency(int32 Node, double Arrive) const
 	return Urgency;
 }
 
+FString FSTTripPlanner::DescribeProblems() const
+{
+	TArray<TPair<FString, int32>> Sorted;
+	for (const TPair<FString, int32>& Each : mProblems)
+	{
+		Sorted.Emplace(Each.Key, Each.Value);
+	}
+	Sorted.Sort([](const TPair<FString, int32>& A, const TPair<FString, int32>& B) { return A.Value > B.Value; });
+	TArray<FString> Parts;
+	for (int32 Index = 0; Index < Sorted.Num() && Index < 3; ++Index)
+	{
+		Parts.Add(Sorted[Index].Value > 1 ? FString::Printf(TEXT("%s (%d times)"), *Sorted[Index].Key, Sorted[Index].Value) : Sorted[Index].Key);
+	}
+	if (Sorted.Num() > 3)
+	{
+		Parts.Add(FString::Printf(TEXT("%d other reasons"), Sorted.Num() - 3));
+	}
+	return FString::Join(Parts, TEXT("; "));
+}
+
+bool FSTTripPlanner::IsSameKind(int32 A, int32 B) const
+{
+	if (A == B)
+	{
+		return true;
+	}
+	if (!mPlatforms.IsValidIndex(A) || !mPlatforms.IsValidIndex(B))
+	{
+		return false;
+	}
+	const FPlatformInfo& First = mPlatforms[A];
+	const FPlatformInfo& Second = mPlatforms[B];
+	if (First.bSupply != Second.bSupply || First.bDemand != Second.bDemand || First.bAnyItem != Second.bAnyItem || First.bLoadMode != Second.bLoadMode
+		|| First.bFluid != Second.bFluid || First.Items.Num() != Second.Items.Num())
+	{
+		return false;
+	}
+	for (UClass* Item : First.Items)
+	{
+		if (!Second.Items.Contains(Item))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 bool FSTTripPlanner::IsSupplyFull(int32 Node) const
 {
 	const FSTNode& Supplier = mNodes[Node];
@@ -298,7 +345,7 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 	mCars.Reset();
 	mMoves.Reset();
 	mCarPlatforms.Reset();
-	mLastProblem.Reset();
+	mProblems.Reset();
 	bPushPull = ASTSubsystem::IsPushPull(mSubsystem.mTrains[TrainIndex].Train);
 	const FSTTrainState& State = mSubsystem.mTrains[TrainIndex];
 	const AFGTrain* Train = State.Train;
@@ -594,7 +641,8 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 			// What the car would do beside its platform, for every way the train may dock.
 			enum class EEffect : uint8 { None, Load, Unload, Harm };
 			EEffect Effect = EEffect::None;
-			int32 PlatformIndex = INDEX_NONE;
+			// The platforms the car may stop beside, one per way the train may dock (equivalent ones when they differ).
+			TArray<int32> Beside;
 			TArray<UClass*> Items;
 			bool bAgree = true;
 			for (int32 MapIndex = 0; MapIndex < Maps.Num(); ++MapIndex)
@@ -637,16 +685,23 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 				if (MapIndex == 0)
 				{
 					Effect = ThisEffect;
-					PlatformIndex = Here;
 					Items = ThisItems;
+					if (Here != INDEX_NONE)
+					{
+						Beside.Add(Here);
+					}
 				}
 				else if (ThisEffect == EEffect::Harm || Effect == EEffect::Harm)
 				{
 					Effect = EEffect::Harm;
 				}
-				else if (ThisEffect != Effect || (Effect != EEffect::None && (Here != PlatformIndex || ThisItems != Items)))
+				else if (ThisEffect != Effect || (Effect != EEffect::None && (ThisItems != Items || !IsSameKind(Here, Beside[0]))))
 				{
 					bAgree = false;
+				}
+				else if (Effect != EEffect::None)
+				{
+					Beside.AddUnique(Here);
 				}
 			}
 			if (Effect == EEffect::Harm || !bAgree)
@@ -661,13 +716,13 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 			}
 			if (Effect == EEffect::Load)
 			{
-				const FPlatformInfo& Platform = mPlatforms[PlatformIndex];
 				for (UClass* Item : Items)
 				{
 					const int32 Node = FindNode(Stop.Station, Item, true);
 					double& NodeLeft = FindOrAddValue<int32>(NodeSupply, Node, [&]() { return Node != INDEX_NONE ? GetAvailable(Node, Arrive) : 0.0; });
-					double& Pool = FindOrAddValue<TPair<int32, UClass*>>(PlatformPool, TPair<int32, UClass*>(PlatformIndex, Item), [&]()
+					auto InitialPool = [&](int32 PlatformIndex)
 					{
+						const FPlatformInfo& Platform = mPlatforms[PlatformIndex];
 						const double Stock = Platform.Stock.FindRef(Item);
 						if (Node == INDEX_NONE)
 						{
@@ -678,7 +733,20 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 						// What arrives up to the end of the stay, since the platform keeps filling while the train loads.
 						const double Until = Arrive + mSubsystem.EstimateStaySeconds(Stop.Station) - mTime;
 						return FMath::Max(0.0, Stock + Share * (Supplier.Rate * Until - Supplier.Reserved));
-					});
+					};
+					// Which of the equivalent platforms the car meets depends on how the train docks: count the smallest pool.
+					for (int32 PlatformIndex : Beside)
+					{
+						FindOrAddValue<TPair<int32, UClass*>>(PlatformPool, TPair<int32, UClass*>(PlatformIndex, Item), [&]() { return InitialPool(PlatformIndex); });
+					}
+					TArray<double*> Pools;
+					double Pool = TNumericLimits<double>::Max();
+					for (int32 PlatformIndex : Beside)
+					{
+						double& Each = FindOrAddValue<TPair<int32, UClass*>>(PlatformPool, TPair<int32, UClass*>(PlatformIndex, Item), []() { return 0.0; });
+						Pools.Add(&Each);
+						Pool = FMath::Min(Pool, Each);
+					}
 					const double Room = GetCarRoom(mCars[CarIndex], Cargo[CarIndex], Item);
 					const double Amount = FMath::FloorToDouble(FMath::Min3(Room, Pool, FMath::Max(0.0, NodeLeft)));
 					FItemTotals& Total = TotalsFor(Item);
@@ -698,7 +766,10 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 						continue;
 					}
 					AddCargo(Cargo[CarIndex], Item, Amount);
-					Pool -= Amount;
+					for (double* Each : Pools)
+					{
+						*Each -= Amount;
+					}
 					NodeLeft -= Amount;
 					Total.LoadedAmount += Amount;
 					Step.Loaded.Emplace(Item, static_cast<int32>(Amount));
@@ -707,17 +778,29 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 			}
 			else if (Effect == EEffect::Unload)
 			{
-				const FPlatformInfo& Platform = mPlatforms[PlatformIndex];
 				for (UClass* Item : Items)
 				{
 					const double Carried = CargoOf(Cargo[CarIndex], Item);
-					double& Space = FindOrAddValue<TPair<int32, UClass*>>(PlatformRoom, TPair<int32, UClass*>(PlatformIndex, Item), [&]()
+					auto InitialSpace = [&](int32 PlatformIndex)
 					{
+						const FPlatformInfo& Platform = mPlatforms[PlatformIndex];
 						const int32 Stack = StackOf(Item);
 						const int32 Stock = Platform.Stock.FindRef(Item);
 						const int32 Rest = Stock % Stack;
 						return FMath::Max(0, Platform.Slots - Platform.Occupied) * static_cast<double>(Stack) + (Rest > 0 ? Stack - Rest : 0);
-					});
+					};
+					for (int32 PlatformIndex : Beside)
+					{
+						FindOrAddValue<TPair<int32, UClass*>>(PlatformRoom, TPair<int32, UClass*>(PlatformIndex, Item), [&]() { return InitialSpace(PlatformIndex); });
+					}
+					TArray<double*> Spaces;
+					double Space = TNumericLimits<double>::Max();
+					for (int32 PlatformIndex : Beside)
+					{
+						double& Each = FindOrAddValue<TPair<int32, UClass*>>(PlatformRoom, TPair<int32, UClass*>(PlatformIndex, Item), []() { return 0.0; });
+						Spaces.Add(&Each);
+						Space = FMath::Min(Space, Each);
+					}
 					const double Amount = FMath::FloorToDouble(FMath::Min(Carried, Space));
 					for (FLoaded& Each : Loaded)
 					{
@@ -728,7 +811,10 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 						continue;
 					}
 					AddCargo(Cargo[CarIndex], Item, -Amount);
-					Space -= Amount;
+					for (double* Each : Spaces)
+					{
+						*Each -= Amount;
+					}
 					Step.Unloaded.Emplace(Item, static_cast<int32>(Amount));
 					Result.Moved += static_cast<int32>(Amount);
 					const int32 Node = FindNode(Stop.Station, Item, false);
@@ -805,7 +891,7 @@ bool FSTTripPlanner::InsertBest(TArray<FSTPlanStop>& InOutStops, const FSTPlanMo
 		FSTPlanResult Result = Simulate(Candidate);
 		if (!Result.bValid)
 		{
-			mLastProblem = Result.Problem;
+			++mProblems.FindOrAdd(Result.Problem);
 			return;
 		}
 		if (Result.Score > Best)

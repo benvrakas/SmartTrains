@@ -13,6 +13,7 @@
 #include "SmartTrains.h"
 #include "STBridges.h"
 #include "STLayout.h"
+#include "STThroughput.h"
 #include "STTravel.h"
 #include "Subsystem/SubsystemActorManager.h"
 #include "TimerManager.h"
@@ -21,12 +22,15 @@ ASTSubsystem::ASTSubsystem()
 {
 	ReplicationPolicy = ESubsystemReplicationPolicy::SpawnOnServer;
 	mTravel = new FSTTravel();
+	mThroughput = new FSTThroughput();
 }
 
 ASTSubsystem::~ASTSubsystem()
 {
 	delete mTravel;
 	mTravel = nullptr;
+	delete mThroughput;
+	mThroughput = nullptr;
 }
 
 ASTSubsystem* ASTSubsystem::Get(const UObject* WorldContext)
@@ -49,6 +53,24 @@ void ASTSubsystem::BeginPlay()
 	Timers.SetTimer(mMonitorTimer, this, &ASTSubsystem::MonitorTrains, 0.25f, true, 1.f);
 	Timers.SetTimer(mSampleTimer, this, &ASTSubsystem::SamplePlatforms, 1.f, true, 1.f);
 	Timers.SetTimer(mTravelTimer, this, &ASTSubsystem::StepTravel, 0.5f, true, 2.f);
+	Timers.SetTimer(mThroughputTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
+	{
+		if (!mThroughput)
+		{
+			return;
+		}
+		mThroughput->Sample(*this);
+		// The report goes to the log every 5 minutes while trains are managed.
+		const double Time = Now();
+		if (Time - mLastMonitorLog >= 300.0 && mTrains.ContainsByPredicate([](const FSTTrainState& State) { return State.bManaged; }))
+		{
+			mLastMonitorLog = Time;
+			for (const FString& Line : DescribeMonitor())
+			{
+				UE_LOG(LogSmartTrains, Log, TEXT("MONITOR %s"), *Line);
+			}
+		}
+	}), static_cast<float>(FSTThroughput::SampleSeconds), true, 5.f);
 	Timers.SetTimer(mDispatchTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
 	{
 		ReadSettings();
@@ -87,7 +109,7 @@ void ASTSubsystem::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ASTSubsystem::PreSaveGame_Implementation(int32 SaveVersion, int32 GameVersion)
 {
 	mPlatforms.RemoveAll([](const FSTPlatformConfig& Config) { return !IsValid(Config.Platform) || (Config.Role == ESTRole::Off && Config.Items.Num() == 0); });
-	mStations.RemoveAll([](const FSTStationConfig& Config) { return !IsValid(Config.Station) || (!Config.bDepot && Config.Link == ESTPlatformLink::Auto); });
+	mStations.RemoveAll([](const FSTStationConfig& Config) { return !IsValid(Config.Station) || !Config.bDepot; });
 	mTrains.RemoveAll([](const FSTTrainState& State) { return !IsValid(State.Train) || (!State.bManaged && !State.bKeepVanilla); });
 	mDockMaps.RemoveAll([](const FSTDockMap& Map) { return !IsValid(Map.Train) || !IsValid(Map.Station); });
 	mTrips.RemoveAll([](const FSTTripTime& Trip) { return !IsValid(Trip.From) || !IsValid(Trip.To); });
@@ -221,27 +243,11 @@ FSTTrainState& ASTSubsystem::FindOrAddTrainState(AFGTrain* Train)
 	return State;
 }
 
-void ASTSubsystem::SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, ESTRole NewRole, const TArray<FSTItemRule>& Items, const FString& Cause,
-	bool bWholeStation)
+void ASTSubsystem::SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, ESTRole NewRole, const TArray<FSTItemRule>& Items, const FString& Cause)
 {
 	if (!Platform)
 	{
 		return;
-	}
-	if (bWholeStation && IsPlatformLinked(Platform))
-	{
-		const EFreightCargoType Type = STLayout::GetPlatformCargoType(Platform);
-		int32 Others = 0;
-		for (AFGBuildableTrainPlatform* Each : STLayout::GetPlatforms(STLayout::FindStation(Platform)))
-		{
-			AFGBuildableTrainPlatformCargo* Other = Cast<AFGBuildableTrainPlatformCargo>(Each);
-			if (Other && Other != Platform && STLayout::GetPlatformCargoType(Other) == Type)
-			{
-				SetPlatformConfig(Other, NewRole, Items, Cause + TEXT(" (same for the station)"), false);
-				++Others;
-			}
-		}
-		UE_LOG(LogSmartTrains, Log, TEXT("PLATFORM %s: linked station, %d other platforms set too"), *Platform->GetName(), Others);
 	}
 	FSTPlatformConfig* Config = FindPlatformConfig(Platform);
 	if (!Config)
@@ -521,6 +527,10 @@ void ASTSubsystem::OnDocked(FSTTrainState& State, AFGTrainStationIdentifier* Sta
 	}
 	mDockStartAmounts.Add(Train, Amounts);
 	const double Late = Now() - Leg.PlannedArrival;
+	if (mThroughput && !State.Job.bPark)
+	{
+		mThroughput->RecordArrival(Station, Late, Now());
+	}
 	UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s: docked at %s for leg %d/%d (%s), %+.0f s against plan"), State.Job.Id, *STLayout::Name(Train), *STLayout::Name(Station),
 		State.Job.Leg + 1, State.Job.Legs.Num(), Leg.HasWork() ? *DescribeLeg(Train, Leg, false) : TEXT("no transfer"), Late);
 	if (State.Job.Leg == State.Job.Legs.Num() - 1 && !State.Job.bPark)
@@ -869,7 +879,12 @@ void ASTSubsystem::UpdateTrainName(FSTTrainState& State)
 		State.OriginalName = Train->GetTrainName();
 		UE_LOG(LogSmartTrains, Log, TEXT("%s was renamed by a player; that name comes back when SmartTrains stops naming it"), *Current);
 	}
-	const FString Name = State.bHasJob ? FString::Printf(TEXT("ST: %s"), *State.Job.Summary) : FString::Printf(TEXT("ST: %s"), STNames::Phase(State.Phase));
+	// Idle trains carry where they stand, so they can be told apart.
+	FString Name = State.bHasJob ? FString::Printf(TEXT("ST: %s"), *State.Job.Summary) : FString::Printf(TEXT("ST: %s"), STNames::Phase(State.Phase));
+	if (!State.bHasJob && State.LastStation)
+	{
+		Name += FString::Printf(TEXT(" at %s"), *STLayout::Name(State.LastStation));
+	}
 	if (Current != Name)
 	{
 		Train->SetTrainName(FText::FromString(Name));
@@ -905,10 +920,7 @@ TArray<FString> ASTSubsystem::DescribeStation(const AFGTrainStationIdentifier* S
 	TArray<FString> Lines;
 	const AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
 	const FSTStationConfig* Config = mStations.FindByPredicate([Station](const FSTStationConfig& Each) { return Each.Station == Station; });
-	const ESTPlatformLink Link = Config ? Config->Link : ESTPlatformLink::Auto;
-	Lines.Add(FString::Printf(TEXT("Station %s%s, platforms %s"), *STLayout::Name(Station), Config && Config->bDepot ? TEXT(" (depot)") : TEXT(""),
-		Link == ESTPlatformLink::Same ? TEXT("same for the whole station") : Link == ESTPlatformLink::Separate ? TEXT("set one by one")
-			: (IsFccAvailable() ? TEXT("set one by one (auto, Freight Car Control)") : TEXT("same for the whole station while they match (auto)"))));
+	Lines.Add(FString::Printf(TEXT("Station %s%s"), *STLayout::Name(Station), Config && Config->bDepot ? TEXT(" (depot)") : TEXT("")));
 	FString Layout;
 	for (const AFGBuildableTrainPlatform* Platform : STLayout::GetPlatforms(Building))
 	{
@@ -1022,6 +1034,16 @@ TArray<FString> ASTSubsystem::DescribeStatus() const
 		Lines.Add(FString::Printf(TEXT("  Warning: %d of %d managed trains carry cargo no consumer wants. Check demand targets, or add an any-item sink."), Unwanted, Managed));
 	}
 	return Lines;
+}
+
+FSTMonitorView ASTSubsystem::MakeMonitorView() const
+{
+	return mThroughput ? mThroughput->MakeView(*this) : FSTMonitorView();
+}
+
+TArray<FString> ASTSubsystem::DescribeMonitor() const
+{
+	return FSTThroughput::Describe(MakeMonitorView());
 }
 
 TArray<FString> ASTSubsystem::DescribeFit(const AFGTrain* Train) const

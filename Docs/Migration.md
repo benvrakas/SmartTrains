@@ -54,6 +54,10 @@ Not yet used:
 
 ## Which trains and stations migrate
 
+- **Route inference** (last fallback): a platform still without items gets them from the routes of the trains that
+  stop at its station. A demand platform gets what their other stations supply. A supply platform gets what they
+  take. It repeats while it fills platforms, so items carry along chains of routes. Marked medium confidence, "inferred
+  from <train>'s route".
 - A train is **pull-based** when at least one of its stops is a member of a DynamicTimeTable group. Only those are
   ticked.
 - Other trains are **dedicated** (e.g. a raw quartz shuttle between two fixed stations). Apply marks them *keep
