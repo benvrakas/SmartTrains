@@ -59,6 +59,9 @@ namespace
 	// A trip is planned again because a parked train can't leave a station it needs at most this often. [s]
 	constexpr double RerouteAgainSeconds = 60.0;
 
+	// A train that undocked this recently and still stands counts as in its station for holding. [s]
+	constexpr double JustLeftSeconds = 15.0;
+
 	// A planned trip whose first stop is free this much later than the train could arrive is not started yet. [s]
 	constexpr double HoldAfterWaitSeconds = 20.0;
 
@@ -833,7 +836,10 @@ void ASTSubsystem::DispatchRound()
 		if (Result.bValid && Stops.Num() > 0 && Result.Value > 0.0 && Result.Arrive.Num() > 0)
 		{
 			// A train standing in a station whose first stop is booked waits where it is, so it doesn't queue on the line.
-			const bool bInStation = State.Train->IsDocked() || (State.Phase == ESTTrainPhase::Parked && !State.Train->IsSelfDrivingEnabled());
+			// In a station: docked, parked there, or just undocked and still standing there (its trip ended as it left).
+			const AFGRailroadVehicle* First = State.Train->GetFirstVehicle();
+			const bool bJustLeft = Time - State.LastDepartureAt < JustLeftSeconds && First && First->GetVelocity().Size() < 300.0;
+			const bool bInStation = State.Train->IsDocked() || (State.Phase == ESTTrainPhase::Parked && !State.Train->IsSelfDrivingEnabled()) || bJustLeft;
 			const float Travel = Stops[0].Station == Entry.Anchor ? 0.f : EstimateTravelSeconds(Entry.Anchor, Stops[0].Station, IsPushPull(State.Train));
 			const double Wait = Result.Arrive[0] - (Entry.FreeAt + FMath::Max(0.f, Travel));
 			if (bInStation && Travel >= 0.f && Wait > HoldAfterWaitSeconds)
