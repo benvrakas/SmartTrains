@@ -22,6 +22,10 @@
 - **Mods menu:** "Detailed log" (planner rounds, re-plans, traces and dock maps in the log), "Planning time per
   round" (25 ms) and "Re-plan threshold" (1.1 x, replaces the unused "Retarget threshold"). All settings are logged
   at start and whenever one changes.
+- **Migration:** the connection trace is now the source of truth for platform items (stock and timetables are the
+  backup). It follows smart splitter rules, Modular Load Balancer groups and filters, and lifts through floor holes,
+  with a much larger limit (5,000, settable in the window). The window lists stations and trains as rows with one
+  line per platform, its confidence and notes, and tick all / untick all per section.
 - **Why no trip:** a free managed train logs, and shows in its menu and `/st jobs`, why it got nothing.
 - **"Same for every platform in this station"** in the platform menu (and `/st station same`). Editing one platform
   then sets every platform of that kind in the station. By default it is on without Freight Car Control (where a

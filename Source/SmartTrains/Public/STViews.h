@@ -146,8 +146,21 @@ struct SMARTTRAINS_API FSTMigrationRow
 	UPROPERTY()
 	int32 Number = 0;
 
+	// One line, as chat shows it.
 	UPROPERTY()
 	FString Text;
+
+	// The station or train name.
+	UPROPERTY()
+	FString Title;
+
+	// One line per platform (stations) or the route and note (trains).
+	UPROPERTY()
+	TArray<FString> Details;
+
+	// Why a station isn't ticked by default, if it isn't.
+	UPROPERTY()
+	FString Flag;
 
 	// Ticked by default: a station without a flag, or a train the preview proposes to manage.
 	UPROPERTY()

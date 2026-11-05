@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "STTrace.h"
 #include "STTypes.h"
 #include "STViews.h"
 
@@ -25,6 +26,8 @@ namespace STMigration
 		FString TraceText;
 		// "high", "medium" or "unclear": how far the items can be trusted.
 		FString Confidence;
+		// Why the items are what they are when it isn't plain (backup used, other items ignored).
+		FString Note;
 	};
 
 	struct FStationProposal
@@ -58,7 +61,11 @@ namespace STMigration
 	};
 
 	// Gathers the evidence and builds a preview; writes the CSV report and returns chat lines.
-	TArray<FString> Preview(ASTSubsystem* Subsystem, UWorld* World);
+	// TraceLimit: buildings and belt segments each platform's connection trace may visit.
+	TArray<FString> Preview(ASTSubsystem* Subsystem, UWorld* World, int32 TraceLimit = STTrace::DefaultLimit);
+
+	// Reads "tracelimit <n>" from command words; Default when absent.
+	int32 ParseTraceLimit(const TArray<FString>& Words, int32 Default = STTrace::DefaultLimit);
 
 	// Applies the last preview. Selection: "all" (unflagged stations and preselected trains), or "stations 1,2" and/or
 	// "trains 3,4" (numbers from the preview). Returns chat lines.

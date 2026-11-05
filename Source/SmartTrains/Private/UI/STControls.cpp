@@ -1,4 +1,5 @@
 #include "UI/STControls.h"
+#include "Components/ButtonSlot.h"
 #include "Blueprint/WidgetTree.h"
 #include "Brushes/SlateColorBrush.h"
 #include "Brushes/SlateNoResource.h"
@@ -241,7 +242,12 @@ void USTRow::BuildTree()
 	WidgetTree->RootWidget = mButton;
 
 	UHorizontalBox* Line = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
-	mButton->AddChild(Line);
+	// A button centres its content by default; rows read from the left.
+	if (UButtonSlot* LineSlot = Cast<UButtonSlot>(mButton->AddChild(Line)))
+	{
+		LineSlot->SetHorizontalAlignment(HAlign_Fill);
+		LineSlot->SetVerticalAlignment(VAlign_Center);
+	}
 	mIconBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
 	mIconBox->SetWidthOverride(24.f);
 	mIconBox->SetHeightOverride(24.f);
@@ -255,6 +261,7 @@ void USTRow::BuildTree()
 	}
 	mText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
 	mText->SetAutoWrapText(true);
+	mText->SetJustification(ETextJustify::Left);
 	FSlateFontInfo Font = mText->GetFont();
 	Font.Size = 11;
 	mText->SetFont(Font);

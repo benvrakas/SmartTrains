@@ -10,10 +10,10 @@ without it.
 |---|---|
 | Load/unload setting | Load → Supply, Unload → Demand. |
 | Connected belts and pipes (`FSTPlatformAccess::CountConnections`) | Nothing connected → left Off. Load with no input, or unload with no output → conflict. |
-| Platform inventory | Items. |
-| Load filters (load-mode platforms) and unload filters (unload-mode platforms) of every timetable stop at the station | Items, if they fit the platform's cargo type. |
-
-| Connection trace (`STTrace`) | Items, from the machines behind the belts and pipes, even when the factory is empty or idle. |
+| Connection trace (`STTrace`) | **Items: the source of truth.** From the machines behind the belts and pipes, even when the factory is empty or idle. |
+| Platform inventory | Items, only when the trace finds nothing (backup). |
+| Load filters (load-mode platforms) and unload filters (unload-mode platforms) of every timetable stop at the station | Items, only when the trace finds nothing (backup), if they fit the platform's cargo type. |
+| Fluid in the platform's pipes | Last resort for fluid platforms. |
 
 ### Connection trace
 
@@ -21,14 +21,23 @@ A load platform is traced upstream to what produces, an unload platform downstre
 through belts, lifts, splitters, mergers, pipes, junctions and pumps and stops at the first machine with a recipe
 (manufacturer, miner, pump). It reads the configured recipe and the clock speed, so the rate is a starting target.
 
-- Smart splitters are walked through but their filters are not mapped to outputs, so items reached through one are
-  marked shared (medium at best).
-- Limits: 40 hops and 80 nodes; hitting one marks the result incomplete (medium).
-- Confidence: **high** when the platform's inventory or timetable filters agree with the trace, or a clean single
-  path ends at machines with a recipe; **medium** through splits, merges, shared outputs or a limit; **unclear**
-  when no machine is reached, a recipe is missing, or the pipes show several fluids.
-- A disagreement between the trace and the platform's own history is a conflict, and the station is not applied by
-  `all`.
+- **Smart and programmable splitters:** their sort rules are followed per output (`FSTPlatformAccess::
+  GetAttachmentOutputIndex` reads `mOutputs` through the access transformer). An output only passes its items; "Any
+  undefined" passes everything the other outputs don't name; "Any" passes everything; "Overflow" passes everything
+  and marks the path shared, since its share isn't known in advance.
+- **Modular Load Balancers** (optional mod, read by reflection: `LBBuild_ModularLoadBalancer`, `GroupLeader`,
+  `mGroupModules`, `mFilteredItems`): a balancer group moves items between its modules without belts, so the whole
+  group is one building. Upstream through a filter module's output only its items pass; through any other output,
+  none of the group's filtered items.
+- **Lifts and floor holes:** a lift whose far end isn't connected continues on the other side of the floor hole it
+  is snapped to (`GetSnappedPassthroughs`).
+- **Trace limit:** buildings and belt segments one platform's trace may visit, default 5,000 (100 to 100,000). Set
+  it in the migration window or with `/st migrate preview tracelimit <n>`. Reaching it marks the result incomplete.
+- **The trace decides the items** whenever it finds any. The platform's inventory and timetable filters are only
+  used when the trace finds nothing; items they name that aren't on the belts are listed as ignored.
+- Confidence: **high** for a clean trace, or one the platform's stock or timetables confirm; **medium** through
+  merges, splits, overflow outputs, unrecognised buildings or the limit, and for backup items; **unclear** when
+  nothing is found at all.
 - The preview chat lines mark non-high platforms, e.g. `P2=Supply[Wire](medium)`. The CSV has the columns
   Confidence and Connection trace, with the path, e.g. `Belt x3 > SplitterSmart > ConstructorMk1`.
 

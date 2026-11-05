@@ -6,6 +6,7 @@
 
 class APlayerController;
 class USTButton;
+class USTTextInput;
 class UTextBlock;
 struct FSTMigrationView;
 
@@ -34,6 +35,10 @@ private:
 	static void Create(APlayerController* Controller);
 
 	void SendMigration(uint8 Step, const TArray<FString>& Selection = TArray<FString>());
+	// Preview with the trace limit from the field.
+	void SendPreview();
+	void ReadTraceLimit(const FString& Text);
+	void SetAllTicks(bool bStations, bool bTicked);
 	void ApplyTicked();
 	void RefreshMigration(const FSTMigrationView& View);
 	void RestoreGameInput();
@@ -52,6 +57,14 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UVerticalBox> mMigrationRows;
+
+	UPROPERTY()
+	TObjectPtr<USTTextInput> mTraceLimit;
+
+	// Per row key: shows the row ticked or not.
+	TMap<FString, TFunction<void(bool)>> mShowTick;
+	// Trace limit for this session's previews.
+	static int32 sTraceLimit;
 
 	TWeakObjectPtr<APlayerController> mController;
 	bool bInputTaken = false;

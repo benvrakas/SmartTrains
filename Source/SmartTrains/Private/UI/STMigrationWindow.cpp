@@ -15,6 +15,7 @@
 #include "InputCoreTypes.h"
 #include "SmartTrains.h"
 #include "STRemoteCallObject.h"
+#include "STTrace.h"
 #include "TimerManager.h"
 #include "UI/STControls.h"
 #include "UI/STWidgetUtils.h"
@@ -25,8 +26,11 @@ TWeakObjectPtr<USTMigrationWindow> USTMigrationWindow::sOpen;
 
 namespace
 {
-	constexpr float WindowWidth = 640.f;
-	constexpr float WindowMaxHeight = 760.f;
+	constexpr float WindowWidth = 1040.f;
+	constexpr float WindowMaxHeight = 860.f;
+	// Colours of the secondary texts in the rows.
+	const FLinearColor DetailColor(0.72f, 0.72f, 0.72f);
+	const FLinearColor FlagColor(1.f, 0.62f, 0.25f);
 	// Wait after the command before taking the input, so the closing chat doesn't take it back. [s]
 	constexpr float OpenDelay = 0.2f;
 
@@ -160,35 +164,81 @@ UWidget* USTMigrationWindow::WrapRoot(UVerticalBox* Root)
 	return Screen;
 }
 
+int32 USTMigrationWindow::sTraceLimit = STTrace::DefaultLimit;
+
 void USTMigrationWindow::BuildContent(UVerticalBox* Root)
 {
 	UHorizontalBox* Title = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
 	Root->AddChildToVerticalBox(Title);
-	AddFilled(Title, MakeHeading(nullptr, LOCTEXT("MigrationHeading", "SmartTrains migration")), FMargin(0.f, 0.f, 8.f, 0.f));
+	AddFilled(Title, MakeText(nullptr, LOCTEXT("MigrationHeading", "SmartTrains migration"), 18, false), FMargin(0.f, 0.f, 8.f, 0.f));
 	USTButton* CloseButton = MakeButton(nullptr, LOCTEXT("Close", "Close"), [this]() { Close(); });
+	CloseButton->SetFixedWidth(140.f);
 	if (UHorizontalBoxSlot* CloseSlot = Title->AddChildToHorizontalBox(CloseButton))
 	{
 		CloseSlot->SetVerticalAlignment(VAlign_Center);
 	}
 
-	MakeText(Root, LOCTEXT("MigrationHint", "Proposes platform roles and managed trains from DynamicTimeTable groups, platform load/unload "
-		"settings, belts, stock and timetables. Trains that only shuttle between two stations outside the groups are left alone. "
-		"Untick what you don't want, then apply. Undo puts back the last apply."), 10);
+	MakeText(Root, LOCTEXT("MigrationHint", "Preview reads every platform's belts and pipes back to the machines behind them (the connection trace), "
+		"and uses the platform's stock and timetables only where the trace finds nothing. Untick what you don't want, then apply. Undo puts back the last apply."),
+		10, true, FMargin(0.f, 4.f, 0.f, 6.f));
+
 	UHorizontalBox* Steps = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
-	Root->AddChildToVerticalBox(Steps)->SetPadding(FMargin(0.f, 6.f, 0.f, 4.f));
-	AddFilled(Steps, MakeButton(nullptr, LOCTEXT("Preview", "Preview"), [this]() { SendMigration(static_cast<uint8>(ESTMigrationStep::Preview)); }));
+	Root->AddChildToVerticalBox(Steps)->SetPadding(FMargin(0.f, 0.f, 0.f, 4.f));
+	AddFilled(Steps, MakeButton(nullptr, LOCTEXT("Preview", "Preview"), [this]() { SendPreview(); }));
 	mApply = MakeButton(nullptr, LOCTEXT("Apply", "Apply ticked"), [this]() { ApplyTicked(); });
 	AddFilled(Steps, mApply);
 	mUndo = MakeButton(nullptr, LOCTEXT("Undo", "Undo"), [this]() { SendMigration(static_cast<uint8>(ESTMigrationStep::Undo)); });
 	AddFilled(Steps, mUndo, FMargin(0.f));
+
+	UHorizontalBox* Limit = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
+	Root->AddChildToVerticalBox(Limit)->SetPadding(FMargin(0.f, 0.f, 0.f, 4.f));
+	if (UHorizontalBoxSlot* LabelSlot = Limit->AddChildToHorizontalBox(MakeText(nullptr, LOCTEXT("TraceLimit", "Trace limit (buildings and belts per platform):"), 11, false)))
+	{
+		LabelSlot->SetVerticalAlignment(VAlign_Center);
+		LabelSlot->SetPadding(FMargin(0.f, 0.f, 8.f, 0.f));
+	}
+	mTraceLimit = MakeInput(nullptr, FText::AsNumber(STTrace::DefaultLimit));
+	mTraceLimit->SetTextIfIdle(FString::FromInt(sTraceLimit));
+	mTraceLimit->OnCommitted = [this](const FString& Text) { ReadTraceLimit(Text); };
+	if (USizeBox* LimitBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass()))
+	{
+		LimitBox->SetWidthOverride(140.f);
+		LimitBox->AddChild(mTraceLimit);
+		if (UHorizontalBoxSlot* BoxSlot = Limit->AddChildToHorizontalBox(LimitBox))
+		{
+			BoxSlot->SetVerticalAlignment(VAlign_Center);
+		}
+	}
+	if (UHorizontalBoxSlot* HintSlot = Limit->AddChildToHorizontalBox(MakeText(nullptr, FText::Format(LOCTEXT("TraceLimitHint", "{0} to {1}; raise it for big factories, then press Preview."),
+		FText::AsNumber(STTrace::MinLimit), FText::AsNumber(STTrace::MaxLimit)), 10, false)))
+	{
+		HintSlot->SetVerticalAlignment(VAlign_Center);
+		HintSlot->SetPadding(FMargin(8.f, 0.f, 0.f, 0.f));
+	}
+
 	UHorizontalBox* Beta = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
 	Root->AddChildToVerticalBox(Beta)->SetPadding(FMargin(0.f, 0.f, 0.f, 4.f));
 	AddFilled(Beta, MakeButton(nullptr, LOCTEXT("TestCopy", "Save a test copy"), [this]() { SendMigration(static_cast<uint8>(ESTMigrationStep::TestCopy)); }));
 	AddFilled(Beta, MakeButton(nullptr, LOCTEXT("Backup", "Save a backup"), [this]() { SendMigration(static_cast<uint8>(ESTMigrationStep::Backup)); }), FMargin(0.f));
 	mBetaRow = Beta;
-	mMigrationLines = MakeText(Root, FText::GetEmpty(), 10);
+	mMigrationLines = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 2.f, 0.f, 6.f));
 	mMigrationRows = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
 	Root->AddChildToVerticalBox(mMigrationRows)->SetPadding(FMargin(0.f, 4.f, 0.f, 0.f));
+}
+
+void USTMigrationWindow::ReadTraceLimit(const FString& Text)
+{
+	if (Text.TrimStartAndEnd().IsNumeric())
+	{
+		sTraceLimit = FMath::Clamp(FCString::Atoi(*Text.TrimStartAndEnd()), STTrace::MinLimit, STTrace::MaxLimit);
+	}
+	mTraceLimit->SetTextIfIdle(FString::FromInt(sTraceLimit));
+}
+
+void USTMigrationWindow::SendPreview()
+{
+	ReadTraceLimit(mTraceLimit->GetText());
+	SendMigration(static_cast<uint8>(ESTMigrationStep::Preview), {TEXT("tracelimit"), FString::FromInt(sTraceLimit)});
 }
 
 bool USTMigrationWindow::OnShown()
@@ -230,6 +280,22 @@ void USTMigrationWindow::SendMigration(uint8 Step, const TArray<FString>& Select
 		UE_LOG(LogSmartTrains, Log, TEXT("Migration window: step %d [%s]"), Step, *FString::Join(Selection, TEXT(" ")));
 		RCO->Server_Migrate(static_cast<ESTMigrationStep>(Step), Selection);
 	}
+}
+
+void USTMigrationWindow::SetAllTicks(bool bStations, bool bTicked)
+{
+	for (TPair<FString, bool>& Each : mTicked)
+	{
+		if (Each.Key.StartsWith(bStations ? TEXT("S") : TEXT("T")))
+		{
+			Each.Value = bTicked;
+			if (const TFunction<void(bool)>* Refresh = mShowTick.Find(Each.Key))
+			{
+				(*Refresh)(bTicked);
+			}
+		}
+	}
+	UE_LOG(LogSmartTrains, Log, TEXT("Migration window: %s all %s"), bTicked ? TEXT("ticked") : TEXT("unticked"), bStations ? TEXT("stations") : TEXT("trains"));
 }
 
 void USTMigrationWindow::ApplyTicked()
@@ -306,22 +372,73 @@ void USTMigrationWindow::RefreshMigration(const FSTMigrationView& View)
 	}
 	mTicked = MoveTemp(Ticks);
 	mMigrationRows->ClearChildren();
-	for (const FSTMigrationRow& Row : View.Rows)
+	mShowTick.Reset();
+	for (int32 Pass = 0; Pass < 2; ++Pass)
 	{
-		const FString Key = RowKey(Row);
-		const FString Text = Row.Text;
-		USTRow* Widget = MakeRow(mMigrationRows, FText::GetEmpty(), nullptr);
-		auto Show = [Widget, Key, Text](bool bTicked)
+		const bool bStations = Pass == 0;
+		TArray<const FSTMigrationRow*> Rows;
+		for (const FSTMigrationRow& Row : View.Rows)
 		{
-			Widget->SetText(FText::FromString(FString::Printf(TEXT("%s %s %s"), bTicked ? TEXT("[x]") : TEXT("[  ]"), *Key, *Text)));
-		};
-		Show(mTicked.FindRef(Key));
-		Widget->OnClick = [this, Key, Show]()
+			if (Row.bStation == bStations)
+			{
+				Rows.Add(&Row);
+			}
+		}
+		if (Rows.Num() == 0)
 		{
-			bool& Ticked = mTicked.FindOrAdd(Key);
-			Ticked = !Ticked;
-			Show(Ticked);
-		};
+			continue;
+		}
+		// Section heading with tick all / untick all.
+		UHorizontalBox* Heading = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
+		mMigrationRows->AddChildToVerticalBox(Heading)->SetPadding(FMargin(0.f, Pass == 0 ? 0.f : 12.f, 0.f, 4.f));
+		AddFilled(Heading, MakeText(nullptr, FText::Format(bStations ? LOCTEXT("StationsHeading", "Stations ({0})") : LOCTEXT("TrainsHeading", "Trains ({0})"),
+			FText::AsNumber(Rows.Num())), 15, false), FMargin(0.f, 0.f, 8.f, 0.f));
+		for (const bool bTick : {true, false})
+		{
+			USTButton* Button = MakeButton(nullptr, bTick ? LOCTEXT("TickAll", "Tick all") : LOCTEXT("UntickAll", "Untick all"), [this, bStations, bTick]()
+			{
+				SetAllTicks(bStations, bTick);
+			});
+			Button->SetFixedWidth(130.f);
+			if (UHorizontalBoxSlot* ButtonSlot = Heading->AddChildToHorizontalBox(Button))
+			{
+				ButtonSlot->SetPadding(FMargin(4.f, 0.f, 0.f, 0.f));
+				ButtonSlot->SetVerticalAlignment(VAlign_Center);
+			}
+		}
+		for (const FSTMigrationRow* Row : Rows)
+		{
+			const FString Key = RowKey(*Row);
+			const FString Title = Row->Title.IsEmpty() ? Row->Text : Row->Title;
+			USTRow* Widget = MakeRow(mMigrationRows, FText::GetEmpty(), nullptr);
+			Widget->SetStyle(GetFont(12), GetTextColor());
+			auto Show = [Widget, Key, Title](bool bTicked)
+			{
+				Widget->SetText(FText::FromString(FString::Printf(TEXT("%s   %s   %s"), bTicked ? TEXT("[x]") : TEXT("[  ]"), *Key, *Title)));
+			};
+			Show(mTicked.FindRef(Key));
+			mShowTick.Add(Key, Show);
+			Widget->OnClick = [this, Key]()
+			{
+				bool& Ticked = mTicked.FindOrAdd(Key);
+				Ticked = !Ticked;
+				if (const TFunction<void(bool)>* Refresh = mShowTick.Find(Key))
+				{
+					(*Refresh)(Ticked);
+				}
+			};
+			if (Row->Details.Num() > 0)
+			{
+				UTextBlock* Details = MakeText(mMigrationRows, FText::FromString(FString::Join(Row->Details, TEXT("\n"))), 10, true, FMargin(44.f, 0.f, 4.f, 2.f));
+				Details->SetColorAndOpacity(FSlateColor(DetailColor));
+			}
+			if (!Row->Flag.IsEmpty())
+			{
+				UTextBlock* Flag = MakeText(mMigrationRows, FText::FromString(TEXT("Not ticked: ") + Row->Flag), 10, true, FMargin(44.f, 0.f, 4.f, 2.f));
+				Flag->SetColorAndOpacity(FSlateColor(FlagColor));
+			}
+			mMigrationRows->AddChildToVerticalBox(WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass()))->SetPadding(FMargin(0.f, 0.f, 0.f, 6.f));
+		}
 	}
 	UE_LOG(LogSmartTrains, Verbose, TEXT("Migration window: %d rows shown"), View.Rows.Num());
 }

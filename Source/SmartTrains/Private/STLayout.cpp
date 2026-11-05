@@ -1,4 +1,5 @@
 #include "STLayout.h"
+#include "Buildables/FGBuildableConveyorAttachment.h"
 #include "Buildables/FGBuildableRailroadStation.h"
 #include "Buildables/FGBuildableTrainPlatform.h"
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
@@ -68,6 +69,11 @@ TArray<UFGPipeConnectionComponent*> FSTPlatformAccess::GetPipeConnections(const 
 		}
 	}
 	return Out;
+}
+
+int32 FSTPlatformAccess::GetAttachmentOutputIndex(const AFGBuildableConveyorAttachment* Attachment, const UFGFactoryConnectionComponent* Connection)
+{
+	return Attachment ? Attachment->mOutputs.IndexOfByKey(Connection) : INDEX_NONE;
 }
 
 TArray<AFGBuildableTrainPlatform*> STLayout::GetPlatforms(const AFGBuildableRailroadStation* Station)

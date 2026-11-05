@@ -24,7 +24,7 @@ namespace STTrace
 		TSubclassOf<UFGItemDescriptor> Item;
 		// Items (or cubic metres) per minute from the recipe and clock speed; 0 when the machine has no recipe rate.
 		float PerMinute = 0.0f;
-		// Reached through a smart splitter, whose filters the trace does not map to outputs.
+		// Reached through a splitter overflow output, whose share can't be known in advance.
 		bool bShared = false;
 		FString Path;
 	};
@@ -51,6 +51,12 @@ namespace STTrace
 
 	const TCHAR* ConfidenceName(EConfidence Confidence);
 
-	// Load platforms are traced upstream to what produces; unload platforms downstream to what consumes.
-	FResult Trace(const AFGBuildableTrainPlatformCargo* Platform, bool bLoadMode);
+	// Buildings and belt segments one trace may visit: default, and the accepted range.
+	constexpr int32 DefaultLimit = 5000;
+	constexpr int32 MinLimit = 100;
+	constexpr int32 MaxLimit = 100000;
+
+	// Load platforms are traced upstream to what produces; unload platforms downstream to what consumes. Stops after
+	// Limit buildings and belt segments.
+	FResult Trace(const AFGBuildableTrainPlatformCargo* Platform, bool bLoadMode, int32 Limit = DefaultLimit);
 }

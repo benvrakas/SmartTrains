@@ -23,6 +23,9 @@ public:
 
 	// The platform's connected pipe connections that fill it (bInputs) or empty it.
 	static TArray<class UFGPipeConnectionComponent*> GetPipeConnections(const AFGBuildableTrainPlatformCargo* Platform, bool bInputs);
+
+	// Index of Connection among a splitter's or merger's outputs, as its sort rules count them, or INDEX_NONE.
+	static int32 GetAttachmentOutputIndex(const class AFGBuildableConveyorAttachment* Attachment, const class UFGFactoryConnectionComponent* Connection);
 };
 
 // Station layouts and consists, read the way the game docks a train (Docs/Architecture.md, "Fit model").
