@@ -761,7 +761,22 @@ float ASTSubsystem::EstimateTravelSeconds(const AFGTrainStationIdentifier* From,
 	float Distance = mTravel ? mTravel->GetDistance(From, To, &bReversing, bPushPull) : -1.f;
 	if (Distance == -2.f)
 	{
-		return -1.f;
+		// Auto Trains searches the way signals allow; ask it before giving up (cached for 10 minutes).
+		const TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, TWeakObjectPtr<AFGTrainStationIdentifier>> Key(const_cast<AFGTrainStationIdentifier*>(From),
+			const_cast<AFGTrainStationIdentifier*>(To));
+		TPair<float, double>* Cached = mAtTravel.Find(Key);
+		if (!Cached || Now() - Cached->Value > 600.0)
+		{
+			const float AtSeconds = STAt::EstimateTravelSeconds(GetWorld(), nullptr, const_cast<AFGBuildableRailroadStation*>(From->GetStation()),
+				const_cast<AFGBuildableRailroadStation*>(To->GetStation()));
+			if (!Cached && AtSeconds >= 0.f)
+			{
+				UE_LOG(LogSmartTrains, Log, TEXT("TRAVEL %s -> %s: SmartTrains' search finds no way, Auto Trains does (%.0f s); using that"), *STLayout::Name(From),
+					*STLayout::Name(To), AtSeconds);
+			}
+			Cached = &mAtTravel.Add(Key, TPair<float, double>(AtSeconds, Now()));
+		}
+		return Cached->Key >= 0.f ? Cached->Key + 20.f : -1.f;
 	}
 	if (Distance < 0.f)
 	{

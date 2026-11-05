@@ -231,6 +231,19 @@ Optional and reached by reflection. The class `FCCRuleSubsystem` is found by nam
 Owner locks the train's car rules in FCC's menus. An empty one releases them and puts the player's earlier rules
 back. If the call fails, the timetable is written directly.
 
+## Auto Trains
+
+Optional, by reflection (`STAt` in `STBridges.*`, Auto Trains' `Docs/API.md`). The actor of class
+`ATTrafficSubsystem`, through the subsystem actor manager.
+
+| Call | Used for |
+|---|---|
+| `ExternalTimeTableChanged` | After every real timetable write (`WriteJob`). |
+| `ExternalGetWaitingFor` | `ClearNeededBays`: a parked managed train moves when a train has waited 20 s for it. Replaces the 150 m / 45 s guess, which stays as the fallback without Auto Trains. |
+| `ExternalGetStationQueue` | Each dispatch round, for stations with roles (asked every 15 s per station): a booking from now until the queue's last train should have left. Covers trains SmartTrains doesn't manage. |
+| `ExternalEstimateTravelSeconds` | `EstimateTravelSeconds` when SmartTrains' own search finds no way (cached 10 minutes; logged as `TRAVEL`). |
+| `ExternalGetTroubledTrains` | The monitor's Trains tab: deadlocked, stuck, lost or stalled trains. |
+
 ## DynamicTimeTable
 
 Read only, by reflection: `DynamicTimeTableSubsystem::GetStationGroups`. The returned array of group structs is

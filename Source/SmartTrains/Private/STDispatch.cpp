@@ -44,6 +44,11 @@ namespace
 		return Key;
 	}
 
+	// With Auto Trains: a parked managed train moves when a train has waited this long for it. [s]
+	constexpr float AtHeldUpSeconds = 20.f;
+	// How often Auto Trains is asked for a station's queue. [s]
+	constexpr double AtQueueSeconds = 15.0;
+
 	// A planned trip whose first stop is free this much later than the train could arrive is not started yet. [s]
 	constexpr double HoldAfterWaitSeconds = 20.0;
 
@@ -596,6 +601,28 @@ void ASTSubsystem::DispatchRound()
 			Bookings.FindOrAdd(Each.Station.Get()).Add({TrainIndex, From, FMath::Max(Each.PlannedArrival, From) + Stay});
 		}
 	}
+	if (STAt::IsAvailable(GetWorld()))
+	{
+		TSet<const AFGTrainStationIdentifier*> Stations;
+		for (const FSTNode& Node : Nodes)
+		{
+			Stations.Add(Node.Station.Get());
+		}
+		for (const AFGTrainStationIdentifier* Station : Stations)
+		{
+			TPair<float, double>& Cached = mAtQueues.FindOrAdd(const_cast<AFGTrainStationIdentifier*>(Station), TPair<float, double>(-1.f, -1000.0));
+			if (Time - Cached.Value >= AtQueueSeconds && Station && Station->GetStation())
+			{
+				TArray<AFGTrain*> Queue;
+				Cached = TPair<float, double>(STAt::GetStationQueue(GetWorld(), Station->GetStation(), Queue), Time);
+			}
+			const double Left = Cached.Key - (Time - Cached.Value);
+			if (Cached.Key > 0.f && Left > 0.0)
+			{
+				Bookings.FindOrAdd(Station).Add({INDEX_NONE, Time, Time + Left});
+			}
+		}
+	}
 	FSTTripPlanner Planner(*this, Nodes, Bookings);
 
 	// A platform with settings that was dismantled: its trips are re-planned.
@@ -1097,6 +1124,9 @@ void ASTSubsystem::ClearNeededBays()
 	TArray<FWaiting> Waiting;
 	TMap<const AFGTrainStationIdentifier*, const AFGTrain*> HeadingFor;
 	TSet<TWeakObjectPtr<AFGTrain>> Seen;
+	// With Auto Trains: per train it reports as holding another up, the one held up and for how long.
+	const bool bAt = STAt::IsAvailable(GetWorld());
+	TMap<const AFGTrain*, TPair<const AFGTrain*, float>> HeldUp;
 	if (AFGRailroadSubsystem* Railroad = AFGRailroadSubsystem::Get(GetWorld()))
 	{
 		TArray<AFGTrain*> Trains;
@@ -1121,6 +1151,25 @@ void ASTSubsystem::ClearNeededBays()
 				{
 					HeadingFor.FindOrAdd(Stops[Current].Station) = Train;
 				}
+			}
+			if (bAt)
+			{
+				TArray<AFGTrain*> Blockers;
+				float Waited = 0.f;
+				FString Reason;
+				STAt::GetWaitingFor(GetWorld(), Train, Blockers, Waited, Reason);
+				if (Waited >= AtHeldUpSeconds)
+				{
+					for (const AFGTrain* Blocker : Blockers)
+					{
+						TPair<const AFGTrain*, float>& Entry = HeldUp.FindOrAdd(Blocker, TPair<const AFGTrain*, float>(Train, 0.f));
+						if (Waited > Entry.Value)
+						{
+							Entry = TPair<const AFGTrain*, float>(Train, Waited);
+						}
+					}
+				}
+				continue;
 			}
 			const FVector Front = Vehicles[0]->GetActorLocation();
 			Seen.Add(Train);
@@ -1160,7 +1209,12 @@ void ASTSubsystem::ClearNeededBays()
 		{
 			Why = FString::Printf(TEXT("making room at %s for %s"), *STLayout::Name(Here), *STLayout::Name(*Heading));
 		}
-		else if (Clock - mLastMovedAside.FindRef(State.Train.Get()) >= MovedAsideAgainSeconds)
+		else if (const TPair<const AFGTrain*, float>* Held = HeldUp.Find(State.Train.Get()))
+		{
+			Why = FString::Printf(TEXT("%s has waited %.0f s for it (Auto Trains)"), *STLayout::Name(Held->Key), Held->Value);
+			UE_LOG(LogSmartTrains, Log, TEXT("BLOCKING %s, parked at %s, holds a train up: %s; moving it"), *STLayout::Name(State.Train), *STLayout::Name(Here), *Why);
+		}
+		else if (!bAt && Clock - mLastMovedAside.FindRef(State.Train.Get()) >= MovedAsideAgainSeconds)
 		{
 			for (const FWaiting& Other : Waiting)
 			{
@@ -1316,6 +1370,7 @@ void ASTSubsystem::WriteJob(FSTTrainState& State, const TCHAR* Why)
 	}
 	UE_LOG(LogSmartTrains, Log, TEXT("WRITE %s job %d: [%s]%s, %d skipped cars (%s)"), *STLayout::Name(Train), State.Job.Id, *Listed,
 		bByFcc ? TEXT(" through Freight Car Control") : TEXT(""), SkipVehicles.Num(), Why);
+	STAt::TimeTableChanged(GetWorld(), Train);
 	UpdateTrainName(State);
 }
 

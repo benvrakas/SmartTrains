@@ -3,6 +3,7 @@
 #include "FGTrainStationIdentifier.h"
 #include "SmartTrains.h"
 #include "STLayout.h"
+#include "STBridges.h"
 #include "STSubsystem.h"
 
 namespace
@@ -218,6 +219,13 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 	{
 		View.Idle.Add(FString::Printf(TEXT("%d %s: %s"), Each.Value, Each.Value == 1 ? TEXT("train") : TEXT("trains"), *Each.Key));
 	}
+	// Auto Trains' troubled trains: deadlocked, stuck, lost or stalled.
+	TMap<const AFGTrain*, FString> Trouble;
+	for (const STAt::FTroubled& Each : STAt::GetTroubledTrains(Subsystem.GetWorld()))
+	{
+		FString& Text = Trouble.FindOrAdd(Each.Train);
+		Text += FString::Printf(TEXT("%s%s for %.0f s"), Text.IsEmpty() ? TEXT("") : TEXT(", "), *Each.Kind, Each.Seconds);
+	}
 	for (const FSTTrainState& State : Subsystem.mTrains)
 	{
 		if (!State.bManaged || !IsValid(State.Train))
@@ -244,6 +252,11 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			}
 		}
 		Row.Columns.Add(State.LastStation ? STLayout::Name(State.LastStation.Get()) : FString(TEXT("-")));
+		if (const FString* Problem = Trouble.Find(State.Train.Get()))
+		{
+			Row.Severity = 2;
+			Row.Details.Insert(FString::Printf(TEXT("Auto Trains: %s."), **Problem), 0);
+		}
 	}
 	View.Trains.Sort([](const FSTMonitorRow& A, const FSTMonitorRow& B)
 	{

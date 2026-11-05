@@ -3,7 +3,9 @@
 #include "CoreMinimal.h"
 #include "FGRailroadTimeTable.h"
 
+class AFGBuildableRailroadStation;
 class AFGRailroadVehicle;
+class AFGTrain;
 class AFGTrainStationIdentifier;
 class UWorld;
 
@@ -35,4 +37,37 @@ namespace STDtt
 
 	// Reads every group; returns false with OutError set if DynamicTimeTable is missing or its data couldn't be read.
 	bool ReadGroups(const UWorld* World, TArray<FGroup>& OutGroups, FString& OutError);
+}
+
+// Auto Trains' API (its Docs/API.md), called by reflection so it stays optional. Server game thread only; times are
+// seconds. Each call returns false (or -1) when Auto Trains isn't loaded.
+namespace STAt
+{
+	// Returns true if Auto Trains with the API is loaded in World.
+	bool IsAvailable(const UWorld* World);
+
+	// The trains Train waits for, the one holding it up first (parked and undriven trains included), how long it has
+	// been held up and why. Returns false if Auto Trains doesn't drive Train now or isn't loaded.
+	bool GetWaitingFor(const UWorld* World, AFGTrain* Train, TArray<AFGTrain*>& OutWaitingFor, float& OutWaitedSeconds, FString& OutReason);
+
+	// Seconds until the last train docked at Station or heading there is expected to have left; 0 if none, -1 if one
+	// has no plan or Auto Trains isn't loaded.
+	float GetStationQueue(const UWorld* World, AFGBuildableRailroadStation* Station, TArray<AFGTrain*>& OutTrains);
+
+	// Seconds from From to To on the shortest way the signals allow, without other traffic; -1 if there is no way or
+	// Auto Trains isn't loaded. A search over the whole network: call sparingly.
+	float EstimateTravelSeconds(const UWorld* World, AFGTrain* Train, AFGBuildableRailroadStation* From, AFGBuildableRailroadStation* To);
+
+	struct FTroubled
+	{
+		AFGTrain* Train = nullptr;
+		// Deadlock, Stuck, Lost or Stalled.
+		FString Kind;
+		float Seconds = 0.f;
+	};
+	// Trains in trouble now; empty if none or Auto Trains isn't loaded.
+	TArray<FTroubled> GetTroubledTrains(const UWorld* World);
+
+	// Tells Auto Trains that Train's timetable changed, so it predicts the next leg from the new one.
+	void TimeTableChanged(const UWorld* World, AFGTrain* Train);
 }

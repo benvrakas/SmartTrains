@@ -4,6 +4,7 @@
 #include "Engine/World.h"
 #include "FGRailroadSubsystem.h"
 #include "FGRailroadVehicle.h"
+#include "FGTrain.h"
 #include "FGTrainStationIdentifier.h"
 #include "SmartTrains.h"
 #include "Subsystem/SubsystemActorManager.h"
@@ -272,4 +273,175 @@ bool STDtt::ReadGroups(const UWorld* World, TArray<FGroup>& OutGroups, FString& 
 	}
 	OutError = TEXT("GetStationGroups returned no array of groups");
 	return false;
+}
+
+//~ Auto Trains
+
+namespace
+{
+	UObject* GetAtSubsystem(const UWorld* World)
+	{
+		static TWeakObjectPtr<UClass> Cached;
+		static bool bSearched = false;
+		if (!bSearched)
+		{
+			bSearched = true;
+			Cached = FindClassByName(TEXT("ATTrafficSubsystem"));
+			UE_LOG(LogSmartTrains, Log, TEXT("Auto Trains %s"), Cached.IsValid() ? TEXT("found: its API gives waits, station queues and troubled trains")
+				: TEXT("not loaded; SmartTrains uses its own estimates"));
+		}
+		UClass* Class = Cached.Get();
+		USubsystemActorManager* Manager = World && Class ? World->GetSubsystem<USubsystemActorManager>() : nullptr;
+		return Manager && Class->IsChildOf(AModSubsystem::StaticClass()) ? Manager->K2_GetSubsystemActor(Class) : nullptr;
+	}
+
+	// Calls Auto Trains' function Name: Fill sets the parameters, Read reads them back after the call.
+	bool CallAt(const UWorld* World, const TCHAR* Name, TFunctionRef<bool(const UFunction*, FStructOnScope&)> Fill,
+		TFunctionRef<void(const UFunction*, const uint8*)> Read)
+	{
+		UObject* Subsystem = GetAtSubsystem(World);
+		UFunction* Function = Subsystem ? Subsystem->FindFunction(Name) : nullptr;
+		if (!Function)
+		{
+			static TSet<FString> Warned;
+			if (Subsystem && !Warned.Contains(Name))
+			{
+				Warned.Add(Name);
+				UE_LOG(LogSmartTrains, Warning, TEXT("Auto Trains is loaded but has no %s; an older version without the API?"), Name);
+			}
+			return false;
+		}
+		FStructOnScope Params(Function);
+		if (!Fill(Function, Params))
+		{
+			return false;
+		}
+		Subsystem->ProcessEvent(Function, Params.GetStructMemory());
+		Read(Function, Params.GetStructMemory());
+		return true;
+	}
+
+	template <typename TValue>
+	const TValue* ParamValue(const UFunction* Function, const uint8* Memory, const TCHAR* Name)
+	{
+		const FProperty* Property = Function->FindPropertyByName(Name);
+		return Property ? Property->ContainerPtrToValuePtr<TValue>(Memory) : nullptr;
+	}
+
+	float ReturnFloat(const UFunction* Function, const uint8* Memory)
+	{
+		const FFloatProperty* Return = CastField<FFloatProperty>(Function->GetReturnProperty());
+		return Return ? Return->GetPropertyValue_InContainer(Memory) : -1.f;
+	}
+
+	TArray<AFGTrain*> ReadTrains(const UFunction* Function, const uint8* Memory, const TCHAR* Name)
+	{
+		TArray<AFGTrain*> Trains;
+		if (const TArray<TObjectPtr<AFGTrain>>* Value = ParamValue<TArray<TObjectPtr<AFGTrain>>>(Function, Memory, Name))
+		{
+			for (const TObjectPtr<AFGTrain>& Train : *Value)
+			{
+				if (IsValid(Train))
+				{
+					Trains.Add(Train.Get());
+				}
+			}
+		}
+		return Trains;
+	}
+}
+
+bool STAt::IsAvailable(const UWorld* World)
+{
+	UObject* Subsystem = GetAtSubsystem(World);
+	return Subsystem && Subsystem->FindFunction(TEXT("ExternalGetWaitingFor"));
+}
+
+bool STAt::GetWaitingFor(const UWorld* World, AFGTrain* Train, TArray<AFGTrain*>& OutWaitingFor, float& OutWaitedSeconds, FString& OutReason)
+{
+	OutWaitingFor.Reset();
+	OutWaitedSeconds = 0.f;
+	OutReason.Reset();
+	bool bDriven = false;
+	TObjectPtr<AFGTrain> TrainPtr = Train;
+	CallAt(World, TEXT("ExternalGetWaitingFor"), [&](const UFunction* Function, FStructOnScope& Params)
+	{
+		return SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr);
+	}, [&](const UFunction* Function, const uint8* Memory)
+	{
+		OutWaitingFor = ReadTrains(Function, Memory, TEXT("OutWaitingFor"));
+		if (const float* Waited = ParamValue<float>(Function, Memory, TEXT("OutWaitedSeconds")))
+		{
+			OutWaitedSeconds = *Waited;
+		}
+		if (const FString* Reason = ParamValue<FString>(Function, Memory, TEXT("OutReason")))
+		{
+			OutReason = *Reason;
+		}
+		const FBoolProperty* Return = CastField<FBoolProperty>(Function->GetReturnProperty());
+		bDriven = Return && Return->GetPropertyValue_InContainer(Memory);
+	});
+	return bDriven;
+}
+
+float STAt::GetStationQueue(const UWorld* World, AFGBuildableRailroadStation* Station, TArray<AFGTrain*>& OutTrains)
+{
+	OutTrains.Reset();
+	float Seconds = -1.f;
+	TObjectPtr<AFGBuildableRailroadStation> StationPtr = Station;
+	CallAt(World, TEXT("ExternalGetStationQueue"), [&](const UFunction* Function, FStructOnScope& Params)
+	{
+		return Station && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Station"), StationPtr);
+	}, [&](const UFunction* Function, const uint8* Memory)
+	{
+		OutTrains = ReadTrains(Function, Memory, TEXT("OutTrains"));
+		Seconds = ReturnFloat(Function, Memory);
+	});
+	return Seconds;
+}
+
+float STAt::EstimateTravelSeconds(const UWorld* World, AFGTrain* Train, AFGBuildableRailroadStation* From, AFGBuildableRailroadStation* To)
+{
+	float Seconds = -1.f;
+	TObjectPtr<AFGTrain> TrainPtr = Train;
+	TObjectPtr<AFGBuildableRailroadStation> FromPtr = From;
+	TObjectPtr<AFGBuildableRailroadStation> ToPtr = To;
+	CallAt(World, TEXT("ExternalEstimateTravelSeconds"), [&](const UFunction* Function, FStructOnScope& Params)
+	{
+		return From && To && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr) && SetParam<FObjectPropertyBase>(Function, Params, TEXT("From"), FromPtr)
+			&& SetParam<FObjectPropertyBase>(Function, Params, TEXT("To"), ToPtr);
+	}, [&](const UFunction* Function, const uint8* Memory)
+	{
+		Seconds = ReturnFloat(Function, Memory);
+	});
+	return Seconds;
+}
+
+TArray<STAt::FTroubled> STAt::GetTroubledTrains(const UWorld* World)
+{
+	TArray<FTroubled> Troubled;
+	CallAt(World, TEXT("ExternalGetTroubledTrains"), [](const UFunction*, FStructOnScope&) { return true; }, [&](const UFunction* Function, const uint8* Memory)
+	{
+		const TArray<TObjectPtr<AFGTrain>>* Trains = ParamValue<TArray<TObjectPtr<AFGTrain>>>(Function, Memory, TEXT("OutTrains"));
+		const TArray<FString>* Kinds = ParamValue<TArray<FString>>(Function, Memory, TEXT("OutKinds"));
+		const TArray<float>* Seconds = ParamValue<TArray<float>>(Function, Memory, TEXT("OutSeconds"));
+		for (int32 Index = 0; Trains && Index < Trains->Num(); ++Index)
+		{
+			if (IsValid((*Trains)[Index]))
+			{
+				Troubled.Add({(*Trains)[Index].Get(), Kinds && Kinds->IsValidIndex(Index) ? (*Kinds)[Index] : FString(),
+					Seconds && Seconds->IsValidIndex(Index) ? (*Seconds)[Index] : 0.f});
+			}
+		}
+	});
+	return Troubled;
+}
+
+void STAt::TimeTableChanged(const UWorld* World, AFGTrain* Train)
+{
+	TObjectPtr<AFGTrain> TrainPtr = Train;
+	CallAt(World, TEXT("ExternalTimeTableChanged"), [&](const UFunction* Function, FStructOnScope& Params)
+	{
+		return Train && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr);
+	}, [](const UFunction*, const uint8*) {});
 }

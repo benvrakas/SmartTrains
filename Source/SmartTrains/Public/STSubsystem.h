@@ -328,6 +328,10 @@ private:
 	TMap<TWeakObjectPtr<AFGTrain>, TPair<FVector, double>> mStandingSince;
 	// Per parked managed train: when it was last moved because it held another train up.
 	TMap<TWeakObjectPtr<AFGTrain>, double> mLastMovedAside;
+	// Auto Trains' station queues: seconds until the last train there has left, and when it was asked. [s]
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, TPair<float, double>> mAtQueues;
+	// Auto Trains' travel times where SmartTrains' own search finds no way, and when they were asked. [s]
+	mutable TMap<TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, TWeakObjectPtr<AFGTrainStationIdentifier>>, TPair<float, double>> mAtTravel;
 	FTimerHandle mMonitorTimer;
 	FTimerHandle mSampleTimer;
 	FTimerHandle mDispatchTimer;

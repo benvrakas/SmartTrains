@@ -2,6 +2,13 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Works with Auto Trains' API** (optional, by reflection):
+  - Auto Trains is told after every timetable rewrite.
+  - A parked train moves when Auto Trains reports a train waiting 20 s for it, replacing the distance guess.
+  - Station queues, trains SmartTrains doesn't manage included, count as station bookings.
+  - Where SmartTrains' own route search finds no way, Auto Trains' travel time is used.
+  - Deadlocked, stuck, lost and stalled trains show in the monitor's Trains tab.
+
 - **Trains are spaced at stations:** trips are timed so the next train arrives at least **Gap between trains at a
   station** (Mods menu, 30 s) after the last one left. Bookings now have a start and an end, so a trip can use a free
   slot between two others. A train standing in a station whose first stop is booked waits there. It leaves later
