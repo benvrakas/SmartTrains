@@ -796,6 +796,28 @@ void ASTSubsystem::DispatchRound()
 					*STLayout::Name(Entry.Anchor), *STLayout::Name(Stops[0].Station)));
 				continue;
 			}
+			// With Auto Trains: the first leg must be drivable now, around every other train (single track included).
+			if (bInStation && Stops[0].Station != Entry.Anchor && Stops[0].Station->GetStation())
+			{
+				float Seconds = -1.f;
+				FString Reason;
+				const STAt::ELegCheck Check = STAt::CheckLeg(GetWorld(), State.Train, Stops[0].Station->GetStation(), Seconds, Reason);
+				if (Check == STAt::ELegCheck::Pending)
+				{
+					// Asked; the answer comes by the next round.
+					continue;
+				}
+				if (Check == STAt::ELegCheck::Blocked)
+				{
+					NoTrip(State, FString::Printf(TEXT("holding at %s: Auto Trains sees no way to %s now (%s)"), *STLayout::Name(Entry.Anchor),
+						*STLayout::Name(Stops[0].Station), *Reason));
+					continue;
+				}
+				if (Check == STAt::ELegCheck::NotAsked)
+				{
+					UE_LOG(LogSmartTrains, Verbose, TEXT("CHECK %s to %s not asked: %s"), *STLayout::Name(State.Train), *STLayout::Name(Stops[0].Station), *Reason);
+				}
+			}
 		}
 		if (!Result.bValid || Stops.Num() == 0 || Result.Value <= 0.0)
 		{

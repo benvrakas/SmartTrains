@@ -445,3 +445,40 @@ void STAt::TimeTableChanged(const UWorld* World, AFGTrain* Train)
 		return Train && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr);
 	}, [](const UFunction*, const uint8*) {});
 }
+
+STAt::ELegCheck STAt::CheckLeg(const UWorld* World, AFGTrain* Train, AFGBuildableRailroadStation* To, float& OutSeconds, FString& OutReason)
+{
+	OutSeconds = -1.f;
+	OutReason.Reset();
+	int32 Answer = -1;
+	TObjectPtr<AFGTrain> TrainPtr = Train;
+	TObjectPtr<AFGBuildableRailroadStation> ToPtr = To;
+	const bool bCalled = CallAt(World, TEXT("ExternalCheckLeg"), [&](const UFunction* Function, FStructOnScope& Params)
+	{
+		return Train && To && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr) && SetParam<FObjectPropertyBase>(Function, Params, TEXT("To"), ToPtr);
+	}, [&](const UFunction* Function, const uint8* Memory)
+	{
+		if (const float* Seconds = ParamValue<float>(Function, Memory, TEXT("OutSeconds")))
+		{
+			OutSeconds = *Seconds;
+		}
+		if (const FString* Reason = ParamValue<FString>(Function, Memory, TEXT("OutReason")))
+		{
+			OutReason = *Reason;
+		}
+		const FIntProperty* Return = CastField<FIntProperty>(Function->GetReturnProperty());
+		Answer = Return ? Return->GetPropertyValue_InContainer(Memory) : -1;
+	});
+	if (!bCalled)
+	{
+		return ELegCheck::Unavailable;
+	}
+	switch (Answer)
+	{
+	case 0: return ELegCheck::Pending;
+	case 1: return ELegCheck::Clear;
+	case 2: return ELegCheck::Blocked;
+	case 3: return ELegCheck::NotAsked;
+	default: return ELegCheck::Unavailable;
+	}
+}

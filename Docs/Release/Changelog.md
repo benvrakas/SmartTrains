@@ -2,6 +2,11 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Route check before leaving (Auto Trains):** before a train standing in a station starts a trip, SmartTrains asks
+  Auto Trains whether the first leg can be driven now, planned around every other train, including trains coming the
+  other way on a single track. If not, the train holds: "holding at ...: Auto Trains sees no way to ... now". The
+  check takes one dispatch round.
+
 - **Stuck nose to nose (stopgap):** with Auto Trains, when two managed trains on one network have been stuck or
   deadlocked for 30 s, the one whose trip started last goes back to the station it came from (push-pull trains only,
   at most every 3 minutes). The others plan their trips again from scratch. Logged as `STUCK`. Seen with the two

@@ -70,4 +70,21 @@ namespace STAt
 
 	// Tells Auto Trains that Train's timetable changed, so it predicts the next leg from the new one.
 	void TimeTableChanged(const UWorld* World, AFGTrain* Train);
+
+	enum class ELegCheck : uint8
+	{
+		// Auto Trains isn't loaded or has no ExternalCheckLeg.
+		Unavailable,
+		// Being planned; ask again with the same station.
+		Pending,
+		// The train could go now; OutSeconds until it would arrive.
+		Clear,
+		// No plan gets it there now; OutReason says what is in the way.
+		Blocked,
+		// It can't be asked (driving, no path, traffic control off); OutReason says why.
+		NotAsked,
+	};
+	// Asks whether Train, standing in a station (docked, or parked with self-driving off), could drive to To now,
+	// planned after every other train. Asynchronous: a first call usually answers Pending.
+	ELegCheck CheckLeg(const UWorld* World, AFGTrain* Train, AFGBuildableRailroadStation* To, float& OutSeconds, FString& OutReason);
 }

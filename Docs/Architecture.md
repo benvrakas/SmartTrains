@@ -242,6 +242,7 @@ Optional, by reflection (`STAt` in `STBridges.*`, Auto Trains' `Docs/API.md`). T
 | `ExternalGetWaitingFor` | `ClearNeededBays`: a parked managed train moves when a train has waited 20 s for it. Replaces the 150 m / 45 s guess, which stays as the fallback without Auto Trains. |
 | `ExternalGetStationQueue` | Each dispatch round, for stations with roles (asked every 15 s per station): a booking from now until the queue's last train should have left. Covers trains SmartTrains doesn't manage. |
 | `ExternalEstimateTravelSeconds` | `EstimateTravelSeconds` when SmartTrains' own search finds no way (cached 10 minutes; logged as `TRAVEL`). |
+| `ExternalCheckLeg` | Holding (dispatch step 7): before a trip of a train standing in a station is committed, its first leg is checked. Pending: try again next round. Blocked: hold, with Auto Trains' reason. Clear, or can't be asked: commit. |
 | `ExternalGetTroubledTrains` | The monitor's Trains tab: deadlocked, stuck, lost or stalled trains. `ResolveStuckTrains` (each dispatch round): when two or more managed trains on one network have been Stuck or Deadlock for 30 s, the one whose trip started last (push-pull only, at most every 3 minutes) gets a park job back to its last station. The others re-plan from scratch (`bReplanFresh`). A stopgap until Auto Trains can check a leg before departure. |
 
 ## DynamicTimeTable
