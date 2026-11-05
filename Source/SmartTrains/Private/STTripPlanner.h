@@ -161,6 +161,8 @@ private:
 	// Car's room for Item with Cargo on board.
 	double GetCarRoom(const FCarInfo& Car, const TArray<TPair<UClass*, double>>& Cargo, UClass* Item) const;
 	bool IsSupplyFull(int32 Node) const;
+	// True if the current train loaded (bLoad) or unloaded none of Item at Station lately.
+	bool IsNoProgressHere(const AFGTrainStationIdentifier* Station, UClass* Item, bool bLoad) const;
 	// True if platforms A and B (indices into mPlatforms) have the same role, mode, form and items.
 	bool IsSameKind(int32 A, int32 B) const;
 	FSTPlanResult SimulateWithSkips(const TArray<FSTPlanStop>& Stops, TSet<TPair<int32, int32>>& InOutSkips) const;

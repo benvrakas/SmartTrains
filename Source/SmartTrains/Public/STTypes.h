@@ -347,6 +347,9 @@ struct SMARTTRAINS_API FSTTrainState
 	double LastCommandAt = 0.0;
 	// Runtime only: the job was replaced while the train was docked, so the coming departure ends the old job's dock.
 	bool bChainedWhileDocked = false;
+	// Runtime only: that job's timetable is written as the train leaves; written during the dock, the game moves it
+	// on by one stop at departure.
+	bool bWriteOnUndock = false;
 	// Runtime only: timetable changes by others this minute, and when the count started.
 	int32 ExternalChanges = 0;
 	double ExternalChangesSince = 0.0;

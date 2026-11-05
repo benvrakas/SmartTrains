@@ -531,13 +531,27 @@ void ASTSubsystem::OnDocked(FSTTrainState& State, AFGTrainStationIdentifier* Sta
 		UE_LOG(LogSmartTrains, Log, TEXT("%s docked at %s (%s, no job)"), *STLayout::Name(Train), *STLayout::Name(Station), STNames::Phase(State.Phase));
 		return;
 	}
-	const FSTJobLeg& Leg = State.Job.Legs[State.Job.Leg];
-	if (Leg.Station != Station)
+	if (State.Job.Legs[State.Job.Leg].Station != Station)
 	{
-		UE_LOG(LogSmartTrains, Warning, TEXT("%s docked at %s but job %d leg %d is %s"), *STLayout::Name(Train), *STLayout::Name(Station), State.Job.Id,
-			State.Job.Leg + 1, *STLayout::Name(Leg.Station));
-		return;
+		// Docked at a later stop of the trip: the stops in between were missed; carry on from this one.
+		int32 Later = INDEX_NONE;
+		for (int32 Index = State.Job.Leg + 1; Index < State.Job.Legs.Num() && Later == INDEX_NONE; ++Index)
+		{
+			Later = State.Job.Legs[Index].Station == Station ? Index : INDEX_NONE;
+		}
+		if (Later == INDEX_NONE)
+		{
+			UE_LOG(LogSmartTrains, Warning, TEXT("%s docked at %s, which job %d doesn't stop at (next is leg %d, %s); the rest of the trip is planned again"),
+				*STLayout::Name(Train), *STLayout::Name(Station), State.Job.Id, State.Job.Leg + 1, *STLayout::Name(State.Job.Legs[State.Job.Leg].Station));
+			State.bReplan = true;
+			bDispatchSoon = true;
+			return;
+		}
+		UE_LOG(LogSmartTrains, Warning, TEXT("%s docked at %s, leg %d of job %d; legs %d to %d were missed"), *STLayout::Name(Train), *STLayout::Name(Station), Later + 1,
+			State.Job.Id, State.Job.Leg + 1, Later);
+		State.Job.Leg = Later;
 	}
+	const FSTJobLeg& Leg = State.Job.Legs[State.Job.Leg];
 	if (State.LastStation && State.LastDepartureAt > 0.0)
 	{
 		LearnTrip(State.LastStation, Station, Now() - State.LastDepartureAt);
@@ -580,6 +594,11 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 	{
 		State.bChainedWhileDocked = false;
 		UE_LOG(LogSmartTrains, Log, TEXT("%s left %s after %.0f s, on to job %d"), *STLayout::Name(Train), *STLayout::Name(Station), Stay, State.Job.Id);
+		if (State.bWriteOnUndock)
+		{
+			State.bWriteOnUndock = false;
+			WriteJob(State, TEXT("next job, written as it left"));
+		}
 		return;
 	}
 	if (!State.Job.Legs.IsValidIndex(State.Job.Leg) || State.Job.Legs[State.Job.Leg].Station != Station)

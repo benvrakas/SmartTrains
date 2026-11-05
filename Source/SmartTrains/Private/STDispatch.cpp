@@ -1186,6 +1186,13 @@ void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& 
 	State.Job = MoveTemp(Job);
 	State.bHasJob = true;
 	UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s"), State.Job.Id, *Line);
+	if (State.bChainedWhileDocked)
+	{
+		// The game moves a timetable on by one stop when the train departs, so the new one is written as it leaves.
+		State.bWriteOnUndock = true;
+		UE_LOG(LogSmartTrains, Verbose, TEXT("WRITE %s job %d: written when it leaves its stop"), *STLayout::Name(State.Train), State.Job.Id);
+		return;
+	}
 	WriteJob(State, TEXT("new job"));
 }
 

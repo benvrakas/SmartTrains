@@ -221,6 +221,11 @@ FString FSTTripPlanner::DescribeProblems() const
 	return FString::Join(Parts, TEXT("; "));
 }
 
+bool FSTTripPlanner::IsNoProgressHere(const AFGTrainStationIdentifier* Station, UClass* Item, bool bLoad) const
+{
+	return mSubsystem.mTrains.IsValidIndex(mTrainIndex) && mSubsystem.IsNoProgress(mSubsystem.mTrains[mTrainIndex], Station, Item, bLoad);
+}
+
 bool FSTTripPlanner::IsSameKind(int32 A, int32 B) const
 {
 	if (A == B)
@@ -499,6 +504,10 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 			{
 				continue;
 			}
+			if (mSubsystem.IsNoProgress(State, Consumer.Station.Get(), Item, false))
+			{
+				continue;
+			}
 			if (!Consumer.bAnyItem && !bFull)
 			{
 				const float Leg = mSubsystem.EstimateTravelSeconds(Supplier.Station.Get(), Consumer.Station.Get(), bPushPull);
@@ -721,6 +730,10 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					{
 						for (UClass* Item : Stop.LoadItems)
 						{
+							if (IsNoProgressHere(Stop.Station, Item, true))
+							{
+								continue;
+							}
 							const bool bOffers = Platform.Items.Contains(Item) || Platform.Stock.Contains(Item);
 							if (bOffers && STNames::IsFluid(Item) == Platform.bFluid && GetCarRoom(mCars[CarIndex], Cargo[CarIndex], Item) > 0.0)
 							{
@@ -733,6 +746,10 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					{
 						for (UClass* Item : Stop.UnloadItems)
 						{
+							if (IsNoProgressHere(Stop.Station, Item, false))
+							{
+								continue;
+							}
 							if (CargoOf(Cargo[CarIndex], Item) > 0.0 && STNames::IsFluid(Item) == Platform.bFluid)
 							{
 								ThisItems.Add(Item);

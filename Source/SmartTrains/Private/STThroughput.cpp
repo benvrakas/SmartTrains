@@ -503,13 +503,24 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 				: FString(TEXT("Its supply platforms are mostly empty: trains take all that is made.")));
 			Row.Advice = TEXT("Build more production, or add supply platforms where it is made.");
 		}
-		else if ((SupplierFull >= FullShare || (Advice && Advice->TrainsNeeded > Advice->TrainsFitting + 0.5)) && BusyShareNow >= BusyShare && IdleShareNow < IdleShareForShort)
+		else if (Advice && Advice->TrainsNeeded > Advice->TrainsFitting + 0.5 && BusyShareNow >= BusyShare && IdleShareNow < IdleShareForShort)
 		{
+			// The flow plan needs more trains than fit these routes, and the fleet has none to spare.
 			Row.Verdict = TEXT("Trains short");
 			Row.Severity = 2;
-			const int32 More = Advice ? FMath::Max(1, FMath::CeilToInt(Advice->TrainsNeeded - Advice->TrainsFitting)) : 1;
-			Row.Details.Add(FString::Printf(TEXT("The fleet is busy %s of the time and few trains are idle."), *Percent(BusyShareNow)));
+			const int32 More = FMath::Max(1, FMath::CeilToInt(Advice->TrainsNeeded - Advice->TrainsFitting));
+			Row.Details.Add(FString::Printf(TEXT("Its routes need about %.1f trains and %d fit; the fleet is busy %s of the time."), Advice->TrainsNeeded,
+				Advice->TrainsFitting, *Percent(BusyShareNow)));
 			Row.Advice = FString::Printf(TEXT("Add about %d %s whose cars fit these platforms."), More, More == 1 ? TEXT("train") : TEXT("trains"));
+		}
+		else if (SupplierFull >= FullShare && BusyShareNow >= BusyShare)
+		{
+			// Enough trains fit, but they are on other trips while this supply backs up.
+			Row.Verdict = TEXT("Trains busy elsewhere");
+			Row.Severity = 2;
+			Row.Details.Add(FString::Printf(TEXT("%d managed trains fit its routes, but the fleet is busy %s of the time on other trips; its suppliers are full %s of the time."),
+				Advice ? Advice->TrainsFitting : 0, *Percent(BusyShareNow), *Percent(SupplierFull)));
+			Row.Advice = TEXT("Raise this item's priority on its demand platforms, or add a train whose cars fit them.");
 		}
 		else if (bCongested)
 		{

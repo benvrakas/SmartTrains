@@ -2,6 +2,16 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Trips no longer drift off their timetable:** a trip chosen while the train is docked is written as the train
+  leaves. Written during the dock, the game moved it on by one stop at departure, so the train skipped its first stop
+  and SmartTrains' count of where it was went wrong ("docked at X but job N leg M is Y"). A train that still docks at a
+  later stop of its trip carries on from there; at a stop not in its trip, the rest is planned again.
+- **Empty-trip loop, properly:** the planner also leaves an item out of a stop's loading or unloading where the train
+  moved none of it lately. The Sulfur loop came back through a pickup-and-deliver move whose empty pickup was trimmed
+  off, which left the same delivery.
+- **Monitor:** "Trains short" needs the flow plan to call for more trains than fit. Supply backing up while fitting
+  trains are busy is "Trains busy elsewhere", with its own advice.
+
 - **Push-pull trains turn round when they have no path:** a managed train standing 20 s with the game's "No Path" or
   "Station Unreachable" error gets the locomotive at its other end to lead, as a player would by driving from the
   other cab. It then plans a way in the other direction. At most once a minute; logged as `NOPATH`. A train with a
