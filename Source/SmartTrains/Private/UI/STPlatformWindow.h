@@ -29,6 +29,7 @@ protected:
 	virtual UWidget* WrapRoot(UVerticalBox* Root) override;
 	virtual void OnHidden() override;
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
+	virtual bool ShowsHeading() const override { return false; }
 
 private:
 	static TWeakObjectPtr<USTPlatformWindow> sOpen;

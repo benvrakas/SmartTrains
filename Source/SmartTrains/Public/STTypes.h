@@ -324,6 +324,8 @@ struct SMARTTRAINS_API FSTTrainState
 	UPROPERTY(SaveGame)
 	double UnwantedCargoSince = 0.0;
 
+	// Runtime only: the name SmartTrains last gave the train, to notice a player renaming it.
+	FString LastWrittenName;
 	// Runtime only: the rest of the trip is re-planned in the next dispatch.
 	bool bReplan = false;
 	// Runtime only: docking state at the last check, when the current dock began, and where.

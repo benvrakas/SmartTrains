@@ -1,4 +1,5 @@
 #include "STBridges.h"
+#include "Buildables/FGBuildableRailroadStation.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "FGRailroadSubsystem.h"
@@ -81,10 +82,23 @@ namespace
 		}
 		for (AFGTrainStationIdentifier* Station : Stations)
 		{
-			if (Station && Station->GetStationName().ToString().Equals(Name, ESearchCase::IgnoreCase))
+			if (!Station)
+			{
+				continue;
+			}
+			// A display name, or an id: the identifier's or the station building's object name or path.
+			const AActor* Building = Station->GetStation();
+			if (Station->GetStationName().ToString().Equals(Name, ESearchCase::IgnoreCase) || Station->GetName() == Name || Station->GetPathName() == Name
+				|| (Building && (Building->GetName() == Name || Building->GetPathName() == Name)))
 			{
 				return Station;
 			}
+		}
+		static bool bWarned = false;
+		if (!bWarned)
+		{
+			bWarned = true;
+			UE_LOG(LogSmartTrains, Warning, TEXT("DynamicTimeTable: station '%s' of a group matches no station by name or id; such stations are skipped"), *Name);
 		}
 		return nullptr;
 	}
@@ -199,15 +213,25 @@ bool STFcc::SetStops(const UWorld* World, AFGRailroadTimeTable* TimeTable, const
 	return Return ? Return->GetPropertyValue_InContainer(Params.GetStructMemory()) : true;
 }
 
+namespace
+{
+	// DynamicTimeTable's subsystem class: DTTSubsystem since its rewrite, DynamicTimeTableSubsystem before.
+	UClass* FindDttClass()
+	{
+		UClass* Class = FindClassByName(TEXT("DTTSubsystem"));
+		return Class ? Class : FindClassByName(TEXT("DynamicTimeTableSubsystem"));
+	}
+}
+
 bool STDtt::IsInstalled(const UWorld* World)
 {
-	return FindClassByName(TEXT("DynamicTimeTableSubsystem")) != nullptr;
+	return FindDttClass() != nullptr;
 }
 
 bool STDtt::ReadGroups(const UWorld* World, TArray<FGroup>& OutGroups, FString& OutError)
 {
 	OutGroups.Reset();
-	UClass* Class = FindClassByName(TEXT("DynamicTimeTableSubsystem"));
+	UClass* Class = FindDttClass();
 	if (!Class || !World)
 	{
 		OutError = TEXT("DynamicTimeTable is not loaded");

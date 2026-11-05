@@ -468,8 +468,10 @@ void ASTSubsystem::MonitorTrains()
 				}
 				if (++State.ExternalChanges <= 3)
 				{
-					UE_LOG(LogSmartTrains, Warning, TEXT("EXTERNAL TIMETABLE CHANGE on %s: stops are now [%s]; writing job %d back (another mod such as DynamicTimeTable, or a player, changed it)"),
-						*STLayout::Name(Train), *Listed, State.Job.Id);
+					UE_LOG(LogSmartTrains, Warning, TEXT("EXTERNAL TIMETABLE CHANGE on %s: stops are now [%s]; writing job %d back (%s)"),
+						*STLayout::Name(Train), *Listed, State.Job.Id, STDtt::IsInstalled(GetWorld())
+						? TEXT("DynamicTimeTable is installed and rewrites stops at stations in its groups, managed trains included: take those stations out of its groups, or uninstall it")
+						: TEXT("another mod or a player changed it"));
 					WriteJob(State, TEXT("written back after an external change"));
 				}
 				else
@@ -850,24 +852,24 @@ void ASTSubsystem::UpdateTrainName(FSTTrainState& State)
 		}
 		return;
 	}
+	const FString Current = Train->GetTrainName().ToString();
 	if (!State.bRenamed)
 	{
 		State.OriginalName = Train->GetTrainName();
 		State.bRenamed = true;
 	}
-	FString Name;
-	if (State.bHasJob)
+	else if (!State.LastWrittenName.IsEmpty() && Current != State.LastWrittenName && !Current.StartsWith(TEXT("ST: ")))
 	{
-		Name = FString::Printf(TEXT("ST: %s"), *State.Job.Summary);
+		// Renamed by a player since: that name is the one to put back later.
+		State.OriginalName = Train->GetTrainName();
+		UE_LOG(LogSmartTrains, Log, TEXT("%s was renamed by a player; that name comes back when SmartTrains stops naming it"), *Current);
 	}
-	else
-	{
-		Name = FString::Printf(TEXT("ST: %s (%s)"), STNames::Phase(State.Phase), *State.OriginalName.ToString());
-	}
-	if (Train->GetTrainName().ToString() != Name)
+	const FString Name = State.bHasJob ? FString::Printf(TEXT("ST: %s"), *State.Job.Summary) : FString::Printf(TEXT("ST: %s"), STNames::Phase(State.Phase));
+	if (Current != Name)
 	{
 		Train->SetTrainName(FText::FromString(Name));
 	}
+	State.LastWrittenName = Name;
 }
 
 //~ Readouts

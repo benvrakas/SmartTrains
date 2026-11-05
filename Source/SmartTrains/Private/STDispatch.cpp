@@ -537,9 +537,28 @@ void ASTSubsystem::DispatchRound()
 	}
 	FSTTripPlanner Planner(*this, Nodes, BusyUntil);
 
+	// A platform with settings that was dismantled: its trips are re-planned.
+	const int32 Before = mPlatforms.Num();
+	mPlatforms.RemoveAll([](const FSTPlatformConfig& Config) { return !IsValid(Config.Platform); });
+	if (mPlatforms.Num() != Before)
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("%d platforms with settings were dismantled; trips under way are re-planned"), Before - mPlatforms.Num());
+		bReplanAll = true;
+	}
 	// Trips under way that asked for a re-plan (after a stop, or after platform settings changed).
 	if (!mSettings.bObserveOnly)
 	{
+		for (FSTTrainState& State : mTrains)
+		{
+			// A stop ahead whose station was dismantled.
+			for (int32 Leg = State.Job.Leg; State.bHasJob && Leg < State.Job.Legs.Num(); ++Leg)
+			{
+				if (!IsValid(State.Job.Legs[Leg].Station))
+				{
+					State.bReplan = true;
+				}
+			}
+		}
 		for (FSTTrainState& State : mTrains)
 		{
 			const bool bWanted = State.bReplan || bReplanAll;
@@ -708,9 +727,9 @@ void ASTSubsystem::DispatchRound()
 		Job.Summary = FString::Printf(TEXT("%s: %s"), *FString::Join(Items, TEXT(", ")), *FString::Join(Stations, TEXT(" -> ")));
 		const FString Line = FString::Printf(TEXT("%s: %s [%s], %d moved, score %.3f"), *STLayout::Name(State.Train), *Job.Summary,
 			*Planner.Describe(Stops, Result), Result.Moved, Result.Score);
-		State.UnwantedCargoSince = bCarrying && !bDelivers ? (State.UnwantedCargoSince > 0.0 ? State.UnwantedCargoSince : Time) : 0.0;
 		Planner.Reserve(Stops, Result);
 		CommitJob(State, MoveTemp(Job), Line);
+		UpdateUnwantedCargo(State);
 	}
 
 	// Free trains with no move at all.
@@ -811,6 +830,30 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 		UE_LOG(LogSmartTrains, Log, TEXT("REPLAN %s job %d: [%s] -> [%s], score %.3f"), *STLayout::Name(State.Train), State.Job.Id, *Before, *After, Result.Score);
 	}
 	WriteJob(State, TEXT("re-planned after a stop"));
+	UpdateUnwantedCargo(State);
+}
+
+void ASTSubsystem::UpdateUnwantedCargo(FSTTrainState& State)
+{
+	// Unwanted: an item on board that no stop still ahead unloads.
+	bool bUnwanted = false;
+	for (const TPair<UClass*, int32>& Carried : GetCargo(State.Train))
+	{
+		bool bDelivered = false;
+		for (int32 Leg = State.Job.Leg; State.bHasJob && Leg < State.Job.Legs.Num() && !bDelivered; ++Leg)
+		{
+			bDelivered = State.Job.Legs[Leg].GetItems(false).Contains(Carried.Key);
+		}
+		bUnwanted |= !bDelivered;
+	}
+	if (!bUnwanted)
+	{
+		State.UnwantedCargoSince = 0.0;
+	}
+	else if (State.UnwantedCargoSince <= 0.0)
+	{
+		State.UnwantedCargoSince = Now();
+	}
 }
 
 void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& Line)

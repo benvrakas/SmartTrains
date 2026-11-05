@@ -132,7 +132,7 @@ void USTTrainPanel::Refresh(USTRemoteCallObject* RCO)
 	}
 	else if (View->bManaged)
 	{
-		Status += TEXT(" Timetable written by SmartTrains.");
+		Status += TEXT("\nSmartTrains writes this train's timetable.");
 	}
 	mStatus->SetText(FText::FromString(Status));
 	mManage->SetText(View->bManaged ? LOCTEXT("ManageOn", "Managed by SmartTrains: on") : LOCTEXT("ManageOff", "Managed by SmartTrains: off"));

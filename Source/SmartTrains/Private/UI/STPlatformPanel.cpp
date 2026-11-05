@@ -116,7 +116,10 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 {
 	mMain = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
 	Root->AddChildToVerticalBox(mMain);
-	MakeHeading(mMain, LOCTEXT("PlatformHeading", "SmartTrains"), FMargin(0.f, 0.f, 0.f, 4.f));
+	if (ShowsHeading())
+	{
+		MakeHeading(mMain, LOCTEXT("PlatformHeading", "SmartTrains"), FMargin(0.f, 0.f, 0.f, 4.f));
+	}
 	mTitle = MakeText(mMain, LOCTEXT("Loading", "Asking the server..."));
 
 	UHorizontalBox* Roles = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());

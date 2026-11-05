@@ -245,7 +245,7 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 			const double Batch = Rule.Priority == ESTPriority::Critical ? 1.0 : BestCapacity * (Rule.SendAtPercent > 0.f ? Rule.SendAtPercent / 100.0 : 1.0);
 			if (Node.Stock - Node.Reserved < Batch * 0.5)
 			{
-				Lines.Add(FString::Printf(TEXT("%s: waiting for a batch, %s of %s here."), *Name, *STNames::Amount(Rule.Item, Node.Stock),
+				Lines.Add(FString::Printf(TEXT("%s: waiting for a batch, %s of %s at this station."), *Name, *STNames::Amount(Rule.Item, Node.Stock),
 					*STNames::Amount(Rule.Item, Batch)));
 				continue;
 			}

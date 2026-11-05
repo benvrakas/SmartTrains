@@ -33,6 +33,12 @@
   section beside the platform menu), instead of a tall panel beside it.
 - Trains managed out on the track with nothing to do drive to the nearest station before parking, instead of
   stopping on the line. Re-plans no longer drop the rest of a trip for being over the trip limit.
+- **Train names** (setting): SmartTrains' name only, `ST: <trip>` or `ST: Idle`; a name a player gives a managed
+  train is the one put back later.
+- Trips are re-planned when a station or a platform with settings is dismantled. Unwanted cargo means an item on
+  board that no stop ahead unloads.
+- DynamicTimeTable is found again since its rewrite (`DTTSubsystem`), and its rewrites of managed trains are named in
+  the log.
 - **Why no trip:** a free managed train logs, and shows in its menu and `/st jobs`, why it got nothing.
 - **"Same for every platform in this station"** in the platform menu (and `/st station same`). Editing one platform
   then sets every platform of that kind in the station. By default it is on without Freight Car Control (where a

@@ -30,6 +30,8 @@ protected:
 	virtual void RequestView(USTRemoteCallObject* RCO) override;
 	virtual void Refresh(USTRemoteCallObject* RCO) override;
 	virtual FName GetStyleSource() const override { return TEXT("StationSettingText"); }
+	// False in a window that has a title of its own.
+	virtual bool ShowsHeading() const { return true; }
 
 private:
 	// Widgets of one item's rows.

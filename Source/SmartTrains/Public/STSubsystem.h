@@ -184,6 +184,8 @@ private:
 	// Hands out trips to free trains, and re-plans trips under way that asked for it (STDispatch.cpp).
 	void Dispatch();
 	void DispatchRound();
+	// Marks or clears State's unwanted cargo (an item on board no stop still ahead unloads).
+	void UpdateUnwantedCargo(FSTTrainState& State);
 	// Re-plans the rest of State's trip from where it is and what its cars hold; keeps stops already passed.
 	void ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner);
 	// Works out planned flows between suppliers and consumers.
