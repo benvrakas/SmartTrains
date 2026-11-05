@@ -2,6 +2,12 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Push-pull platform room counted once:** a car that can stop beside either of two identical platforms used to
+  take its amount from both, so half a push-pull train's cars found no room and were skipped while still full. Each
+  way the train may dock now has its own platform room, and a car plans the smaller of its amounts.
+- **No waiting out the timeout:** a stop where a car can't unload everything it carries (the platform has no room
+  for the rest) is "unload once". It used to wait for empty cars until "Delivery: longest wait".
+
 - **Fluid trips were tiny:** the planner sized fluid cars and platforms by a fluid's stack (50 m3) instead of their
   real slot (1,600 m3 per car, 2,400 m3 per platform). Fluid trips were planned at a few dozen m3, and cars and
   platforms looked full after one stack. Solids were not affected.

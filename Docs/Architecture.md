@@ -131,8 +131,9 @@ trains. Then each car, stop by stop, beside the platform it meets there (from th
   that takes all of them (or an any-item sink); otherwise it is harm.
 - If the possible dock maps disagree, or the car would do harm, the car skips the stop through Freight Car Control.
   Without FCC the trip is invalid. Maps that put a car beside different platforms agree when those platforms are
-  equivalent (same role, mode, form and items), as at a push-pull shuttle's station. The car's amounts then come from
-  the smallest of their pools, and each is reduced by what it moves.
+  equivalent (same role, mode, form and items), as at a push-pull shuttle's station. Each dock map keeps its own
+  platform pools and room (`PoolKey`). A car plans the smallest of its amounts over the maps, and that amount comes
+  off its platform in every map.
 - Amounts come from the platform's stock plus its share of the node's production up to the end of the stay (a fluid
   platform fed by pipes keeps filling while the train loads), less what other trips reserved. Unloads are limited by the platform's free slots.
 - Cargo loaded on the trip that no later stop unloads is stranded: with FCC that car skips the pickup and the
@@ -155,8 +156,9 @@ trains. Then each car, stop by stop, beside the platform it meets there (from th
   stops when nothing improves, or when the round's time budget (25 ms) is used up; the rest wait for the next round.
 
 **Turning a trip into a job** (`MakeLegs`): each stop gets per-car work (`FSTCarWork`: car, item, load or unload,
-planned amount). With FCC, every car without work at a stop skips it. A stop is "load/unload once" when it both
-loads and unloads, or when a later stop moves the same item (a first pickup or a first drop of a split load).
+planned amount). With FCC, every car without work at a stop skips it. A stop is "load/unload once" in three cases: it both loads and unloads; a later stop moves the same item (a first
+pickup or a first drop of a split load); or some car will still hold what it unloads there, because the platform has
+no room for the rest.
 Otherwise it waits for full or empty cars, up to the load or unload wait.
 
 **Re-planning** (`ReplanTrip`): after every stop (`bReplan`) and after a platform setting changes (`bReplanAll`).

@@ -36,6 +36,12 @@ namespace
 		return Pairs.Emplace_GetRef(Key, Initial()).Value;
 	}
 
+	// Key of a platform's pool in one way the train may dock (a dock map index).
+	int32 PoolKey(int32 MapIndex, int32 PlatformIndex)
+	{
+		return (MapIndex << 20) | PlatformIndex;
+	}
+
 	double CargoOf(const TArray<TPair<UClass*, double>>& Cargo, UClass* Item)
 	{
 		for (const TPair<UClass*, double>& Each : Cargo)
@@ -639,7 +645,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 			// What the car would do beside its platform, for every way the train may dock.
 			enum class EEffect : uint8 { None, Load, Unload, Harm };
 			EEffect Effect = EEffect::None;
-			// The platforms the car may stop beside, one per way the train may dock (equivalent ones when they differ).
+			// The platform the car stops beside for each way the train may dock (equivalent ones when they differ).
 			TArray<int32> Beside;
 			TArray<UClass*> Items;
 			bool bAgree = true;
@@ -699,7 +705,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 				}
 				else if (Effect != EEffect::None)
 				{
-					Beside.AddUnique(Here);
+					Beside.Add(Here);
 				}
 			}
 			if (Effect == EEffect::Harm || !bAgree)
@@ -732,16 +738,17 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 						const double Until = Arrive + mSubsystem.EstimateStaySeconds(Stop.Station) - mTime;
 						return FMath::Max(0.0, Stock + Share * (Supplier.Rate * Until - Supplier.Reserved));
 					};
-					// Which of the equivalent platforms the car meets depends on how the train docks: count the smallest pool.
-					for (int32 PlatformIndex : Beside)
+					// Each way the train may dock has its own platform pools; the car plans the smallest of its amounts.
+					for (int32 MapIndex = 0; MapIndex < Beside.Num(); ++MapIndex)
 					{
-						FindOrAddValue<TPair<int32, UClass*>>(PlatformPool, TPair<int32, UClass*>(PlatformIndex, Item), [&]() { return InitialPool(PlatformIndex); });
+						FindOrAddValue<TPair<int32, UClass*>>(PlatformPool, TPair<int32, UClass*>(PoolKey(MapIndex, Beside[MapIndex]), Item),
+							[&]() { return InitialPool(Beside[MapIndex]); });
 					}
 					TArray<double*> Pools;
 					double Pool = TNumericLimits<double>::Max();
-					for (int32 PlatformIndex : Beside)
+					for (int32 MapIndex = 0; MapIndex < Beside.Num(); ++MapIndex)
 					{
-						double& Each = FindOrAddValue<TPair<int32, UClass*>>(PlatformPool, TPair<int32, UClass*>(PlatformIndex, Item), []() { return 0.0; });
+						double& Each = FindOrAddValue<TPair<int32, UClass*>>(PlatformPool, TPair<int32, UClass*>(PoolKey(MapIndex, Beside[MapIndex]), Item), []() { return 0.0; });
 						Pools.Add(&Each);
 						Pool = FMath::Min(Pool, Each);
 					}
@@ -787,15 +794,16 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 						const int32 Rest = Stock % Stack;
 						return FMath::Max(0, Platform.Slots - Platform.Occupied) * static_cast<double>(Stack) + (Rest > 0 ? Stack - Rest : 0);
 					};
-					for (int32 PlatformIndex : Beside)
+					for (int32 MapIndex = 0; MapIndex < Beside.Num(); ++MapIndex)
 					{
-						FindOrAddValue<TPair<int32, UClass*>>(PlatformRoom, TPair<int32, UClass*>(PlatformIndex, Item), [&]() { return InitialSpace(PlatformIndex); });
+						FindOrAddValue<TPair<int32, UClass*>>(PlatformRoom, TPair<int32, UClass*>(PoolKey(MapIndex, Beside[MapIndex]), Item),
+							[&]() { return InitialSpace(Beside[MapIndex]); });
 					}
 					TArray<double*> Spaces;
 					double Space = TNumericLimits<double>::Max();
-					for (int32 PlatformIndex : Beside)
+					for (int32 MapIndex = 0; MapIndex < Beside.Num(); ++MapIndex)
 					{
-						double& Each = FindOrAddValue<TPair<int32, UClass*>>(PlatformRoom, TPair<int32, UClass*>(PlatformIndex, Item), []() { return 0.0; });
+						double& Each = FindOrAddValue<TPair<int32, UClass*>>(PlatformRoom, TPair<int32, UClass*>(PoolKey(MapIndex, Beside[MapIndex]), Item), []() { return 0.0; });
 						Spaces.Add(&Each);
 						Space = FMath::Min(Space, Each);
 					}
@@ -1052,8 +1060,14 @@ void FSTTripPlanner::Trim(TArray<FSTPlanStop>& InOutStops, const FSTPlanResult& 
 void FSTTripPlanner::MakeLegs(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, TArray<FSTJobLeg>& OutLegs) const
 {
 	OutLegs.Reset();
+	TArray<TArray<TPair<UClass*, double>>> Cargo;
+	for (const FCarInfo& Car : mCars)
+	{
+		Cargo.Add(Car.Cargo);
+	}
 	for (int32 StopIndex = 0; StopIndex < Stops.Num(); ++StopIndex)
 	{
+		bool bUnfinished = false;
 		FSTJobLeg& Leg = OutLegs.AddDefaulted_GetRef();
 		Leg.Station = Stops[StopIndex].Station;
 		Leg.PlannedArrival = Result.Arrive.IsValidIndex(StopIndex) ? Result.Arrive[StopIndex] : mTime;
@@ -1073,7 +1087,13 @@ void FSTTripPlanner::MakeLegs(const TArray<FSTPlanStop>& Stops, const FSTPlanRes
 						Work.bLoad = Pass == 0;
 						Work.PlannedAmount = Each.Value;
 						bWorks = true;
+						AddCargo(Cargo[CarIndex], Each.Key, Pass == 0 ? Each.Value : -Each.Value);
 					}
+				}
+				// A car still holding what it unloads never meets the "fully unload" rule: the platform has no room for the rest.
+				for (const TPair<UClass*, int32>& Each : Step->Unloaded)
+				{
+					bUnfinished |= CargoOf(Cargo[CarIndex], Each.Key) >= 1.0;
 				}
 			}
 			// With FCC every car without work skips the stop, so nothing moves that wasn't planned.
@@ -1096,7 +1116,7 @@ void FSTTripPlanner::MakeLegs(const TArray<FSTPlanStop>& Stops, const FSTPlanRes
 				bLaterSame |= Stops[Later].UnloadItems.Contains(Item);
 			}
 		}
-		Leg.bPartial = bLaterSame || (Loads.Num() > 0 && Unloads.Num() > 0);
+		Leg.bPartial = bLaterSame || bUnfinished || (Loads.Num() > 0 && Unloads.Num() > 0);
 	}
 }
 
