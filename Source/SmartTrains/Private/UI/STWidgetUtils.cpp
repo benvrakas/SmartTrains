@@ -1,4 +1,5 @@
 #include "UI/STWidgetUtils.h"
+#include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
@@ -205,4 +206,13 @@ TArray<TSubclassOf<UFGItemDescriptor>> STWidgetUtils::GetPickableItems(const UOb
 	UE_LOG(LogSmartTrains, Log, TEXT("Item picker: %d %s items (%s)"), Items.Num(), bFluid ? TEXT("fluid") : TEXT("solid"),
 		bFromRecipes ? TEXT("made by available recipes, plus resources") : TEXT("no recipes known: all items"));
 	return Items;
+}
+
+AFGBuildableTrainPlatformCargo* STWidgetUtils::GetMenuPlatform(const UUserWidget* Menu)
+{
+	if (AFGBuildableTrainPlatformCargo* Platform = Cast<AFGBuildableTrainPlatformCargo>(GetObjectProperty(Menu, TEXT("mTrainPlatformCargo"))))
+	{
+		return Platform;
+	}
+	return Cast<AFGBuildableTrainPlatformCargo>(GetObjectProperty(Menu, TEXT("mInteractObject")));
 }

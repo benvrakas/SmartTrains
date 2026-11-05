@@ -36,7 +36,7 @@ struct FSTSettings
 	// Most stops in one trip.
 	float MaxStops = 4.f;
 	// Longest trip planned. [min]
-	float MaxTripMinutes = 20.f;
+	float MaxTripMinutes = 45.f;
 	// After this long carrying cargo no trip wants, it may go to any consumer with room or a sink. [min]
 	float LeftoverMinutes = 30.f;
 };

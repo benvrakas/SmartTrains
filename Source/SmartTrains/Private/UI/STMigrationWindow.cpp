@@ -165,6 +165,7 @@ UWidget* USTMigrationWindow::WrapRoot(UVerticalBox* Root)
 }
 
 int32 USTMigrationWindow::sTraceLimit = STTrace::DefaultLimit;
+bool USTMigrationWindow::sAllItems = false;
 
 void USTMigrationWindow::BuildContent(UVerticalBox* Root)
 {
@@ -216,6 +217,13 @@ void USTMigrationWindow::BuildContent(UVerticalBox* Root)
 		HintSlot->SetPadding(FMargin(8.f, 0.f, 0.f, 0.f));
 	}
 
+	mItemsMode = MakeButton(Root, FText::GetEmpty(), [this]()
+	{
+		sAllItems = !sAllItems;
+		ShowItemsMode();
+	}, FMargin(0.f, 0.f, 0.f, 4.f));
+	ShowItemsMode();
+
 	UHorizontalBox* Beta = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
 	Root->AddChildToVerticalBox(Beta)->SetPadding(FMargin(0.f, 0.f, 0.f, 4.f));
 	AddFilled(Beta, MakeButton(nullptr, LOCTEXT("TestCopy", "Save a test copy"), [this]() { SendMigration(static_cast<uint8>(ESTMigrationStep::TestCopy)); }));
@@ -235,10 +243,22 @@ void USTMigrationWindow::ReadTraceLimit(const FString& Text)
 	mTraceLimit->SetTextIfIdle(FString::FromInt(sTraceLimit));
 }
 
+void USTMigrationWindow::ShowItemsMode()
+{
+	mItemsMode->SetText(sAllItems
+		? LOCTEXT("AllItems", "Items per platform: every traced item (for mixed belts); click for one")
+		: LOCTEXT("OneItem", "Items per platform: one (recommended); click for every traced item"));
+}
+
 void USTMigrationWindow::SendPreview()
 {
 	ReadTraceLimit(mTraceLimit->GetText());
-	SendMigration(static_cast<uint8>(ESTMigrationStep::Preview), {TEXT("tracelimit"), FString::FromInt(sTraceLimit)});
+	TArray<FString> Words = {TEXT("tracelimit"), FString::FromInt(sTraceLimit)};
+	if (sAllItems)
+	{
+		Words.Add(TEXT("allitems"));
+	}
+	SendMigration(static_cast<uint8>(ESTMigrationStep::Preview), Words);
 }
 
 bool USTMigrationWindow::OnShown()

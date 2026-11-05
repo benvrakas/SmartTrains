@@ -28,6 +28,8 @@ namespace STMigration
 		FString Confidence;
 		// Why the items are what they are when it isn't plain (backup used, other items ignored).
 		FString Note;
+		// Which items were left out to keep one item per platform.
+		FString OneItemNote;
 	};
 
 	struct FStationProposal
@@ -62,7 +64,11 @@ namespace STMigration
 
 	// Gathers the evidence and builds a preview; writes the CSV report and returns chat lines.
 	// TraceLimit: buildings and belt segments each platform's connection trace may visit.
-	TArray<FString> Preview(ASTSubsystem* Subsystem, UWorld* World, int32 TraceLimit = STTrace::DefaultLimit);
+	// bOneItem: each platform gets one item, so a machine with several inputs isn't flooded with one of them.
+	TArray<FString> Preview(ASTSubsystem* Subsystem, UWorld* World, int32 TraceLimit = STTrace::DefaultLimit, bool bOneItem = true);
+
+	// False if the words contain "allitems".
+	bool ParseOneItem(const TArray<FString>& Words);
 
 	// Reads "tracelimit <n>" from command words; Default when absent.
 	int32 ParseTraceLimit(const TArray<FString>& Words, int32 Default = STTrace::DefaultLimit);

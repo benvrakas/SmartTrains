@@ -127,7 +127,7 @@ void USTPanel::NativeDestruct()
 
 UUserWidget* USTPanel::GetMenu() const
 {
-	return STWidgetUtils::GetOwningUserWidget(this);
+	return mMenuOverride.IsValid() ? mMenuOverride.Get() : STWidgetUtils::GetOwningUserWidget(this);
 }
 
 void USTPanel::ApplyStyle()

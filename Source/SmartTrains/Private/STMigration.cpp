@@ -108,7 +108,7 @@ namespace
 	}
 }
 
-TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int32 TraceLimit)
+TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int32 TraceLimit, bool bOneItem)
 {
 	TArray<FString> Lines;
 	AFGRailroadSubsystem* Railroad = World ? AFGRailroadSubsystem::Get(World) : nullptr;
@@ -249,6 +249,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 			}
 			// Backups: what the platform holds now, and what timetable filters move here.
 			TSet<UClass*> Backup;
+			TMap<UClass*, int32> Held;
 			if (const UFGInventoryComponent* Inventory = Cargo->GetInventory())
 			{
 				TArray<FInventoryStack> Stacks;
@@ -258,9 +259,48 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 					if (Stack.HasItems() && Stack.Item.GetItemClass())
 					{
 						Backup.Add(Stack.Item.GetItemClass());
+						Held.FindOrAdd(Stack.Item.GetItemClass()) += Stack.NumItems;
 					}
 				}
 			}
+			const TSet<UClass*> Scheduled = (bLoadMode ? LoadItemsAt : UnloadItemsAt).FindRef(Identifier);
+			// One item per platform: from several, the one it holds most of, then one its timetables send, then the
+			// largest traced flow. Returns how it was chosen.
+			auto ChooseOne = [&Held, &Scheduled](const TArray<UClass*>& Choices, const TMap<UClass*, float>& Flow, UClass*& OutItem) -> FString
+			{
+				OutItem = nullptr;
+				int32 Most = 0;
+				for (UClass* Item : Choices)
+				{
+					if (Held.FindRef(Item) > Most)
+					{
+						Most = Held.FindRef(Item);
+						OutItem = Item;
+					}
+				}
+				if (OutItem)
+				{
+					return TEXT("the one it holds most of");
+				}
+				for (UClass* Item : Choices)
+				{
+					if (Scheduled.Contains(Item))
+					{
+						OutItem = Item;
+						return TEXT("the one its timetables send");
+					}
+				}
+				float Largest = -1.f;
+				for (UClass* Item : Choices)
+				{
+					if (Flow.FindRef(Item) > Largest)
+					{
+						Largest = Flow.FindRef(Item);
+						OutItem = Item;
+					}
+				}
+				return TEXT("the largest flow; check it");
+			};
 			const int32 FromInventory = Backup.Num();
 			for (UClass* Item : (bLoadMode ? LoadItemsAt : UnloadItemsAt).FindRef(Identifier))
 			{
@@ -275,6 +315,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 			// The backups are only used when the trace finds nothing.
 			TSet<UClass*> Traced;
 			FString Source = TEXT("none");
+			bool bChoseByFlow = false;
 			if (Platform.Role != ESTRole::Off)
 			{
 				const STTrace::FResult Trace = STTrace::Trace(Cargo, bLoadMode, TraceLimit);
@@ -290,9 +331,34 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 				if (Traced.Num() > 0)
 				{
 					Source = TEXT("trace");
-					for (UClass* Item : Traced)
+					if (bOneItem && Traced.Num() > 1)
 					{
-						Platform.Items.Add(Item);
+						TMap<UClass*, float> Flow;
+						for (const STTrace::FFlow& Each : Trace.Flows)
+						{
+							Flow.FindOrAdd(Each.Item.Get()) += Each.PerMinute;
+						}
+						UClass* Chosen = nullptr;
+						const FString How = ChooseOne(Traced.Array(), Flow, Chosen);
+						TArray<FString> Others;
+						for (UClass* Item : Traced)
+						{
+							if (Item != Chosen)
+							{
+								Others.Add(STNames::Item(Item));
+							}
+						}
+						Platform.Items.Add(Chosen);
+						Platform.OneItemNote = FString::Printf(TEXT("belts also carry %s; one item per platform: %s"), *FString::Join(Others, TEXT(", ")), *How);
+						Traced = {Chosen};
+						bChoseByFlow = How.StartsWith(TEXT("the largest"));
+					}
+					else
+					{
+						for (UClass* Item : Traced)
+						{
+							Platform.Items.Add(Item);
+						}
 					}
 					TArray<FString> Ignored;
 					for (UClass* Item : Backup)
@@ -308,21 +374,36 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 						bConfirmed |= Backup.Contains(Item);
 					}
 					// A clean trace is high; an unclean one the platform's stock or timetables confirm is high too.
-					Platform.Confidence = Trace.Confidence == STTrace::EConfidence::High || bConfirmed ? TEXT("high") : STTrace::ConfidenceName(Trace.Confidence);
+					Platform.Confidence = bChoseByFlow ? TEXT("medium")
+						: (Trace.Confidence == STTrace::EConfidence::High || bConfirmed ? TEXT("high") : STTrace::ConfidenceName(Trace.Confidence));
 					if (Ignored.Num() > 0)
 					{
 						Platform.Note = FString::Printf(TEXT("also holds or is sent %s, not on its belts: ignored"), *FString::Join(Ignored, TEXT(", ")));
+					}
+					if (!Platform.OneItemNote.IsEmpty())
+					{
+						Platform.Note = Platform.Note.IsEmpty() ? Platform.OneItemNote : Platform.OneItemNote + TEXT("; ") + Platform.Note;
 					}
 				}
 				else if (Backup.Num() > 0)
 				{
 					Source = TEXT("backup");
-					for (UClass* Item : Backup)
-					{
-						Platform.Items.Add(Item);
-					}
 					Platform.Confidence = TEXT("medium");
 					Platform.Note = TEXT("trace found nothing; items from its inventory and timetables");
+					if (bOneItem && Backup.Num() > 1)
+					{
+						UClass* Chosen = nullptr;
+						const FString How = ChooseOne(Backup.Array(), TMap<UClass*, float>(), Chosen);
+						Platform.Items.Add(Chosen);
+						Platform.Note += FString::Printf(TEXT("; one item per platform: %s"), *How);
+					}
+					else
+					{
+						for (UClass* Item : Backup)
+						{
+							Platform.Items.Add(Item);
+						}
+					}
 				}
 				else if (Trace.PipeFluidHint && STLayout::ItemFitsCargoType(Trace.PipeFluidHint.Get(), CargoType))
 				{
@@ -406,7 +487,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 	Lines.Insert(FString::Printf(TEXT("Migration preview: %d stations (%d ready), %d trains (%d ticked). %s. Report %s %s"), Preview.Stations.Num(), Ready,
 		Preview.Trains.Num(), Ticked, *Preview.DttNote, bWritten ? TEXT("written to") : TEXT("NOT written to"), *Preview.CsvPath), 0);
 	Lines.Add(TEXT("Apply with /st migrate apply all, or /st migrate apply stations 1,2 trains 3. /st migrate undo puts it back."));
-	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION trace limit %d buildings and belts per platform"), TraceLimit);
+	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION trace limit %d buildings and belts per platform, %s"), TraceLimit, bOneItem ? TEXT("one item per platform") : TEXT("all traced items"));
 	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION preview: %d stations (%d ready), %d trains (%d ticked), %s, report %s"), Preview.Stations.Num(), Ready,
 		Preview.Trains.Num(), Ticked, *Preview.DttNote, *Preview.CsvPath);
 	for (const FString& Line : Lines)
@@ -678,4 +759,9 @@ int32 STMigration::ParseTraceLimit(const TArray<FString>& Words, int32 Default)
 		}
 	}
 	return Default;
+}
+
+bool STMigration::ParseOneItem(const TArray<FString>& Words)
+{
+	return !Words.ContainsByPredicate([](const FString& Word) { return Word.Equals(TEXT("allitems"), ESearchCase::IgnoreCase); });
 }

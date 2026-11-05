@@ -679,8 +679,8 @@ void ASTSubsystem::DispatchRound()
 				UE_LOG(LogSmartTrains, Log, TEXT("%s carries cargo no trip wants now"), *STLayout::Name(State.Train));
 			}
 			NoTrip(State, !Planner.GetLastProblem().IsEmpty()
-				? FString::Printf(TEXT("the best trip doesn't work (%s)"), *Planner.GetLastProblem())
-				: FString(TEXT("no trip is worth running now (consumers stocked, or no batch ready)")));
+				? FString::Printf(TEXT("nothing worth running now; the last trip tried was rejected: %s"), *Planner.GetLastProblem())
+				: FString(TEXT("nothing worth running now (consumers stocked, or no batch ready)")));
 			continue;
 		}
 		mIdleReasons.Remove(State.Train.Get());
@@ -749,6 +749,12 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 		return;
 	}
 	Planner.Release(State.Job.Legs, State.Job.Leg);
+	// The trip limit is for planning new trips; the rest of a trip under way may take as long as it already does.
+	if (State.Job.Legs.Num() > State.Job.Leg)
+	{
+		const FSTJobLeg& Last = State.Job.Legs.Last();
+		Planner.RaiseTripLimit(Last.PlannedArrival - Now() + EstimateStaySeconds(Last.Station) + 120.0);
+	}
 	TArray<FSTPlanStop> Stops;
 	FString Before;
 	for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
@@ -855,17 +861,19 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 		SendToStation(State, Depot, Why);
 		return;
 	}
-	// A train still at speed isn't stopped on the line: it drives on to the stop it was heading for and parks there.
+	// A train isn't parked on the line: one still at speed drives on to the stop it was heading for, and one that
+	// isn't at a station (e.g. just managed out on the track) drives to the nearest station, and parks there.
 	const AFGRailroadVehicle* First = State.Train->GetFirstVehicle();
 	const bool bMoving = First && First->GetVelocity().Size() > 300.0;
+	const bool bOnTheLine = !State.Train->IsDocked() && !State.LastStation;
 	AFGRailroadTimeTable* TimeTable = State.Train->GetTimeTable();
 	AFGTrainStationIdentifier* Heading = TimeTable && TimeTable->IsValidStop(TimeTable->GetCurrentStop()) ? TimeTable->GetStop(TimeTable->GetCurrentStop()).Station.Get() : nullptr;
-	if (bMoving)
+	if (bMoving || bOnTheLine)
 	{
 		Heading = Heading ? Heading : FindNearestStation(State.Train);
 		if (Heading)
 		{
-			SendToStation(State, Heading, *FString::Printf(TEXT("%s, still moving"), Why));
+			SendToStation(State, Heading, *FString::Printf(TEXT("%s, %s"), Why, bMoving ? TEXT("still moving") : TEXT("not at a station")));
 			return;
 		}
 	}

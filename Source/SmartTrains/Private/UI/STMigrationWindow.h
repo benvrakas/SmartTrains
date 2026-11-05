@@ -39,6 +39,7 @@ private:
 	void SendPreview();
 	void ReadTraceLimit(const FString& Text);
 	void SetAllTicks(bool bStations, bool bTicked);
+	void ShowItemsMode();
 	void ApplyTicked();
 	void RefreshMigration(const FSTMigrationView& View);
 	void RestoreGameInput();
@@ -61,10 +62,15 @@ private:
 	UPROPERTY()
 	TObjectPtr<USTTextInput> mTraceLimit;
 
+	UPROPERTY()
+	TObjectPtr<USTButton> mItemsMode;
+
 	// Per row key: shows the row ticked or not.
 	TMap<FString, TFunction<void(bool)>> mShowTick;
 	// Trace limit for this session's previews.
 	static int32 sTraceLimit;
+	// This session's previews give platforms every traced item instead of one.
+	static bool sAllItems;
 
 	TWeakObjectPtr<APlayerController> mController;
 	bool bInputTaken = false;

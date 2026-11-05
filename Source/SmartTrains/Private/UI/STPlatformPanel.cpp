@@ -193,12 +193,7 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 
 AFGBuildableTrainPlatformCargo* USTPlatformPanel::GetPlatform() const
 {
-	UUserWidget* Menu = GetMenu();
-	if (AFGBuildableTrainPlatformCargo* Platform = Cast<AFGBuildableTrainPlatformCargo>(STWidgetUtils::GetObjectProperty(Menu, TEXT("mTrainPlatformCargo"))))
-	{
-		return Platform;
-	}
-	return Cast<AFGBuildableTrainPlatformCargo>(STWidgetUtils::GetObjectProperty(Menu, TEXT("mInteractObject")));
+	return STWidgetUtils::GetMenuPlatform(GetMenu());
 }
 
 bool USTPlatformPanel::OnShown()
@@ -473,7 +468,7 @@ void USTPlatformPanel::RebuildItemRows()
 			AddToLine(RateRow, MakeText(nullptr, STNames::IsFluid(Item) ? LOCTEXT("RateFluid", "Manual rate (m³/min):") : LOCTEXT("RateSolid", "Manual rate (/min):"), 10, false));
 			USizeBox* RateBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
 			RateBox->SetWidthOverride(110.f);
-			USTTextInput* Rate = MakeInput(nullptr, LOCTEXT("RateHint", "measured"));
+			USTTextInput* Rate = MakeInput(nullptr, LOCTEXT("RateHint", "auto"));
 			Rate->OnCommitted = [this, Index](const FString& Text) { SetRate(Index, Text); };
 			RateBox->AddChild(Rate);
 			AddToLine(RateRow, RateBox, false, FMargin(0.f));

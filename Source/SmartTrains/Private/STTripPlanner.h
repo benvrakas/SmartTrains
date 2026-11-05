@@ -94,6 +94,9 @@ public:
 	// One line per stop: station, items, arrival.
 	FString Describe(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result) const;
 
+	// Lets the current train's trip run at least Seconds (for re-plans of trips under way); reset by BeginTrain.
+	void RaiseTripLimit(double Seconds);
+
 	// True when this round's planning time is used up.
 	bool IsOverBudget() const;
 	// Milliseconds spent since the planner was made.

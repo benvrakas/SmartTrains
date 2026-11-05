@@ -21,6 +21,11 @@ class USTPanel : public UUserWidget
 {
 	GENERATED_BODY()
 
+public:
+	// For a panel in a window of its own: the vanilla menu it belongs to (for its object and its font). Set before the
+	// panel is shown.
+	void SetMenu(UUserWidget* Menu) { mMenuOverride = Menu; }
+
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 	virtual void NativeConstruct() override;
@@ -95,6 +100,7 @@ private:
 	FSlateColor mTextColor = FSlateColor(FLinearColor::White);
 	bool bHasStyle = false;
 
+	TWeakObjectPtr<UUserWidget> mMenuOverride;
 	FTimerHandle mRequestTimer;
 	FTimerHandle mRefreshTimer;
 	uint32 mShownRevision = MAX_uint32;

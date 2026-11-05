@@ -3,6 +3,7 @@
 #include "Patching/WidgetBlueprintHookManager.h"
 #include "SmartTrains.h"
 #include "UI/STPlatformPanel.h"
+#include "UI/STPlatformWindow.h"
 #include "UI/STStationPanel.h"
 #include "UI/STTrainPanel.h"
 #include "UI/STWidgetUtils.h"
@@ -81,9 +82,9 @@ void STUIHooks::Register(UObject* Outer, TArray<UWidgetBlueprintHookData*>& OutH
 		}
 	};
 	Keep(AddHook(Outer, Manager, STWidgetUtils::FreightPlatformMenuClass, TEXT("CanvasPanel_149"),
-		USTPlatformPanel::StaticClass(), TEXT("ST_PlatformPanel"), MakeBesideCanvasSlot(Outer, FreightMenuWidth)));
+		USTPlatformLauncher::StaticClass(), TEXT("ST_PlatformLauncher"), MakeBesideCanvasSlot(Outer, FreightMenuWidth)));
 	Keep(AddHook(Outer, Manager, STWidgetUtils::FluidPlatformMenuClass, TEXT("CanvasPanel_0"),
-		USTPlatformPanel::StaticClass(), TEXT("ST_PlatformPanelFluid"), MakeBesideCanvasSlot(Outer, FluidMenuWidth)));
+		USTPlatformLauncher::StaticClass(), TEXT("ST_PlatformLauncherFluid"), MakeBesideCanvasSlot(Outer, FluidMenuWidth)));
 	// Vertical box parents get no slot setup: SML's generic slot setup dereferences a null slot for them.
 	// Timetable column: label, notice, stop list (scroll box), then the cancel docking, edit and self-driving
 	// buttons. The panel goes right under the stop list.

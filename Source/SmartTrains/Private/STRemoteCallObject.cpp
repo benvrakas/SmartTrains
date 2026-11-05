@@ -291,7 +291,7 @@ void USTRemoteCallObject::Server_Migrate_Implementation(ESTMigrationStep Step, c
 	case ESTMigrationStep::Refresh:
 		break;
 	case ESTMigrationStep::Preview:
-		Lines = STMigration::Preview(Subsystem, World, STMigration::ParseTraceLimit(Selection));
+		Lines = STMigration::Preview(Subsystem, World, STMigration::ParseTraceLimit(Selection), STMigration::ParseOneItem(Selection));
 		// The rows show the stations and trains; keep only the summary and notes.
 		Lines.RemoveAll([](const FString& Line)
 		{

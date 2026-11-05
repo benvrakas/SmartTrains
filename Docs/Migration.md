@@ -33,6 +33,11 @@ through belts, lifts, splitters, mergers, pipes, junctions and pumps and stops a
   is snapped to (`GetSnappedPassthroughs`).
 - **Trace limit:** buildings and belt segments one platform's trace may visit, default 5,000 (100 to 100,000). Set
   it in the migration window or with `/st migrate preview tracelimit <n>`. Reaching it marks the result incomplete.
+- **One item per platform** (default): a machine with several inputs makes the trace find several items, and giving
+  a platform all of them would let one flood the line while another runs short. Of several items the platform gets
+  the one it holds most of now, else one its timetables send (DynamicTimeTable or vanilla), else the largest traced
+  flow (marked medium, "check it"). The others are listed in the note. The window's "Items per platform" switch
+  (or `allitems` in chat) keeps every traced item, for mixed (sushi) belts.
 - **The trace decides the items** whenever it finds any. The platform's inventory and timetable filters are only
   used when the trace finds nothing; items they name that aren't on the belts are listed as ignored.
 - Confidence: **high** for a clean trace, or one the platform's stock or timetables confirm; **medium** through

@@ -230,8 +230,8 @@ widget blueprint hooks at `POST_INITIALIZATION`, and not on dedicated servers:
 
 | Vanilla widget | Panel | SmartTrains panel |
 |---|---|---|
-| `Widget_Train_DockingStation` (freight platform) | `CanvasPanel_149` at x 448 | `USTPlatformPanel`, beside the window |
-| `BPW_Train_DockingStation_Fluid` | `CanvasPanel_0` at x 765 | `USTPlatformPanel` |
+| `Widget_Train_DockingStation` (freight platform) | `CanvasPanel_149` at x 448 | `USTPlatformLauncher`, beside the window; opens `USTPlatformWindow` |
+| `BPW_Train_DockingStation_Fluid` | `CanvasPanel_0` at x 765 | `USTPlatformLauncher` |
 | `Widget_Locomotive_Menu` | `VerticalBox_1` (Timetable column), slot 3: under the stop list | `USTTrainPanel` |
 | `Widget_TrainStationNew` | `VerticalBox_2` (under the train and station lists) | `USTStationPanel` |
 
@@ -241,6 +241,7 @@ commandlet. It now also lists named-slot content, canvas slot layout and size bo
 auto-sized canvas slot, so the canvas, and with it the window, grows wider. The panel logs its geometry half a
 second after it opens, to check that.
 
+- **Platform window** (`USTPlatformWindow`, the `USTPlatformPanel` content in a window on the viewport). The launcher beside the platform menu shows the role, items and one readout line, and opens it. The window keeps the input mode as the platform menu set it, so the menu behind it works; Close, Escape, or closing the platform menu close it. Its panel reads the platform and the font from the menu (`USTPanel::SetMenu`).
 - **Platform panel.** Role buttons (Off / Supply / Demand); per item: priority (click cycles, right click goes back),
   send-at or target in 10 % steps, and a manual rate (m³/min for fluids). The item picker lists the items on the
   platform first, then every item that available recipes make plus raw resources, of the platform's form; "Any item"

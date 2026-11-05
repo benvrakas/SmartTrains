@@ -14,9 +14,9 @@ class USTTextInput;
 class UTextBlock;
 class UFGItemDescriptor;
 
-// SmartTrains panel beside the vanilla freight and fluid platform menus (Widget_Train_DockingStation,
-// BPW_Train_DockingStation_Fluid): role, items with their batch or target, priority and manual rate, an item picker,
-// copy/paste and copy to the whole station, and the live readout. Edits are sent at once; the panel keeps its own copy
+// SmartTrains settings of one freight or fluid platform: role, items with their batch or target, priority and manual
+// rate, an item picker, copy/paste, the station switch, and the live readout. Shown in its own window
+// (USTPlatformWindow), opened from the platform menu. Edits are sent at once; the panel keeps its own copy
 // until the server's readout includes them.
 UCLASS()
 class USTPlatformPanel : public USTPanel

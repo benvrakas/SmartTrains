@@ -192,7 +192,7 @@ namespace
 		TEXT("/st train [manage|unmanage] [keepvanilla on|off]"),
 		TEXT("/st job <item> from <station> to <station>   (a test job for the train you drive or look at)"),
 		TEXT("/st migrate   (opens the migration window)"),
-		TEXT("/st migrate preview [tracelimit 5000] | apply all [confirm] | apply stations 1,2 trains 3 | undo"),
+		TEXT("/st migrate preview [tracelimit 5000] [allitems] | apply all [confirm] | apply stations 1,2 trains 3 | undo"),
 		TEXT("/st testcopy [session name] | /st backup"),
 	};
 }
@@ -453,7 +453,7 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		}
 		else if (Step == TEXT("preview"))
 		{
-			Send(Sender, STMigration::Preview(Subsystem, World, STMigration::ParseTraceLimit(Arguments)));
+			Send(Sender, STMigration::Preview(Subsystem, World, STMigration::ParseTraceLimit(Arguments), STMigration::ParseOneItem(Arguments)));
 		}
 		else if (Step == TEXT("apply"))
 		{

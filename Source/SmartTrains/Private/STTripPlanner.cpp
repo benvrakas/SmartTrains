@@ -102,6 +102,11 @@ FSTTripPlanner::FSTTripPlanner(const ASTSubsystem& InSubsystem, TArray<FSTNode>&
 	}
 }
 
+void FSTTripPlanner::RaiseTripLimit(double Seconds)
+{
+	mMaxTripSeconds = FMath::Max(mMaxTripSeconds, Seconds);
+}
+
 bool FSTTripPlanner::IsOverBudget() const
 {
 	return FPlatformTime::Seconds() > mDeadline;
@@ -280,6 +285,7 @@ const TArray<TArray<int32>>& FSTTripPlanner::GetCarPlatforms(const AFGTrainStati
 bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bInAnchorDocked)
 {
 	mTrainIndex = TrainIndex;
+	mMaxTripSeconds = FMath::Max(60.0, mSubsystem.mSettings.MaxTripMinutes * 60.0);
 	mAnchor = Anchor;
 	mFreeAt = FreeAt;
 	bAnchorDocked = bInAnchorDocked;

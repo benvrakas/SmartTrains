@@ -45,6 +45,9 @@ namespace STWidgetUtils
 	// Returns the nearest user widget that owns Widget, skipping Widget itself.
 	UUserWidget* GetOwningUserWidget(const UWidget* Widget);
 
+	// The cargo platform a vanilla freight or fluid platform menu shows, or nullptr.
+	class AFGBuildableTrainPlatformCargo* GetMenuPlatform(const UUserWidget* Menu);
+
 	// Font and colour of the TextBlock named SourceName in Menu's tree (or its first TextBlock), at Size.
 	// Returns false and leaves the outputs alone if Menu has no TextBlock.
 	bool FindTextStyle(UUserWidget* Menu, FName SourceName, int32 Size, FSlateFontInfo& OutFont, FSlateColor& OutColor);

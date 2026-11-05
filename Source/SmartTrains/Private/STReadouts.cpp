@@ -265,7 +265,9 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 			const double Target = Node.Capacity * Node.TargetPercent / 100.0;
 			if (Node.Stock + Node.Reserved >= Target)
 			{
-				Lines.Add(FString::Printf(TEXT("%s: stocked, %s of a %s target."), *Name, *STNames::Amount(Rule.Item, Node.Stock), *STNames::Amount(Rule.Item, Target)));
+				Lines.Add(FString::Printf(TEXT("%s: stocked. The station's %d platforms for it hold %s%s, target %s."), *Name, Node.Platforms.Num(),
+					*STNames::Amount(Rule.Item, Node.Stock), Node.Reserved > 0 ? *FString::Printf(TEXT(" with %s on the way"), *STNames::Amount(Rule.Item, Node.Reserved)) : TEXT(""),
+					*STNames::Amount(Rule.Item, Target)));
 				continue;
 			}
 			const bool bReady = Partners.ContainsByPredicate([&](int32 Partner) { return Nodes[Partner].Stock > Nodes[Partner].Reserved; });

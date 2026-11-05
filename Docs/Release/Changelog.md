@@ -8,7 +8,7 @@
 - **Pool tags removed.** Trains go wherever platform items match. Tags in older saves are logged and dropped.
 - **Platform-to-platform trips.** One trip can now serve several platforms and items: each car has its own plan
   (load this here, unload it there, skip the rest). With Freight Car Control every platform can have its own items;
-  without it a station works as one big platform. Trips have up to 4 stops and 20 minutes (Mods menu). They pick up
+  without it a station works as one big platform. Trips have up to 4 stops and 45 minutes (Mods menu). They pick up
   where they deliver when that fits, and deliver leftovers on the way.
 - **Re-planned after every stop** from what the cars really hold, so short pickups, full consumers and hand-moved
   cargo are handled at the next stop.
@@ -26,6 +26,13 @@
   backup). It follows smart splitter rules, Modular Load Balancer groups and filters, and lifts through floor holes,
   with a much larger limit (5,000, settable in the window). The window lists stations and trains as rows with one
   line per platform, its confidence and notes, and tick all / untick all per section.
+- **Migration gives each platform one item** by default (the one it holds most of, else the one its timetables
+  send, else the largest traced flow), so machines with several inputs aren't flooded. "Items per platform" in the
+  window keeps every traced item for mixed belts.
+- **Platform menus:** the settings open in their own window ("Open SmartTrains settings" in the small SmartTrains
+  section beside the platform menu), instead of a tall panel beside it.
+- Trains managed out on the track with nothing to do drive to the nearest station before parking, instead of
+  stopping on the line. Re-plans no longer drop the rest of a trip for being over the trip limit.
 - **Why no trip:** a free managed train logs, and shows in its menu and `/st jobs`, why it got nothing.
 - **"Same for every platform in this station"** in the platform menu (and `/st station same`). Editing one platform
   then sets every platform of that kind in the station. By default it is on without Freight Car Control (where a
