@@ -11,7 +11,7 @@
 - **Platform readouts** count a car holding the same item as fitting (it tops up), not only empty cars.
 - **Idle reasons:** a train with no trip lists its three most frequent rejection reasons with counts, not just the
   last.
-- **`/st monitor`:** a throughput monitor window. Per item it shows whether supply, trains, fit or a congested
+- **`/st monitor`:** a throughput monitor window with five tabs: Overview, Items, Stations, Platforms and Trains. Per item it shows whether supply, trains, fit or a congested
   station limits deliveries over the last half hour. It also lists starved and backed-up platforms, and why idle
   trains wait. Logged as `MONITOR` lines every 5 minutes.
 - **Station linking removed:** platforms always keep their own settings, with or without Freight Car Control. The

@@ -213,23 +213,32 @@ enum class ESTTrainAction : uint8
 	KeepVanillaOff,
 };
 
-// One item or station in the throughput monitor.
+// One row of the throughput monitor: an item, station, platform or train, or an overview tile.
 USTRUCT()
 struct SMARTTRAINS_API FSTMonitorRow
 {
 	GENERATED_BODY()
 
-	// Item or station name.
+	// Item, station or train name; a tile's label.
 	UPROPERTY()
 	FString Title;
 
-	// What limits it: OK, Measuring, Supply short, Trains short, No train fits, Congested, Blocked, No demand, No supply.
+	// The item whose icon the row shows, if any.
+	UPROPERTY()
+	TSubclassOf<UFGItemDescriptor> Item;
+
+	// Items: what limits it (OK, Measuring, Supply short, Trains short, No train fits, Congested, Blocked, No demand,
+	// No supply). Stations: Congested or OK. Platforms: Starved or Backing up. Trains: their state. Tiles: the value.
 	UPROPERTY()
 	FString Verdict;
 
 	// 0 fine, 1 worth a look, 2 limits deliveries.
 	UPROPERTY()
 	uint8 Severity = 0;
+
+	// Table cells, in the order of the tab's column headings.
+	UPROPERTY()
+	TArray<FString> Columns;
 
 	UPROPERTY()
 	TArray<FString> Details;
@@ -241,21 +250,29 @@ struct SMARTTRAINS_API FSTMonitorView
 {
 	GENERATED_BODY()
 
+	// Overview tiles: label in Title, value in Verdict.
+	UPROPERTY()
+	TArray<FSTMonitorRow> Tiles;
+
 	// Fleet lines.
 	UPROPERTY()
 	TArray<FString> Summary;
 
-	// Per item, the ones that limit deliveries first.
+	// Per item, the ones that limit deliveries first. Columns: supply, demand, trains, below target.
 	UPROPERTY()
 	TArray<FSTMonitorRow> Items;
 
-	// Congested stations.
+	// Stations with roles, congested ones first. Columns: docked, arrivals, average lateness.
 	UPROPERTY()
 	TArray<FSTMonitorRow> Stations;
 
-	// Starved demand platforms and backed-up supply platforms.
+	// Starved demand platforms and backed-up supply platforms. Columns: share of the time.
 	UPROPERTY()
-	TArray<FString> Platforms;
+	TArray<FSTMonitorRow> Platforms;
+
+	// Managed trains: state in Verdict, trip or idle reason in Details.
+	UPROPERTY()
+	TArray<FSTMonitorRow> Trains;
 
 	// Idle managed trains grouped by why they got no trip.
 	UPROPERTY()

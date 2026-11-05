@@ -325,7 +325,16 @@ Verdict per item, first match:
 7. one of its stations congested (a train docked 85 % of the time, or arrivals 120 s late on average): "Congested";
 8. otherwise "Blocked": supply and trains are there but trips aren't made, so the idle reasons tell why.
 
-The view (`FSTMonitorView`) goes to `USTMonitorWindow` through `Server_RequestMonitor` / `Client_Monitor` once a second
+The window has five tabs:
+- **Overview:** tiles (managed trains, busy share, idle trains, limited items, congested stations), what limits
+  deliveries with each row's advice, the fleet lines and the idle reasons.
+- **Items:** a table with icon, limit, supply and demand per minute, trains needed / fitting, and time below target.
+  It can be filtered to items that need a look.
+- **Stations:** the docked share, arrivals and average lateness of every station with roles.
+- **Platforms:** starved and backed-up platforms.
+- **Trains:** every managed train with its state, last station and trip or idle reason.
+
+Tab headings count the rows that need a look. The view (`FSTMonitorView`) goes to `USTMonitorWindow` through `Server_RequestMonitor` / `Client_Monitor` once a second
 while the window is open. `/st monitor text` and the server console print the same report, and it is logged as
 `MONITOR` lines every 5 minutes while trains are managed.
 

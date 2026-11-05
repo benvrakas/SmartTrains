@@ -218,6 +218,33 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 	{
 		View.Idle.Add(FString::Printf(TEXT("%d %s: %s"), Each.Value, Each.Value == 1 ? TEXT("train") : TEXT("trains"), *Each.Key));
 	}
+	for (const FSTTrainState& State : Subsystem.mTrains)
+	{
+		if (!State.bManaged || !IsValid(State.Train))
+		{
+			continue;
+		}
+		FSTMonitorRow& Row = View.Trains.AddDefaulted_GetRef();
+		Row.Title = State.bRenamed && !State.OriginalName.IsEmpty() ? State.OriginalName.ToString() : STLayout::Name(State.Train.Get());
+		const bool bDocked = State.Train->IsDocked();
+		if (!State.bHasJob)
+		{
+			const FString* Reason = Subsystem.mIdleReasons.Find(State.Train.Get());
+			Row.Verdict = TEXT("Idle");
+			Row.Severity = Reason ? 1 : 0;
+			Row.Details.Add(Reason ? *Reason : FString(TEXT("not planned yet")));
+		}
+		else
+		{
+			Row.Verdict = State.Job.bPark ? TEXT("Going to park") : (bDocked ? TEXT("At a stop") : TEXT("Driving"));
+			Row.Details.Add(State.Job.Summary);
+		}
+		Row.Columns.Add(State.LastStation ? STLayout::Name(State.LastStation.Get()) : FString(TEXT("-")));
+	}
+	View.Trains.Sort([](const FSTMonitorRow& A, const FSTMonitorRow& B)
+	{
+		return A.Severity != B.Severity ? A.Severity > B.Severity : A.Title < B.Title;
+	});
 
 	// Stations: occupancy and late arrivals.
 	TSet<const AFGTrainStationIdentifier*> Congested;
@@ -245,13 +272,15 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			Late = Arrivals > 0 ? Late / Arrivals : 0.0;
 		}
 		const bool bLate = Arrivals >= MinArrivals && Late >= CongestedLate;
+		FSTMonitorRow& Row = View.Stations.AddDefaulted_GetRef();
+		Row.Title = STLayout::Name(Pair.Key.Get());
+		Row.Columns = {Percent(Share), FString::FromInt(Arrivals), Arrivals > 0 ? FString::Printf(TEXT("%+.0f s"), Late) : FString(TEXT("-"))};
 		if (Share < CongestedShare && !bLate)
 		{
+			Row.Verdict = TEXT("OK");
 			continue;
 		}
 		Congested.Add(Pair.Key.Get());
-		FSTMonitorRow& Row = View.Stations.AddDefaulted_GetRef();
-		Row.Title = STLayout::Name(Pair.Key.Get());
 		Row.Verdict = TEXT("Congested");
 		Row.Severity = 2;
 		Row.Details.Add(FString::Printf(TEXT("A train is docked here %s of the time."), *Percent(Share)));
@@ -283,6 +312,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		const FItemGroup& Group = Pair.Value;
 		FSTMonitorRow& Row = View.Items.AddDefaulted_GetRef();
 		Row.Title = STNames::Item(Item);
+		Row.Item = Item;
 
 		double SupplyRate = 0.0;
 		double DemandRate = 0.0;
@@ -320,6 +350,11 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		Row.Details.Add(FString::Printf(TEXT("Supply %s/min at %d platforms; demand %s%s/min at %d platforms."), *STNames::Amount(Item, SupplyRate), SupplyPlatforms,
 			bAnyStarvedNow ? TEXT("at least ") : TEXT(""), *STNames::Amount(Item, DemandRate), DemandPlatforms));
 		const ASTSubsystem::FAdvice* Advice = Subsystem.mAdvice.Find(Item);
+		Row.Columns = {
+			Group.Suppliers.Num() > 0 ? STNames::Amount(Item, SupplyRate) : FString(TEXT("-")),
+			Group.Consumers.Num() > 0 ? FString::Printf(TEXT("%s%s"), bAnyStarvedNow ? TEXT(">") : TEXT(""), *STNames::Amount(Item, DemandRate)) : FString(TEXT("-")),
+			Advice && Advice->Pairs > 0 ? FString::Printf(TEXT("%.1f / %d"), Advice->TrainsNeeded, Advice->TrainsFitting) : FString(TEXT("-")),
+			Group.Consumers.Num() > 0 ? Percent(Low) : FString(TEXT("-"))};
 		if (Advice && Advice->Pairs > 0)
 		{
 			Row.Details.Add(FString::Printf(TEXT("Flow plan: %s/min over %d routes, needs about %.1f trains; %d managed trains fit those routes."),
@@ -409,23 +444,56 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		{
 			if (Each->Samples.Num() >= MinSamples && Each->Share(ENodeFlag::Starved) >= 0.5)
 			{
-				View.Platforms.Add(FString::Printf(TEXT("Starved: %s wants %s (empty %s of the time)."), *STLayout::Name(Each->Station.Get()), *Row.Title,
-					*Percent(Each->Share(ENodeFlag::Starved))));
+				FSTMonitorRow& Platform = View.Platforms.AddDefaulted_GetRef();
+				Platform.Title = STLayout::Name(Each->Station.Get());
+				Platform.Item = Item;
+				Platform.Verdict = TEXT("Starved");
+				Platform.Severity = 2;
+				Platform.Columns = {Row.Title, Percent(Each->Share(ENodeFlag::Starved))};
+				Platform.Details.Add(FString::Printf(TEXT("Wants %s and was empty %s of the time."), *Row.Title, *Percent(Each->Share(ENodeFlag::Starved))));
 			}
 		}
 		for (const FNodeHistory* Each : Group.Suppliers)
 		{
 			if (Each->Samples.Num() >= MinSamples && Each->Share(ENodeFlag::Full) >= 0.5)
 			{
-				View.Platforms.Add(FString::Printf(TEXT("Backing up: %s %s is full %s of the time."), *STLayout::Name(Each->Station.Get()), *Row.Title,
-					*Percent(Each->Share(ENodeFlag::Full))));
+				FSTMonitorRow& Platform = View.Platforms.AddDefaulted_GetRef();
+				Platform.Title = STLayout::Name(Each->Station.Get());
+				Platform.Item = Item;
+				Platform.Verdict = TEXT("Backing up");
+				Platform.Severity = 1;
+				Platform.Columns = {Row.Title, Percent(Each->Share(ENodeFlag::Full))};
+				Platform.Details.Add(FString::Printf(TEXT("Supplies %s and was full %s of the time, so its belts or pipes back up."), *Row.Title, *Percent(Each->Share(ENodeFlag::Full))));
 			}
 		}
 	}
-	View.Items.Sort([](const FSTMonitorRow& A, const FSTMonitorRow& B)
+	auto BySeverity = [](const FSTMonitorRow& A, const FSTMonitorRow& B)
 	{
 		return A.Severity != B.Severity ? A.Severity > B.Severity : A.Title < B.Title;
-	});
+	};
+	View.Items.Sort(BySeverity);
+	View.Stations.Sort(BySeverity);
+	View.Platforms.Sort(BySeverity);
+
+	auto AddTile = [&View](const FString& Label, const FString& Value, uint8 Severity)
+	{
+		FSTMonitorRow& Tile = View.Tiles.AddDefaulted_GetRef();
+		Tile.Title = Label;
+		Tile.Verdict = Value;
+		Tile.Severity = Severity;
+	};
+	int32 Limited = 0;
+	for (const FSTMonitorRow& Row : View.Items)
+	{
+		Limited += Row.Severity >= 2 ? 1 : 0;
+	}
+	const int32 ManagedNow = mFleet.Num() > 0 ? mFleet.Last().Managed : 0;
+	const int32 IdleNow = mFleet.Num() > 0 ? mFleet.Last().Idle : 0;
+	AddTile(TEXT("Managed trains"), FString::FromInt(ManagedNow), 0);
+	AddTile(TEXT("Busy on trips"), mFleet.Num() > 0 ? Percent(BusyShareNow) : FString(TEXT("-")), BusyShareNow >= BusyShare ? 1 : 0);
+	AddTile(TEXT("Idle now"), FString::FromInt(IdleNow), 0);
+	AddTile(TEXT("Items limited"), FString::FromInt(Limited), Limited > 0 ? 2 : 0);
+	AddTile(TEXT("Congested stations"), FString::FromInt(Congested.Num()), Congested.Num() > 0 ? 2 : 0);
 	return View;
 }
 
@@ -450,11 +518,15 @@ TArray<FString> FSTThroughput::Describe(const FSTMonitorView& View)
 	}
 	for (const FSTMonitorRow& Row : View.Stations)
 	{
+		if (Row.Severity == 0)
+		{
+			continue;
+		}
 		Lines.Add(FString::Printf(TEXT("  Station %s: %s. %s"), *Row.Title, *Row.Verdict, *FString::Join(Row.Details, TEXT(" "))));
 	}
-	for (const FString& Line : View.Platforms)
+	for (const FSTMonitorRow& Row : View.Platforms)
 	{
-		Lines.Add(TEXT("  ") + Line);
+		Lines.Add(FString::Printf(TEXT("  %s: %s %s. %s"), *Row.Verdict, *Row.Title, Row.Columns.Num() > 0 ? *Row.Columns[0] : TEXT(""), *FString::Join(Row.Details, TEXT(" "))));
 	}
 	for (const FString& Line : View.Idle)
 	{
