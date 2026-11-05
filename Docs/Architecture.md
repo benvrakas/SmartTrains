@@ -312,6 +312,12 @@ second after it opens, to check that.
   runs the same steps as `/st migrate`. Its rows are the preview's stations and trains, ticked as proposed. Apply
   sends the ticked numbers. Without a test copy or backup this session, Apply takes a second click (the chat
   command's `confirm`).
+  - It has tabs: Overview, Stations, Trains and Last result. A station "to check" has a flag, or a platform with a
+    conflict, no item, or low or unclear confidence.
+  - The view carries each station's platforms (`FSTMigrationPlatformRow`: number, role, items, confidence, note,
+    conflict), so the window shows item icons.
+  - Ticks, opened stations, the tab and the filters live in the window. A fresh preview resets the ticks to the
+    proposals and opens the Overview.
 
 ## Without Freight Car Control
 

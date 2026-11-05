@@ -2,6 +2,16 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Migration window redesigned**, in the monitor's style:
+  - **Steps:** Preview, Apply ticked and Undo stay on top, with the trace limit and items-per-platform options.
+  - **Overview tab:** counts (stations, ticked, to check, platforms with a role, trains ticked) and a list of what
+    to check before applying.
+  - **Stations tab:** filters (All, To check, Ticked, Not ticked) and tick or untick everything shown. Each station
+    shows a tick, its platform roles, and Ready, Check or Not ticked by default. "+" opens its platforms: role in
+    colour, items with icons, confidence in colour, notes and problems.
+  - **Trains tab:** the same filters; each train shows whether it will be managed, its route and why.
+  - **Last result tab:** what the last step said.
+
 - **Monitor verdicts checked directly:**
   - "No train fits" now comes from a direct check: whether any managed train can reach the consumer that waits most
     from a supplier, and fit at both ends. It names the consumer and the first fit problem. "Unreachable" means no

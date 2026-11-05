@@ -850,10 +850,18 @@ FSTMigrationView STMigration::MakeView(ASTSubsystem* Subsystem, UWorld* World)
 		for (const FPlatformProposal& Platform : Station.Platforms)
 		{
 			Row.Details.Add(PlatformLine(Platform));
+			FSTMigrationPlatformRow& Each = Row.Platforms.AddDefaulted_GetRef();
+			Each.Number = Platform.Index + 1;
+			Each.Role = Platform.Role;
+			Each.Items = Platform.Items;
+			Each.Confidence = Platform.Role != ESTRole::Off ? Platform.Confidence : FString();
+			Each.Note = Platform.Note;
+			Each.Conflict = Platform.Conflict;
 		}
 		if (Station.Users.Num() > 0)
 		{
 			Row.Details.Add(TEXT("Used by: ") + FString::Join(Station.Users, TEXT(", ")));
+			Row.Users = FString::Join(Station.Users, TEXT(", "));
 		}
 		Row.bProposed = Station.Flag.IsEmpty();
 	}
@@ -870,6 +878,8 @@ FSTMigrationView STMigration::MakeView(ASTSubsystem* Subsystem, UWorld* World)
 		{
 			Row.Details.Add(Train.Note);
 		}
+		Row.Users = Train.Route;
+		Row.Note = Train.Note;
 		Row.bProposed = Train.bPreselected;
 	}
 	return View;

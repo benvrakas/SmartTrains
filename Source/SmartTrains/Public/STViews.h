@@ -126,6 +126,35 @@ struct SMARTTRAINS_API FSTStationView
 	int32 AppliedEdit = 0;
 };
 
+// One platform of a station in a migration preview.
+USTRUCT()
+struct SMARTTRAINS_API FSTMigrationPlatformRow
+{
+	GENERATED_BODY()
+
+	// Position in the station, counted from 1.
+	UPROPERTY()
+	int32 Number = 0;
+
+	UPROPERTY()
+	ESTRole Role = ESTRole::Off;
+
+	UPROPERTY()
+	TArray<TSubclassOf<UFGItemDescriptor>> Items;
+
+	// high, medium, low or unclear; empty for platforms without a role.
+	UPROPERTY()
+	FString Confidence;
+
+	// Where the items came from and what else was found.
+	UPROPERTY()
+	FString Note;
+
+	// Why the platform needs a look, if it does.
+	UPROPERTY()
+	FString Conflict;
+};
+
 // One station or train of a migration preview.
 USTRUCT()
 struct SMARTTRAINS_API FSTMigrationRow
@@ -158,6 +187,18 @@ struct SMARTTRAINS_API FSTMigrationRow
 	// Ticked by default: a station without a flag, or a train the preview proposes to manage.
 	UPROPERTY()
 	bool bProposed = false;
+
+	// Stations: their platforms.
+	UPROPERTY()
+	TArray<FSTMigrationPlatformRow> Platforms;
+
+	// Stations: the trains or groups that use them. Trains: their route.
+	UPROPERTY()
+	FString Users;
+
+	// Trains: why they are ticked or not.
+	UPROPERTY()
+	FString Note;
 };
 
 // The migration window's content.
