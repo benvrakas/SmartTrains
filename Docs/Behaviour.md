@@ -1,0 +1,138 @@
+# SmartTrains: methods and emergent behaviour
+
+State: 0.4.0 (commit aaa465e). Architecture.md has the implementation details; this file lists the methods in one
+place and the behaviour that comes out of them working together.
+
+Status tags for behaviour: **seen** (in a test log), **designed** (intended, not yet seen), **risk** (possible
+problem, not seen), **bug?** (seen symptom, cause not confirmed).
+
+## 1. Methods
+
+### Framing
+
+| Method | Where | What it does here |
+|---|---|---|
+| Inventory routing problem (IRP), maritime inventory routing flavour | whole planner | Platforms are inventories with rates and capacities. Trains are vehicles with compartments (cars). The planner decides when, where and how much to move, not just routes. |
+| Order-up-to level with minimum batch, like an (s, S) inventory policy | node targets, send-at | Demand platforms are served while below **target**. A pickup only goes when it fills the **send-at** share of the loading cars. |
+| Rolling horizon (plan, act one step, plan again), as in model predictive control | `ReplanTrip` | Only the current trip is fixed. It is planned again after every stop and after any settings change, from the cargo really on board. |
+| Anytime planning with a time budget | `IsOverBudget`, 25 ms per round | Planning stops when the round's budget is used. Work left over waits for the next round. |
+
+### Algorithms
+
+| Method | Source | Where |
+|---|---|---|
+| Discrete event simulation, car by car and stop by stop | own | `FSTTripPlanner::Simulate`: times from travel estimates and stays, then each car beside the platform it meets, with stock, production during the stay, reservations, slots and cargo type. |
+| Regret insertion for pickup and delivery | Ropke and Pisinger (2006), the insertion heuristics of ALNS | `Improve`: inserts the move with the largest regret (best place minus second best) while the trip's value per second rises. |
+| Hungarian method (Kuhn-Munkres), exact assignment | Kuhn (1955), Munkres (1957) | `STAssignment::Solve`: free trains to first moves, so a train doesn't take a move another could do almost as well. |
+| Minimum-cost flow by successive shortest paths with Bellman-Ford, one priority tier after another | Ford and Fulkerson; Busacker and Gowen | `STMinCostFlow`: the flow plan behind the fleet advice in `/st status`. |
+| Dijkstra on a directed graph of track exits | Dijkstra (1959) | `FSTTravel`: distances between stations, separately for departing forward, backing out (push-pull), and arriving at the far end (push-pull). |
+| Exponential moving averages | standard | Rates (window = **Rate window**), trip times and stays (weight 0.3, first sample taken as is). |
+| Observation overrides prediction | own | Dock maps: predicted from couplers and platform chains, replaced by what a real dock showed, per orientation and consist. |
+| Aging for fairness (urgency grows with waiting time), as in OS scheduling | standard | Delivery value urgency: up to +2 for time since the last delivery (full after an hour). |
+| Resource booking | own | `Reserved` amounts per node and `BusyUntil` per station, so trips planned later see what earlier trips promised. |
+| Graph search over belts and pipes, with filter propagation | adapted from FlowDirector's trace | `STTrace`: from a platform to the machines and their recipes, through splitters, mergers, lifts, floor holes, smart splitters and Modular Load Balancer filters. |
+| Evidence ranking with confidence | own | Migration: trace first, then platform stock, then timetable filters, then pipe contents. |
+
+### Optional later (agreed, not built)
+
+- ALNS (adaptive large neighbourhood search): destroy and repair whole trips, not only insert.
+- ADP (approximate dynamic programming): learn the future value of leaving a train in a place.
+
+## 2. Emergent behaviour
+
+### How trips form
+
+1. **Shortest trips win first** (designed). Score = value ÷ time, so near pairs are served before far ones of equal
+   need.
+2. **Far starving consumers catch up** (designed). Urgency grows with time since the last delivery and with
+   starvation, until a far consumer beats nearer ones.
+3. **Milk runs** (designed). Regret insertion adds a second pickup of the same item when one supplier can't fill the
+   cars, or a second drop when one consumer can't take it all.
+4. **Mixed trips through one station** (designed). With Freight Car Control, cars for different items or stops skip
+   platforms they have no work at. One trip can serve several platforms and items.
+5. **Backhaul at the same station** (designed). A stop that unloads and loads becomes "load/unload once", so a train
+   drops one item and picks up another in one visit.
+6. **Trips grow and shrink on the way** (designed). After each stop the rest is planned again: stops that would move
+   nothing are trimmed, and leftovers may be delivered on the way.
+7. **Long direct trips, short combined trips** (designed, since aaa465e). The trip limit only applies with more than
+   two stops. A single far delivery always works, but stops are combined only into trips shorter than **Longest
+   trip**.
+8. **No out-and-back to one station** (designed). Each station appears once per trip, so A → B → A is two trips.
+9. **Trains spread over suppliers** (designed). Reservations make a supplier look emptier to trains planned after
+   it, so they pick other suppliers.
+10. **Global, not greedy, assignment** (designed). The Hungarian step may give a move to a train that is a bit
+    further away, because the nearer one is the only train that can do something else.
+
+### Inventory patterns
+
+11. **Pulse deliveries around the target** (designed). A consumer is served below its target, filled past it, then
+    left until it drops again. A higher target means earlier and more frequent deliveries.
+12. **Trains wait at slow suppliers** (designed). Pickups are "fully load" up to **Pickup: longest wait**. With a
+    low send-at, a train may leave part-full and come back sooner.
+13. **Full suppliers push** (designed). A nearly full supplier ignores the batch rule and may go to consumers over
+    target or to sinks, so production doesn't stall.
+14. **Fluid platforms count as filling during the stay** (designed, since aaa465e). The planner expects a pipe-fed
+    platform to keep filling while the train loads, so it plans bigger fluid pickups.
+15. **Unwanted cargo finds a home** (designed). Cargo no trip delivers may go to consumers over target or to sinks
+    after **Unwanted cargo after** (30 min).
+
+### Fleet behaviour
+
+16. **Dedicated trains join the pool** (seen). Without DynamicTimeTable the migration ticks every train. A former
+    shuttle takes any trip it fits, and comes back to its old route only when that route wins.
+17. **Parking in a station, then making room** (seen). An idle train stops where its last stop ended, often inside
+    a station. When a trip needs that station, the parked train is sent to a depot or the nearest unused station
+    (log: "drive to Alclad Aluminum Sheet SRC (4680) and park (making room at Heavy Oil Residue SNK (640))").
+18. **Eviction chains** (risk). A train sent away to make room may park in a station the next trip needs. Depots
+    prevent this.
+19. **Traffic behind parked trains** (seen, with Auto Trains). Auto Trains holds a train before a track a parked
+    SmartTrains train occupies, until the parked train has moved away.
+20. **Train not at a station goes to the nearest one first** (seen). A train managed in the middle of the line
+    drives to the nearest station, then gets trips from there.
+21. **Learned times replace guesses** (designed). After one trip on a pair, its real time is used. One slow trip
+    (traffic, a long wait) makes that pair look slow for a while (weight 0.3).
+22. **Identical names** (seen). With JobNames on, every idle train is "ST: parked", so logs and menus can't tell
+    them apart.
+
+### Push-pull and orientation
+
+23. **Push-pull trains back out and may arrive from the far end** (designed, since aaa465e). Trains with a
+    locomotive at each end can use routes a one-locomotive train can't.
+24. **Unseen orientations restrict a train until it has docked both ways** (designed). Until then a car is only
+    planned if it fits whichever way round the train arrives. At stations whose platforms differ along their length
+    this can block trips without Freight Car Control.
+25. **Water shuttles stand still** (bug?, seen 2026-11-05). Both water trains plan every round and never start a
+    trip, and the platforms say "no managed train fits". Suspected: one train still carries water. (a) A car only
+    fits a pickup when completely empty, so it can't top up. (b) It may not deliver where it is parked. (c) The
+    other sink can't be reached from there. To be confirmed before fixing.
+
+### Interactions
+
+26. **Freight Car Control is the executor** (seen). SmartTrains sets per-car skips through `ExternalSetStops` with
+    owner "SmartTrains", which locks the car rules in FCC's menus. Unmanaged trains keep the player's FCC rules.
+27. **Without Freight Car Control a car can't skip a stop** (designed). Every car beside an active platform moves
+    what the stop allows. Trips where a car would load or unload the wrong thing are rejected, so fewer trips
+    work. The station's platform settings are linked by default while they match (Auto). That default is under
+    review: per-platform roles also work without FCC.
+28. **External timetable changes are fought** (seen with DynamicTimeTable). A managed train's timetable changed by
+    anything else is noticed within 0.25 s and written back. With DynamicTimeTable installed this looped; it is now
+    uninstalled.
+29. **Settings changes re-plan everything** (designed). Any platform edit re-plans all trips under way, so a change
+    shows up at once but costs one heavy round.
+
+### Planning limits
+
+30. **Big networks plan in pieces** (risk). With the 25 ms budget, trains planned late in a round may get only
+    their first move. The rest is added at later stops. A throttled warning logs when the budget runs out.
+31. **Last reason only** (seen). The idle message keeps only the last rejected trip, which can hide the real
+    blocker (as with the water shuttles).
+
+### Migration
+
+32. **The trace decides items** (designed). Belts and pipes to machines win over stock and timetables. Those only
+    break ties or fill in when the trace finds nothing.
+33. **One item per platform by default** (designed). A platform fed by a multi-input machine gets the item it holds
+    most of, then one its timetables send, then the largest flow (marked "check it").
+34. **Empty, untraceable platforms stay unset** (designed). With no machine, no stock and no timetable filter, the
+    platform is flagged "no item found". Route inference (planned) would fill these from the other end of a train's
+    route.
