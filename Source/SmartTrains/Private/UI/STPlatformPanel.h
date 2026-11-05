@@ -69,6 +69,8 @@ private:
 	TArray<FSTItemRule> mItems;
 	bool bHasSettings = false;
 	bool bFluid = false;
+	// Whether an edit here applies to the whole station (from the latest view).
+	bool bLinked = false;
 	// Edit number of this panel's last change; older readouts don't overwrite the panel's copy.
 	int32 mLastEdit = 0;
 	TArray<FString> mItemLines;
@@ -96,6 +98,12 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<USTButton> mPaste;
+
+	UPROPERTY()
+	TObjectPtr<USTButton> mLink;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> mLinkHint;
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mLines;

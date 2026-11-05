@@ -100,7 +100,6 @@ void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 		{
 			continue;
 		}
-		const FSTStationConfig* StationConfig = mStations.FindByPredicate([Identifier](const FSTStationConfig& Each) { return Each.Station == Identifier; });
 		const UFGInventoryComponent* Inventory = Platform->GetInventory();
 		for (const FSTItemRule& Rule : Config.Items)
 		{
@@ -121,7 +120,6 @@ void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 				New.TargetPercent = Rule.TargetPercent;
 				New.SendAtPercent = Rule.SendAtPercent;
 				New.TrackGraph = Station->GetTrackGraphID();
-				New.Pool = StationConfig ? StationConfig->Pool : FString();
 				New.bRateKnown = true;
 			}
 			FSTNode& Node = OutNodes[Index];
@@ -211,16 +209,7 @@ int32 ASTSubsystem::GetSinkRoom(const FSTNode& Node, TSubclassOf<UFGItemDescript
 bool ASTSubsystem::CanServe(const FSTTrainState& State, const AFGTrainStationIdentifier* Station) const
 {
 	const AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
-	if (!Building || !IsValid(State.Train) || Building->GetTrackGraphID() != State.Train->GetTrackGraphID())
-	{
-		return false;
-	}
-	if (State.Pool.IsEmpty())
-	{
-		return true;
-	}
-	const FSTStationConfig* Config = mStations.FindByPredicate([Station](const FSTStationConfig& Each) { return Each.Station == Station; });
-	return Config && Config->Pool == State.Pool;
+	return Building && IsValid(State.Train) && Building->GetTrackGraphID() == State.Train->GetTrackGraphID();
 }
 
 //~ Fit model

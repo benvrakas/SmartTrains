@@ -196,7 +196,7 @@ widget blueprint hooks at `POST_INITIALIZATION`, and not on dedicated servers:
 |---|---|---|
 | `Widget_Train_DockingStation` (freight platform) | `CanvasPanel_149` at x 448 | `USTPlatformPanel`, beside the window |
 | `BPW_Train_DockingStation_Fluid` | `CanvasPanel_0` at x 765 | `USTPlatformPanel` |
-| `Widget_Locomotive_Menu` | `VerticalBox_0` (info column) | `USTTrainPanel` |
+| `Widget_Locomotive_Menu` | `VerticalBox_1` (Timetable column), slot 3: under the stop list | `USTTrainPanel` |
 | `Widget_TrainStationNew` | `VerticalBox_2` (under the train and station lists) | `USTStationPanel` |
 
 Panel names and positions come from the starter project's widget assets, dumped with Telescreen's `TSDumpWidgets`
@@ -208,8 +208,8 @@ second after it opens, to check that.
 - **Platform panel.** Role buttons (Off / Supply / Demand); per item: priority (click cycles, right click goes back),
   send-at or target in 10 % steps, and a manual rate (m³/min for fluids). The item picker lists the items on the
   platform first, then every item that available recipes make plus raw resources, of the platform's form; "Any item"
-  only on demand platforms. Copy / Paste use the player's SmartTrains clipboard (below). "To station" is
-  `CopyPlatformToStation`.
+  only on demand platforms. Copy / Paste use the player's SmartTrains clipboard (below). The station switch is
+  described under "Station linking".
 - **Clipboard** (`STClipboardHooks.cpp`). Each player has two slots on the server, freight and fluid
   (`USTRemoteCallObject::mFreightClipboard` / `mFluidClipboard`), as the game keeps one clipboard entry per building
   kind. The panel's Copy / Paste and the game's copy/paste-settings both use them: SML hooks after
@@ -217,10 +217,13 @@ second after it opens, to check that.
   `Server_PastePlatformSettings` when the object is a cargo platform and the player is local. Copying a platform
   without a role copies "Off", so pasting it removes the target's role, as the game's paste makes the target like
   the source. Through the game's key the load/unload setting is then left as the game pasted it.
-- **Train panel.** Managed toggle, keep vanilla (only while unmanaged), pool tag, job legs and cargo. While the train is
-  managed, the vanilla "Edit timetable" button is disabled on every refresh, and enabled again when the menu closes.
-- **Station panel.** Depot toggle, pool tag, layout, fleet status. Depot and pool are per station, and a depot may
-  have no platforms, so they stay in the station menu; everything per platform is in the platform menus.
+- **Train panel.** In the Timetable column, inserted at slot 3 (`ParentSlotIndex`), under the stop list and above the
+  cancel docking, edit and self-driving buttons. It has the managed switch, one status line and the job's per-stop
+  lines, in a scroll box at most 230 px tall. (0.3.0 had it in the info column, where it covered the power and speed
+  stats and ran off the bottom.) "Keep vanilla" is only in chat and the migration tool. While the train is managed,
+  the vanilla "Edit timetable" button is disabled on every refresh, and enabled again when the menu closes.
+- **Station panel.** Depot switch, layout, fleet status. The depot is per station, and a depot may have no platforms,
+  so it stays in the station menu; everything per platform is in the platform menus.
 - **Migration window** (`USTMigrationWindow`). Not part of any vanilla menu: `/st migrate` without a step sends
   `Client_OpenMigrationWindow` to the player, which adds the window to the viewport 0.2 s later (after the chat has
   closed and given the input back) and takes the input in UI-only mode. Close or Escape removes it and gives the
@@ -228,3 +231,23 @@ second after it opens, to check that.
   runs the same steps as `/st migrate`. Its rows are the preview's stations and trains, ticked as proposed. Apply
   sends the ticked numbers. Without a test copy or backup this session, Apply takes a second click (the chat
   command's `confirm`).
+
+## Station linking
+
+"Same for every platform in this station" (`FSTStationConfig::Link`, `STStationLink.cpp`):
+
+- **Same:** an edit of one platform (`SetPlatformConfig` with `bWholeStation`) is applied to every platform of its
+  kind (freight or fluid) in the station. Turning it on copies the platform it was turned on from to the others.
+- **Separate:** platforms are set one by one.
+- **Auto** (default): same without Freight Car Control while every platform of that kind in the station already
+  has the same role and items (`DoStationPlatformsMatch`), separate otherwise or with FCC.
+
+Without FCC every car beside a platform transfers, so a station only works for multi-item trips when it works the
+same along its whole length. Auto never overwrites platforms that were set differently (by hand, by the migration
+tool, or in a 0.3.0 save): those count as separate until the switch is turned on. The migration tool, its undo and
+`CopyPlatformToStation` set platforms one by one.
+
+## Pool tags (removed in 0.4.0)
+
+0.1.0 to 0.3.0 had pool tags on stations and trains. Matching by platform items makes them unnecessary. The saved
+fields stay so older saves load. On load, each tag is logged and cleared.

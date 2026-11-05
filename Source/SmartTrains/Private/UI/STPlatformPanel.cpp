@@ -40,6 +40,27 @@ namespace
 		}
 	}
 
+	FText LinkHint(const FSTPlatformView& View)
+	{
+		const FText Kind = View.bFluid ? LOCTEXT("KindFluid", "fluid") : LOCTEXT("KindFreight", "freight");
+		switch (View.Link)
+		{
+		case ESTPlatformLink::Same:
+			return FText::Format(LOCTEXT("LinkSame", "On: editing this platform sets every {0} platform of this station."), Kind);
+		case ESTPlatformLink::Separate:
+			return View.bFcc ? LOCTEXT("LinkSeparateFcc", "Off: each platform works on its own.")
+				: LOCTEXT("LinkSeparate", "Off: platforms are set one by one. Without Freight Car Control, trips to this station then mostly carry one item.");
+		default:
+			if (View.bFcc)
+			{
+				return LOCTEXT("LinkAutoFcc", "Automatic: off, because Freight Car Control lets each platform work on its own.");
+			}
+			return View.bLinked
+				? FText::Format(LOCTEXT("LinkAutoOn", "Automatic: on without Freight Car Control, while every {0} platform here matches."), Kind)
+				: LOCTEXT("LinkAutoOff", "Automatic: off, because the platforms here are set differently. Turn it on to give them all these settings.");
+		}
+	}
+
 	ESTPriority StepPriority(ESTPriority Priority, int32 Step)
 	{
 		const int32 Count = static_cast<int32>(ESTPriority::Critical) + 1;
@@ -108,6 +129,19 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 	}
 	mRoleHint = MakeText(mMain, RoleHint(ESTRole::Off), 10);
 
+	mLink = MakeButton(mMain, LOCTEXT("LinkOff", "Same for every platform in this station: off"), [this]()
+	{
+		USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
+		if (RCO && GetPlatform())
+		{
+			const ESTPlatformLink Wanted = bLinked ? ESTPlatformLink::Separate : ESTPlatformLink::Same;
+			mLastEdit = RCO->NextEdit();
+			UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: station linking %d from %s (edit %d)"), static_cast<int32>(Wanted), *GetPlatform()->GetName(), mLastEdit);
+			RCO->Server_SetStationLink(GetPlatform(), Wanted, mLastEdit);
+		}
+	}, FMargin(0.f, 6.f, 0.f, 2.f));
+	mLinkHint = MakeText(mMain, FText::GetEmpty(), 9);
+
 	MakeText(mMain, LOCTEXT("ItemsLabel", "Items"), 13, false, FMargin(0.f, 8.f, 0.f, 2.f));
 	mNoItems = MakeText(mMain, LOCTEXT("NoItems", "No items yet. Add the item this platform supplies or demands."), 10);
 	mNoItems->SetVisibility(ESlateVisibility::Collapsed);
@@ -136,18 +170,7 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 			RCO->Server_PastePlatformSettings(GetPlatform(), false, mLastEdit);
 		}
 	});
-	AddToLine(Tools, mPaste, true);
-	AddToLine(Tools, MakeButton(nullptr, LOCTEXT("CopyStation", "To station"), [this]()
-	{
-		USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
-		if (RCO && GetPlatform())
-		{
-			UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: copy to the whole station"));
-			mLastEdit = RCO->NextEdit();
-			RCO->Server_CopyPlatformToStation(GetPlatform(), mLastEdit);
-		}
-	}), true, FMargin(0.f));
-	MakeText(mMain, LOCTEXT("ToolsHint", "\"To station\" gives every platform of this kind in the station these settings."), 9);
+	AddToLine(Tools, mPaste, true, FMargin(0.f));
 
 	mLines = MakeText(mMain, FText::GetEmpty(), 10, true, FMargin(0.f, 8.f, 0.f, 0.f));
 	mEditedBy = MakeText(mMain, FText::GetEmpty(), 9, true, FMargin(0.f, 4.f, 0.f, 0.f));
@@ -234,6 +257,11 @@ void USTPlatformPanel::Refresh(USTRemoteCallObject* RCO)
 		bHasSettings = true;
 	}
 	SetLines(mLines, View->Lines);
+	bLinked = View->bLinked;
+	mLink->SetText(bLinked ? LOCTEXT("LinkOn", "Same for every platform in this station: on") : LOCTEXT("LinkOff", "Same for every platform in this station: off"));
+	mLink->SetVisibility(View->bOnStation ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	mLinkHint->SetText(LinkHint(*View));
+	mLinkHint->SetVisibility(View->bOnStation ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	mEditedBy->SetText(View->EditedBy.IsEmpty() ? FText::GetEmpty() : FText::Format(LOCTEXT("EditedBy", "Last changed by {0}"), FText::FromString(View->EditedBy)));
 	RefreshEditor();
 }

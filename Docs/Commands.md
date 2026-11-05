@@ -31,14 +31,15 @@ Setting a role switches the platform to load (supply) or unload (demand).
 ## Stations (look at a station or one of its platforms)
 
 - `/st station depot on|off`: idle managed trains park at the nearest depot.
-- `/st station pool <name>`: only trains with that pool serve it. `pool -` clears it.
+- `/st station same on|off|auto`: whether editing one platform sets every platform of that kind in the station.
+  Turning it on copies the platform you look at (if any) to the others. Auto: on without Freight Car Control while the
+  platforms match.
 
 ## Trains (drive or look at a train)
 
 - `/st train manage`: SmartTrains takes over its timetable. The old timetable and autopilot setting are saved.
 - `/st train unmanage`: gives the saved timetable and autopilot back.
 - `/st train keepvanilla on|off`: never managed or proposed by the migration tool.
-- `/st train pool <name>`: serves only stations with that pool. `pool -` serves every station.
 - `/st job <item> from <station> to <station>`: a test job for a managed train, using the cars that fit.
 
 ## Migration (see Migration.md)

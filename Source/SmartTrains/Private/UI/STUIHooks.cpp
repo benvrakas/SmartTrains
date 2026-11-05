@@ -13,9 +13,12 @@ namespace
 	constexpr float FreightMenuWidth = 438.f + 10.f;
 	constexpr float FluidMenuWidth = 755.f + 10.f;
 
+	// Index in the locomotive menu's Timetable column (VerticalBox_1) right after the stop list.
+	constexpr int32 LocomotiveTimetableSlot = 3;
+
 	// Creates and registers one hook adding NewWidgetClass to the panel ParentName of the vanilla widget WidgetPath.
 	UWidgetBlueprintHookData* AddHook(UObject* Outer, UWidgetBlueprintHookManager* Manager, const TCHAR* WidgetPath, FName ParentName,
-		TSubclassOf<UUserWidget> NewWidgetClass, FName NewWidgetName, UWidgetBlueprintHookSlot* Slot = nullptr)
+		TSubclassOf<UUserWidget> NewWidgetClass, FName NewWidgetName, UWidgetBlueprintHookSlot* Slot = nullptr, int32 SlotIndex = INDEX_NONE)
 	{
 		UWidgetBlueprintHookData* Hook = NewObject<UWidgetBlueprintHookData>(Outer);
 		Hook->WidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(WidgetPath));
@@ -24,6 +27,7 @@ namespace
 		Hook->ParentWidgetName = ParentName;
 		Hook->ParentWidgetType = EWidgetBlueprintHookParentType::Direct;
 		Hook->SlotConfiguration = Slot;
+		Hook->ParentSlotIndex = SlotIndex;
 		if (!Hook->WidgetClass.LoadSynchronous())
 		{
 			UE_LOG(LogSmartTrains, Error, TEXT("UI hook %s: vanilla widget %s not found"), *NewWidgetName.ToString(), WidgetPath);
@@ -81,8 +85,10 @@ void STUIHooks::Register(UObject* Outer, TArray<UWidgetBlueprintHookData*>& OutH
 	Keep(AddHook(Outer, Manager, STWidgetUtils::FluidPlatformMenuClass, TEXT("CanvasPanel_0"),
 		USTPlatformPanel::StaticClass(), TEXT("ST_PlatformPanelFluid"), MakeBesideCanvasSlot(Outer, FluidMenuWidth)));
 	// Vertical box parents get no slot setup: SML's generic slot setup dereferences a null slot for them.
-	Keep(AddHook(Outer, Manager, STWidgetUtils::LocomotiveMenuClass, TEXT("VerticalBox_0"),
-		USTTrainPanel::StaticClass(), TEXT("ST_TrainPanel")));
+	// Timetable column: label, notice, stop list (scroll box), then the cancel docking, edit and self-driving
+	// buttons. The panel goes right under the stop list.
+	Keep(AddHook(Outer, Manager, STWidgetUtils::LocomotiveMenuClass, TEXT("VerticalBox_1"),
+		USTTrainPanel::StaticClass(), TEXT("ST_TrainPanel"), nullptr, LocomotiveTimetableSlot));
 	Keep(AddHook(Outer, Manager, STWidgetUtils::StationMenuClass, TEXT("VerticalBox_2"),
 		USTStationPanel::StaticClass(), TEXT("ST_StationPanel")));
 	UE_LOG(LogSmartTrains, Log, TEXT("%d of 4 UI hooks registered"), OutHooks.Num());

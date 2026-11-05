@@ -413,7 +413,7 @@ TArray<FString> STMigration::Apply(ASTSubsystem* Subsystem, UWorld* World, const
 				FSTItemRule& Rule = Rules.AddDefaulted_GetRef();
 				Rule.Item = Item;
 			}
-			Subsystem->SetPlatformConfig(Cargo, Platform.Role, Rules, Cause + TEXT(" (migration)"));
+			Subsystem->SetPlatformConfig(Cargo, Platform.Role, Rules, Cause + TEXT(" (migration)"), false);
 			++PlatformsSet;
 		}
 	}
@@ -506,7 +506,7 @@ TArray<FString> STMigration::Undo(ASTSubsystem* Subsystem, UWorld* World, const 
 		{
 			continue;
 		}
-		Subsystem->SetPlatformConfig(Platform, Before.Role, Before.Items, Cause + TEXT(" (migration undo)"));
+		Subsystem->SetPlatformConfig(Platform, Before.Role, Before.Items, Cause + TEXT(" (migration undo)"), false);
 		if (Before.Role == ESTRole::Off && Before.bHasOriginalLoadMode)
 		{
 			Platform->SetIsInLoadMode(Before.bOriginalLoadMode);

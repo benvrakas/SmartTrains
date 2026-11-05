@@ -44,6 +44,16 @@ struct SMARTTRAINS_API FSTPlatformView
 	UPROPERTY()
 	FString EditedBy;
 
+	// The station's linking setting, and whether an edit here applies to the whole station now.
+	UPROPERTY()
+	ESTPlatformLink Link = ESTPlatformLink::Auto;
+
+	UPROPERTY()
+	bool bLinked = false;
+
+	UPROPERTY()
+	bool bFcc = false;
+
 	// Last edit number of this player the server had applied when it made the view.
 	UPROPERTY()
 	int32 AppliedEdit = 0;
@@ -84,9 +94,6 @@ struct SMARTTRAINS_API FSTTrainView
 	UPROPERTY()
 	FString CannotManage;
 
-	UPROPERTY()
-	FString Pool;
-
 	// One line: phase and job.
 	UPROPERTY()
 	FString Status;
@@ -110,9 +117,6 @@ struct SMARTTRAINS_API FSTStationView
 
 	UPROPERTY()
 	bool bDepot = false;
-
-	UPROPERTY()
-	FString Pool;
 
 	// Layout and platform roles.
 	UPROPERTY()
@@ -201,5 +205,4 @@ enum class ESTTrainAction : uint8
 	Unmanage,
 	KeepVanillaOn,
 	KeepVanillaOff,
-	SetPool,
 };

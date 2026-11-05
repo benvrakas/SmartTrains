@@ -37,7 +37,6 @@ struct FSTNode
 	float TargetPercent = 50.f;
 	float SendAtPercent = 0.f;
 	int32 TrackGraph = INDEX_NONE;
-	FString Pool;
 	// Amounts already promised: to be picked up (supply) or on the way (demand).
 	int32 Reserved = 0;
 	// Planned flow from the flow plan, items per second: out of a supplier, into a consumer.
@@ -74,15 +73,25 @@ public:
 	FSTTrainState& FindOrAddTrainState(AFGTrain* Train);
 
 	// Sets Platform's role and items, switching its load/unload setting to match; Off puts its own setting back.
-	void SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, ESTRole NewRole, const TArray<FSTItemRule>& Items, const FString& Cause);
+	// With bWholeStation, a station whose platforms are linked (IsPlatformLinked) gets them on every platform of that
+	// kind.
+	void SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, ESTRole NewRole, const TArray<FSTItemRule>& Items, const FString& Cause,
+		bool bWholeStation = true);
+
+	// Station platform linking (STStationLink.cpp).
+	ESTPlatformLink GetStationLink(const AFGTrainStationIdentifier* Station) const;
+	// Turning linking on copies Source's settings to every platform of its kind in the station.
+	void SetStationLink(AFGTrainStationIdentifier* Station, ESTPlatformLink Link, AFGBuildableTrainPlatformCargo* Source, const FString& Cause);
+	// True if an edit of Platform applies to every platform of its kind in its station.
+	bool IsPlatformLinked(const AFGBuildableTrainPlatformCargo* Platform) const;
+	// True if every platform of Platform's kind in its station has the same role and items.
+	bool DoStationPlatformsMatch(const AFGBuildableTrainPlatformCargo* Platform) const;
 	void SetStationDepot(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Cause);
-	void SetStationPool(AFGTrainStationIdentifier* Station, const FString& Pool, const FString& Cause);
 
 	// Starts or ends management of Train. Starting saves its timetable; ending puts it back and lets it drive on.
 	// Returns false with OutWhy set if it can't be managed (kept vanilla, no locomotive).
 	bool SetTrainManaged(AFGTrain* Train, bool bManaged, const FString& Cause, FString& OutWhy);
 	void SetTrainKeepVanilla(AFGTrain* Train, bool bKeepVanilla, const FString& Cause);
-	void SetTrainPool(AFGTrain* Train, const FString& Pool, const FString& Cause);
 
 	// Gives Train a job by hand (for testing): pick up Item at From with the cars that fit, deliver it to To.
 	bool AssignManualJob(AFGTrain* Train, AFGTrainStationIdentifier* From, AFGTrainStationIdentifier* To, TSubclassOf<UFGItemDescriptor> Item, FString& OutResult);
@@ -239,7 +248,7 @@ private:
 	// Shows the job in the train's name (setting) or puts the original back.
 	void UpdateTrainName(FSTTrainState& State);
 
-	// Returns true if Train may serve Station (rail network and pool tags).
+	// Returns true if Train may serve Station (same rail network).
 	bool CanServe(const FSTTrainState& State, const AFGTrainStationIdentifier* Station) const;
 
 	// One readout line for Rule of Platform: stock, capacity, rate, batch or target, priority.

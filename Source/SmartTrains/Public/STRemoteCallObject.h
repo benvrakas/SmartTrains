@@ -22,6 +22,10 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_SetPlatform(AFGBuildableTrainPlatformCargo* Platform, ESTRole Role, const TArray<FSTItemRule>& Items, int32 Edit);
 
+	// Sets the linking of Platform's station; turning it on copies Platform's settings to the station.
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_SetStationLink(AFGBuildableTrainPlatformCargo* Platform, ESTPlatformLink Link, int32 Edit);
+
 	// Gives every platform of the same cargo type in Platform's station Platform's settings.
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_CopyPlatformToStation(AFGBuildableTrainPlatformCargo* Platform, int32 Edit);
@@ -35,10 +39,10 @@ public:
 	void Server_PastePlatformSettings(AFGBuildableTrainPlatformCargo* Platform, bool bFromGameKey, int32 Edit);
 
 	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_SetStation(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Pool, int32 Edit);
+	void Server_SetStation(AFGTrainStationIdentifier* Station, bool bDepot, int32 Edit);
 
 	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_SetTrain(AFGTrain* Train, ESTTrainAction Action, const FString& Pool, int32 Edit);
+	void Server_SetTrain(AFGTrain* Train, ESTTrainAction Action, int32 Edit);
 
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_Migrate(ESTMigrationStep Step, const TArray<FString>& Selection);

@@ -53,15 +53,19 @@ On a test copy of the user's network:
    - Set Supply, add an item through the picker (search works, items on the platform come first), step send-at,
      cycle priority (right click goes back), type a manual rate and press Enter.
    - The platform's load/unload switch follows the role. `/st platform` shows the same settings.
-   - Copy, open another platform, Paste. "To station" fills the station's other freight platforms.
+   - Copy, open another platform, Paste.
+   - "Same for every platform in this station" (0.4.0): without FCC it shows "on (automatic)" on a new station, and
+     setting one platform sets the others. With platforms set differently it shows off; turning it on copies this
+     platform to the others. With FCC it is off by default.
    - The game's copy/paste-settings (keys or menu) on a platform also copies and pastes the SmartTrains settings: the
      log shows `Game clipboard: copy from ...`, the panel shows "Copied SmartTrains settings: ...". A fluid
      platform's settings don't paste onto a freight platform.
    - The readout updates every second: stock, rate, inbound trains, and a reason when nothing comes.
 3. Fluid platform menu: same, with fluids only and m³/min.
-4. Locomotive menu: turning Managed on locks "Edit timetable"; turning it off unlocks it and puts the old timetable
-   back. With Keep vanilla on, the train can't be managed. The pool tag saves on Enter.
-5. Station menu: depot toggle and pool tag; no migration tool there.
+4. Locomotive menu (0.4.0): the SmartTrains section is in the Timetable column under the stop list; the power and
+   speed stats are clear. Turning Managed on locks "Edit timetable"; turning it off unlocks it and puts the old
+   timetable back. A train with `/st train keepvanilla on` shows why it can't be managed.
+5. Station menu: depot switch; no pool tag and no migration tool there.
 6. `/st migrate`: the migration window opens over the game with the mouse free, and the player doesn't move while it
    is open. Preview, untick a row, Apply (it asks for a second click without a test copy), Undo. Save a test copy and
    a backup (beta tools on). Close and Escape both give the controls back.

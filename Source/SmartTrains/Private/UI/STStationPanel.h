@@ -6,7 +6,6 @@
 
 class AFGTrainStationIdentifier;
 class USTButton;
-class USTTextInput;
 class UTextBlock;
 
 // "SmartTrains" section added under the train and station lists of the vanilla station menu (Widget_TrainStationNew):
@@ -27,13 +26,10 @@ protected:
 private:
 	AFGTrainStationIdentifier* GetStation() const;
 
-	void SendStation(bool bNewDepot, const FString& NewPool);
+	void SendStation(bool bNewDepot);
 
 	UPROPERTY()
 	TObjectPtr<USTButton> mDepot;
-
-	UPROPERTY()
-	TObjectPtr<USTTextInput> mPool;
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mLines;
@@ -42,5 +38,4 @@ private:
 	TObjectPtr<UTextBlock> mNetwork;
 
 	bool bDepot = false;
-	FString mPoolValue;
 };

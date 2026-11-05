@@ -188,8 +188,8 @@ namespace
 	const TCHAR* Help[] = {
 		TEXT("/st status | jobs | fit"),
 		TEXT("/st platform [supply|demand|off] [item, item...] [target %] [sendat %] [priority low|normal|high|critical] [rate n/min] | /st platform copy"),
-		TEXT("/st station [depot on|off] [pool <name>|pool -]"),
-		TEXT("/st train [manage|unmanage] [keepvanilla on|off] [pool <name>|pool -]"),
+		TEXT("/st station [depot on|off] [same on|off|auto]   (same: editing one platform sets every platform of that kind in the station)"),
+		TEXT("/st train [manage|unmanage] [keepvanilla on|off]"),
 		TEXT("/st job <item> from <station> to <station>   (a test job for the train you drive or look at)"),
 		TEXT("/st migrate   (opens the migration window)"),
 		TEXT("/st migrate preview | apply all [confirm] | apply stations 1,2 trains 3 | undo"),
@@ -367,9 +367,12 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			{
 				Subsystem->SetStationDepot(Station, IsOn(Arguments[Index + 1]), Who);
 			}
-			else if (Word == TEXT("pool"))
+			else if (Word == TEXT("same"))
 			{
-				Subsystem->SetStationPool(Station, Arguments[Index + 1] == TEXT("-") ? FString() : Arguments[Index + 1], Who);
+				const FString Value = Arguments[Index + 1].ToLower();
+				const ESTPlatformLink Link = Value == TEXT("auto") ? ESTPlatformLink::Auto : (IsOn(Value) ? ESTPlatformLink::Same : ESTPlatformLink::Separate);
+				// The platform looked at, if any, is the one whose settings the others get.
+				Subsystem->SetStationLink(Station, Link, FindAimed<AFGBuildableTrainPlatformCargo>(Sender), Who);
 			}
 		}
 		Send(Sender, Subsystem->DescribeStation(Station));
@@ -398,11 +401,6 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			else if (Word == TEXT("keepvanilla") && Index + 1 < Arguments.Num())
 			{
 				Subsystem->SetTrainKeepVanilla(Train, IsOn(Arguments[++Index]), Who);
-			}
-			else if (Word == TEXT("pool") && Index + 1 < Arguments.Num())
-			{
-				const FString Pool = Arguments[++Index];
-				Subsystem->SetTrainPool(Train, Pool == TEXT("-") ? FString() : Pool, Who);
 			}
 		}
 		Send(Sender, Subsystem->DescribeTrain(Train));

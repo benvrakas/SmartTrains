@@ -86,8 +86,8 @@ void ASTSubsystem::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ASTSubsystem::PreSaveGame_Implementation(int32 SaveVersion, int32 GameVersion)
 {
 	mPlatforms.RemoveAll([](const FSTPlatformConfig& Config) { return !IsValid(Config.Platform) || (Config.Role == ESTRole::Off && Config.Items.Num() == 0); });
-	mStations.RemoveAll([](const FSTStationConfig& Config) { return !IsValid(Config.Station) || (!Config.bDepot && Config.Pool.IsEmpty()); });
-	mTrains.RemoveAll([](const FSTTrainState& State) { return !IsValid(State.Train) || (!State.bManaged && !State.bKeepVanilla && State.Pool.IsEmpty()); });
+	mStations.RemoveAll([](const FSTStationConfig& Config) { return !IsValid(Config.Station) || (!Config.bDepot && Config.Link == ESTPlatformLink::Auto); });
+	mTrains.RemoveAll([](const FSTTrainState& State) { return !IsValid(State.Train) || (!State.bManaged && !State.bKeepVanilla); });
 	mDockMaps.RemoveAll([](const FSTDockMap& Map) { return !IsValid(Map.Train) || !IsValid(Map.Station); });
 	mTrips.RemoveAll([](const FSTTripTime& Trip) { return !IsValid(Trip.From) || !IsValid(Trip.To); });
 	mStays.RemoveAll([](const FSTDwellTime& Stay) { return !IsValid(Stay.Station); });
@@ -95,6 +95,22 @@ void ASTSubsystem::PreSaveGame_Implementation(int32 SaveVersion, int32 GameVersi
 
 void ASTSubsystem::PostLoadGame_Implementation(int32 SaveVersion, int32 GameVersion)
 {
+	for (FSTStationConfig& Config : mStations)
+	{
+		if (!Config.Pool.IsEmpty())
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("Station %s had pool tag '%s'; pool tags are gone, so it now serves every managed train"), *STLayout::Name(Config.Station), *Config.Pool);
+			Config.Pool.Reset();
+		}
+	}
+	for (FSTTrainState& State : mTrains)
+	{
+		if (!State.Pool.IsEmpty())
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("Train %s had pool tag '%s'; pool tags are gone, so it now serves every station"), *STLayout::Name(State.Train), *State.Pool);
+			State.Pool.Reset();
+		}
+	}
 	PreSaveGame_Implementation(SaveVersion, GameVersion);
 	for (FSTTrainState& State : mTrains)
 	{
@@ -168,11 +184,27 @@ FSTTrainState& ASTSubsystem::FindOrAddTrainState(AFGTrain* Train)
 	return State;
 }
 
-void ASTSubsystem::SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, ESTRole NewRole, const TArray<FSTItemRule>& Items, const FString& Cause)
+void ASTSubsystem::SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, ESTRole NewRole, const TArray<FSTItemRule>& Items, const FString& Cause,
+	bool bWholeStation)
 {
 	if (!Platform)
 	{
 		return;
+	}
+	if (bWholeStation && IsPlatformLinked(Platform))
+	{
+		const EFreightCargoType Type = STLayout::GetPlatformCargoType(Platform);
+		int32 Others = 0;
+		for (AFGBuildableTrainPlatform* Each : STLayout::GetPlatforms(STLayout::FindStation(Platform)))
+		{
+			AFGBuildableTrainPlatformCargo* Other = Cast<AFGBuildableTrainPlatformCargo>(Each);
+			if (Other && Other != Platform && STLayout::GetPlatformCargoType(Other) == Type)
+			{
+				SetPlatformConfig(Other, NewRole, Items, Cause + TEXT(" (same for the station)"), false);
+				++Others;
+			}
+		}
+		UE_LOG(LogSmartTrains, Log, TEXT("PLATFORM %s: linked station, %d other platforms set too"), *Platform->GetName(), Others);
 	}
 	FSTPlatformConfig* Config = FindPlatformConfig(Platform);
 	if (!Config)
@@ -238,22 +270,6 @@ void ASTSubsystem::SetStationDepot(AFGTrainStationIdentifier* Station, bool bDep
 	}
 	Config->bDepot = bDepot;
 	UE_LOG(LogSmartTrains, Log, TEXT("STATION %s: depot %s by %s"), *STLayout::Name(Station), bDepot ? TEXT("on") : TEXT("off"), *Cause);
-}
-
-void ASTSubsystem::SetStationPool(AFGTrainStationIdentifier* Station, const FString& Pool, const FString& Cause)
-{
-	if (!Station)
-	{
-		return;
-	}
-	FSTStationConfig* Config = FindStationConfig(Station);
-	if (!Config)
-	{
-		Config = &mStations.AddDefaulted_GetRef();
-		Config->Station = Station;
-	}
-	Config->Pool = Pool;
-	UE_LOG(LogSmartTrains, Log, TEXT("STATION %s: pool '%s' by %s"), *STLayout::Name(Station), *Pool, *Cause);
 }
 
 bool ASTSubsystem::SetTrainManaged(AFGTrain* Train, bool bManaged, const FString& Cause, FString& OutWhy)
@@ -348,16 +364,6 @@ void ASTSubsystem::SetTrainKeepVanilla(AFGTrain* Train, bool bKeepVanilla, const
 	}
 	State.bKeepVanilla = bKeepVanilla;
 	UE_LOG(LogSmartTrains, Log, TEXT("TRAIN %s: keep vanilla %s by %s"), *STLayout::Name(Train), bKeepVanilla ? TEXT("on") : TEXT("off"), *Cause);
-}
-
-void ASTSubsystem::SetTrainPool(AFGTrain* Train, const FString& Pool, const FString& Cause)
-{
-	if (!Train)
-	{
-		return;
-	}
-	FindOrAddTrainState(Train).Pool = Pool;
-	UE_LOG(LogSmartTrains, Log, TEXT("TRAIN %s: pool '%s' by %s"), *STLayout::Name(Train), *Pool, *Cause);
 }
 
 //~ Monitoring
@@ -841,8 +847,10 @@ TArray<FString> ASTSubsystem::DescribeStation(const AFGTrainStationIdentifier* S
 	TArray<FString> Lines;
 	const AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
 	const FSTStationConfig* Config = mStations.FindByPredicate([Station](const FSTStationConfig& Each) { return Each.Station == Station; });
-	Lines.Add(FString::Printf(TEXT("Station %s%s%s"), *STLayout::Name(Station), Config && Config->bDepot ? TEXT(" (depot)") : TEXT(""),
-		Config && !Config->Pool.IsEmpty() ? *FString::Printf(TEXT(" pool '%s'"), *Config->Pool) : TEXT("")));
+	const ESTPlatformLink Link = Config ? Config->Link : ESTPlatformLink::Auto;
+	Lines.Add(FString::Printf(TEXT("Station %s%s, platforms %s"), *STLayout::Name(Station), Config && Config->bDepot ? TEXT(" (depot)") : TEXT(""),
+		Link == ESTPlatformLink::Same ? TEXT("same for the whole station") : Link == ESTPlatformLink::Separate ? TEXT("set one by one")
+			: (IsFccAvailable() ? TEXT("set one by one (auto, Freight Car Control)") : TEXT("same for the whole station while they match (auto)"))));
 	FString Layout;
 	for (const AFGBuildableTrainPlatform* Platform : STLayout::GetPlatforms(Building))
 	{
@@ -876,10 +884,6 @@ TArray<FString> ASTSubsystem::DescribeTrain(const AFGTrain* Train) const
 	Lines.Add(FString::Printf(TEXT("%s [%s]: %s%s%s"), *STLayout::Name(Train), *Consist,
 		State && State->bManaged ? TEXT("managed, ") : TEXT("not managed"), State && State->bManaged ? STNames::Phase(State->Phase) : TEXT(""),
 		State && State->bKeepVanilla ? TEXT(", keep vanilla") : TEXT("")));
-	if (State && !State->Pool.IsEmpty())
-	{
-		Lines.Add(FString::Printf(TEXT("  Pool '%s'"), *State->Pool));
-	}
 	if (State && State->bHasJob)
 	{
 		Lines.Add(FString::Printf(TEXT("  Job %d: %s (leg %d of %d)"), State->Job.Id, *State->Job.Summary, State->Job.Leg + 1, State->Job.Legs.Num()));

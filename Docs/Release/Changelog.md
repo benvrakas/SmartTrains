@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0 (beta, not released)
+
+- **Locomotive menu:** the SmartTrains section moved to the Timetable column, under the stop list, and is smaller:
+  the managed switch, a status line and the job. It no longer covers the power and speed stats or runs off the
+  bottom. "Keep vanilla" is set with `/st train keepvanilla` only.
+- **Pool tags removed.** Trains go wherever platform items match. Tags in older saves are logged and dropped.
+- **"Same for every platform in this station"** in the platform menu (and `/st station same`). Editing one platform
+  then sets every platform of that kind in the station. By default it is on without Freight Car Control (where a
+  station works as one big platform) as long as the platforms match, and off with it. The "To station" button is gone.
+
 ## 0.3.0 (beta, not released)
 
 - **Milk runs** (Mods menu, on by default): a train may pick up at two suppliers when neither has a full load, or

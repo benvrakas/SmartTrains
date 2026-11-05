@@ -17,9 +17,6 @@ namespace
 	// Most item rules one platform may have.
 	constexpr int32 MaxItems = 32;
 
-	// Longest pool tag.
-	constexpr int32 MaxPoolLength = 64;
-
 	// Most words a migration selection may have.
 	constexpr int32 MaxSelectionWords = 256;
 }
@@ -181,6 +178,25 @@ void USTRemoteCallObject::Server_PastePlatformSettings_Implementation(AFGBuildab
 	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
 }
 
+bool USTRemoteCallObject::Server_SetStationLink_Validate(AFGBuildableTrainPlatformCargo* Platform, ESTPlatformLink Link, int32 Edit)
+{
+	return Link <= ESTPlatformLink::Separate;
+}
+
+void USTRemoteCallObject::Server_SetStationLink_Implementation(AFGBuildableTrainPlatformCargo* Platform, ESTPlatformLink Link, int32 Edit)
+{
+	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	AFGTrainStationIdentifier* Station = IsValid(Platform) ? STLayout::GetIdentifier(STLayout::FindStation(Platform)) : nullptr;
+	if (!Subsystem || !Station)
+	{
+		Client_Message(TEXT("This platform isn't part of a station."), true);
+		return;
+	}
+	Subsystem->SetStationLink(Station, Link, Platform, FString::Printf(TEXT("platform menu (%s)"), *GetPlayerName()));
+	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
+}
+
 bool USTRemoteCallObject::Server_CopyPlatformToStation_Validate(AFGBuildableTrainPlatformCargo* Platform, int32 Edit)
 {
 	return true;
@@ -200,12 +216,12 @@ void USTRemoteCallObject::Server_CopyPlatformToStation_Implementation(AFGBuildab
 	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
 }
 
-bool USTRemoteCallObject::Server_SetStation_Validate(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Pool, int32 Edit)
+bool USTRemoteCallObject::Server_SetStation_Validate(AFGTrainStationIdentifier* Station, bool bDepot, int32 Edit)
 {
-	return Pool.Len() <= MaxPoolLength;
+	return true;
 }
 
-void USTRemoteCallObject::Server_SetStation_Implementation(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Pool, int32 Edit)
+void USTRemoteCallObject::Server_SetStation_Implementation(AFGTrainStationIdentifier* Station, bool bDepot, int32 Edit)
 {
 	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
 	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
@@ -219,20 +235,15 @@ void USTRemoteCallObject::Server_SetStation_Implementation(AFGTrainStationIdenti
 	{
 		Subsystem->SetStationDepot(Station, bDepot, Cause);
 	}
-	const FString Trimmed = Pool.TrimStartAndEnd();
-	if ((Config ? Config->Pool : FString()) != Trimmed)
-	{
-		Subsystem->SetStationPool(Station, Trimmed, Cause);
-	}
 	Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
 }
 
-bool USTRemoteCallObject::Server_SetTrain_Validate(AFGTrain* Train, ESTTrainAction Action, const FString& Pool, int32 Edit)
+bool USTRemoteCallObject::Server_SetTrain_Validate(AFGTrain* Train, ESTTrainAction Action, int32 Edit)
 {
-	return Pool.Len() <= MaxPoolLength && Action <= ESTTrainAction::SetPool;
+	return Action <= ESTTrainAction::KeepVanillaOff;
 }
 
-void USTRemoteCallObject::Server_SetTrain_Implementation(AFGTrain* Train, ESTTrainAction Action, const FString& Pool, int32 Edit)
+void USTRemoteCallObject::Server_SetTrain_Implementation(AFGTrain* Train, ESTTrainAction Action, int32 Edit)
 {
 	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
 	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
@@ -254,9 +265,6 @@ void USTRemoteCallObject::Server_SetTrain_Implementation(AFGTrain* Train, ESTTra
 	case ESTTrainAction::KeepVanillaOn:
 	case ESTTrainAction::KeepVanillaOff:
 		Subsystem->SetTrainKeepVanilla(Train, Action == ESTTrainAction::KeepVanillaOn, Cause);
-		break;
-	case ESTTrainAction::SetPool:
-		Subsystem->SetTrainPool(Train, Pool.TrimStartAndEnd(), Cause);
 		break;
 	}
 	Client_Train(Subsystem->MakeTrainView(Train, mAppliedEdit));
