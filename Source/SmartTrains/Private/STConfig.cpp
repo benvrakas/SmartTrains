@@ -42,6 +42,8 @@ namespace
 				LOCTEXT("DetailedLogTip", "Writes much more to FactoryGame.log: every dispatch round, why each free train got no trip, re-plans, connection traces and dock maps. Turn it on to report a problem.")},
 			{TEXT("JobNames"), &FSTSettings::bJobNames, LOCTEXT("JobNames", "Show jobs in train names"),
 				LOCTEXT("JobNamesTip", "Renames each managed train to show what it is doing, e.g. \"ST: Iron Plate -> Steel Mill\". The original name comes back when this is turned off or the train is no longer managed.")},
+			{TEXT("AdminsOnly"), &FSTSettings::bAdminsOnly, LOCTEXT("AdminsOnly", "Only admins change SmartTrains"),
+				LOCTEXT("AdminsOnlyTip", "In multiplayer, only the host (or, on a dedicated server, its admins) can change platform, station and train settings. Server settings, migration, test copies and backups are always admin only. On a dedicated server, change settings in game with /st set.")},
 		};
 		return Settings;
 	}
@@ -229,6 +231,117 @@ bool USTConfig::Read(const UObject* WorldContext, FSTSettings& OutSettings)
 		const UConfigPropertyFloat* Property = Found ? Cast<UConfigPropertyFloat>(Found->Get()) : nullptr;
 		OutSettings.*Setting.Field = FMath::Clamp(Property ? Property->Value : Defaults.*Setting.Field, Setting.Min, Setting.Max);
 	}
+	return true;
+}
+
+TArray<FString> USTConfig::DescribeForChat(const FSTSettings& Settings)
+{
+	TArray<FString> Out;
+	const FSTSettings Defaults;
+	for (const FBoolSetting& Setting : GetBoolSettings())
+	{
+		const bool bValue = Settings.*Setting.Field;
+		Out.Add(FString::Printf(TEXT("%s%s = %s   (%s)"), bValue != Defaults.*Setting.Field ? TEXT("* ") : TEXT(""), Setting.Key,
+			bValue ? TEXT("on") : TEXT("off"), *Setting.Name.ToString()));
+	}
+	for (const FNumberSetting& Setting : GetNumberSettings())
+	{
+		const float Value = Settings.*Setting.Field;
+		Out.Add(FString::Printf(TEXT("%s%s = %g   (%s, %g to %g)"), !FMath::IsNearlyEqual(Value, Defaults.*Setting.Field) ? TEXT("* ") : TEXT(""), Setting.Key,
+			Value, *Setting.Name.ToString(), Setting.Min, Setting.Max));
+	}
+	return Out;
+}
+
+bool USTConfig::Write(const UObject* WorldContext, const FString& Key, const FString& Value, FString& OutMessage)
+{
+	const UWorld* World = WorldContext ? WorldContext->GetWorld() : nullptr;
+	const UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	UConfigManager* Manager = GameInstance ? GameInstance->GetSubsystem<UConfigManager>() : nullptr;
+	UConfigPropertySection* Root = Manager ? Manager->GetConfigurationRootSection(MakeConfigId()) : nullptr;
+	if (!Root)
+	{
+		OutMessage = TEXT("SmartTrains' configuration isn't available on this machine.");
+		UE_LOG(LogSmartTrains, Warning, TEXT("Settings: write of %s failed: configuration not found"), *Key);
+		return false;
+	}
+
+	// The setting: an exact key, else the only key or name containing Key.
+	const FString Wanted = Key.TrimStartAndEnd();
+	TArray<FString> Matches;
+	FString Exact;
+	auto Consider = [&](const TCHAR* SettingKey, const FText& Name)
+	{
+		if (Wanted.Equals(SettingKey, ESearchCase::IgnoreCase))
+		{
+			Exact = SettingKey;
+		}
+		else if (FString(SettingKey).Contains(Wanted, ESearchCase::IgnoreCase) || Name.ToString().Contains(Wanted, ESearchCase::IgnoreCase))
+		{
+			Matches.Add(SettingKey);
+		}
+	};
+	for (const FBoolSetting& Setting : GetBoolSettings())
+	{
+		Consider(Setting.Key, Setting.Name);
+	}
+	for (const FNumberSetting& Setting : GetNumberSettings())
+	{
+		Consider(Setting.Key, Setting.Name);
+	}
+	const FString Chosen = !Exact.IsEmpty() ? Exact : (Matches.Num() == 1 ? Matches[0] : FString());
+	if (Chosen.IsEmpty())
+	{
+		OutMessage = Matches.Num() == 0 ? FString::Printf(TEXT("No setting called '%s'; /st settings lists them."), *Wanted)
+			: FString::Printf(TEXT("'%s' matches %s; use the full key."), *Wanted, *FString::Join(Matches, TEXT(", ")));
+		return false;
+	}
+
+	const TObjectPtr<UConfigProperty>* Found = Root->SectionProperties.Find(Chosen);
+	UConfigProperty* Property = Found ? Found->Get() : nullptr;
+	FString Shown;
+	if (UConfigPropertyBool* Bool = Cast<UConfigPropertyBool>(Property))
+	{
+		const FString Word = Value.TrimStartAndEnd();
+		const bool bOn = Word.Equals(TEXT("on"), ESearchCase::IgnoreCase) || Word.Equals(TEXT("true"), ESearchCase::IgnoreCase) || Word.Equals(TEXT("yes"), ESearchCase::IgnoreCase) || Word == TEXT("1");
+		const bool bOff = Word.Equals(TEXT("off"), ESearchCase::IgnoreCase) || Word.Equals(TEXT("false"), ESearchCase::IgnoreCase) || Word.Equals(TEXT("no"), ESearchCase::IgnoreCase) || Word == TEXT("0");
+		if (!bOn && !bOff)
+		{
+			OutMessage = FString::Printf(TEXT("%s takes on or off."), *Chosen);
+			return false;
+		}
+		Bool->Value = bOn;
+		Shown = bOn ? TEXT("on") : TEXT("off");
+	}
+	else if (UConfigPropertyFloat* Float = Cast<UConfigPropertyFloat>(Property))
+	{
+		float Min = 0.f;
+		float Max = 0.f;
+		const FString Number = Value.TrimStartAndEnd();
+		if (!GetRange(Chosen, Min, Max) || !Number.IsNumeric())
+		{
+			OutMessage = FString::Printf(TEXT("%s takes a number from %g to %g."), *Chosen, Min, Max);
+			return false;
+		}
+		const float Parsed = FCString::Atof(*Number);
+		if (Parsed < Min || Parsed > Max)
+		{
+			OutMessage = FString::Printf(TEXT("%s takes a number from %g to %g."), *Chosen, Min, Max);
+			return false;
+		}
+		Float->Value = Parsed;
+		Shown = FString::Printf(TEXT("%g"), Parsed);
+	}
+	else
+	{
+		OutMessage = FString::Printf(TEXT("%s isn't in the configuration."), *Chosen);
+		UE_LOG(LogSmartTrains, Warning, TEXT("Settings: write of %s failed: property missing or of an unexpected class"), *Chosen);
+		return false;
+	}
+	Property->MarkDirty();
+	Manager->MarkConfigurationDirty(MakeConfigId());
+	Manager->FlushPendingSaves();
+	OutMessage = FString::Printf(TEXT("%s is now %s."), *Chosen, *Shown);
 	return true;
 }
 

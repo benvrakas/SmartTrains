@@ -21,6 +21,7 @@ in the plan (`C:\Users\benvr\.claude\plans\smarttrains.md`); this file records h
 | `STConfig.*` | Mods menu settings. |
 | `STViews.h`, `STReadouts.cpp` | What the menus show: view structs, and the subsystem functions that fill them (`MakePlatformView`, `ExplainPlatform`, ...). |
 | `STRemoteCallObject.*` | Carries menu edits to the server and readouts back. |
+| `STAccess.*` | Who may change what (admin-gated controls). |
 | `UI/*` | The panels added to vanilla menus, and the controls they are built from. |
 
 ## How trains are controlled
@@ -265,6 +266,35 @@ The subsystem exists on the server only, so every menu (the host's too) talks to
   dropped, so a readout already on its way can't undo a click. The platform panel also keeps its own copy of the
   settings until a view includes its edit.
 - Refusals come back as `Client_Message` and show under the panel for 8 s.
+- The engine refuses any network message over 64 KiB, which only matters with a remote server: a listen server's
+  host calls its own `Client_*` functions directly.
+  - Migration answers go in parts (`SendMigration`): `Client_MigrationStart` carries the view without its rows and
+    their count, then `Client_MigrationRows` sends batches of about 24 KiB. The client shows the view once every row
+    has arrived. A preview of 101 stations and 39 trains came to 104 KB, so on a dedicated server Preview did nothing.
+  - The monitor view goes unreliably in one message, trimmed to about 48 KiB (`FitMonitor`). The details of the
+    longest lists' last rows go first, then those rows, with a warning in the log.
+
+### Admin-gated controls
+
+`STAccess::MayChange` is checked on the server before every change, in the `Server_*` edit handlers and the chat
+command:
+- **`EChange::Network`** is always admin only: server settings (`/st set`), migration apply and undo, test copies and
+  backups.
+- **`EChange::Edit`** is admin only while `AdminsOnly` is on: platform, station and train settings, pastes and test
+  jobs.
+
+`STAccess::IsAdmin` (the same rule as Auto Trains' `/at`) counts as admins:
+- the host (the server's local controller);
+- a player whose `AFGPlayerState::IsServerAdmin()` is set;
+- on a dedicated server, a player whose controller's `GetDSPrivilegeLevel()` is `Administrator` (or `InitialAdmin`).
+  The game sets it on the server from the player's join token, so a client can't fake it;
+- no controller (the server console).
+
+A refused edit handler sends the current view back, so the menu shows the unchanged state again.
+
+Settings are SML configuration. A dedicated server reads its own `Configs/SmartTrains.cfg`, and a client's Mods menu
+never reaches it. `USTConfig::Write` sets the property in the server's registered configuration, marks it dirty and
+flushes SML's pending saves. `ReadSettings` picks it up within a second.
 
 Panels are C++ `UUserWidget`s (`USTPanel` and subclasses) built from the game's own widgets, as in Freight Car
 Control: `Widget_StandardButton` (`USTButton`), `Widget_InputBox` (`USTTextInput`), `BPW_TrainMenuLabel` headings,

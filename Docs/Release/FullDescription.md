@@ -93,3 +93,9 @@ signalled network, above all on single track.
 
 All settings live on the host. Every player's menus show the host's state, and edits are logged with the player's
 name.
+
+- **Server settings in game:** on a dedicated server, admins change the settings with `/st settings` and
+  `/st set <setting> <value>`. Your own Mods menu doesn't reach the server.
+- **Always admin only:** settings, migration apply and undo, test copies and backups. An admin is the host, or a
+  player signed in with the server's admin password.
+- **Optional:** with **Only admins change SmartTrains** on, only admins can change platforms, stations and trains.

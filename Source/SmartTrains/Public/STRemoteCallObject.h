@@ -66,8 +66,13 @@ public:
 	UFUNCTION(Client, Reliable)
 	void Client_Station(const FSTStationView& View);
 
+	// A migration answer comes in parts, each small enough for one network message: the view without its rows and
+	// how many rows follow, then the rows in batches. Sent by SendMigration.
 	UFUNCTION(Client, Reliable)
-	void Client_Migration(const FSTMigrationView& View);
+	void Client_MigrationStart(const FSTMigrationView& Header, int32 RowCount);
+
+	UFUNCTION(Client, Reliable)
+	void Client_MigrationRows(int32 Serial, const TArray<FSTMigrationRow>& Rows);
 
 	UFUNCTION(Client, Unreliable)
 	void Client_Monitor(const FSTMonitorView& View);
@@ -87,6 +92,11 @@ public:
 	// Tells the player why an edit was refused or what it did.
 	UFUNCTION(Client, Reliable)
 	void Client_Message(const FString& Message, bool bError);
+
+	//~ Server side.
+
+	// Sends View to this player with Client_MigrationStart and Client_MigrationRows.
+	void SendMigration(FSTMigrationView View);
 
 	//~ Local side.
 
@@ -146,6 +156,9 @@ private:
 	TMap<TWeakObjectPtr<AFGTrain>, FSTTrainView> mTrains;
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, FSTStationView> mStations;
 	FSTMigrationView mMigration;
+	// Client side: a migration answer still arriving, and how many rows it has.
+	FSTMigrationView mPendingMigration;
+	int32 mPendingMigrationRows = -1;
 	FSTMonitorView mMonitor;
 	uint32 mRevision = 0;
 	FString mLastMessage;

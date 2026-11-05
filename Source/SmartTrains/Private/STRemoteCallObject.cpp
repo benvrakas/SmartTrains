@@ -7,6 +7,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
 #include "SmartTrains.h"
+#include "STAccess.h"
 #include "STLayout.h"
 #include "STMigration.h"
 #include "STSubsystem.h"
@@ -15,11 +16,115 @@
 
 namespace
 {
+	// Returns true if Owner may make the change; otherwise tells the player why.
+	bool Allowed(USTRemoteCallObject& Owner, const ASTSubsystem& Subsystem, STAccess::EChange Change, const TCHAR* Action)
+	{
+		FString Why;
+		if (STAccess::MayChange(Subsystem, Owner.GetOwnerPlayerController(), Change, Action, Why))
+		{
+			return true;
+		}
+		Owner.Client_Message(Why, true);
+		return false;
+	}
+
 	// Most item rules one platform may have.
 	constexpr int32 MaxItems = 32;
 
 	// Most words a migration selection may have.
 	constexpr int32 MaxSelectionWords = 256;
+
+	// Most estimated bytes of rows in one network message. The engine refuses messages over 64 KiB.
+	constexpr int32 RowBytesPerMessage = 24 * 1024;
+
+	// Most estimated bytes of a monitor view, sent unreliably in one message.
+	constexpr int32 MonitorBytes = 48 * 1024;
+
+	// Estimated bytes of S on the wire: 2 per character (non-ANSI text goes as UTF-16) plus its length.
+	int32 Bytes(const FString& S)
+	{
+		return 2 * S.Len() + 5;
+	}
+
+	int32 Bytes(const TArray<FString>& Lines)
+	{
+		int32 Total = 5;
+		for (const FString& Line : Lines)
+		{
+			Total += Bytes(Line);
+		}
+		return Total;
+	}
+
+	int32 Bytes(const FSTMigrationRow& Row)
+	{
+		int32 Total = 16 + Bytes(Row.Text) + Bytes(Row.Title) + Bytes(Row.Details) + Bytes(Row.Flag) + Bytes(Row.Users) + Bytes(Row.Note);
+		for (const FSTMigrationPlatformRow& Platform : Row.Platforms)
+		{
+			Total += 16 + 8 * Platform.Items.Num() + Bytes(Platform.Confidence) + Bytes(Platform.Note) + Bytes(Platform.Conflict);
+		}
+		return Total;
+	}
+
+	int32 Bytes(const FSTMonitorRow& Row)
+	{
+		return 16 + Bytes(Row.Title) + Bytes(Row.Verdict) + Bytes(Row.Columns) + Bytes(Row.Advice) + Bytes(Row.Details);
+	}
+
+	int32 Bytes(const TArray<FSTMonitorRow>& Rows)
+	{
+		int32 Total = 5;
+		for (const FSTMonitorRow& Row : Rows)
+		{
+			Total += Bytes(Row);
+		}
+		return Total;
+	}
+
+	// Trims View to about MonitorBytes: first the details of the longest lists' last rows, then those rows. Returns the
+	// number of rows dropped.
+	int32 FitMonitor(FSTMonitorView& View)
+	{
+		TArray<TArray<FSTMonitorRow>*> Lists = {&View.Trains, &View.Platforms, &View.Stations, &View.Items};
+		auto Total = [&]()
+		{
+			int32 Sum = Bytes(View.Summary) + Bytes(View.Idle) + Bytes(View.Tiles);
+			for (const TArray<FSTMonitorRow>* List : Lists)
+			{
+				Sum += Bytes(*List);
+			}
+			return Sum;
+		};
+		int32 Size = Total();
+		for (TArray<FSTMonitorRow>* List : Lists)
+		{
+			for (int32 Index = List->Num() - 1; Index >= 0 && Size > MonitorBytes; --Index)
+			{
+				Size -= Bytes((*List)[Index].Details) - 5;
+				(*List)[Index].Details.Reset();
+			}
+		}
+		int32 Dropped = 0;
+		while (Size > MonitorBytes)
+		{
+			TArray<FSTMonitorRow>** Longest = Lists.FindByPredicate([](const TArray<FSTMonitorRow>* List) { return List->Num() > 0; });
+			for (TArray<FSTMonitorRow>*& List : Lists)
+			{
+				if (Longest && List->Num() > (*Longest)->Num())
+				{
+					Longest = &List;
+				}
+			}
+			if (!Longest)
+			{
+				break;
+			}
+			Size -= Bytes((*Longest)->Last());
+			(*Longest)->Pop();
+			++Dropped;
+		}
+		return Dropped;
+	}
 }
 
 void USTRemoteCallObject::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -84,6 +189,11 @@ void USTRemoteCallObject::Server_SetPlatform_Implementation(AFGBuildableTrainPla
 	if (!Subsystem || !IsValid(Platform))
 	{
 		UE_LOG(LogSmartTrains, Warning, TEXT("Server_SetPlatform from %s: %s"), *GetPlayerName(), Subsystem ? TEXT("platform gone") : TEXT("no subsystem"));
+		return;
+	}
+	if (!Allowed(*this, *Subsystem, STAccess::EChange::Edit, TEXT("change platform settings")))
+	{
+		Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
 		return;
 	}
 	const bool bFluid = STLayout::GetPlatformCargoType(Platform) == EFreightCargoType::FCT_Liquid;
@@ -156,6 +266,11 @@ void USTRemoteCallObject::Server_PastePlatformSettings_Implementation(AFGBuildab
 	}
 	const bool bFluid = STLayout::GetPlatformCargoType(Platform) == EFreightCargoType::FCT_Liquid;
 	const FSTPlatformSettings& Slot = bFluid ? mFluidClipboard : mFreightClipboard;
+	if (Slot.bValid && !Allowed(*this, *Subsystem, STAccess::EChange::Edit, TEXT("paste platform settings")))
+	{
+		Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
+		return;
+	}
 	if (!Slot.bValid)
 	{
 		UE_LOG(LogSmartTrains, Log, TEXT("CLIPBOARD %s pasted onto %s, but nothing was copied from a %s platform"), *GetPlayerName(), *Platform->GetName(), bFluid ? TEXT("fluid") : TEXT("freight"));
@@ -192,6 +307,11 @@ void USTRemoteCallObject::Server_CopyPlatformToStation_Implementation(AFGBuildab
 	{
 		return;
 	}
+	if (!Allowed(*this, *Subsystem, STAccess::EChange::Edit, TEXT("change platform settings")))
+	{
+		Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
+		return;
+	}
 	FString Result;
 	const int32 Copied = Subsystem->CopyPlatformToStation(Platform, FString::Printf(TEXT("platform menu copy (%s)"), *GetPlayerName()), Result);
 	Client_Message(Result, Copied < 0);
@@ -209,6 +329,11 @@ void USTRemoteCallObject::Server_SetStation_Implementation(AFGTrainStationIdenti
 	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
 	if (!Subsystem || !IsValid(Station))
 	{
+		return;
+	}
+	if (!Allowed(*this, *Subsystem, STAccess::EChange::Edit, TEXT("change station settings")))
+	{
+		Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
 		return;
 	}
 	const FString Cause = FString::Printf(TEXT("station menu (%s)"), *GetPlayerName());
@@ -231,6 +356,11 @@ void USTRemoteCallObject::Server_SetTrain_Implementation(AFGTrain* Train, ESTTra
 	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
 	if (!Subsystem || !IsValid(Train))
 	{
+		return;
+	}
+	if (!Allowed(*this, *Subsystem, STAccess::EChange::Edit, TEXT("change train settings")))
+	{
+		Client_Train(Subsystem->MakeTrainView(Train, mAppliedEdit));
 		return;
 	}
 	const FString Cause = FString::Printf(TEXT("locomotive menu (%s)"), *GetPlayerName());
@@ -282,20 +412,30 @@ void USTRemoteCallObject::Server_Migrate_Implementation(ESTMigrationStep Step, c
 		});
 		break;
 	case ESTMigrationStep::Apply:
-		Lines = STMigration::Apply(Subsystem, World, Selection, Cause);
-		break;
 	case ESTMigrationStep::Undo:
-		Lines = STMigration::Undo(Subsystem, World, Cause);
+	{
+		FString Why;
+		if (!STAccess::MayChange(*Subsystem, GetOwnerPlayerController(), STAccess::EChange::Network, Step == ESTMigrationStep::Apply ? TEXT("apply a migration") : TEXT("undo a migration"), Why))
+		{
+			Lines.Add(Why);
+		}
+		else
+		{
+			Lines = Step == ESTMigrationStep::Apply ? STMigration::Apply(Subsystem, World, Selection, Cause) : STMigration::Undo(Subsystem, World, Cause);
+		}
 		break;
+	}
 	case ESTMigrationStep::TestCopy:
 	case ESTMigrationStep::Backup:
 	{
 		FString Message;
-		if (!Subsystem->GetSettings().bBetaTools)
+		const bool bAllowed = STAccess::MayChange(*Subsystem, GetOwnerPlayerController(), STAccess::EChange::Network,
+			Step == ESTMigrationStep::Backup ? TEXT("make a backup save") : TEXT("make a test copy"), Message);
+		if (bAllowed && !Subsystem->GetSettings().bBetaTools)
 		{
-			Message = TEXT("Turn on 'Beta testing tools' in the Mods menu first.");
+			Message = TEXT("Turn on 'Beta testing tools' first (Mods menu, or /st set BetaTools on).");
 		}
-		else
+		else if (bAllowed)
 		{
 			const bool bOk = Step == ESTMigrationStep::Backup ? STSaveTools::Backup(World, Message) : STSaveTools::TestCopy(World, FString(), Message);
 			Subsystem->bMadeBackupThisSession |= bOk;
@@ -307,7 +447,7 @@ void USTRemoteCallObject::Server_Migrate_Implementation(ESTMigrationStep Step, c
 	FSTMigrationView View = STMigration::MakeView(Subsystem, World);
 	View.Lines = MoveTemp(Lines);
 	View.Serial = ++mMigrationSerial;
-	Client_Migration(View);
+	SendMigration(MoveTemp(View));
 }
 
 //~ Readouts
@@ -343,7 +483,18 @@ void USTRemoteCallObject::Server_RequestMonitor_Implementation()
 {
 	if (const ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController()))
 	{
-		Client_Monitor(Subsystem->MakeMonitorView());
+		FSTMonitorView View = Subsystem->MakeMonitorView();
+		if (const int32 Dropped = FitMonitor(View))
+		{
+			static double LastWarned = -1000.0;
+			const double Time = FPlatformTime::Seconds();
+			if (Time - LastWarned > 300.0)
+			{
+				LastWarned = Time;
+				UE_LOG(LogSmartTrains, Warning, TEXT("Monitor view for %s too large for one network message: last %d rows left out"), *GetPlayerName(), Dropped);
+			}
+		}
+		Client_Monitor(View);
 	}
 }
 
@@ -386,10 +537,63 @@ void USTRemoteCallObject::Client_Station_Implementation(const FSTStationView& Vi
 	}
 }
 
-void USTRemoteCallObject::Client_Migration_Implementation(const FSTMigrationView& View)
+void USTRemoteCallObject::SendMigration(FSTMigrationView View)
 {
-	mMigration = View;
-	++mRevision;
+	TArray<FSTMigrationRow> Rows = MoveTemp(View.Rows);
+	View.Rows.Reset();
+	const int32 Serial = View.Serial;
+	Client_MigrationStart(View, Rows.Num());
+	TArray<FSTMigrationRow> Batch;
+	int32 BatchBytes = 0;
+	int32 Messages = 1;
+	for (FSTMigrationRow& Row : Rows)
+	{
+		const int32 RowBytes = Bytes(Row);
+		if (Batch.Num() > 0 && BatchBytes + RowBytes > RowBytesPerMessage)
+		{
+			Client_MigrationRows(Serial, Batch);
+			++Messages;
+			Batch.Reset();
+			BatchBytes = 0;
+		}
+		BatchBytes += RowBytes;
+		Batch.Add(MoveTemp(Row));
+	}
+	if (Batch.Num() > 0)
+	{
+		Client_MigrationRows(Serial, Batch);
+		++Messages;
+	}
+	UE_LOG(LogSmartTrains, Verbose, TEXT("Migration view %d for %s: %d rows in %d messages"), Serial, *GetPlayerName(), Rows.Num(), Messages);
+}
+
+void USTRemoteCallObject::Client_MigrationStart_Implementation(const FSTMigrationView& Header, int32 RowCount)
+{
+	mPendingMigration = Header;
+	mPendingMigrationRows = RowCount;
+	if (RowCount <= 0)
+	{
+		mMigration = MoveTemp(mPendingMigration);
+		mPendingMigrationRows = -1;
+		++mRevision;
+	}
+}
+
+void USTRemoteCallObject::Client_MigrationRows_Implementation(int32 Serial, const TArray<FSTMigrationRow>& Rows)
+{
+	if (Serial != mPendingMigration.Serial || mPendingMigrationRows < 0)
+	{
+		UE_LOG(LogSmartTrains, Warning, TEXT("Migration rows for answer %d dropped: waiting for answer %d"), Serial, mPendingMigrationRows < 0 ? -1 : mPendingMigration.Serial);
+		return;
+	}
+	mPendingMigration.Rows.Append(Rows);
+	if (mPendingMigration.Rows.Num() >= mPendingMigrationRows)
+	{
+		mMigration = MoveTemp(mPendingMigration);
+		mPendingMigration = FSTMigrationView();
+		mPendingMigrationRows = -1;
+		++mRevision;
+	}
 }
 
 void USTRemoteCallObject::Client_Clipboard_Implementation(bool bFluid, bool bValid)

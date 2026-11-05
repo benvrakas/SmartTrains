@@ -12,6 +12,8 @@
 #include "GameFramework/PlayerState.h"
 #include "Resources/FGItemDescriptor.h"
 #include "SmartTrains.h"
+#include "STAccess.h"
+#include "STConfig.h"
 #include "STLayout.h"
 #include "STMigration.h"
 #include "STRemoteCallObject.h"
@@ -180,6 +182,18 @@ namespace
 		return false;
 	}
 
+	// Returns true if Sender may make the change; otherwise tells them why.
+	bool Allowed(UCommandSender* Sender, const ASTSubsystem& Subsystem, STAccess::EChange Change, const TCHAR* Action)
+	{
+		FString Why;
+		if (STAccess::MayChange(Subsystem, Sender ? Sender->GetPlayer() : nullptr, Change, Action, Why))
+		{
+			return true;
+		}
+		Sender->SendChatMessage(Why, FLinearColor::Red);
+		return false;
+	}
+
 	bool IsOn(const FString& Word)
 	{
 		return Word.Equals(TEXT("on"), ESearchCase::IgnoreCase) || Word.Equals(TEXT("yes"), ESearchCase::IgnoreCase) || Word.Equals(TEXT("true"), ESearchCase::IgnoreCase);
@@ -195,6 +209,7 @@ namespace
 		TEXT("/st migrate   (opens the migration window)"),
 		TEXT("/st migrate preview [tracelimit 5000] [allitems] | apply all [confirm] | apply stations 1,2 trains 3 | undo"),
 		TEXT("/st testcopy [session name] | /st backup"),
+		TEXT("/st settings | /st set <setting> <value>   (the server's settings; changing them is admin only)"),
 	};
 }
 
@@ -248,6 +263,35 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		}
 		return EExecutionStatus::COMPLETED;
 	}
+	if (Verb == TEXT("settings"))
+	{
+		const AFGPlayerController* Controller = Sender ? Sender->GetPlayer() : nullptr;
+		Sender->SendChatMessage(TEXT("SmartTrains settings on this server (* = changed from the default):"));
+		Send(Sender, USTConfig::DescribeForChat(Subsystem->GetSettings()));
+		Sender->SendChatMessage(FString::Printf(TEXT("You: %s. Change one with /st set <setting> <value>."), *STAccess::Describe(Controller)));
+		if (World->GetNetMode() == NM_DedicatedServer)
+		{
+			Sender->SendChatMessage(TEXT("Your own Mods menu doesn't change a dedicated server's settings."));
+		}
+		return EExecutionStatus::COMPLETED;
+	}
+	if (Verb == TEXT("set"))
+	{
+		if (Arguments.Num() < 3)
+		{
+			Sender->SendChatMessage(TEXT("Usage: /st set <setting> <value>, e.g. /st set ArrivalGapSeconds 45. /st settings lists them."), FLinearColor::Red);
+			return EExecutionStatus::BAD_ARGUMENTS;
+		}
+		if (!Allowed(Sender, *Subsystem, STAccess::EChange::Network, TEXT("change SmartTrains' settings")))
+		{
+			return EExecutionStatus::UNCOMPLETED;
+		}
+		FString Message;
+		const bool bOk = USTConfig::Write(this, Arguments[1], Arguments[2], Message);
+		UE_LOG(LogSmartTrains, Log, TEXT("Settings: /st set %s %s by %s: %s"), *Arguments[1], *Arguments[2], *Who, *Message);
+		Sender->SendChatMessage(Message, bOk ? FLinearColor::White : FLinearColor::Red);
+		return bOk ? EExecutionStatus::COMPLETED : EExecutionStatus::BAD_ARGUMENTS;
+	}
 	if (Verb == TEXT("jobs"))
 	{
 		Send(Sender, Subsystem->DescribeJobs());
@@ -272,6 +316,10 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		if (!Platform)
 		{
 			Sender->SendChatMessage(TEXT("Look at a freight or fluid platform first."), FLinearColor::Red);
+			return EExecutionStatus::UNCOMPLETED;
+		}
+		if (Arguments.Num() >= 2 && !Allowed(Sender, *Subsystem, STAccess::EChange::Edit, TEXT("change platform settings")))
+		{
 			return EExecutionStatus::UNCOMPLETED;
 		}
 		if (Arguments.Num() >= 2 && Arguments[1].Equals(TEXT("copy"), ESearchCase::IgnoreCase))
@@ -376,6 +424,10 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			Sender->SendChatMessage(TEXT("Look at a station or one of its platforms first."), FLinearColor::Red);
 			return EExecutionStatus::UNCOMPLETED;
 		}
+		if (Arguments.Num() >= 3 && !Allowed(Sender, *Subsystem, STAccess::EChange::Edit, TEXT("change station settings")))
+		{
+			return EExecutionStatus::UNCOMPLETED;
+		}
 		for (int32 Index = 1; Index + 1 < Arguments.Num(); Index += 2)
 		{
 			const FString Word = Arguments[Index].ToLower();
@@ -394,6 +446,10 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		if (!Train)
 		{
 			Sender->SendChatMessage(TEXT("Drive or look at a train first."), FLinearColor::Red);
+			return EExecutionStatus::UNCOMPLETED;
+		}
+		if (Arguments.Num() >= 2 && !Allowed(Sender, *Subsystem, STAccess::EChange::Edit, TEXT("change train settings")))
+		{
 			return EExecutionStatus::UNCOMPLETED;
 		}
 		for (int32 Index = 1; Index < Arguments.Num(); ++Index)
@@ -427,6 +483,10 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		{
 			Sender->SendChatMessage(TEXT("Usage: /st job <item> from <station> to <station>"), FLinearColor::Red);
 			return EExecutionStatus::BAD_ARGUMENTS;
+		}
+		if (!Allowed(Sender, *Subsystem, STAccess::EChange::Edit, TEXT("give a train a test job")))
+		{
+			return EExecutionStatus::UNCOMPLETED;
 		}
 		AFGTrain* Train = FindTrain(Sender);
 		TSubclassOf<UFGItemDescriptor> Item;
@@ -464,6 +524,11 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		{
 			Send(Sender, STMigration::Preview(Subsystem, World, STMigration::ParseTraceLimit(Arguments), STMigration::ParseOneItem(Arguments)));
 		}
+		else if ((Step == TEXT("apply") || Step == TEXT("undo"))
+			&& !Allowed(Sender, *Subsystem, STAccess::EChange::Network, Step == TEXT("apply") ? TEXT("apply a migration") : TEXT("undo a migration")))
+		{
+			return EExecutionStatus::UNCOMPLETED;
+		}
 		else if (Step == TEXT("apply"))
 		{
 			Send(Sender, STMigration::Apply(Subsystem, World, TArray<FString>(Arguments.GetData() + 2, FMath::Max(0, Arguments.Num() - 2)), Who));
@@ -482,9 +547,13 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 
 	if (Verb == TEXT("testcopy") || Verb == TEXT("backup"))
 	{
+		if (!Allowed(Sender, *Subsystem, STAccess::EChange::Network, Verb == TEXT("backup") ? TEXT("make a backup save") : TEXT("make a test copy")))
+		{
+			return EExecutionStatus::UNCOMPLETED;
+		}
 		if (!Subsystem->GetSettings().bBetaTools)
 		{
-			Sender->SendChatMessage(TEXT("Turn on 'Beta testing tools' in the Mods menu first."), FLinearColor::Red);
+			Sender->SendChatMessage(TEXT("Turn on 'Beta testing tools' first (Mods menu, or /st set BetaTools on)."), FLinearColor::Red);
 			return EExecutionStatus::UNCOMPLETED;
 		}
 		FString Message;

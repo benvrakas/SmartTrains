@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0 (beta)
+
+- **Admin-gated controls** for multiplayer and dedicated servers:
+  - Always admin only: changing settings, migration apply and undo, test copies and backups. An admin is the host,
+    or on a dedicated server a player signed in with the admin password.
+  - New setting **Only admins change SmartTrains** (off by default): only admins can then change platforms, stations
+    and trains.
+  - Refused changes are answered in chat or under the menu, and logged with the player's name.
+- **Server settings in game:** `/st settings` lists the server's settings, and `/st set <setting> <value>` changes one
+  (admins). On a dedicated server your own Mods menu doesn't reach the server's settings.
+- **Fixed: the migration window's Preview did nothing on a dedicated server.** The preview of a large network was too
+  big for one network message, so the server's answer never arrived. It now comes in parts. The monitor window is
+  kept under the same limit on very large networks.
+
+**Good to know**
+
+- Everyone in a multiplayer session needs SmartTrains 0.5.0.
+
 ## 0.4.0 (beta)
 
 First release. Trains without fixed timetables: give platforms a role and items, and managed trains move them from

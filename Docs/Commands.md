@@ -3,6 +3,8 @@
 All commands start with `/st` (or `/smarttrains`). They run on the host. "Look at" means aim at the platform, station
 or train from up to 60 m away.
 
+Who may use which command is in [Admin-only commands](#admin-only-commands) below.
+
 ## Readouts
 
 - `/st status`: managed trains, platform counts, Freight Car Control availability, and per item the planned flow,
@@ -63,3 +65,31 @@ Apply asks for `confirm` unless `/st testcopy` or `/st backup` ran in this sessi
 - `/st testcopy [session name]`: saves this world as a separate session, by default "<session> (SmartTrains test)".
   Load it from the main menu to test. The world you're in keeps saving as its own session.
 - `/st backup`: a timestamped save in the current session.
+
+## Settings
+
+- `/st settings`: the host's or dedicated server's settings with their keys and ranges. Settings changed from their
+  default are marked `*`. It also says whether you count as an admin.
+- `/st set <setting> <value>`: changes one, e.g. `/st set ArrivalGapSeconds 45` or `/st set DetailedLog on`. The
+  key's case doesn't matter, and a unique part of a key or name works. It takes effect within a second and is saved
+  to the server's `Configs/SmartTrains.cfg`.
+
+On a dedicated server, this is the way to change settings in game. Your own Mods menu only changes your copy,
+which the server doesn't read.
+
+## Admin-only commands
+
+An admin is the host, or on a dedicated server a player whose privilege level is Administrator: one who signed in
+to the server with the admin password in the Server Manager. The server console counts as an admin.
+
+- **Always admin only:**
+  - `/st set`;
+  - `/st migrate apply` and `undo`, and Apply and Undo in the migration window;
+  - `/st testcopy` and `/st backup`, also from the migration window.
+- **Admin only when "Only admins change SmartTrains" is on** (`/st set AdminsOnly on`, off by default): platform,
+  station and train changes, in chat and in the menus, including pasted settings and `/st job`.
+- **Open to everyone:** readouts (`status`, `jobs`, `fit`, `monitor`, `settings`), `/st migrate preview` and copying a
+  platform's settings.
+
+A refused change is answered in chat or under the menu, and logged as `ACCESS refused: <player> (<level>) tried to
+...`.

@@ -15,6 +15,8 @@ struct FSTSettings
 	bool bDetailedLog = false;
 	// Shows each managed train's job in its name.
 	bool bJobNames = false;
+	// Only admins (the host, or dedicated server admins) may change platform, station and train settings.
+	bool bAdminsOnly = false;
 	// How often jobs are handed out. [s]
 	float DispatchSeconds = 3.f;
 	// How often the flow plan is worked out again. [s]
@@ -64,4 +66,12 @@ public:
 
 	// "Key=value" for every setting, for the log.
 	static TArray<FString> Describe(const FSTSettings& Settings);
+
+	// One line per setting for chat: key, value, range and name; settings off their default are marked.
+	static TArray<FString> DescribeForChat(const FSTSettings& Settings);
+
+	// Sets the setting Key (any case; a unique part of a key or name also works) to Value ("on"/"off" or a number) in
+	// the registered configuration, which SML saves to this machine's config file. OutMessage says what happened.
+	// Returns false if Key or Value isn't valid or the configuration isn't available.
+	static bool Write(const UObject* WorldContext, const FString& Key, const FString& Value, FString& OutMessage);
 };
