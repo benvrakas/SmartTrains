@@ -2,6 +2,9 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Log:** a managed train's self-driving error (No Path, Station Unreachable, ...) is logged when it changes, as
+  `SELFDRIVING <train>: <error>`, and again when it clears (`SDLE_NoError`).
+
 - **Holding covers a train that just left a dead end:** a train whose trip ended as it undocked from a dead-end
   station, still standing there, counts as in the station for holding and the Auto Trains route check. Its next trip was otherwise started at once, onto
   the shared track the other water shuttle was about to use.

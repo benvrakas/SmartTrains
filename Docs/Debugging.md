@@ -60,3 +60,6 @@ the console.
   allows for it, but the split between items in that car is only estimated until the re-plan after the stop.
 - A station that both supplies and takes the same item isn't supported.
 - A train that is parked counts as standing at the station where it last docked.
+
+- `SELFDRIVING <train>: <error>`: the game's self-driving error of a managed train changed (for example `SDLE_NoPath`,
+  `SDLE_StationUnreachable`); `SDLE_NoError` when it clears. A train that stands without moving usually shows one.

@@ -341,6 +341,8 @@ struct SMARTTRAINS_API FSTTrainState
 	TWeakObjectPtr<AFGTrainStationIdentifier> DockedStation;
 	// Runtime only: when SmartTrains last told the train to drive, for the stuck report.
 	double LastCommandAt = 0.0;
+	// Runtime only: the game's self-driving error at the last check, logged when it changes (0 = none).
+	uint8 LastSelfDrivingError = 0;
 	// Runtime only: the job was replaced while the train was docked, so the coming departure ends the old job's dock.
 	bool bChainedWhileDocked = false;
 	// Runtime only: that job's timetable is written as the train leaves; written during the dock, the game moves it

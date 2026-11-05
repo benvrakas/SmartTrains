@@ -512,6 +512,15 @@ void ASTSubsystem::MonitorTrains()
 				}
 			}
 		}
+		// The game's self-driving error (no path, station unreachable, ...), logged when it changes.
+		const uint8 Error = Train->IsSelfDrivingEnabled() ? static_cast<uint8>(Train->GetSelfDrivingError()) : 0;
+		if (Error != State.LastSelfDrivingError)
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("SELFDRIVING %s: %s%s"), *STLayout::Name(Train),
+				*StaticEnum<ESelfDrivingLocomotiveError>()->GetNameStringByValue(static_cast<int64>(Error)),
+				Error != 0 && State.bHasJob ? *FString::Printf(TEXT(" (job %d, leg %d)"), State.Job.Id, State.Job.Leg + 1) : TEXT(""));
+			State.LastSelfDrivingError = Error;
+		}
 		if (State.Phase == ESTTrainPhase::Parked && Train->IsSelfDrivingEnabled() && !bDocked)
 		{
 			UE_LOG(LogSmartTrains, Log, TEXT("%s: autopilot switched on while parked; it gets the next job that fits"), *STLayout::Name(Train));
