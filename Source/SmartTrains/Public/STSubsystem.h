@@ -15,6 +15,7 @@ class AFGRailroadVehicle;
 class AFGTrain;
 class AFGTrainStationIdentifier;
 class FSTTravel;
+class FSTTripPlanner;
 class UFGItemDescriptor;
 
 // One station's supply or demand of one item, gathered from its platforms (Docs/Architecture.md, "Dispatching").
@@ -58,6 +59,7 @@ UCLASS()
 class SMARTTRAINS_API ASTSubsystem : public AModSubsystem, public IFGSaveInterface
 {
 	GENERATED_BODY()
+	friend class FSTTripPlanner;
 
 public:
 	ASTSubsystem();
@@ -131,6 +133,15 @@ public:
 	float EstimateStaySeconds(const AFGTrainStationIdentifier* Station) const;
 
 	const FSTSettings& GetSettings() const { return mSettings; }
+
+	// When a delivery of Item last reached Station (game seconds); the session start if none has yet.
+	double GetLastServed(const AFGTrainStationIdentifier* Station, UClass* Item) const;
+
+	// "car 1 unloads 1,200 Copper Ingot, car 3 unloads 600 Wire"; with bMoved, the moved amount of the planned one.
+	FString DescribeLeg(const AFGTrain* Train, const FSTJobLeg& Leg, bool bMoved) const;
+
+	// Items of Item in Car's freight inventory.
+	static int32 CountInCar(const AFGRailroadVehicle* Car, TSubclassOf<UFGItemDescriptor> Item);
 	bool IsFccAvailable() const;
 
 	//~ Migration support.
@@ -165,31 +176,16 @@ private:
 	{
 		TMap<UClass*, FItemStats> Items;
 	};
-	// A job considered in a dispatch round.
-	struct FCandidate
-	{
-		int32 TrainIndex = INDEX_NONE;
-		int32 From = INDEX_NONE;
-		int32 To = INDEX_NONE;
-		TSubclassOf<UFGItemDescriptor> Item;
-		FSTFit Fit;
-		int32 Amount = 0;
-		double ArriveFrom = 0.0;
-		double ArriveTo = 0.0;
-		double Score = 0.0;
-		bool bDeliveryOnly = false;
-		FString Why;
-		// Milk run: its legs, and the node each leg serves. Empty for a direct job.
-		TArray<FSTJobLeg> Legs;
-		TArray<int32> LegNodes;
-	};
 
 	// Fast checks of every managed train: docking, job progress, external timetable changes. [0.25 s]
 	void MonitorTrains();
 	// Samples every configured platform's stock and rates. [1 s]
 	void SamplePlatforms();
-	// Hands out jobs to free trains.
+	// Hands out trips to free trains, and re-plans trips under way that asked for it (STDispatch.cpp).
 	void Dispatch();
+	void DispatchRound();
+	// Re-plans the rest of State's trip from where it is and what its cars hold; keeps stops already passed.
+	void ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner);
 	// Works out planned flows between suppliers and consumers.
 	void PlanFlows();
 	// One step of the travel distance search.
@@ -221,17 +217,10 @@ private:
 	// Moves parked trains off stations a job needs.
 	void ClearNeededBays();
 	// For a train without a job: hands out jobs now, else sends it to a depot or parks it.
-	void SettleIdle(FSTTrainState& State, const TCHAR* Why);
+	// bDispatchFirst: hand out trips first (during a dispatch round the train is settled when the round ends instead).
+	void SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDispatchFirst = true);
 	// Like ComputeFit for a train that already carries Item: which loaded cars can unload it at To.
 	FSTFit ComputeDeliveryFit(const AFGTrain* Train, const AFGTrainStationIdentifier* To, TSubclassOf<UFGItemDescriptor> Item) const;
-	// Adds milk run candidates for the free train at TrainIndex (STMilkRuns.cpp).
-	void AddMilkRuns(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, const TArray<FSTNode>& Nodes,
-		const TMap<const AFGTrainStationIdentifier*, double>& BusyUntil, TArray<FCandidate>& OutCandidates) const;
-	// Checks the first delivery of a split load: which of Cars unload Item at Station, and which must skip it.
-	FSTFit CheckDropOnTheWay(const AFGTrain* Train, const AFGTrainStationIdentifier* Station, TSubclassOf<UFGItemDescriptor> Item,
-		const TArray<AFGFreightWagon*>& Cars) const;
-	// Trims a milk run's leg amounts to what earlier assignments this round left; false if too little is left.
-	bool RecheckMilkRun(FCandidate& Candidate, const TArray<FSTNode>& Nodes) const;
 	// Room for Item at a sink node: free slots of its platforms times the item's stack size.
 	int32 GetSinkRoom(const FSTNode& Node, TSubclassOf<UFGItemDescriptor> Item) const;
 	// Adds a line to the station's recent job history.
@@ -301,7 +290,16 @@ private:
 	// Recent job lines per station, newest last.
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, TArray<FString>> mHistory;
 	// Item count in the job's cars when the current dock began, per train.
-	TMap<TWeakObjectPtr<AFGTrain>, int32> mDockStartAmounts;
+	// Per train: the amount of each work item in its car when the current dock began (index = work of the leg).
+	TMap<TWeakObjectPtr<AFGTrain>, TArray<int32>> mDockStartAmounts;
+	// When a delivery last reached each (station, item); runtime only.
+	TMap<TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, UClass*>, double> mLastServed;
+	double mStartTime = 0.0;
+	// Platform settings changed: trips under way are re-planned in the next dispatch.
+	bool bReplanAll = false;
+	// A dispatch round is running; trains that become idle in it are settled when it ends (mToSettle).
+	bool bInDispatch = false;
+	TArray<TWeakObjectPtr<AFGTrain>> mToSettle;
 	// Last "would" line logged per train in observe-only mode.
 	TMap<TWeakObjectPtr<AFGTrain>, FString> mObserved;
 	// Trains whose dock map still has to be read during the current dock.

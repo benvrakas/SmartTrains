@@ -155,6 +155,29 @@ struct SMARTTRAINS_API FSTStationConfig
 	FString Pool;
 };
 
+// What one car loads or unloads at one stop of a job.
+USTRUCT()
+struct SMARTTRAINS_API FSTCarWork
+{
+	GENERATED_BODY()
+
+	UPROPERTY(SaveGame)
+	TObjectPtr<AFGRailroadVehicle> Car = nullptr;
+
+	UPROPERTY(SaveGame)
+	TSubclassOf<UFGItemDescriptor> Item;
+
+	UPROPERTY(SaveGame)
+	bool bLoad = false;
+
+	UPROPERTY(SaveGame)
+	int32 PlannedAmount = 0;
+
+	// Amount actually moved, filled in when the train leaves.
+	UPROPERTY(SaveGame)
+	int32 MovedAmount = 0;
+};
+
 // One stop of a job.
 USTRUCT()
 struct SMARTTRAINS_API FSTJobLeg
@@ -164,35 +187,46 @@ struct SMARTTRAINS_API FSTJobLeg
 	UPROPERTY(SaveGame)
 	TObjectPtr<AFGTrainStationIdentifier> Station = nullptr;
 
-	// Item moved at this stop; null for a stop that moves nothing (depot or a move out of the way).
+	// Per car: what it loads or unloads here. Empty for a stop that moves nothing (depot, out of the way).
+	UPROPERTY(SaveGame)
+	TArray<FSTCarWork> Work;
+
+	// Load/unload once and go on, instead of waiting for full or empty cars.
+	UPROPERTY(SaveGame)
+	bool bPartial = false;
+
+	// Cars told to skip this stop through Freight Car Control.
+	UPROPERTY(SaveGame)
+	TArray<TObjectPtr<AFGRailroadVehicle>> SkipCars;
+
+	// Expected arrival, in game seconds.
+	UPROPERTY(SaveGame)
+	double PlannedArrival = 0.0;
+
+	//~ One item for the whole stop, from 0.1.0 to 0.3.0 saves; turned into Work on load (ConvertOldWork).
 	UPROPERTY(SaveGame)
 	TSubclassOf<UFGItemDescriptor> Item;
 
 	UPROPERTY(SaveGame)
 	bool bLoad = false;
 
-	// First stop of a milk run: transfer what can be moved now and go on, without waiting for full or empty cars.
-	UPROPERTY(SaveGame)
-	bool bPartial = false;
-
-	// Cars that transfer here.
 	UPROPERTY(SaveGame)
 	TArray<TObjectPtr<AFGRailroadVehicle>> Cars;
-
-	// Cars told to skip this stop through Freight Car Control.
-	UPROPERTY(SaveGame)
-	TArray<TObjectPtr<AFGRailroadVehicle>> SkipCars;
 
 	UPROPERTY(SaveGame)
 	int32 PlannedAmount = 0;
 
-	// Expected arrival, in game seconds.
-	UPROPERTY(SaveGame)
-	double PlannedArrival = 0.0;
-
-	// Amount actually moved, filled in when the train leaves.
 	UPROPERTY(SaveGame)
 	int32 MovedAmount = 0;
+
+	// Items loaded (bLoad) or unloaded here, each once.
+	TArray<UClass*> GetItems(bool bWantLoad) const;
+	// Total planned or moved amount of the loads or unloads here.
+	int32 GetPlanned(bool bWantLoad) const;
+	int32 GetMoved(bool bWantLoad) const;
+	bool HasWork() const { return Work.Num() > 0; }
+	// Turns the old one-item fields into Work entries, one per car.
+	void ConvertOldWork();
 };
 
 // A managed train's work: stops in order, written into its timetable.
@@ -286,6 +320,12 @@ struct SMARTTRAINS_API FSTTrainState
 	UPROPERTY(SaveGame)
 	TArray<TObjectPtr<AFGTrainStationIdentifier>> WrittenStations;
 
+	// When the train began carrying cargo no trip wanted (game seconds), 0 if it doesn't.
+	UPROPERTY(SaveGame)
+	double UnwantedCargoSince = 0.0;
+
+	// Runtime only: the rest of the trip is re-planned in the next dispatch.
+	bool bReplan = false;
 	// Runtime only: docking state at the last check, when the current dock began, and where.
 	bool bWasDocked = false;
 	double DockedAt = 0.0;
@@ -314,6 +354,11 @@ struct SMARTTRAINS_API FSTDockMap
 	// Index = position of the platform counted from the station (0 = next to it); null where no vehicle docked.
 	UPROPERTY(SaveGame)
 	TArray<TObjectPtr<AFGRailroadVehicle>> Vehicles;
+
+	// The train's vehicles in order when it was seen; the map is only used while they are the same. Empty in maps
+	// from 0.1.0 to 0.3.0 saves, which are checked by vehicle set only.
+	UPROPERTY(SaveGame)
+	TArray<TObjectPtr<AFGRailroadVehicle>> Consist;
 };
 
 // Learned travel time between two stations.

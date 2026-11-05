@@ -6,6 +6,19 @@
   the managed switch, a status line and the job. It no longer covers the power and speed stats or runs off the
   bottom. "Keep vanilla" is set with `/st train keepvanilla` only.
 - **Pool tags removed.** Trains go wherever platform items match. Tags in older saves are logged and dropped.
+- **Platform-to-platform trips.** One trip can now serve several platforms and items: each car has its own plan
+  (load this here, unload it there, skip the rest). With Freight Car Control every platform can have its own items;
+  without it a station works as one big platform. Trips have up to 4 stops and 20 minutes (Mods menu). They pick up
+  where they deliver when that fits, and deliver leftovers on the way.
+- **Re-planned after every stop** from what the cars really hold, so short pickups, full consumers and hand-moved
+  cargo are handled at the next stop.
+- **Smarter choices:** trips are built by regret insertion, trains get their first job by an exact assignment, and
+  the flow plan behind the fleet advice is an exact minimum-cost flow.
+- **Fairness:** a consumer gets more urgent the longer it goes without a delivery.
+- **Unwanted cargo:** after 30 minutes (Mods menu) it may go to any consumer with room or a sink. `/st status`
+  warns when many trains carry some.
+- **Dock maps** are learned per way round and dropped when the train's cars change.
+- Milk runs (0.3.0) are part of the new planner; their Mods menu switch is gone.
 - **"Same for every platform in this station"** in the platform menu (and `/st station same`). Editing one platform
   then sets every platform of that kind in the station. By default it is on without Freight Car Control (where a
   station works as one big platform) as long as the platforms match, and off with it. The "To station" button is gone.

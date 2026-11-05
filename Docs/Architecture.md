@@ -10,7 +10,9 @@ in the plan (`C:\Users\benvr\.claude\plans\smarttrains.md`); this file records h
 | `STTypes.h` | Saved data: platform settings (`FSTPlatformConfig`), station settings, train state and jobs, learned dock maps, trip and stay times, the migration undo record. |
 | `STSubsystem.h`, `STSubsystem.cpp` | `ASTSubsystem` (server only, saved with the world): settings API, train monitoring, docking events, learning, rate sampling, readouts. |
 | `STDispatch.cpp` | The rest of `ASTSubsystem`: supply/demand nodes, the fit model, dispatching, the flow plan, writing timetables. |
-| `STMilkRuns.cpp` | Milk run candidates for `Dispatch` (two pickups or two deliveries per trip). |
+| `STTripPlanner.*` | Trip planning: car-by-car simulation, regret insertion, the exact train assignment. |
+| `STMinCostFlow.*` | Minimum-cost flow for the flow plan. |
+| `STStationLink.cpp` | "Same for every platform in this station". |
 | `STLayout.*` | Station platform chains and train consists, walked the way the game docks. `FSTPlatformAccess` reads protected platform fields (access-transformer friend). |
 | `STTravel.*` | Track distances between stations by a directed search over the track network. |
 | `STBridges.*` | Freight Car Control and DynamicTimeTable, both reached by reflection only. |
@@ -87,51 +89,85 @@ into another platform.
 
 ## Dispatching
 
-Every **Dispatch interval**, and as soon as a train docks for its last leg or leaves a stop without a job:
+Every **Dispatch interval**, as soon as a train docks for its last stop or leaves a stop, and after platform
+settings change (`DispatchRound`):
 
 1. **Nodes:** one per (station, item, role), summing its platforms. Each node holds stock, capacity, rate (measured
    or manual), whether it is starved, its priority, target and send-at. `Reserved` holds amounts promised to
-   running jobs.
-2. **Free trains:** managed trains with no job; trains driving to a depot or out of the way; and trains docked for
-   their last leg. A train is free from its station at the time its stay should end.
-3. **Candidates:**
-   - For a loaded train: deliveries of each carried item.
-   - For an empty train: every supplier → consumer pair of the same item. The supplier must have at least a batch
-     (send-at share of the fitting capacity) by the time the train gets there. The consumer's projected stock at
-     arrival must be below target, unless the supplier is nearly full.
-   - Any-item sinks only take items from nearly full suppliers.
-   - Milk runs (setting, on by default), see below.
-4. **Score** = priority weight × urgency × flow-plan factor × amount ÷ time to the end of the delivery.
-   - Priority weights: Low 0.5, Normal 1, High 2, Critical 8.
-   - Urgency is 1, plus up to 2 for the share below target, plus 2 if starved; at least 1.5 when the supplier is
-     nearly full.
-   - The plan factor is 1 for routes in the flow plan, 0.6 otherwise, and 0.1 for sinks.
-5. Greedy assignment by score, rechecking supply and room after each assignment (`RecheckMilkRun` for milk runs). Station bays are booked by arrival
-   plus expected stay, and a later arrival waits behind them.
-6. Parked trains standing at a station a job needs are sent to a depot, or else to the nearest station no job uses.
+   running trips (per-car work of the stops still ahead).
+2. **Re-plans:** trips under way that left a stop since the last round, or all of them after a settings change,
+   are planned again from where the train is and what its cars hold (`ReplanTrip`, below).
+3. **Free trains:** managed trains with no trip; trains driving to a depot or out of the way; trains docked for
+   their last stop. A train is free from its station at the time its stay should end.
+4. **Moves** per free train (`FSTTripPlanner::BeginTrain`): supplier → consumer pairs of an item where at least one
+   car stops beside a supply platform for it at one end and a demand platform for it at the other, whichever way
+   the train docks; and deliveries of cargo already on board. A consumer must be below target at the rough arrival
+   time, unless the supplier is nearly full. Any-item sinks only take from nearly full suppliers, or unwanted cargo
+   (below). Each move gets a solo score: the score of a trip made of that move alone.
+5. **Exact assignment** of trains to first moves (`STAssignment::Solve`, the Hungarian method). Rows are free
+   trains, columns the best six moves of each train, two slots per move, values the solo scores. This stops one
+   train taking a move another could do almost as well while a move only it can do waits.
+6. **Trips**, best assigned train first: the assigned move, then **regret insertion** (`Improve`), then `Trim`.
+   Each trip's amounts and station stays are reserved before the next train is planned.
+7. Parked trains standing at a station a trip needs are sent to a depot, or else to the nearest station no trip
+   uses.
 
-### Milk runs
+### Trip planning (`STTripPlanner.*`)
 
-Same item only, at most three stops:
+A trip is a list of stops (at most **Most stops per trip**, each station once, no longer than **Longest trip**),
+each with the items loaded and unloaded there. These become the stop's load and unload filters.
 
-- **Two pickups, one delivery:** for a consumer below target and two suppliers that each have less than their
-  own batch, but together at least a batch of the cars that fit either pickup. Both orders are tried. The fit is
-  `ComputeFit` from each supplier to the consumer, and the train's cars are the union of both.
-- **One pickup, two deliveries:** for a supplier with a batch and two consumers below target, when neither has room
-  for the whole load. Every loaded car must fit the last consumer (`ComputeFit`). At the first consumer,
-  `CheckDropOnTheWay` takes the cars beside its demand platforms; cars beside other unloading platforms skip it
-  through Freight Car Control, or the run isn't made without it.
-- The first stop is **partial** (`FSTJobLeg::bPartial`): "load/unload once", so the train takes or leaves what can
-  be moved then and goes on. The last stop waits as a direct job does. Whatever is left in the cars is a loaded
-  train's delivery afterwards.
-- Score: as a direct job (each delivery's weight × urgency × amount, summed), ÷ time to the end of the last stop,
-  × 0.9, so a direct job of the same worth wins.
+**Simulation** (`Simulate`): the stops' times come from travel estimates and stays, after the bookings of other
+trains. Then each car, stop by stop, beside the platform it meets there (from the dock maps):
 
-**Flow plan** (every **Flow plan interval**): for each item, consumers are taken by priority. Within a priority,
-the cheapest open supplier → consumer route by travel time is filled repeatedly, a greedy transportation plan.
-Starved consumers count at 1.5 × their measured rate, and at least 1 per minute. The result gives the plan factor
-and the fleet advice in `/st status`: trains needed = Σ flow × round trip ÷ average load of the managed trains that
-fit that route.
+- At a loading platform, a car loads every filter item the platform holds or is set to supply, if it has room.
+  Freight cars hold solids or one fluid, never both. Loading from a platform without a supply role is harm.
+- At an unloading platform, a car unloads every filter item it carries. The platform must be a demand platform
+  that takes all of them (or an any-item sink); otherwise it is harm.
+- If the possible dock maps disagree, or the car would do harm, the car skips the stop through Freight Car Control.
+  Without FCC the trip is invalid.
+- Amounts come from the platform's stock plus its share of the node's production up to arrival, less what other
+  trips reserved. Unloads are limited by the platform's free slots.
+- Cargo loaded on the trip that no later stop unloads is stranded: with FCC that car skips the pickup and the
+  simulation runs again; without FCC the trip is invalid.
+- **Batch:** per item, what loads must reach the send-at share of the loading cars' room, unless a critical
+  consumer is served or a supplier is nearly full.
+- **Value** of each delivery: priority weight × urgency × the amount up to the consumer's room. Urgency is 1, plus up
+  to 2 for the share below target, plus 2 if starved, plus up to 2 for the time since the last delivery there (an
+  hour gives the full 2; fairness). Over target, it is worth 0.2 × weight for unwanted cargo or a nearly full
+  supplier; sinks are worth 0.1.
+- **Score** = value ÷ time from now to the end of the trip (at least 30 s).
+
+**Regret insertion** (`Improve`, after Ropke and Pisinger's insertion heuristics for pickup and delivery):
+
+- Every move not yet used is tried at every place. Its pickup goes at an existing stop of that station or as a new
+  stop anywhere, and its drop at an existing stop after it or a new stop after it.
+- Each round inserts the move with the largest regret: its best score minus the larger of its second best
+  placement and the current score. A move with only one workable place goes in before it is lost.
+- Only insertions that raise the trip's score count, so a trip grows only while its value per second rises. Planning
+  stops when nothing improves, or when the round's time budget (25 ms) is used up; the rest wait for the next round.
+
+**Turning a trip into a job** (`MakeLegs`): each stop gets per-car work (`FSTCarWork`: car, item, load or unload,
+planned amount). With FCC, every car without work at a stop skips it. A stop is "load/unload once" when it both
+loads and unloads, or when a later stop moves the same item (a first pickup or a first drop of a split load).
+Otherwise it waits for full or empty cars, up to the load or unload wait.
+
+**Re-planning** (`ReplanTrip`): after every stop (`bReplan`) and after a platform setting changes (`bReplanAll`).
+The rest of the trip is simulated again from the cargo really on board, with its own reservations released first.
+Items that would move nothing and empty stops are trimmed, then regret insertion may add moves, such as delivering
+leftovers on the way. If the rest no longer works at all, it is planned again from the cargo on board. If nothing
+is left to do, the trip ends and the train is settled when the round ends (next trip, depot or park).
+
+**Unwanted cargo:** a free train carrying cargo that no trip delivers is marked (`UnwantedCargoSince`). After
+**Unwanted cargo after** minutes, its cargo may go to consumers above target or to sinks. `/st status` warns when
+more than half the managed trains carry unwanted cargo.
+
+**Flow plan** (every **Flow plan interval**): for each item, consumers are taken by priority tier, highest first.
+Each tier is an exact **minimum-cost flow** (`STMinCostFlow`, successive shortest paths with Bellman-Ford). Source
+→ supplier edges carry what is left of each supplier's rate, supplier → consumer edges cost the travel time, and
+consumer → sink edges carry the consumer's rate. Starved consumers count at 1.5 × their measured rate, and at least
+1 per minute. Later tiers get what is left. The result gives the fleet advice in `/st status`: trains needed = Σ
+flow × round trip ÷ average load of the managed trains that fit that route.
 
 ## Measuring
 
@@ -251,3 +287,15 @@ tool, or in a 0.3.0 save): those count as separate until the switch is turned on
 
 0.1.0 to 0.3.0 had pool tags on stations and trains. Matching by platform items makes them unnecessary. The saved
 fields stay so older saves load. On load, each tag is logged and cleared.
+
+## Dock maps
+
+`GetDockMaps` returns the vehicle beside each platform for every way the train may dock:
+
+- Learned maps (`LearnDockMap`, one per way round) are used while the train has the same vehicles in the same order
+  (`FSTDockMap::Consist`).
+- Ways round not seen yet stay predicted, from the vehicles behind each locomotive that can dock.
+- If a learned map matches no prediction, only learned maps are used for that station.
+- A car is planned at a stop only if it meets a suitable platform in every map. Otherwise FCC skips it, or the trip
+  is invalid without FCC. The game reads a stop's rules when the train docks, so a wrong guess can't be fixed
+  during that dock; the mismatch is logged and learned, and the next re-plan works from it.

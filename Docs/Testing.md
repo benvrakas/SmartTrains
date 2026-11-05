@@ -71,14 +71,23 @@ On a test copy of the user's network:
    a backup (beta tools on). Close and Escape both give the controls back.
 7. Multiplayer, if possible: a client sees the same readouts, and the host logs its edits with its name.
 
-## M4: milk runs (0.3.0)
+## M4: platform-to-platform trips (0.4.0)
 
-1. Two suppliers of one item that each hold about half a train load, one consumer below target: the log shows
-   `JOB ... <item> A -> B -> C ... (milk run, two pickups ...)`. The train takes what A has without waiting, fills
-   up at B and delivers at C.
-2. One supplier with a full load, two consumers each with room for about half: `milk run, two deliveries`. The
-   first consumer takes what it can, the rest goes to the second.
-3. A station layout where a car would unload into a platform that doesn't demand the item at the first consumer:
-   with Freight Car Control the car skips that stop (`skipped cars` in the `WRITE` line); without it no such run
-   is made.
-4. Mods menu "Milk runs" off: only direct jobs.
+1. Station A supplies Copper Ingot on platform 1 and Wire on platform 2. Station B takes Copper Ingot on platform 1
+   and Wire on platform 2. With FCC, one train with two cars carries both on one trip. The `JOB` line lists
+   `A (+Copper Ingot +Wire) -> B (-Copper Ingot -Wire)`, and the locomotive menu shows per stop which car does what.
+2. Two suppliers of one item that each hold about half a load, one consumer below target: one trip picks up at both
+   (`A (+item) -> B (+item) -> C (-item)`). The first pickup is "load/unload once".
+3. One load, two consumers that each have room for about half: one pickup, two drops.
+4. Leftovers: let a consumer fill up during a delivery. The cars keep the rest; `REPLAN` shows it delivered to
+   another consumer on the way, or `carries cargo no trip wants now`. After **Unwanted cargo after** minutes it goes
+   to any consumer with room.
+5. Backhaul: a station that takes one item and supplies another. A train delivering there also picks up there if it
+   fits.
+6. Without FCC: a station whose platforms are all the same works for every car. A station set platform by platform
+   only gets trips where no car would move the wrong item; `/st jobs` and the platform menu explain the rest.
+7. Push-pull train: the first visit each way logs the learned map (`Dock map`), and `DOCK MAP MISMATCH` if the
+   prediction was wrong. The next trip uses it.
+8. Mods menu "Most stops per trip" = 2: only direct trips.
+9. Old save from 0.3.0 with a job running: the log says `Converted n job stops from an older save to per-car work`,
+   and the job carries on.

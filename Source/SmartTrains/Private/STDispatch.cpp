@@ -12,6 +12,7 @@
 #include "STBridges.h"
 #include "STLayout.h"
 #include "STMinCostFlow.h"
+#include "STTripPlanner.h"
 #include "STSubsystem.h"
 
 namespace
@@ -51,33 +52,34 @@ namespace
 		FTrainDockingRuleSet Rules;
 		Rules.IsDurationAndRule = false;
 		const TSubclassOf<UFGItemDescriptor> None = nullptr;
-		if (Leg.Item && Leg.bPartial)
+		const TArray<UClass*> Loads = Leg.GetItems(true);
+		const TArray<UClass*> Unloads = Leg.GetItems(false);
+		for (UClass* Item : Loads)
+		{
+			Rules.LoadFilterDescriptors.Add(Item);
+		}
+		for (UClass* Item : Unloads)
+		{
+			Rules.UnloadFilterDescriptors.Add(Item);
+		}
+		// An empty filter means everything to the game, so "nothing" is the none descriptor.
+		if (Rules.LoadFilterDescriptors.Num() == 0)
+		{
+			Rules.LoadFilterDescriptors.Add(None);
+		}
+		if (Rules.UnloadFilterDescriptors.Num() == 0)
+		{
+			Rules.UnloadFilterDescriptors.Add(None);
+		}
+		if (!Leg.HasWork() || Leg.bPartial)
 		{
 			Rules.DockingDefinition = ETrainDockingDefinition::TDD_LoadUnloadOnce;
 			Rules.DockForDuration = 0.f;
-			Rules.LoadFilterDescriptors = {Leg.bLoad ? Leg.Item : None};
-			Rules.UnloadFilterDescriptors = {Leg.bLoad ? None : Leg.Item};
-		}
-		else if (!Leg.Item)
-		{
-			Rules.DockingDefinition = ETrainDockingDefinition::TDD_LoadUnloadOnce;
-			Rules.DockForDuration = 0.f;
-			Rules.LoadFilterDescriptors = {None};
-			Rules.UnloadFilterDescriptors = {None};
-		}
-		else if (Leg.bLoad)
-		{
-			Rules.DockingDefinition = ETrainDockingDefinition::TDD_FullyLoadUnload;
-			Rules.DockForDuration = Settings.LoadWaitSeconds;
-			Rules.LoadFilterDescriptors = {Leg.Item};
-			Rules.UnloadFilterDescriptors = {None};
 		}
 		else
 		{
 			Rules.DockingDefinition = ETrainDockingDefinition::TDD_FullyLoadUnload;
-			Rules.DockForDuration = Settings.UnloadWaitSeconds;
-			Rules.LoadFilterDescriptors = {None};
-			Rules.UnloadFilterDescriptors = {Leg.Item};
+			Rules.DockForDuration = Loads.Num() > 0 ? Settings.LoadWaitSeconds : Settings.UnloadWaitSeconds;
 		}
 		return Rules;
 	}
@@ -150,18 +152,17 @@ void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 		for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
 		{
 			const FSTJobLeg& Each = State.Job.Legs[Leg];
-			if (!Each.Item)
+			for (const FSTCarWork& Work : Each.Work)
 			{
-				continue;
-			}
-			int32 Index = FindNode(OutNodes, Each.Station, Each.Item, Each.bLoad ? ESTRole::Supply : ESTRole::Demand);
-			if (Index == INDEX_NONE && !Each.bLoad)
-			{
-				Index = FindNode(OutNodes, Each.Station, nullptr, ESTRole::Demand);
-			}
-			if (Index != INDEX_NONE)
-			{
-				OutNodes[Index].Reserved += Each.PlannedAmount;
+				int32 Index = FindNode(OutNodes, Each.Station, Work.Item, Work.bLoad ? ESTRole::Supply : ESTRole::Demand);
+				if (Index == INDEX_NONE && !Work.bLoad)
+				{
+					Index = FindNode(OutNodes, Each.Station, nullptr, ESTRole::Demand);
+				}
+				if (Index != INDEX_NONE)
+				{
+					OutNodes[Index].Reserved += Work.PlannedAmount;
+				}
 			}
 		}
 	}
@@ -217,41 +218,79 @@ bool ASTSubsystem::CanServe(const FSTTrainState& State, const AFGTrainStationIde
 
 TArray<TArray<AFGRailroadVehicle*>> ASTSubsystem::GetDockMaps(const AFGTrain* Train, const AFGTrainStationIdentifier* Station, bool* bLearned) const
 {
-	TArray<TArray<AFGRailroadVehicle*>> Maps;
-	if (bLearned)
+	TArray<TArray<AFGRailroadVehicle*>> Learned;
+	const TArray<AFGRailroadVehicle*> Vehicles = STLayout::GetVehicles(Train);
+	for (const FSTDockMap& Seen : mDockMaps)
 	{
-		*bLearned = false;
-	}
-	if (const FSTDockMap* Seen = mDockMaps.FindByPredicate([&](const FSTDockMap& Map) { return Map.Train == Train && Map.Station == Station; }))
-	{
-		// A seen map is only used while the train's vehicles are still the ones it saw.
-		const TArray<AFGRailroadVehicle*> Vehicles = STLayout::GetVehicles(Train);
+		if (Seen.Train != Train || Seen.Station != Station)
+		{
+			continue;
+		}
+		// A seen map is only used while the train is made of the same vehicles in the same order.
 		bool bValid = true;
+		if (Seen.Consist.Num() > 0)
+		{
+			bValid = Seen.Consist.Num() == Vehicles.Num();
+			for (int32 Index = 0; bValid && Index < Vehicles.Num(); ++Index)
+			{
+				bValid = Seen.Consist[Index] == Vehicles[Index];
+			}
+		}
 		TArray<AFGRailroadVehicle*> Map;
-		for (const TObjectPtr<AFGRailroadVehicle>& Vehicle : Seen->Vehicles)
+		for (const TObjectPtr<AFGRailroadVehicle>& Vehicle : Seen.Vehicles)
 		{
 			bValid &= !Vehicle || Vehicles.Contains(Vehicle.Get());
 			Map.Add(Vehicle);
 		}
 		if (bValid)
 		{
-			if (bLearned)
-			{
-				*bLearned = true;
-			}
-			Maps.Add(Map);
-			return Maps;
+			Learned.Add(MoveTemp(Map));
 		}
 	}
+	if (bLearned)
+	{
+		*bLearned = Learned.Num() > 0;
+	}
+	TArray<TArray<AFGRailroadVehicle*>> Predicted;
 	const AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
 	const int32 PlatformCount = STLayout::GetPlatforms(Building).Num();
 	for (AFGLocomotive* Locomotive : STLayout::GetPossibleDockingLocomotives(Train))
 	{
 		TArray<AFGRailroadVehicle*> Behind = STLayout::GetVehiclesBehind(Locomotive);
 		Behind.SetNum(FMath::Min(Behind.Num(), PlatformCount));
-		if (!Maps.Contains(Behind))
+		Predicted.AddUnique(MoveTemp(Behind));
+	}
+	if (Learned.Num() == 0)
+	{
+		return Predicted;
+	}
+	// A learned map stands for the way round it was seen; the other ways round stay predicted until seen. If a learned
+	// map matches no prediction, the predictions are wrong for this station and only what was seen is used.
+	auto SameWayRound = [](const TArray<AFGRailroadVehicle*>& A, const TArray<AFGRailroadVehicle*>& B)
+	{
+		for (int32 Index = 0; Index < A.Num(); ++Index)
 		{
-			Maps.Add(Behind);
+			if (A[Index])
+			{
+				return B.IsValidIndex(Index) && B[Index] == A[Index];
+			}
+		}
+		return false;
+	};
+	TArray<TArray<AFGRailroadVehicle*>> Maps = Learned;
+	bool bAllMatch = true;
+	for (const TArray<AFGRailroadVehicle*>& Seen : Learned)
+	{
+		bAllMatch &= Predicted.ContainsByPredicate([&](const TArray<AFGRailroadVehicle*>& Each) { return SameWayRound(Seen, Each); });
+	}
+	if (bAllMatch)
+	{
+		for (const TArray<AFGRailroadVehicle*>& Each : Predicted)
+		{
+			if (!Learned.ContainsByPredicate([&](const TArray<AFGRailroadVehicle*>& Seen) { return SameWayRound(Seen, Each); }))
+			{
+				Maps.Add(Each);
+			}
 		}
 	}
 	return Maps;
@@ -437,7 +476,7 @@ bool ASTSubsystem::GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifi
 		return OutStation != nullptr;
 	}
 	const FSTJob& Job = State.Job;
-	if (Job.bPark && Job.Legs.Num() == 1 && !Job.Legs[0].Item)
+	if (Job.bPark && Job.Legs.Num() == 1 && !Job.Legs[0].HasWork())
 	{
 		// Heading for a depot or out of the way: free to take a job from where it last was.
 		OutStation = State.LastStation.Get() ? State.LastStation.Get() : Job.Legs[0].Station.Get();
@@ -455,22 +494,37 @@ bool ASTSubsystem::GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifi
 
 void ASTSubsystem::Dispatch()
 {
-	if (!HasAuthority())
+	if (!HasAuthority() || bInDispatch)
 	{
 		return;
 	}
+	{
+		TGuardValue<bool> Guard(bInDispatch, true);
+		DispatchRound();
+	}
+	TArray<TWeakObjectPtr<AFGTrain>> Settle = MoveTemp(mToSettle);
+	mToSettle.Reset();
+	for (const TWeakObjectPtr<AFGTrain>& Train : Settle)
+	{
+		FSTTrainState* State = FindTrainState(Train.Get());
+		if (State && State->bManaged && !State->bHasJob)
+		{
+			SettleIdle(*State, TEXT("no trip after a re-plan"), false);
+		}
+	}
+}
+
+void ASTSubsystem::DispatchRound()
+{
 	TArray<FSTNode> Nodes;
 	BuildNodes(Nodes);
-	if (Nodes.Num() == 0)
-	{
-		return;
-	}
 	const double Time = Now();
 
-	// When each station's bay is taken until, by jobs already running.
-	TMap<const AFGTrainStationIdentifier*, double> BusyUntil;
-	for (const FSTTrainState& State : mTrains)
+	// Station bookings of the trips already running: (train index, booked until).
+	TMap<const AFGTrainStationIdentifier*, TArray<TPair<int32, double>>> BusyUntil;
+	for (int32 TrainIndex = 0; TrainIndex < mTrains.Num(); ++TrainIndex)
 	{
+		const FSTTrainState& State = mTrains[TrainIndex];
 		if (!State.bManaged || !State.bHasJob)
 		{
 			continue;
@@ -478,266 +532,165 @@ void ASTSubsystem::Dispatch()
 		for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
 		{
 			const FSTJobLeg& Each = State.Job.Legs[Leg];
-			double& Until = BusyUntil.FindOrAdd(Each.Station.Get(), 0.0);
-			Until = FMath::Max(Until, Each.PlannedArrival + EstimateStaySeconds(Each.Station));
+			BusyUntil.FindOrAdd(Each.Station.Get()).Emplace(TrainIndex, Each.PlannedArrival + EstimateStaySeconds(Each.Station));
 		}
 	}
+	FSTTripPlanner Planner(*this, Nodes, BusyUntil);
 
-	TArray<FCandidate> Candidates;
-	for (int32 TrainIndex = 0; TrainIndex < mTrains.Num(); ++TrainIndex)
+	// Trips under way that asked for a re-plan (after a stop, or after platform settings changed).
+	if (!mSettings.bObserveOnly)
 	{
-		const FSTTrainState& State = mTrains[TrainIndex];
+		for (FSTTrainState& State : mTrains)
+		{
+			const bool bWanted = State.bReplan || bReplanAll;
+			if (!bWanted || !State.bManaged || !State.bHasJob || State.Job.bPark || !IsValid(State.Train) || State.Train->IsDocked())
+			{
+				continue;
+			}
+			State.bReplan = false;
+			ReplanTrip(State, Planner);
+		}
+	}
+	bReplanAll = false;
+	if (Nodes.Num() == 0)
+	{
+		return;
+	}
+
+	// Free trains and the moves each could make.
+	struct FFree
+	{
+		int32 TrainIndex = INDEX_NONE;
 		AFGTrainStationIdentifier* Anchor = nullptr;
 		double FreeAt = 0.0;
-		if (!GetFreeAt(State, Anchor, FreeAt))
+		bool bDocked = false;
+		TArray<FSTPlanMove> Moves;
+	};
+	TArray<FFree> Free;
+	for (int32 TrainIndex = 0; TrainIndex < mTrains.Num() && !Planner.IsOverBudget(); ++TrainIndex)
+	{
+		const FSTTrainState& State = mTrains[TrainIndex];
+		FFree Entry;
+		Entry.TrainIndex = TrainIndex;
+		if (!GetFreeAt(State, Entry.Anchor, Entry.FreeAt))
 		{
 			continue;
 		}
-		const AFGTrain* Train = State.Train;
-		const TMap<UClass*, int32> Cargo = GetCargo(Train);
-
-		if (Cargo.Num() > 0)
+		Entry.bDocked = State.Train->IsDocked() && State.DockedStation.Get() == Entry.Anchor;
+		if (Planner.BeginTrain(TrainIndex, Entry.Anchor, Entry.FreeAt, Entry.bDocked) && Planner.GetMoves().Num() > 0)
 		{
-			// A loaded train only delivers what it carries.
-			for (const TPair<UClass*, int32>& Carried : Cargo)
-			{
-				for (int32 To = 0; To < Nodes.Num(); ++To)
-				{
-					const FSTNode& Consumer = Nodes[To];
-					if (Consumer.Role != ESTRole::Demand || (Consumer.Item.Get() != Carried.Key && !Consumer.bAnyItem) || !CanServe(State, Consumer.Station.Get()))
-					{
-						continue;
-					}
-					const float Travel = EstimateTravelSeconds(Anchor, Consumer.Station.Get());
-					if (Travel < 0.f)
-					{
-						continue;
-					}
-					FCandidate Candidate;
-					Candidate.TrainIndex = TrainIndex;
-					Candidate.To = To;
-					Candidate.Item = Carried.Key;
-					Candidate.bDeliveryOnly = true;
-					Candidate.Fit = ComputeDeliveryFit(Train, Consumer.Station.Get(), Carried.Key);
-					if (Candidate.Fit.Capacity <= 0)
-					{
-						continue;
-					}
-					Candidate.ArriveTo = FMath::Max(FreeAt + Travel, BusyUntil.FindRef(Consumer.Station.Get()));
-					const int32 Room = Consumer.bAnyItem ? GetSinkRoom(Consumer, Carried.Key)
-						: Consumer.Capacity - FMath::Max(0, static_cast<int32>(Consumer.Stock + Consumer.Reserved - Consumer.Rate * (Candidate.ArriveTo - Time)));
-					Candidate.Amount = FMath::Min(Candidate.Fit.Capacity, Room);
-					if (Candidate.Amount <= 0)
-					{
-						continue;
-					}
-					const double Weight = Consumer.bAnyItem ? 0.1 : STNames::PriorityWeight(Consumer.Priority);
-					Candidate.Score = Weight * 3.0 * Candidate.Amount / FMath::Max(1.0, Candidate.ArriveTo - Time + EstimateStaySeconds(Consumer.Station.Get()));
-					Candidate.Why = FString::Printf(TEXT("deliver carried cargo, weight %.1f, %.0f s"), Weight, Candidate.ArriveTo - Time);
-					Candidates.Add(MoveTemp(Candidate));
-				}
-			}
-			continue;
-		}
-
-		for (int32 From = 0; From < Nodes.Num(); ++From)
-		{
-			const FSTNode& Supplier = Nodes[From];
-			if (Supplier.Role != ESTRole::Supply || !CanServe(State, Supplier.Station.Get()))
-			{
-				continue;
-			}
-			const float ToSupplier = EstimateTravelSeconds(Anchor, Supplier.Station.Get());
-			if (ToSupplier < 0.f)
-			{
-				continue;
-			}
-			const double ArriveFrom = FMath::Max(FreeAt + ToSupplier, BusyUntil.FindRef(Supplier.Station.Get()));
-			const double SupplierStay = EstimateStaySeconds(Supplier.Station.Get());
-			const double Available = FMath::Min<double>(Supplier.Capacity, Supplier.Stock + Supplier.Rate * (ArriveFrom - Time)) - Supplier.Reserved;
-			const bool bSupplyFull = Supplier.Capacity > 0 && (Supplier.Stock >= 0.9 * Supplier.Capacity
-				|| (Supplier.Rate > 0.0 && (Supplier.Capacity - Supplier.Stock + Supplier.Reserved) / Supplier.Rate < ArriveFrom - Time));
-			for (int32 To = 0; To < Nodes.Num(); ++To)
-			{
-				const FSTNode& Consumer = Nodes[To];
-				if (Consumer.Role != ESTRole::Demand || (Consumer.Item != Supplier.Item && !Consumer.bAnyItem) || Consumer.Station == Supplier.Station
-					|| !CanServe(State, Consumer.Station.Get()))
-				{
-					continue;
-				}
-				if (Consumer.bAnyItem && !bSupplyFull)
-				{
-					continue;
-				}
-				const float Leg = EstimateTravelSeconds(Supplier.Station.Get(), Consumer.Station.Get());
-				if (Leg < 0.f)
-				{
-					continue;
-				}
-				FCandidate Candidate;
-				Candidate.TrainIndex = TrainIndex;
-				Candidate.From = From;
-				Candidate.To = To;
-				Candidate.Item = Supplier.Item;
-				Candidate.ArriveFrom = ArriveFrom;
-				Candidate.ArriveTo = FMath::Max(ArriveFrom + SupplierStay + Leg, BusyUntil.FindRef(Consumer.Station.Get()));
-				Candidate.Fit = ComputeFit(Train, Supplier.Station.Get(), Consumer.Station.Get(), Supplier.Item);
-				if (Candidate.Fit.Capacity <= 0)
-				{
-					UE_LOG(LogSmartTrains, VeryVerbose, TEXT("NO FIT %s for %s %s -> %s: %s"), *STLayout::Name(Train), *STNames::Item(Supplier.Item),
-						*STLayout::Name(Supplier.Station.Get()), *STLayout::Name(Consumer.Station.Get()), *Candidate.Fit.Problem);
-					continue;
-				}
-				const bool bCritical = Consumer.Priority == ESTPriority::Critical;
-				const double Batch = bCritical ? FMath::Min<double>(Candidate.Fit.Capacity, UFGItemDescriptor::GetStackSize(Supplier.Item))
-					: Candidate.Fit.Capacity * (Supplier.SendAtPercent > 0.f ? Supplier.SendAtPercent / 100.0 : 1.0);
-				if (Available < Batch)
-				{
-					continue;
-				}
-				double Projected = 0.0;
-				double Target = 0.0;
-				int32 Room = 0;
-				if (Consumer.bAnyItem)
-				{
-					Room = GetSinkRoom(Consumer, Supplier.Item);
-				}
-				else
-				{
-					Projected = Consumer.Stock + Consumer.Reserved - Consumer.Rate * (Candidate.ArriveTo - Time);
-					Target = Consumer.Capacity * Consumer.TargetPercent / 100.0;
-					Room = Consumer.Capacity - FMath::Max(0, static_cast<int32>(Projected));
-					if (Projected >= Target && !bSupplyFull)
-					{
-						continue;
-					}
-				}
-				Candidate.Amount = FMath::Min3(Candidate.Fit.Capacity, static_cast<int32>(Available), Room);
-				if (Candidate.Amount <= 0 || (!bCritical && Candidate.Amount < Batch * 0.5))
-				{
-					continue;
-				}
-				double Urgency = 1.0;
-				if (!Consumer.bAnyItem && Target > 0.0)
-				{
-					Urgency += FMath::Clamp((Target - Projected) / Target, 0.0, 1.0) * 2.0;
-					Urgency += (Consumer.bStarved || Projected <= 0.0) ? 2.0 : 0.0;
-				}
-				Urgency = FMath::Max(Urgency, bSupplyFull ? 1.5 : 1.0);
-				const double* Planned = mPlannedPairs.Find(PairKey(Supplier, Consumer));
-				const double PlanFactor = Consumer.bAnyItem ? 0.1 : (mPlannedPairs.Num() == 0 || (Planned && *Planned > 0.0) ? 1.0 : 0.6);
-				const double Duration = FMath::Max(1.0, Candidate.ArriveTo - Time + EstimateStaySeconds(Consumer.Station.Get()));
-				const double Weight = STNames::PriorityWeight(Consumer.Priority);
-				Candidate.Score = Weight * Urgency * PlanFactor * Candidate.Amount / Duration;
-				Candidate.Why = FString::Printf(TEXT("weight %.1f x urgency %.2f x plan %.1f x %d / %.0f s%s%s"), Weight, Urgency, PlanFactor, Candidate.Amount, Duration,
-					bSupplyFull ? TEXT(", supplier nearly full") : TEXT(""), Consumer.bStarved ? TEXT(", consumer starved") : TEXT(""));
-				Candidates.Add(MoveTemp(Candidate));
-			}
-		}
-		if (mSettings.bMilkRuns)
-		{
-			AddMilkRuns(TrainIndex, Anchor, FreeAt, Nodes, BusyUntil, Candidates);
+			Entry.Moves = Planner.GetMoves();
+			Free.Add(MoveTemp(Entry));
 		}
 	}
 
-	Candidates.Sort([](const FCandidate& A, const FCandidate& B) { return A.Score > B.Score; });
-	TSet<int32> Assigned;
-	for (FCandidate& Candidate : Candidates)
+	// Exact assignment of trains to first moves (two slots per move, so a big supplier can take two trains).
+	constexpr int32 AnchorsPerTrain = 6;
+	constexpr int32 SlotsPerMove = 2;
+	TArray<FSTPlanMove> Anchors;
+	for (const FFree& Entry : Free)
 	{
-		if (Assigned.Contains(Candidate.TrainIndex))
+		for (int32 Index = 0; Index < Entry.Moves.Num() && Index < AnchorsPerTrain; ++Index)
 		{
-			continue;
-		}
-		if (Candidate.Legs.Num() > 0)
-		{
-			if (!RecheckMilkRun(Candidate, Nodes))
+			if (Entry.Moves[Index].SoloScore > 0.0)
 			{
-				continue;
+				Anchors.AddUnique(Entry.Moves[Index]);
 			}
-			Assigned.Add(Candidate.TrainIndex);
-			TArray<FString> Stops;
-			for (int32 Index = 0; Index < Candidate.Legs.Num(); ++Index)
+		}
+	}
+	TArray<TArray<double>> Value;
+	for (const FFree& Entry : Free)
+	{
+		TArray<double>& Row = Value.AddDefaulted_GetRef();
+		Row.Init(0.0, Anchors.Num() * SlotsPerMove);
+		for (int32 Index = 0; Index < Anchors.Num(); ++Index)
+		{
+			if (const FSTPlanMove* Own = Entry.Moves.FindByKey(Anchors[Index]))
 			{
-				Nodes[Candidate.LegNodes[Index]].Reserved += Candidate.Legs[Index].PlannedAmount;
-				Stops.Add(STLayout::Name(Candidate.Legs[Index].Station.Get()));
+				for (int32 Slot = 0; Slot < SlotsPerMove; ++Slot)
+				{
+					// The second slot is worth a little less, so one train per move is preferred when it is a tie.
+					Row[Index * SlotsPerMove + Slot] = Own->SoloScore * (Slot == 0 ? 1.0 : 0.95);
+				}
 			}
-			FSTJob Job;
-			Job.Id = mNextJobId++;
-			Job.StartedAt = Time;
-			Job.LegStartedAt = Time;
-			Job.Legs = Candidate.Legs;
-			Job.Summary = FString::Printf(TEXT("%s %s"), *STNames::Item(Candidate.Item), *FString::Join(Stops, TEXT(" -> ")));
-			FSTTrainState& State = mTrains[Candidate.TrainIndex];
-			const FString Line = FString::Printf(TEXT("%s: %s, %s with %d cars, score %.2f (%s)"), *STLayout::Name(State.Train), *Job.Summary,
-				*STNames::Amount(Candidate.Item, Candidate.Amount), Job.Legs.Last().Cars.Num(), Candidate.Score, *Candidate.Why);
-			CommitJob(State, MoveTemp(Job), Line);
-			continue;
 		}
-		FSTNode& Consumer = Nodes[Candidate.To];
-		FSTNode* Supplier = Candidate.From != INDEX_NONE ? &Nodes[Candidate.From] : nullptr;
-		// Earlier assignments this round may have used up the supply or the room.
-		if (Supplier)
-		{
-			const double Available = FMath::Min<double>(Supplier->Capacity, Supplier->Stock + Supplier->Rate * (Candidate.ArriveFrom - Time)) - Supplier->Reserved;
-			Candidate.Amount = FMath::Min(Candidate.Amount, static_cast<int32>(Available));
-		}
-		if (!Consumer.bAnyItem)
-		{
-			const double Projected = Consumer.Stock + Consumer.Reserved - Consumer.Rate * (Candidate.ArriveTo - Time);
-			Candidate.Amount = FMath::Min(Candidate.Amount, Consumer.Capacity - FMath::Max(0, static_cast<int32>(Projected)));
-		}
-		if (Candidate.Amount <= 0)
-		{
-			continue;
-		}
-		Assigned.Add(Candidate.TrainIndex);
-		if (Supplier)
-		{
-			Supplier->Reserved += Candidate.Amount;
-		}
-		Consumer.Reserved += Candidate.Amount;
+	}
+	const TArray<int32> Assigned = STAssignment::Solve(Value);
+	TArray<int32> Order;
+	for (int32 Row = 0; Row < Free.Num(); ++Row)
+	{
+		Order.Add(Row);
+	}
+	Order.Sort([&](int32 A, int32 B)
+	{
+		const double ValueA = Assigned[A] != INDEX_NONE ? Value[A][Assigned[A]] : -1.0;
+		const double ValueB = Assigned[B] != INDEX_NONE ? Value[B][Assigned[B]] : -1.0;
+		return ValueA > ValueB;
+	});
 
-		FSTTrainState& State = mTrains[Candidate.TrainIndex];
+	// Each train's trip: its assigned first move, then regret insertion; reservations go to the trains after it.
+	for (const int32 Row : Order)
+	{
+		if (Planner.IsOverBudget())
+		{
+			UE_LOG(LogSmartTrains, Verbose, TEXT("Dispatch: planning time used up; the remaining trains are planned next round"));
+			break;
+		}
+		const FFree& Entry = Free[Row];
+		FSTTrainState& State = mTrains[Entry.TrainIndex];
+		if (!Planner.BeginTrain(Entry.TrainIndex, Entry.Anchor, Entry.FreeAt, Entry.bDocked))
+		{
+			continue;
+		}
+		TArray<FSTPlanStop> Stops;
+		if (Assigned[Row] != INDEX_NONE)
+		{
+			const FSTPlanMove& First = Anchors[Assigned[Row] / SlotsPerMove];
+			if (const FSTPlanMove* Own = Planner.GetMoves().FindByKey(First))
+			{
+				FSTPlanResult Ignored;
+				double Second = 0.0;
+				Planner.InsertBest(Stops, *Own, 0, Ignored, Second);
+			}
+		}
+		FSTPlanResult Result = Planner.Improve(Stops, 0);
+		FSTTripPlanner::Trim(Stops, Result, 0);
+		Result = Planner.Simulate(Stops);
+		const bool bCarrying = GetCargo(State.Train).Num() > 0;
+		if (!Result.bValid || Stops.Num() == 0 || Result.Value <= 0.0)
+		{
+			if (bCarrying && State.UnwantedCargoSince <= 0.0)
+			{
+				State.UnwantedCargoSince = Time;
+				UE_LOG(LogSmartTrains, Log, TEXT("%s carries cargo no trip wants now"), *STLayout::Name(State.Train));
+			}
+			continue;
+		}
 		FSTJob Job;
 		Job.Id = mNextJobId++;
 		Job.StartedAt = Time;
 		Job.LegStartedAt = Time;
-		if (Supplier)
+		Planner.MakeLegs(Stops, Result, Job.Legs);
+		TArray<FString> Items;
+		bool bDelivers = false;
+		for (const FSTJobLeg& Leg : Job.Legs)
 		{
-			FSTJobLeg& Pickup = Job.Legs.AddDefaulted_GetRef();
-			Pickup.Station = Supplier->Station.Get();
-			Pickup.Item = Candidate.Item;
-			Pickup.bLoad = true;
-			Pickup.PlannedAmount = Candidate.Amount;
-			Pickup.PlannedArrival = Candidate.ArriveFrom;
-			for (AFGFreightWagon* Car : Candidate.Fit.Cars)
+			for (const FSTCarWork& Work : Leg.Work)
 			{
-				Pickup.Cars.Add(Car);
-			}
-			for (AFGFreightWagon* Car : Candidate.Fit.SkipAtPickup)
-			{
-				Pickup.SkipCars.Add(Car);
+				Items.AddUnique(STNames::Item(Work.Item));
+				bDelivers |= !Work.bLoad;
 			}
 		}
-		FSTJobLeg& Drop = Job.Legs.AddDefaulted_GetRef();
-		Drop.Station = Consumer.Station.Get();
-		Drop.Item = Candidate.Item;
-		Drop.bLoad = false;
-		Drop.PlannedAmount = Candidate.Amount;
-		Drop.PlannedArrival = Candidate.ArriveTo;
-		for (AFGFreightWagon* Car : Candidate.Fit.Cars)
+		TArray<FString> Stations;
+		for (const FSTPlanStop& Stop : Stops)
 		{
-			Drop.Cars.Add(Car);
+			Stations.Add(STLayout::Name(Stop.Station));
 		}
-		for (AFGFreightWagon* Car : Candidate.Fit.SkipAtDrop)
-		{
-			Drop.SkipCars.Add(Car);
-		}
-		Job.Summary = Supplier
-			? FString::Printf(TEXT("%s %s -> %s"), *STNames::Item(Candidate.Item), *STLayout::Name(Supplier->Station.Get()), *STLayout::Name(Consumer.Station.Get()))
-			: FString::Printf(TEXT("%s -> %s"), *STNames::Item(Candidate.Item), *STLayout::Name(Consumer.Station.Get()));
-		const FString Line = FString::Printf(TEXT("%s: %s, %s with %d cars, score %.2f (%s)"), *STLayout::Name(State.Train), *Job.Summary,
-			*STNames::Amount(Candidate.Item, Candidate.Amount), Candidate.Fit.Cars.Num(), Candidate.Score, *Candidate.Why);
+		Job.Summary = FString::Printf(TEXT("%s: %s"), *FString::Join(Items, TEXT(", ")), *FString::Join(Stations, TEXT(" -> ")));
+		const FString Line = FString::Printf(TEXT("%s: %s [%s], %d moved, score %.3f"), *STLayout::Name(State.Train), *Job.Summary,
+			*Planner.Describe(Stops, Result), Result.Moved, Result.Score);
+		State.UnwantedCargoSince = bCarrying && !bDelivers ? (State.UnwantedCargoSince > 0.0 ? State.UnwantedCargoSince : Time) : 0.0;
+		Planner.Reserve(Stops, Result);
 		CommitJob(State, MoveTemp(Job), Line);
 	}
 
@@ -745,6 +698,64 @@ void ASTSubsystem::Dispatch()
 	{
 		ClearNeededBays();
 	}
+}
+
+void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
+{
+	const int32 TrainIndex = static_cast<int32>(&State - mTrains.GetData());
+	AFGTrainStationIdentifier* From = State.LastStation.Get();
+	if (!From || !Planner.BeginTrain(TrainIndex, From, Now(), true))
+	{
+		return;
+	}
+	Planner.Release(State.Job.Legs, State.Job.Leg);
+	TArray<FSTPlanStop> Stops;
+	FString Before;
+	for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
+	{
+		const FSTJobLeg& Each = State.Job.Legs[Leg];
+		FSTPlanStop& Stop = Stops.AddDefaulted_GetRef();
+		Stop.Station = Each.Station;
+		Stop.LoadItems = Each.GetItems(true);
+		Stop.UnloadItems = Each.GetItems(false);
+	}
+	FSTPlanResult Result = Planner.Simulate(Stops);
+	Before = Planner.Describe(Stops, Result);
+	if (!Result.bValid)
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("REPLAN %s job %d: the rest [%s] no longer works (%s); planning it again from the cargo on board"),
+			*STLayout::Name(State.Train), State.Job.Id, *Before, *Result.Problem);
+		Stops.Reset();
+	}
+	else
+	{
+		FSTTripPlanner::Trim(Stops, Result, 0);
+	}
+	Result = Planner.Improve(Stops, 0);
+	FSTTripPlanner::Trim(Stops, Result, 0);
+	Result = Planner.Simulate(Stops);
+	if (!Result.bValid || Stops.Num() == 0)
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("REPLAN %s job %d: nothing left to do after %s"), *STLayout::Name(State.Train), State.Job.Id, *STLayout::Name(From));
+		State.Job.Legs.SetNum(State.Job.Leg);
+		FinishJob(State);
+		return;
+	}
+	TArray<FSTJobLeg> Rest;
+	Planner.MakeLegs(Stops, Result, Rest);
+	const FString After = Planner.Describe(Stops, Result);
+	Planner.Reserve(Stops, Result);
+	State.Job.Legs.SetNum(State.Job.Leg);
+	State.Job.Legs.Append(Rest);
+	if (After == Before)
+	{
+		UE_LOG(LogSmartTrains, Verbose, TEXT("REPLAN %s job %d: unchanged [%s]"), *STLayout::Name(State.Train), State.Job.Id, *After);
+	}
+	else
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("REPLAN %s job %d: [%s] -> [%s], score %.3f"), *STLayout::Name(State.Train), State.Job.Id, *Before, *After, Result.Score);
+	}
+	WriteJob(State, TEXT("re-planned after a stop"));
 }
 
 void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& Line)
@@ -770,16 +781,24 @@ void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& 
 	WriteJob(State, TEXT("new job"));
 }
 
-void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why)
+void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDispatchFirst)
 {
 	if (mSettings.bObserveOnly || !State.bManaged || !IsValid(State.Train))
 	{
 		return;
 	}
-	Dispatch();
-	if (State.bHasJob)
+	if (bDispatchFirst)
 	{
-		return;
+		if (bInDispatch)
+		{
+			mToSettle.AddUnique(State.Train.Get());
+			return;
+		}
+		Dispatch();
+		if (State.bHasJob)
+		{
+			return;
+		}
 	}
 	AFGTrainStationIdentifier* Depot = FindDepot(State, State.LastStation.Get());
 	if (Depot && Depot != State.LastStation)
@@ -811,11 +830,8 @@ void ASTSubsystem::FinishJob(FSTTrainState& State)
 	int32 Planned = 0;
 	for (const FSTJobLeg& Leg : Done.Legs)
 	{
-		if (Leg.Item && !Leg.bLoad)
-		{
-			Moved += Leg.MovedAmount;
-			Planned += Leg.PlannedAmount;
-		}
+		Moved += Leg.GetMoved(false);
+		Planned += Leg.GetPlanned(false);
 	}
 	UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s DONE: %s in %.0f s, delivered %d of %d planned"), Done.Id, *STLayout::Name(State.Train), *Done.Summary,
 		Now() - Done.StartedAt, Moved, Planned);
@@ -1035,13 +1051,14 @@ bool ASTSubsystem::AssignManualJob(AFGTrain* Train, AFGTrainStationIdentifier* F
 	{
 		FSTJobLeg& Leg = Job.Legs.AddDefaulted_GetRef();
 		Leg.Station = Pass == 0 ? From : To;
-		Leg.Item = Item;
-		Leg.bLoad = Pass == 0;
-		Leg.PlannedAmount = Fit.Capacity;
 		Leg.PlannedArrival = Now() + EstimateTravelSeconds(State->LastStation.Get(), From) + (Pass == 1 ? EstimateStaySeconds(From) + EstimateTravelSeconds(From, To) : 0.f);
 		for (AFGFreightWagon* Car : Fit.Cars)
 		{
-			Leg.Cars.Add(Car);
+			FSTCarWork& Work = Leg.Work.AddDefaulted_GetRef();
+			Work.Car = Car;
+			Work.Item = Item;
+			Work.bLoad = Pass == 0;
+			Work.PlannedAmount = STLayout::GetCapacity(Car->GetFreightInventory(), Item);
 		}
 		if (Pass == 0)
 		{

@@ -94,10 +94,18 @@ FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCa
 		for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
 		{
 			const FSTJobLeg& Each = State.Job.Legs[Leg];
-			if (Identifier && Each.Station == Identifier && Each.Item)
+			if (!Identifier || Each.Station != Identifier)
 			{
-				View.Lines.Add(FString::Printf(TEXT("Inbound: %s to %s %s %s, ETA %.0f s"), *STLayout::Name(State.Train), Each.bLoad ? TEXT("load") : TEXT("unload"),
-					*STNames::Amount(Each.Item, Each.PlannedAmount), *STNames::Item(Each.Item), FMath::Max(0.0, Each.PlannedArrival - Now())));
+				continue;
+			}
+			for (const FSTCarWork& Work : Each.Work)
+			{
+				if (Config->FindRule(Work.Item) && Work.bLoad == (Config->Role == ESTRole::Supply))
+				{
+					View.Lines.Add(FString::Printf(TEXT("Inbound: %s, %s %s %s %s, ETA %.0f s"), *STLayout::Name(State.Train), *STLayout::DescribeVehicle(State.Train, Work.Car),
+						Work.bLoad ? TEXT("loads") : TEXT("unloads"), *STNames::Amount(Work.Item, Work.PlannedAmount), *STNames::Item(Work.Item),
+						FMath::Max(0.0, Each.PlannedArrival - Now())));
+				}
 			}
 		}
 	}
@@ -158,7 +166,7 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 			for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
 			{
 				const FSTJobLeg& Each = State.Job.Legs[Leg];
-				if (Each.Station == Identifier && Each.Item == Rule.Item && Each.bLoad == bSupply)
+				if (Each.Station == Identifier && Each.Work.ContainsByPredicate([&](const FSTCarWork& Work) { return Work.Item == Rule.Item && Work.bLoad == bSupply; }))
 				{
 					return true;
 				}
@@ -303,9 +311,7 @@ FSTTrainView ASTSubsystem::MakeTrainView(const AFGTrain* Train, int32 AppliedEdi
 		for (int32 Leg = 0; Leg < State->Job.Legs.Num(); ++Leg)
 		{
 			const FSTJobLeg& Each = State->Job.Legs[Leg];
-			const FString What = Each.Item
-				? FString::Printf(TEXT("%s %s %s"), Each.bLoad ? TEXT("load") : TEXT("unload"), *STNames::Amount(Each.Item, Each.PlannedAmount), *STNames::Item(Each.Item))
-				: FString(TEXT("drive there"));
+			const FString What = Each.HasWork() ? DescribeLeg(Train, Each, Leg < State->Job.Leg) : FString(TEXT("drive there"));
 			View.Lines.Add(FString::Printf(TEXT("%s %d. %s: %s%s"), Leg == State->Job.Leg ? TEXT(">") : (Leg < State->Job.Leg ? TEXT("v") : TEXT(" ")), Leg + 1,
 				*STLayout::Name(Each.Station.Get()), *What,
 				Leg >= State->Job.Leg ? *FString::Printf(TEXT(", ETA %.0f s"), FMath::Max(0.0, Each.PlannedArrival - Now())) : TEXT("")));
@@ -323,6 +329,11 @@ FSTTrainView ASTSubsystem::MakeTrainView(const AFGTrain* Train, int32 AppliedEdi
 	for (const TPair<UClass*, int32>& Pair : GetCargo(Train))
 	{
 		View.Lines.Add(FString::Printf(TEXT("Carries %s %s"), *STNames::Amount(Pair.Key, Pair.Value), *STNames::Item(Pair.Key)));
+	}
+	if (State && State->UnwantedCargoSince > 0.0)
+	{
+		View.Lines.Add(FString::Printf(TEXT("No consumer below its target wants this cargo (for %.0f min); after %.0f min it may go to any consumer with room."),
+			(Now() - State->UnwantedCargoSince) / 60.0, mSettings.LeftoverMinutes));
 	}
 	return View;
 }

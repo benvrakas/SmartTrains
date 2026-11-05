@@ -11,8 +11,6 @@ struct FSTSettings
 	bool bObserveOnly = false;
 	// Enables /st testcopy and /st backup.
 	bool bBetaTools = true;
-	// Allows milk runs: two pickups to fill one train, or one load split between two deliveries.
-	bool bMilkRuns = true;
 	// Shows each managed train's job in its name.
 	bool bJobNames = false;
 	// How often jobs are handed out. [s]
@@ -31,6 +29,12 @@ struct FSTSettings
 	float UnloadWaitSeconds = 120.f;
 	// An empty train already heading for a pickup takes a new job only if it scores this many times higher.
 	float RetargetFactor = 1.5f;
+	// Most stops in one trip.
+	float MaxStops = 4.f;
+	// Longest trip planned. [min]
+	float MaxTripMinutes = 20.f;
+	// After this long carrying cargo no trip wants, it may go to any consumer with room or a sink. [min]
+	float LeftoverMinutes = 30.f;
 };
 
 // SmartTrains' mod configuration: switches and numbers shown in the Mods menu and Satisfactory Mod Manager.

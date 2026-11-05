@@ -20,6 +20,10 @@ the console.
 | `TRIP A -> B took x s (estimate was y s ...)` | Travel time learning; big differences mean the speed estimate is off. |
 | `PARK` | A train's autopilot was switched off where it stands. |
 | `WOULD JOB` | Observe-only mode: the job it would have given. |
+| `REPLAN <train> job n: [before] -> [after]` | The rest of a trip after a stop: trimmed, extended, or planned again. Stops are `Station (+loaded -unloaded)`. |
+| `... carries cargo no trip wants now` | A free train's cargo has no delivery; see "Unwanted cargo" in Architecture.md. |
+| `PLANNER <train>: n moves` (VeryVerbose) | How many moves a free train had to choose from. |
+| `Dispatch: planning time used up` (Verbose) | The round's 25 ms budget ran out; the rest are planned in the next round. |
 | `EXTERNAL TIMETABLE CHANGE` | Someone else changed a managed train's timetable; the job was written back. |
 | `DOCK MAP MISMATCH` | A train docked with different cars beside the platforms than expected. The new map is kept. |
 | `NO FIT` (VeryVerbose) | Why a train can't do a supplier → consumer pair. |
@@ -43,7 +47,9 @@ the console.
   the parent is a vertical box (SML 3.12). So hooks into vertical boxes pass no slot setup, and the panels pad
   themselves (`USTPanel::GetOuterPadding`).
 
-## Known gaps (0.2.0)
+## Known gaps (0.4.0)
 
-- A trip moves one item: milk runs combine stops of the same item, not different items.
+- Sushi supply platforms (one platform with several items) give a car every filter item they hold; the planner
+  allows for it, but the split between items in that car is only estimated until the re-plan after the stop.
+- A station that both supplies and takes the same item isn't supported.
 - A train that is parked counts as standing at the station where it last docked.

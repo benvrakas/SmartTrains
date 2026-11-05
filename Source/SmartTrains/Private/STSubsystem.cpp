@@ -44,6 +44,7 @@ void ASTSubsystem::BeginPlay()
 		return;
 	}
 	ReadSettings();
+	mStartTime = Now();
 	FTimerManager& Timers = GetWorldTimerManager();
 	Timers.SetTimer(mMonitorTimer, this, &ASTSubsystem::MonitorTrains, 0.25f, true, 1.f);
 	Timers.SetTimer(mSampleTimer, this, &ASTSubsystem::SamplePlatforms, 1.f, true, 1.f);
@@ -102,6 +103,19 @@ void ASTSubsystem::PostLoadGame_Implementation(int32 SaveVersion, int32 GameVers
 			UE_LOG(LogSmartTrains, Log, TEXT("Station %s had pool tag '%s'; pool tags are gone, so it now serves every managed train"), *STLayout::Name(Config.Station), *Config.Pool);
 			Config.Pool.Reset();
 		}
+	}
+	int32 Converted = 0;
+	for (FSTTrainState& State : mTrains)
+	{
+		for (FSTJobLeg& Leg : State.Job.Legs)
+		{
+			Converted += Leg.Item ? 1 : 0;
+			Leg.ConvertOldWork();
+		}
+	}
+	if (Converted > 0)
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("Converted %d job stops from an older save to per-car work"), Converted);
 	}
 	for (FSTTrainState& State : mTrains)
 	{
@@ -254,6 +268,7 @@ void ASTSubsystem::SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, E
 		UE_LOG(LogSmartTrains, Warning, TEXT("PLATFORM %s is not on the output side of any station; trains can't use it"), *Platform->GetName());
 	}
 	bDispatchSoon = true;
+	bReplanAll = true;
 }
 
 void ASTSubsystem::SetStationDepot(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Cause)
@@ -474,17 +489,15 @@ void ASTSubsystem::OnDocked(FSTTrainState& State, AFGTrainStationIdentifier* Sta
 	{
 		LearnTrip(State.LastStation, Station, Now() - State.LastDepartureAt);
 	}
-	int32 Amount = 0;
-	for (AFGRailroadVehicle* Car : Leg.Cars)
+	TArray<int32> Amounts;
+	for (const FSTCarWork& Work : Leg.Work)
 	{
-		const AFGFreightWagon* Wagon = Cast<AFGFreightWagon>(Car);
-		const UFGInventoryComponent* Inventory = Wagon ? Wagon->GetFreightInventory() : nullptr;
-		Amount += Inventory && Leg.Item ? Inventory->GetNumItems(Leg.Item) : 0;
+		Amounts.Add(CountInCar(Work.Car, Work.Item));
 	}
-	mDockStartAmounts.Add(Train, Amount);
+	mDockStartAmounts.Add(Train, Amounts);
 	const double Late = Now() - Leg.PlannedArrival;
-	UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s: docked at %s for leg %d/%d (%s %s), %+.0f s against plan"), State.Job.Id, *STLayout::Name(Train), *STLayout::Name(Station),
-		State.Job.Leg + 1, State.Job.Legs.Num(), Leg.Item ? (Leg.bLoad ? TEXT("load") : TEXT("unload")) : TEXT("no transfer"), *STNames::Item(Leg.Item), Late);
+	UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s: docked at %s for leg %d/%d (%s), %+.0f s against plan"), State.Job.Id, *STLayout::Name(Train), *STLayout::Name(Station),
+		State.Job.Leg + 1, State.Job.Legs.Num(), Leg.HasWork() ? *DescribeLeg(Train, Leg, false) : TEXT("no transfer"), Late);
 	if (State.Job.Leg == State.Job.Legs.Num() - 1 && !State.Job.bPark)
 	{
 		bDispatchSoon = true;
@@ -519,23 +532,25 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 		return;
 	}
 	FSTJobLeg& Leg = State.Job.Legs[State.Job.Leg];
-	int32 Amount = 0;
-	for (AFGRailroadVehicle* Car : Leg.Cars)
+	const TArray<int32> Before = mDockStartAmounts.FindRef(Train);
+	for (int32 Index = 0; Index < Leg.Work.Num(); ++Index)
 	{
-		const AFGFreightWagon* Wagon = Cast<AFGFreightWagon>(Car);
-		const UFGInventoryComponent* Inventory = Wagon ? Wagon->GetFreightInventory() : nullptr;
-		Amount += Inventory && Leg.Item ? Inventory->GetNumItems(Leg.Item) : 0;
+		FSTCarWork& Work = Leg.Work[Index];
+		const int32 Start = Before.IsValidIndex(Index) ? Before[Index] : 0;
+		Work.MovedAmount = FMath::Abs(CountInCar(Work.Car, Work.Item) - Start);
+		if (!Work.bLoad && Work.MovedAmount > 0)
+		{
+			mLastServed.Add(TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, UClass*>(Station, Work.Item.Get()), Now());
+		}
 	}
-	const int32 Before = mDockStartAmounts.FindRef(Train);
-	Leg.MovedAmount = FMath::Abs(Amount - Before);
-	if (Leg.Item)
+	if (Leg.HasWork())
 	{
 		LearnStay(Station, Stay);
 	}
-	const FString Line = FString::Printf(TEXT("JOB %d %s: left %s after %.0f s, %s %s %s (planned %s)"), State.Job.Id, *STLayout::Name(Train), *STLayout::Name(Station), Stay,
-		Leg.bLoad ? TEXT("loaded") : TEXT("unloaded"), *STNames::Amount(Leg.Item, Leg.MovedAmount), *STNames::Item(Leg.Item), *STNames::Amount(Leg.Item, Leg.PlannedAmount));
+	const FString Line = FString::Printf(TEXT("JOB %d %s: left %s after %.0f s: %s"), State.Job.Id, *STLayout::Name(Train), *STLayout::Name(Station), Stay,
+		Leg.HasWork() ? *DescribeLeg(Train, Leg, true) : TEXT("no transfer"));
 	UE_LOG(LogSmartTrains, Log, TEXT("%s"), *Line);
-	if (Leg.Item)
+	if (Leg.HasWork())
 	{
 		AddHistory(Station, Line);
 	}
@@ -544,6 +559,12 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 	if (State.Job.Leg >= State.Job.Legs.Num())
 	{
 		FinishJob(State);
+	}
+	else if (!State.Job.bPark)
+	{
+		// The rest of the trip is planned again from what the cars really hold now.
+		State.bReplan = true;
+		bDispatchSoon = true;
 	}
 }
 
@@ -601,15 +622,22 @@ void ASTSubsystem::LearnDockMap(AFGTrain* Train, AFGTrainStationIdentifier* Stat
 	{
 		UE_LOG(LogSmartTrains, Verbose, TEXT("Dock map %s at %s:%s"), *STLayout::Name(Train), *STLayout::Name(Station), *Line);
 	}
-	FSTDockMap* Existing = mDockMaps.FindByPredicate([&](const FSTDockMap& Map) { return Map.Train == Train && Map.Station == Station; });
-	if (Existing)
+	for (AFGRailroadVehicle* Vehicle : STLayout::GetVehicles(Train))
 	{
-		*Existing = Seen;
+		Seen.Consist.Add(Vehicle);
 	}
-	else
+	// One map per way round: the one seen with the same first docked vehicle is replaced, maps of another consist go.
+	int32 FirstIndex = Seen.Vehicles.IndexOfByPredicate([](const TObjectPtr<AFGRailroadVehicle>& Vehicle) { return Vehicle != nullptr; });
+	mDockMaps.RemoveAll([&](const FSTDockMap& Map)
 	{
-		mDockMaps.Add(Seen);
-	}
+		if (Map.Train != Train || Map.Station != Station)
+		{
+			return false;
+		}
+		const bool bSameWayRound = Map.Vehicles.IsValidIndex(FirstIndex) && Map.Vehicles[FirstIndex] == Seen.Vehicles[FirstIndex];
+		return bSameWayRound || Map.Consist != Seen.Consist;
+	});
+	mDockMaps.Add(Seen);
 }
 
 void ASTSubsystem::LearnTrip(AFGTrainStationIdentifier* From, AFGTrainStationIdentifier* To, float Seconds)
@@ -953,6 +981,15 @@ TArray<FString> ASTSubsystem::DescribeStatus() const
 	{
 		Lines.Add(TEXT("  No flow plan yet: it needs supply and demand platforms for the same item with measured rates."));
 	}
+	int32 Unwanted = 0;
+	for (const FSTTrainState& State : mTrains)
+	{
+		Unwanted += State.bManaged && State.UnwantedCargoSince > 0.0 ? 1 : 0;
+	}
+	if (Managed > 0 && Unwanted * 2 > Managed)
+	{
+		Lines.Add(FString::Printf(TEXT("  Warning: %d of %d managed trains carry cargo no consumer wants. Check demand targets, or add an any-item sink."), Unwanted, Managed));
+	}
 	return Lines;
 }
 
@@ -1015,4 +1052,31 @@ TMap<UClass*, int32> ASTSubsystem::GetCargo(const AFGTrain* Train)
 		}
 	}
 	return Cargo;
+}
+
+double ASTSubsystem::GetLastServed(const AFGTrainStationIdentifier* Station, UClass* Item) const
+{
+	const double* Found = mLastServed.Find(TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, UClass*>(const_cast<AFGTrainStationIdentifier*>(Station), Item));
+	return Found ? *Found : mStartTime;
+}
+
+int32 ASTSubsystem::CountInCar(const AFGRailroadVehicle* Car, TSubclassOf<UFGItemDescriptor> Item)
+{
+	const AFGFreightWagon* Wagon = Cast<AFGFreightWagon>(Car);
+	const UFGInventoryComponent* Inventory = Wagon ? Wagon->GetFreightInventory() : nullptr;
+	return Inventory && Item ? Inventory->GetNumItems(Item) : 0;
+}
+
+FString ASTSubsystem::DescribeLeg(const AFGTrain* Train, const FSTJobLeg& Leg, bool bMoved) const
+{
+	TArray<FString> Parts;
+	for (const FSTCarWork& Work : Leg.Work)
+	{
+		const FString Amount = bMoved
+			? FString::Printf(TEXT("%s of %s"), *STNames::Amount(Work.Item, Work.MovedAmount), *STNames::Amount(Work.Item, Work.PlannedAmount))
+			: STNames::Amount(Work.Item, Work.PlannedAmount);
+		Parts.Add(FString::Printf(TEXT("%s %s %s %s"), *STLayout::DescribeVehicle(Train, Work.Car), Work.bLoad ? TEXT("loads") : TEXT("unloads"), *Amount,
+			*STNames::Item(Work.Item)));
+	}
+	return FString::Join(Parts, TEXT(", "));
 }

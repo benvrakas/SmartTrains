@@ -126,3 +126,56 @@ FString STNames::Settings(ESTRole InRole, const TArray<FSTItemRule>& InItems)
 	}
 	return FString::Printf(TEXT("%s: %s"), Role(InRole), Names.Num() > 0 ? *FString::Join(Names, TEXT(", ")) : TEXT("no items"));
 }
+
+TArray<UClass*> FSTJobLeg::GetItems(bool bWantLoad) const
+{
+	TArray<UClass*> Items;
+	for (const FSTCarWork& Each : Work)
+	{
+		if (Each.bLoad == bWantLoad && Each.Item)
+		{
+			Items.AddUnique(Each.Item.Get());
+		}
+	}
+	return Items;
+}
+
+int32 FSTJobLeg::GetPlanned(bool bWantLoad) const
+{
+	int32 Total = 0;
+	for (const FSTCarWork& Each : Work)
+	{
+		Total += Each.bLoad == bWantLoad ? Each.PlannedAmount : 0;
+	}
+	return Total;
+}
+
+int32 FSTJobLeg::GetMoved(bool bWantLoad) const
+{
+	int32 Total = 0;
+	for (const FSTCarWork& Each : Work)
+	{
+		Total += Each.bLoad == bWantLoad ? Each.MovedAmount : 0;
+	}
+	return Total;
+}
+
+void FSTJobLeg::ConvertOldWork()
+{
+	if (Work.Num() > 0 || !Item)
+	{
+		return;
+	}
+	const int32 Count = FMath::Max(1, Cars.Num());
+	for (const TObjectPtr<AFGRailroadVehicle>& Car : Cars)
+	{
+		FSTCarWork& Each = Work.AddDefaulted_GetRef();
+		Each.Car = Car;
+		Each.Item = Item;
+		Each.bLoad = bLoad;
+		Each.PlannedAmount = PlannedAmount / Count;
+	}
+	Item = nullptr;
+	Cars.Reset();
+	PlannedAmount = 0;
+}
