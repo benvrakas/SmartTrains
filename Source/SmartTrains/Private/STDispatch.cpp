@@ -117,7 +117,14 @@ namespace
 		{
 			Rules.UnloadFilterDescriptors.Add(None);
 		}
-		if (!Leg.HasWork() || Leg.bPartial)
+		// A fluid car empties into its platform in one transfer; waiting longer only drains a little more into the pipes
+		// while the train could be refilling.
+		bool bFluidDeliveryOnly = Loads.Num() == 0 && Unloads.Num() > 0;
+		for (UClass* Item : Unloads)
+		{
+			bFluidDeliveryOnly &= STNames::IsFluid(Item);
+		}
+		if (!Leg.HasWork() || Leg.bPartial || bFluidDeliveryOnly)
 		{
 			Rules.DockingDefinition = ETrainDockingDefinition::TDD_LoadUnloadOnce;
 			Rules.DockForDuration = 0.f;

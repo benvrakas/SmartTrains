@@ -2,6 +2,11 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Fluid deliveries don't wait out the timeout:** a stop that only unloads fluids is "unload once". A fluid car empties
+  into its platform in one transfer (about 27 s). "Fully unload" then held the train up to "Delivery: longest wait"
+  (120 s) whenever a platform wasn't quite empty, while its next trip, going to refill, was already chosen. Fluid
+  pickups keep their fill wait, since the platform keeps filling from its pipes while the train loads.
+
 - **No more empty loops:** a stop where a train moved none of an item it was planned to move is logged
   (`NOPROGRESS`). That train doesn't plan that item at that station again for 10 minutes. Seen with leftover Sulfur
   "delivered" to a full sink 7 times in 2 minutes.
