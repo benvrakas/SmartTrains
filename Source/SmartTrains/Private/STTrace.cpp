@@ -30,6 +30,8 @@ namespace
 		bool bRestricted = false;
 		TArray<UClass*> Allowed;
 		TArray<UClass*> Excluded;
+		// The buildings that narrowed the filter, for the report.
+		TArray<FString> By;
 
 		bool Passes(UClass* Item) const
 		{
@@ -41,8 +43,9 @@ namespace
 			return bRestricted && Allowed.Num() == 0;
 		}
 
-		void Restrict(const TArray<UClass*>& Items)
+		void Restrict(const TArray<UClass*>& Items, const FString& Where)
 		{
+			By.AddUnique(Where);
 			if (!bRestricted)
 			{
 				bRestricted = true;
@@ -52,8 +55,12 @@ namespace
 			Allowed.RemoveAll([&Items](UClass* Item) { return !Items.Contains(Item); });
 		}
 
-		void Exclude(const TArray<UClass*>& Items)
+		void Exclude(const TArray<UClass*>& Items, const FString& Where)
 		{
+			if (Items.Num() > 0)
+			{
+				By.AddUnique(Where);
+			}
 			for (UClass* Item : Items)
 			{
 				Excluded.AddUnique(Item);
@@ -173,21 +180,32 @@ namespace
 		return Group;
 	}
 
-	// Items a balancer filter module is set to.
+	// Items a balancer filter module is set to; empty for every other kind of module.
 	TArray<UClass*> GetBalancerFilter(const AFGBuildable* Module)
 	{
 		TArray<UClass*> Items;
+		const FString ClassName = Module ? Module->GetClass()->GetName() : FString();
+		if (!ClassName.Contains(TEXT("Filter")) && !ClassName.Contains(TEXT("Programmable")))
+		{
+			return Items;
+		}
 		for (UObject* Each : GetObjectArrayField(Module, TEXT("mFilteredItems")))
 		{
-			if (UClass* Item = Cast<UClass>(Each))
+			if (UClass* Item = Cast<UClass>(Each); Item && Item->IsChildOf(UFGItemDescriptor::StaticClass()))
 			{
 				Items.AddUnique(Item);
 			}
 		}
-		if (UClass* Single = Cast<UClass>(GetObjectField(Module, TEXT("mFilteredItem"))))
+		if (UClass* Single = Cast<UClass>(GetObjectField(Module, TEXT("mFilteredItem"))); Single && Single->IsChildOf(UFGItemDescriptor::StaticClass()))
 		{
 			Items.AddUnique(Single);
 		}
+		// Special descriptors (any, none, overflow) are not item filters.
+		Items.RemoveAll([](UClass* Item)
+		{
+			return Item->IsChildOf(UFGWildCardDescriptor::StaticClass()) || Item->IsChildOf(UFGAnyUndefinedDescriptor::StaticClass())
+				|| Item->IsChildOf(UFGOverflowDescriptor::StaticClass()) || Item->IsChildOf(UFGNoneDescriptor::StaticClass());
+		});
 		return Items;
 	}
 
@@ -258,7 +276,7 @@ namespace
 			if (!Step.Filter.Passes(Item.Get()))
 			{
 				++Result.Filtered;
-				AddUnique(Result.Notes, FString::Printf(TEXT("%s from %s is filtered away on the way"), *STNames::Item(Item), *Label(Machine)));
+				AddUnique(Result.Notes, FString::Printf(TEXT("%s from %s is filtered away at %s"), *STNames::Item(Item), *Label(Machine), *FString::Join(Step.Filter.By, TEXT(", "))));
 				return;
 			}
 			for (STTrace::FFlow& Flow : Result.Flows)
@@ -341,6 +359,12 @@ namespace
 		// unknown in advance, so it lets everything through (the path is then marked shared).
 		static void SplitterOutputFilter(const AFGBuildableSplitterSmart* Splitter, int32 OutputIndex, FItemFilter& InOutFilter, bool& bOutShared)
 		{
+			// Without rules it sorts nothing and works as a plain splitter.
+			if (Splitter->GetSortRules().Num() == 0)
+			{
+				return;
+			}
+			const FString Where = FString::Printf(TEXT("%s output %d"), *Label(Splitter), OutputIndex + 1);
 			TArray<UClass*> Explicit;
 			TArray<UClass*> ElsewhereExplicit;
 			bool bAny = false;
@@ -387,10 +411,10 @@ namespace
 			}
 			if (bUndefined)
 			{
-				InOutFilter.Exclude(ElsewhereExplicit);
+				InOutFilter.Exclude(ElsewhereExplicit, Where);
 				return;
 			}
-			InOutFilter.Restrict(Explicit);
+			InOutFilter.Restrict(Explicit, Where);
 		}
 
 		void Push(const FStep& From, UFGFactoryConnectionComponent* Belt, UFGFactoryConnectionComponent* Arrive, const FString& StepLabel, const FItemFilter& Filter, bool bShared)
@@ -452,13 +476,13 @@ namespace
 					const TArray<UClass*> Own = GetBalancerFilter(Owner);
 					if (Own.Num() > 0)
 					{
-						Filter.Restrict(Own);
+						Filter.Restrict(Own, Label(Owner));
 					}
 					else
 					{
 						for (const AFGBuildable* Module : Group)
 						{
-							Filter.Exclude(GetBalancerFilter(Module));
+							Filter.Exclude(GetBalancerFilter(Module), Label(Module));
 						}
 					}
 				}
@@ -478,7 +502,7 @@ namespace
 						FItemFilter ExitFilter = Filter;
 						if (ModuleFilter.Num() > 0)
 						{
-							ExitFilter.Restrict(ModuleFilter);
+							ExitFilter.Restrict(ModuleFilter, Label(Module));
 						}
 						Push(Step, Connection, nullptr, TEXT("LoadBalancer"), ExitFilter, false);
 						++Exits;
