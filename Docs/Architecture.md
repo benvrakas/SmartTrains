@@ -175,6 +175,13 @@ consumer → sink edges carry the consumer's rate. Starved consumers count at 1.
 1 per minute. Later tiers get what is left. The result gives the fleet advice in `/st status`: trains needed = Σ
 flow × round trip ÷ average load of the managed trains that fit that route.
 
+## Clock
+
+`Now()` is the world's time plus `mClockBase`. The world's time starts at 0 each session. `mClockAtSave` (saved)
+holds `Now()` at the last save, and `PostLoadGame` sets the base so the clock carries on from it. Every saved
+timestamp (planned arrivals, departures, unwanted cargo) stays meaningful after a load. A save from before the clock
+existed continues from the latest time its trains hold.
+
 ## Measuring
 
 Every second, for each item of each configured platform:

@@ -4,6 +4,7 @@
 #include "Components/Border.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
+#include "Components/Image.h"
 #include "Components/Overlay.h"
 #include "Components/OverlaySlot.h"
 #include "Components/ScrollBox.h"
@@ -13,6 +14,7 @@
 #include "Components/VerticalBoxSlot.h"
 #include "GameFramework/PlayerController.h"
 #include "InputCoreTypes.h"
+#include "Resources/FGItemDescriptor.h"
 #include "SmartTrains.h"
 #include "STRemoteCallObject.h"
 #include "UI/STControls.h"
@@ -27,6 +29,8 @@ namespace
 	constexpr float PlatformWindowWidth = 620.f;
 	constexpr float PlatformWindowMaxHeight = 860.f;
 	constexpr float LauncherWidth = 300.f;
+	// Size of the item icons beside the platform menu. [px]
+	constexpr float LauncherIconSize = 32.f;
 }
 
 //~ USTPlatformWindow
@@ -183,6 +187,8 @@ void USTPlatformLauncher::BuildContent(UVerticalBox* Root)
 {
 	MakeText(Root, LOCTEXT("LauncherHeading", "SmartTrains"), 15, false, FMargin(0.f, 0.f, 0.f, 4.f));
 	mSummary = MakeText(Root, LOCTEXT("Loading", "Asking the server..."), 11);
+	mItemRows = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
+	Root->AddChildToVerticalBox(mItemRows)->SetPadding(FMargin(0.f, 2.f, 0.f, 0.f));
 	mStatus = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 2.f, 0.f, 6.f));
 	MakeButton(Root, LOCTEXT("OpenPlatformWindow", "Open SmartTrains settings"), [this]() { USTPlatformWindow::Open(GetMenu()); });
 }
@@ -191,6 +197,9 @@ bool USTPlatformLauncher::OnShown()
 {
 	mSummary->SetText(LOCTEXT("Loading", "Asking the server..."));
 	mStatus->SetText(FText::GetEmpty());
+	mItemRows->ClearChildren();
+	mShownItems.Reset();
+	bItemsShown = false;
 	return STWidgetUtils::GetMenuPlatform(GetMenu()) != nullptr;
 }
 
@@ -214,10 +223,60 @@ void USTPlatformLauncher::Refresh(USTRemoteCallObject* RCO)
 	{
 		return;
 	}
-	mSummary->SetText(FText::FromString(STNames::Settings(View->Role, View->Items)));
+	if (View->Role == ESTRole::Off)
+	{
+		mSummary->SetText(LOCTEXT("LauncherOff", "Off"));
+	}
+	else
+	{
+		mSummary->SetText(FText::FromString(View->Items.Num() > 0 ? FString::Printf(TEXT("%s:"), STNames::Role(View->Role))
+			: FString::Printf(TEXT("%s: no items"), STNames::Role(View->Role))));
+	}
+	ShowItems(View->Role == ESTRole::Off ? TArray<FSTItemRule>() : View->Items);
 	// The readout's last line is the first reason or the inbound trains; one line is enough here.
 	mStatus->SetText(View->Lines.Num() > 0 ? FText::FromString(View->Lines.Last()) : FText::GetEmpty());
 	mStatus->SetVisibility(View->Lines.Num() > 0 ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+}
+
+void USTPlatformLauncher::ShowItems(const TArray<FSTItemRule>& Items)
+{
+	TArray<TSubclassOf<UFGItemDescriptor>> Wanted;
+	for (const FSTItemRule& Rule : Items)
+	{
+		Wanted.Add(Rule.Item);
+	}
+	if (bItemsShown && Wanted == mShownItems)
+	{
+		return;
+	}
+	bItemsShown = true;
+	mShownItems = Wanted;
+	mItemRows->ClearChildren();
+	for (const TSubclassOf<UFGItemDescriptor>& Item : Wanted)
+	{
+		UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
+		mItemRows->AddChildToVerticalBox(Row)->SetPadding(FMargin(0.f, 2.f));
+		if (UTexture2D* Texture = Item ? UFGItemDescriptor::GetSmallIcon(Item) : nullptr)
+		{
+			USizeBox* IconBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+			IconBox->SetWidthOverride(LauncherIconSize);
+			IconBox->SetHeightOverride(LauncherIconSize);
+			UImage* Icon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
+			Icon->SetBrushFromTexture(Texture);
+			IconBox->AddChild(Icon);
+			if (UHorizontalBoxSlot* IconSlot = Row->AddChildToHorizontalBox(IconBox))
+			{
+				IconSlot->SetVerticalAlignment(VAlign_Center);
+				IconSlot->SetPadding(FMargin(0.f, 0.f, 8.f, 0.f));
+			}
+		}
+		UTextBlock* Name = MakeText(nullptr, Item ? UFGItemDescriptor::GetItemName(Item) : LOCTEXT("LauncherAnyItem", "Any item"), 12, true);
+		if (UHorizontalBoxSlot* NameSlot = Row->AddChildToHorizontalBox(Name))
+		{
+			NameSlot->SetVerticalAlignment(VAlign_Center);
+			NameSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		}
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

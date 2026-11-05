@@ -270,6 +270,10 @@ private:
 	UPROPERTY(SaveGame)
 	int32 mNextJobId = 1;
 
+	// Now() when the world was saved, so the clock carries on after loading instead of restarting at 0. [s]
+	UPROPERTY(SaveGame)
+	double mClockAtSave = 0.0;
+
 	// Fleet advice per item from the last flow plan.
 	struct FAdvice
 	{
@@ -293,6 +297,8 @@ private:
 	// When a delivery last reached each (station, item); runtime only.
 	TMap<TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, UClass*>, double> mLastServed;
 	double mStartTime = 0.0;
+	// Added to the world's time (which starts at 0 each session) to make Now(). [s]
+	double mClockBase = 0.0;
 	// Platform settings changed: trips under way are re-planned in the next dispatch.
 	bool bReplanAll = false;
 	// The settings have been read once (the first read logs them all).

@@ -6,6 +6,7 @@
 #include "STPlatformWindow.generated.h"
 
 class APlayerController;
+class UFGItemDescriptor;
 class USTButton;
 class UTextBlock;
 
@@ -35,8 +36,8 @@ private:
 	static TWeakObjectPtr<USTPlatformWindow> sOpen;
 };
 
-// SmartTrains section beside the vanilla freight and fluid platform menus: the platform's role and items in one
-// line, the readout's first reason, and a button that opens the settings window.
+// SmartTrains section beside the vanilla freight and fluid platform menus: the platform's role, its items with their
+// in-game icons, the readout's last line, and a button that opens the settings window.
 UCLASS()
 class USTPlatformLauncher : public USTPanel
 {
@@ -52,9 +53,19 @@ protected:
 	virtual FName GetStyleSource() const override { return TEXT("StationSettingText"); }
 
 private:
+	void ShowItems(const TArray<FSTItemRule>& Items);
+
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mSummary;
 
+	// One row per item: icon and name.
+	UPROPERTY()
+	TObjectPtr<UVerticalBox> mItemRows;
+
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mStatus;
+
+	// The items shown in mItemRows, to rebuild them only when they change.
+	TArray<TSubclassOf<UFGItemDescriptor>> mShownItems;
+	bool bItemsShown = false;
 };

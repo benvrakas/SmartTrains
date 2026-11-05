@@ -108,6 +108,7 @@ void ASTSubsystem::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void ASTSubsystem::PreSaveGame_Implementation(int32 SaveVersion, int32 GameVersion)
 {
+	mClockAtSave = Now();
 	mPlatforms.RemoveAll([](const FSTPlatformConfig& Config) { return !IsValid(Config.Platform) || (Config.Role == ESTRole::Off && Config.Items.Num() == 0); });
 	mStations.RemoveAll([](const FSTStationConfig& Config) { return !IsValid(Config.Station) || !Config.bDepot; });
 	mTrains.RemoveAll([](const FSTTrainState& State) { return !IsValid(State.Train) || (!State.bManaged && !State.bKeepVanilla); });
@@ -118,6 +119,21 @@ void ASTSubsystem::PreSaveGame_Implementation(int32 SaveVersion, int32 GameVersi
 
 void ASTSubsystem::PostLoadGame_Implementation(int32 SaveVersion, int32 GameVersion)
 {
+	// The clock carries on from the save. A save without the clock gets the latest time its trains hold, so nothing
+	// saved lies in the future.
+	double Saved = mClockAtSave;
+	if (Saved <= 0.0)
+	{
+		for (const FSTTrainState& State : mTrains)
+		{
+			Saved = FMath::Max(Saved, FMath::Max(State.LastDepartureAt, State.UnwantedCargoSince));
+			Saved = FMath::Max(Saved, FMath::Max(State.Job.StartedAt, State.Job.LegStartedAt));
+		}
+	}
+	const UWorld* World = GetWorld();
+	mClockBase = Saved - (World ? World->GetTimeSeconds() : 0.0);
+	mStartTime = Now();
+	UE_LOG(LogSmartTrains, Log, TEXT("Clock continues at %.0f s%s"), Saved, mClockAtSave > 0.0 ? TEXT("") : TEXT(" (save without a clock: latest saved train time)"));
 	for (FSTStationConfig& Config : mStations)
 	{
 		if (!Config.Pool.IsEmpty())
@@ -159,7 +175,7 @@ void ASTSubsystem::PostLoadGame_Implementation(int32 SaveVersion, int32 GameVers
 double ASTSubsystem::Now() const
 {
 	const UWorld* World = GetWorld();
-	return World ? World->GetTimeSeconds() : 0.0;
+	return mClockBase + (World ? World->GetTimeSeconds() : 0.0);
 }
 
 void ASTSubsystem::ReadSettings()

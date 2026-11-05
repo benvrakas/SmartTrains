@@ -2,6 +2,10 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Item icons** beside the platform menu: the SmartTrains section lists the platform's items with their in-game icons.
+- **Clock carries on across saves.** SmartTrains' times used to restart at 0 on every load, so after loading, ETAs
+  and "against plan" were off by the length of the last session, the unwanted-cargo timer stalled, and learned trip
+  times could be spoiled. The clock is now saved. An older save continues from the latest time its trains hold.
 - **Push-pull shuttles run:** a train that can dock either way round no longer has every car skipped at stations whose
   platforms are identical, the reason the water shuttles never moved.
 - **Platform readouts** count a car holding the same item as fitting (it tops up), not only empty cars.
