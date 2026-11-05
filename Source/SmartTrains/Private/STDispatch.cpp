@@ -49,6 +49,11 @@ namespace
 	// How often Auto Trains is asked for a station's queue. [s]
 	constexpr double AtQueueSeconds = 15.0;
 
+	// Managed trains stuck together this long are sorted out, the one that backed off at most once per
+	// BackOffAgainSeconds. [s]
+	constexpr float StuckTogetherSeconds = 30.f;
+	constexpr double BackOffAgainSeconds = 180.0;
+
 	// A planned trip whose first stop is free this much later than the train could arrive is not started yet. [s]
 	constexpr double HoldAfterWaitSeconds = 20.0;
 
@@ -636,6 +641,7 @@ void ASTSubsystem::DispatchRound()
 	// Trips under way that asked for a re-plan (after a stop, or after platform settings changed).
 	if (!mSettings.bObserveOnly)
 	{
+		ResolveStuckTrains();
 		for (FSTTrainState& State : mTrains)
 		{
 			// A stop ahead whose station was dismantled.
@@ -872,7 +878,9 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	Planner.Release(State.Job.Legs, State.Job.Leg);
 	TArray<FSTPlanStop> Stops;
 	FString Before;
-	for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
+	const bool bFresh = State.bReplanFresh;
+	State.bReplanFresh = false;
+	for (int32 Leg = State.Job.Leg; !bFresh && Leg < State.Job.Legs.Num(); ++Leg)
 	{
 		const FSTJobLeg& Each = State.Job.Legs[Leg];
 		FSTPlanStop& Stop = Stops.AddDefaulted_GetRef();
@@ -931,6 +939,62 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	}
 	WriteJob(State, TEXT("re-planned after a stop"));
 	UpdateUnwantedCargo(State);
+}
+
+void ASTSubsystem::ResolveStuckTrains()
+{
+	const UWorld* World = GetWorld();
+	if (!STAt::IsAvailable(World))
+	{
+		return;
+	}
+	const double Clock = Now();
+	// Managed trains with a trip that Auto Trains reports stuck or deadlocked long enough, per track network.
+	TMap<int32, TArray<int32>> ByNetwork;
+	for (const STAt::FTroubled& Each : STAt::GetTroubledTrains(World))
+	{
+		if ((Each.Kind != TEXT("Stuck") && Each.Kind != TEXT("Deadlock")) || Each.Seconds < StuckTogetherSeconds)
+		{
+			continue;
+		}
+		const int32 Index = mTrains.IndexOfByPredicate([&](const FSTTrainState& State) { return State.Train == Each.Train; });
+		if (Index == INDEX_NONE || !mTrains[Index].bManaged || !mTrains[Index].bHasJob || !IsValid(Each.Train) || Each.Train->IsDocked())
+		{
+			continue;
+		}
+		ByNetwork.FindOrAdd(Each.Train->GetTrackGraphID()).AddUnique(Index);
+	}
+	for (const TPair<int32, TArray<int32>>& Network : ByNetwork)
+	{
+		if (Network.Value.Num() < 2)
+		{
+			continue;
+		}
+		// The train whose trip started last backs off; it is the one that drove into the other's way.
+		TArray<int32> Order = Network.Value;
+		Order.Sort([this](int32 A, int32 B) { return mTrains[A].Job.StartedAt > mTrains[B].Job.StartedAt; });
+		FSTTrainState& Latest = mTrains[Order[0]];
+		AFGTrainStationIdentifier* Back = Latest.LastStation.Get();
+		if (!Back || !IsPushPull(Latest.Train) || Clock - Latest.LastBackedOff < BackOffAgainSeconds)
+		{
+			continue;
+		}
+		Latest.LastBackedOff = Clock;
+		TArray<FString> Others;
+		for (int32 Index = 1; Index < Order.Num(); ++Index)
+		{
+			FSTTrainState& Other = mTrains[Order[Index]];
+			Others.Add(STLayout::Name(Other.Train));
+			if (!Other.Job.bPark)
+			{
+				Other.bReplan = true;
+				Other.bReplanFresh = true;
+			}
+		}
+		UE_LOG(LogSmartTrains, Warning, TEXT("STUCK %s stands stuck with %s (Auto Trains); it goes back to %s and the others plan their trips again"),
+			*STLayout::Name(Latest.Train), *FString::Join(Others, TEXT(", ")), *STLayout::Name(Back));
+		SendToStation(Latest, Back, *FString::Printf(TEXT("backing off: stuck with %s"), *FString::Join(Others, TEXT(", "))));
+	}
 }
 
 void ASTSubsystem::UpdateUnwantedCargo(FSTTrainState& State)

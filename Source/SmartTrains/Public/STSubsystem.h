@@ -214,6 +214,9 @@ private:
 	AFGTrainStationIdentifier* FindDepot(const FSTTrainState& State, const AFGTrainStationIdentifier* From) const;
 	// Moves parked trains off stations a job needs.
 	void ClearNeededBays();
+	// With Auto Trains: managed trains stuck or deadlocked together for a while. The one that left last goes back to
+	// the station it came from (push-pull trains only), and the others plan their trips again from scratch.
+	void ResolveStuckTrains();
 	// For a train without a job: hands out jobs now, else sends it to a depot or parks it.
 	// bDispatchFirst: hand out trips first (during a dispatch round the train is settled when the round ends instead).
 	void SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDispatchFirst = true);

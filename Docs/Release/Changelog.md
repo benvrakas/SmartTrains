@@ -2,6 +2,11 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Stuck nose to nose (stopgap):** with Auto Trains, when two managed trains on one network have been stuck or
+  deadlocked for 30 s, the one whose trip started last goes back to the station it came from (push-pull trains only,
+  at most every 3 minutes). The others plan their trips again from scratch. Logged as `STUCK`. Seen with the two
+  water shuttles on one shared track: each headed for the station the other had just left.
+
 - **Works with Auto Trains' API** (optional, by reflection):
   - Auto Trains is told after every timetable rewrite.
   - A parked train moves when Auto Trains reports a train waiting 20 s for it, replacing the distance guess.

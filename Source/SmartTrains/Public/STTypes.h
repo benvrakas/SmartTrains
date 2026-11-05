@@ -317,6 +317,10 @@ struct SMARTTRAINS_API FSTTrainState
 	TArray<FString> WrittenStopKeys;
 	// Runtime only: the rest of the trip is re-planned in the next dispatch.
 	bool bReplan = false;
+	// Runtime only: that re-plan starts from scratch (from the cargo on board), not from the stops it has.
+	bool bReplanFresh = false;
+	// Runtime only: when the train was last sent back because it stood stuck nose to nose with another. [game s]
+	double LastBackedOff = -1000.0;
 	// Runtime only: docking state at the last check, when the current dock began, and where.
 	bool bWasDocked = false;
 	double DockedAt = 0.0;
