@@ -69,6 +69,9 @@ struct FSTPlanMove
 // rises.
 class FSTTripPlanner
 {
+	// Automation tests set planner situations up without a game world (Private/Tests).
+	friend struct FSTTestAccess;
+
 public:
 	// InBookings: per station, the bookings of the jobs already running; Reserve adds the planned trip's.
 	FSTTripPlanner(const ASTSubsystem& InSubsystem, TArray<FSTNode>& InNodes, TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& InBookings);

@@ -105,3 +105,23 @@ On a test copy of the user's network:
 6. A busy consumer with several trains heading for it: trains standing in stations show "holding at ..." in the
    monitor's Trains tab, then leave so they arrive a gap after the train before. Fewer Auto Trains DEADLOCK and
    "can't stop short" lines near that station.
+
+## Automated tests
+
+`D:\SFMod\Tools\BuildScripts	est-smarttrains.bat` builds the editor (FactoryEditor, Development) and runs the
+`SmartTrains` automation tests (`Source/SmartTrains/Private/Tests`). The report is in
+`SatisfactoryModLoader/Saved/Logs/SmartTrainsTests.log`. In the editor's console: `Automation RunTests SmartTrains`. The
+tests are compiled only where `WITH_DEV_AUTOMATION_TESTS` is on, so not into the packaged mod. Their two item classes
+(`USTTestSolid`, `USTTestFluid`) are abstract and hidden.
+
+| Test | Checks |
+|---|---|
+| `SmartTrains.Planner.FirstFreeArrival` | Bookings with start and end and the arrival gap: a slot before, between or after bookings. |
+| `SmartTrains.Planner.PushPullIdenticalPlatforms` | A push-pull train at four identical platforms in both ways round: no car skipped, each platform's stock and room counted once per way round. |
+| `SmartTrains.Planner.WrongPlatformNeedsSkip` | A car beside a load-mode platform without a supply role: the trip is invalid without Freight Car Control, and the car skips with it. |
+| `SmartTrains.Planner.UnloadOnceWhenCarCantEmpty` | A delivery stop is "unload once" when a car can't empty, and "fully" when it can. |
+| `SmartTrains.Planner.Assignment` | The Hungarian assignment beats the greedy choice; rows worth nothing get nothing. |
+| `SmartTrains.FlowPlan.MinCostFlow` | The flow plan fills the cheap route first and sends all the consumer takes. |
+
+The editor's game classes are stubs: inventories report no slot sizes. The tests therefore give a fluid a 2,400 m3
+stack to stand in for a platform or car. Fluid slot sizes themselves (the 50 m3 bug) can only be checked in game.

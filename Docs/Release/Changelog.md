@@ -2,6 +2,8 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Automated tests** for the trip planner, the flow plan and the assignment (6 tests, editor only; see Testing.md).
+
 - **Parked trains hold their station:** a parked train books its station for the minute it takes to move it out, so
   trips prefer free stations. A trip held because its first stop is busy counts as needing that stop, so a train
   parked there is moved out.

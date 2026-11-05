@@ -62,6 +62,7 @@ class SMARTTRAINS_API ASTSubsystem : public AModSubsystem, public IFGSaveInterfa
 	GENERATED_BODY()
 	friend class FSTTripPlanner;
 	friend class FSTThroughput;
+	friend struct FSTTestAccess;
 
 public:
 	ASTSubsystem();

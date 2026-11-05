@@ -1,0 +1,321 @@
+// Automation tests for the trip planner, the flow plan and the assignment (Docs/Testing.md, "Automated tests").
+// Run in the editor: Tools/BuildScripts/test-smarttrains.bat, or "Automation RunTests SmartTrains" in its console.
+
+#include "CoreMinimal.h"
+
+#if WITH_DEV_AUTOMATION_TESTS
+
+#include "FGTrainStationIdentifier.h"
+#include "Misc/AutomationTest.h"
+#include "STMinCostFlow.h"
+#include "STSubsystem.h"
+#include "STTripPlanner.h"
+#include "Tests/STTestItems.h"
+
+// Builds planner situations without a game world: stations, learned trip times, platforms, cars and the platform
+// each car meets for every way the train may dock.
+struct FSTTestAccess
+{
+	using FCarInfo = FSTTripPlanner::FCarInfo;
+	using FPlatformInfo = FSTTripPlanner::FPlatformInfo;
+	using FCarPlatforms = TMap<const AFGTrainStationIdentifier*, TArray<TArray<int32>>>;
+
+	static ASTSubsystem* MakeSubsystem()
+	{
+		ASTSubsystem* Subsystem = NewObject<ASTSubsystem>(GetTransientPackage());
+		Subsystem->mSettings = FSTSettings();
+		Subsystem->mSettings.MaxTripMinutes = 120.f;
+		Subsystem->mSettings.ArrivalGapSeconds = 30.f;
+		Subsystem->mTrains.AddDefaulted();
+		return Subsystem;
+	}
+
+	static AFGTrainStationIdentifier* MakeStation()
+	{
+		return NewObject<AFGTrainStationIdentifier>(GetTransientPackage());
+	}
+
+	static void SetTrip(ASTSubsystem& Subsystem, AFGTrainStationIdentifier* From, AFGTrainStationIdentifier* To, float Seconds)
+	{
+		FSTTripTime& Trip = Subsystem.mTrips.AddDefaulted_GetRef();
+		Trip.From = From;
+		Trip.To = To;
+		Trip.Seconds = Seconds;
+		Trip.Samples = 1;
+	}
+
+	static void SetTrain(FSTTripPlanner& Planner, const AFGTrainStationIdentifier* Anchor, bool bFcc, bool bPushPull, const TArray<FCarInfo>& Cars,
+		const TArray<FPlatformInfo>& Platforms, const FCarPlatforms& CarPlatforms)
+	{
+		Planner.mTrainIndex = 0;
+		Planner.mAnchor = Anchor;
+		Planner.mFreeAt = Planner.mTime;
+		Planner.bAnchorDocked = false;
+		Planner.bFcc = bFcc;
+		Planner.bPushPull = bPushPull;
+		Planner.bRelaxed = false;
+		Planner.mCars = Cars;
+		Planner.mPlatforms = Platforms;
+		Planner.mCarPlatforms = CarPlatforms;
+		Planner.mProblems.Reset();
+	}
+
+	static double FirstFreeArrival(const FSTTripPlanner& Planner, const AFGTrainStationIdentifier* Station, double Arrive, double Stay)
+	{
+		return Planner.FirstFreeArrival(Station, Arrive, Stay);
+	}
+
+	static FPlatformInfo Platform(UClass* Item, bool bSupply, double Stock, int32 Occupied)
+	{
+		FPlatformInfo Info;
+		Info.bConfigured = true;
+		Info.bSupply = bSupply;
+		Info.bDemand = !bSupply;
+		Info.bLoadMode = bSupply;
+		Info.bFluid = STNames::IsFluid(Item);
+		Info.Items.Add(Item);
+		if (Stock > 0.0)
+		{
+			Info.Stock.Add(Item, static_cast<int32>(Stock));
+		}
+		Info.Slots = 1;
+		Info.Occupied = Occupied;
+		return Info;
+	}
+
+	static FCarInfo Car(UClass* Carried = nullptr, double Amount = 0.0)
+	{
+		FCarInfo Info;
+		Info.Slots = 1;
+		if (Carried && Amount > 0.0)
+		{
+			Info.Cargo.Emplace(Carried, Amount);
+		}
+		return Info;
+	}
+
+	static FSTNode Node(AFGTrainStationIdentifier* Station, UClass* Item, ESTRole Role, int32 Stock, int32 Capacity, int32 Platforms)
+	{
+		FSTNode Node;
+		Node.Station = Station;
+		Node.Item = Item;
+		Node.Role = Role;
+		Node.Stock = Stock;
+		Node.Capacity = Capacity;
+		Node.TargetPercent = 50.f;
+		Node.SendAtPercent = 1.f;
+		Node.bRateKnown = true;
+		Node.Platforms.SetNum(Platforms);
+		return Node;
+	}
+};
+
+namespace
+{
+	constexpr EAutomationTestFlags TestFlags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter;
+	// A fluid platform or car in the tests: one slot of the test fluid's stack.
+	constexpr int32 FluidSlot = 2400000;
+}
+
+// Bookings with a start and an end: the first slot that keeps the arrival gap to every other train's booking.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTFirstFreeArrivalTest, "SmartTrains.Planner.FirstFreeArrival", TestFlags)
+bool FSTFirstFreeArrivalTest::RunTest(const FString& Parameters)
+{
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Station = FSTTestAccess::MakeStation();
+	TArray<FSTNode> Nodes;
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	Bookings.Add(Station, {{5, 100.0, 200.0}, {6, 400.0, 500.0}});
+	FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+	FSTTestAccess::SetTrain(Planner, Station, true, false, {}, {}, {});
+
+	TestEqual(TEXT("fits before the first booking"), FSTTestAccess::FirstFreeArrival(Planner, Station, 0.0, 50.0), 0.0);
+	TestEqual(TEXT("waits for the first booking plus the gap"), FSTTestAccess::FirstFreeArrival(Planner, Station, 150.0, 50.0), 230.0);
+	TestEqual(TEXT("too long for the gap between bookings"), FSTTestAccess::FirstFreeArrival(Planner, Station, 300.0, 80.0), 530.0);
+	TestEqual(TEXT("free station"), FSTTestAccess::FirstFreeArrival(Planner, FSTTestAccess::MakeStation(), 42.0, 50.0), 42.0);
+	return true;
+}
+
+// A push-pull train at identical platforms meets a different platform in each way round: every car still works, and
+// each platform's stock and room count once per way round (the water shuttle bugs of 2026-11-05).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTPushPullIdenticalPlatformsTest, "SmartTrains.Planner.PushPullIdenticalPlatforms", TestFlags)
+bool FSTPushPullIdenticalPlatformsTest::RunTest(const FString& Parameters)
+{
+	UClass* Water = USTTestFluid::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Source = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
+	FSTTestAccess::SetTrip(*Subsystem, Start, Source, 60.f);
+	FSTTestAccess::SetTrip(*Subsystem, Source, Sink, 60.f);
+
+	TArray<FSTNode> Nodes = {FSTTestAccess::Node(Source, Water, ESTRole::Supply, 4 * 1000000, 4 * FluidSlot, 4),
+		FSTTestAccess::Node(Sink, Water, ESTRole::Demand, 0, 4 * FluidSlot, 4)};
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+
+	TArray<FSTTestAccess::FPlatformInfo> Platforms;
+	for (int32 Index = 0; Index < 4; ++Index)
+	{
+		Platforms.Add(FSTTestAccess::Platform(Water, true, 1000000.0, 1));
+	}
+	for (int32 Index = 0; Index < 4; ++Index)
+	{
+		Platforms.Add(FSTTestAccess::Platform(Water, false, 0.0, 0));
+	}
+	FSTTestAccess::FCarPlatforms CarPlatforms;
+	CarPlatforms.Add(Source, {{0, 1, 2, 3}, {3, 2, 1, 0}});
+	CarPlatforms.Add(Sink, {{4, 5, 6, 7}, {7, 6, 5, 4}});
+	FSTTestAccess::SetTrain(Planner, Start, true, true, {FSTTestAccess::Car(), FSTTestAccess::Car(), FSTTestAccess::Car(), FSTTestAccess::Car()}, Platforms,
+		CarPlatforms);
+
+	FSTPlanStop Load;
+	Load.Station = Source;
+	Load.LoadItems.Add(Water);
+	FSTPlanStop Unload;
+	Unload.Station = Sink;
+	Unload.UnloadItems.Add(Water);
+	const FSTPlanResult Result = Planner.Simulate({Load, Unload});
+	if (!TestTrue(FString::Printf(TEXT("trip works (%s)"), *Result.Problem), Result.bValid))
+	{
+		return false;
+	}
+	for (int32 CarIndex = 0; CarIndex < 4; ++CarIndex)
+	{
+		const FSTPlanCarStep& AtSource = Result.Steps[0][CarIndex];
+		const FSTPlanCarStep& AtSink = Result.Steps[1][CarIndex];
+		TestFalse(FString::Printf(TEXT("car %d isn't skipped at the source"), CarIndex + 1), AtSource.bSkip);
+		TestEqual(FString::Printf(TEXT("car %d loads its platform's stock"), CarIndex + 1), AtSource.Loaded.Num() > 0 ? AtSource.Loaded[0].Value : 0, 1000000);
+		TestEqual(FString::Printf(TEXT("car %d unloads it all"), CarIndex + 1), AtSink.Unloaded.Num() > 0 ? AtSink.Unloaded[0].Value : 0, 1000000);
+	}
+	return true;
+}
+
+// Without Freight Car Control no car can skip: a car beside a loading platform that isn't a supply platform for the
+// item makes the trip invalid. With it, that car skips the stop.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTWrongPlatformTest, "SmartTrains.Planner.WrongPlatformNeedsSkip", TestFlags)
+bool FSTWrongPlatformTest::RunTest(const FString& Parameters)
+{
+	UClass* Water = USTTestFluid::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Source = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
+	FSTTestAccess::SetTrip(*Subsystem, Start, Source, 60.f);
+	FSTTestAccess::SetTrip(*Subsystem, Source, Sink, 60.f);
+	TArray<FSTNode> Nodes = {FSTTestAccess::Node(Source, Water, ESTRole::Supply, 1000000, FluidSlot, 1),
+		FSTTestAccess::Node(Sink, Water, ESTRole::Demand, 0, 2 * FluidSlot, 2)};
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+
+	// Platform 1 loads water from its stock but has no supply role.
+	TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Water, true, 1000000.0, 1), FSTTestAccess::Platform(Water, true, 500000.0, 1),
+		FSTTestAccess::Platform(Water, false, 0.0, 0), FSTTestAccess::Platform(Water, false, 0.0, 0)};
+	Platforms[1].bSupply = false;
+	Platforms[1].bConfigured = false;
+	Platforms[1].Items.Reset();
+	FSTTestAccess::FCarPlatforms CarPlatforms;
+	CarPlatforms.Add(Source, {{0, 1}});
+	CarPlatforms.Add(Sink, {{2, 3}});
+	FSTPlanStop Load;
+	Load.Station = Source;
+	Load.LoadItems.Add(Water);
+	FSTPlanStop Unload;
+	Unload.Station = Sink;
+	Unload.UnloadItems.Add(Water);
+
+	{
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		FSTTestAccess::SetTrain(Planner, Start, false, false, {FSTTestAccess::Car(), FSTTestAccess::Car()}, Platforms, CarPlatforms);
+		const FSTPlanResult Result = Planner.Simulate({Load, Unload});
+		TestFalse(TEXT("without Freight Car Control the trip is invalid"), Result.bValid);
+		TestTrue(TEXT("and says it needs Freight Car Control"), Result.Problem.Contains(TEXT("Freight Car Control")));
+	}
+	{
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {FSTTestAccess::Car(), FSTTestAccess::Car()}, Platforms, CarPlatforms);
+		const FSTPlanResult Result = Planner.Simulate({Load, Unload});
+		if (TestTrue(FString::Printf(TEXT("with Freight Car Control the trip works (%s)"), *Result.Problem), Result.bValid))
+		{
+			TestTrue(TEXT("the car beside the unconfigured platform skips"), Result.Steps[0][1].bSkip);
+			TestEqual(TEXT("the other car loads"), Result.Steps[0][0].Loaded.Num() > 0 ? Result.Steps[0][0].Loaded[0].Value : 0, 1000000);
+		}
+	}
+	return true;
+}
+
+// A stop where a car will still hold what it unloads (the platform has no room for the rest) is "unload once"; one
+// where every car empties is not.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTUnloadOnceTest, "SmartTrains.Planner.UnloadOnceWhenCarCantEmpty", TestFlags)
+bool FSTUnloadOnceTest::RunTest(const FString& Parameters)
+{
+	UClass* Water = USTTestFluid::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
+	FSTTestAccess::SetTrip(*Subsystem, Start, Sink, 60.f);
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	FSTPlanStop Unload;
+	Unload.Station = Sink;
+	Unload.UnloadItems.Add(Water);
+	FSTTestAccess::FCarPlatforms CarPlatforms;
+	CarPlatforms.Add(Sink, {{0}});
+
+	for (const bool bRoomForAll : {false, true})
+	{
+		// The platform holds 1,400 m3 (1,000 m3 of room), or nothing.
+		const double Stock = bRoomForAll ? 0.0 : 1400000.0;
+		TArray<FSTNode> Nodes = {FSTTestAccess::Node(Sink, Water, ESTRole::Demand, static_cast<int32>(Stock), FluidSlot, 1)};
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {FSTTestAccess::Car(Water, 2000000.0)}, {FSTTestAccess::Platform(Water, false, Stock, Stock > 0.0 ? 1 : 0)},
+			CarPlatforms);
+		const FSTPlanResult Result = Planner.Simulate({Unload});
+		if (!TestTrue(FString::Printf(TEXT("delivery works (%s)"), *Result.Problem), Result.bValid))
+		{
+			continue;
+		}
+		TArray<FSTJobLeg> Legs;
+		Planner.MakeLegs({Unload}, Result, Legs);
+		TestEqual(TEXT("one leg"), Legs.Num(), 1);
+		if (Legs.Num() == 1)
+		{
+			TestTrue(bRoomForAll ? TEXT("a car that empties waits for empty cars") : TEXT("a car that can't empty unloads once"), Legs[0].bPartial == !bRoomForAll);
+		}
+	}
+	return true;
+}
+
+// The exact assignment beats the greedy choice.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTAssignmentTest, "SmartTrains.Planner.Assignment", TestFlags)
+bool FSTAssignmentTest::RunTest(const FString& Parameters)
+{
+	// Greedy takes 10 + 1 = 11; the best is 9 + 9 = 18.
+	const TArray<int32> Assigned = STAssignment::Solve({{10.0, 9.0}, {9.0, 1.0}});
+	TestEqual(TEXT("two rows"), Assigned.Num(), 2);
+	if (Assigned.Num() == 2)
+	{
+		TestEqual(TEXT("row 1 takes column 2"), Assigned[0], 1);
+		TestEqual(TEXT("row 2 takes column 1"), Assigned[1], 0);
+	}
+	const TArray<int32> Nothing = STAssignment::Solve({{0.0}, {-1.0}});
+	TestTrue(TEXT("rows with nothing worth more than 0 get nothing"), Nothing.Num() == 2 && Nothing[0] == INDEX_NONE && Nothing[1] == INDEX_NONE);
+	return true;
+}
+
+// The flow plan's minimum-cost flow fills the cheap route first and sends all it can.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTMinCostFlowTest, "SmartTrains.FlowPlan.MinCostFlow", TestFlags)
+bool FSTMinCostFlowTest::RunTest(const FString& Parameters)
+{
+	// 0 source, 1 sink; two suppliers (2, 3) of 5 each, one consumer (4) taking 8, the route from 2 cheaper.
+	FSTMinCostFlow Flow(5);
+	Flow.AddEdge(0, 2, 5.0, 0.0);
+	Flow.AddEdge(0, 3, 5.0, 0.0);
+	const int32 Cheap = Flow.AddEdge(2, 4, 100.0, 1.0);
+	const int32 Dear = Flow.AddEdge(3, 4, 100.0, 5.0);
+	Flow.AddEdge(4, 1, 8.0, 0.0);
+	TestEqual(TEXT("sends all the consumer takes"), Flow.Solve(0, 1), 8.0);
+	TestEqual(TEXT("the cheap route is full"), Flow.GetFlow(Cheap), 5.0);
+	TestEqual(TEXT("the dear route takes the rest"), Flow.GetFlow(Dear), 3.0);
+	return true;
+}
+
+#endif
