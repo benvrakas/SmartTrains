@@ -332,10 +332,9 @@ private:
 	TMap<TWeakObjectPtr<AFGTrain>, TPair<FVector, double>> mStandingSince;
 	// Per parked managed train: when it was last moved because it held another train up.
 	TMap<TWeakObjectPtr<AFGTrain>, double> mLastMovedAside;
-	// Stops where a train moved none of an item it was planned to move: (train, station, item, load) -> when. Such a
-	// move isn't planned again for that train for NoProgressMinutes.
-	TMap<FString, double> mNoProgress;
-	bool IsNoProgress(const AFGTrain* Train, const AFGTrainStationIdentifier* Station, const UClass* Item, bool bLoad) const;
+	// True if State's train moved none of Item at Station lately (FSTTrainState::NoProgress), so the move isn't
+	// planned again yet.
+	bool IsNoProgress(const FSTTrainState& State, const AFGTrainStationIdentifier* Station, const UClass* Item, bool bLoad) const;
 	// Auto Trains' station queues: seconds until the last train there has left, and when it was asked. [s]
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, TPair<float, double>> mAtQueues;
 	// Stations that trips held this round wait for: a train parked there is moved out (ClearNeededBays).

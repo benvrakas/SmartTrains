@@ -240,6 +240,10 @@ struct SMARTTRAINS_API FSTMonitorRow
 	UPROPERTY()
 	TArray<FString> Columns;
 
+	// What to do about it, if anything (shown in the overview).
+	UPROPERTY()
+	FString Advice;
+
 	UPROPERTY()
 	TArray<FString> Details;
 };

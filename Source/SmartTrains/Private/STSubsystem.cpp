@@ -616,7 +616,8 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 	{
 		if (Each.Value.Key > 0 && Each.Value.Value == 0 && Each.Key.Key)
 		{
-			mNoProgress.Add(FString::Printf(TEXT("%p|%p|%p|%d"), Train, Station, Each.Key.Key, Each.Key.Value ? 1 : 0), Now());
+			State.NoProgress.RemoveAll([&](const FSTNoProgress& Old) { return Old.Until <= Now() || (Old.Station == Station && Old.Item == Each.Key.Key && Old.bLoad == Each.Key.Value); });
+			State.NoProgress.Add({Station, Each.Key.Key, Each.Key.Value, Now() + NoProgressMinutes * 60.0});
 			UE_LOG(LogSmartTrains, Log, TEXT("NOPROGRESS %s %s no %s at %s (%d planned); not planned again for %.0f minutes"), *STLayout::Name(Train),
 				Each.Key.Value ? TEXT("loaded") : TEXT("unloaded"), *STNames::Item(Each.Key.Key), *STLayout::Name(Station), Each.Value.Key, NoProgressMinutes);
 		}
@@ -825,10 +826,13 @@ float ASTSubsystem::EstimateTravelSeconds(const AFGTrainStationIdentifier* From,
 	return Distance / Speed + 20.f + (bReversing ? 30.f : 0.f);
 }
 
-bool ASTSubsystem::IsNoProgress(const AFGTrain* Train, const AFGTrainStationIdentifier* Station, const UClass* Item, bool bLoad) const
+bool ASTSubsystem::IsNoProgress(const FSTTrainState& State, const AFGTrainStationIdentifier* Station, const UClass* Item, bool bLoad) const
 {
-	const double* When = mNoProgress.Find(FString::Printf(TEXT("%p|%p|%p|%d"), Train, Station, Item, bLoad ? 1 : 0));
-	return When && Now() - *When < NoProgressMinutes * 60.0;
+	const double Time = Now();
+	return State.NoProgress.ContainsByPredicate([&](const FSTNoProgress& Each)
+	{
+		return Each.Until > Time && Each.Station.Get() == Station && Each.Item.Get() == Item && Each.bLoad == bLoad;
+	});
 }
 
 float ASTSubsystem::EstimateStaySeconds(const AFGTrainStationIdentifier* Station) const

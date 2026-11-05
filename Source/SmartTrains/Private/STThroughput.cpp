@@ -19,6 +19,10 @@ namespace
 	// Average lateness of arrivals at a station that counts as congestion, and the fewest arrivals to judge it. [s]
 	constexpr double CongestedLate = 120.0;
 	constexpr int32 MinArrivals = 3;
+	// Demand nodes whose serving trains are checked per sample, and the idle share of the fleet below which it is
+	// short of trains.
+	constexpr int32 ServeChecksPerSample = 6;
+	constexpr double IdleShareForShort = 0.2;
 
 	FString NodeKey(const AFGTrainStationIdentifier* Station, const UClass* Item, ESTRole Role)
 	{
@@ -142,6 +146,63 @@ void FSTThroughput::Sample(const ASTSubsystem& Subsystem)
 			It.RemoveCurrent();
 		}
 	}
+	for (auto It = mServe.CreateIterator(); It; ++It)
+	{
+		if (!Seen.Contains(It.Key()))
+		{
+			It.RemoveCurrent();
+		}
+	}
+
+	// Can a managed train serve each consumer? The ones checked longest ago first, a few per sample.
+	TArray<const FSTNode*> Consumers;
+	for (const FSTNode& Node : Nodes)
+	{
+		if (Node.Role == ESTRole::Demand && !Node.bAnyItem && Node.Item)
+		{
+			Consumers.Add(&Node);
+		}
+	}
+	Consumers.Sort([this](const FSTNode& A, const FSTNode& B)
+	{
+		const FServe* First = mServe.Find(NodeKey(A.Station.Get(), A.Item.Get(), A.Role));
+		const FServe* Second = mServe.Find(NodeKey(B.Station.Get(), B.Item.Get(), B.Role));
+		return (First ? First->CheckedAt : -1000.0) < (Second ? Second->CheckedAt : -1000.0);
+	});
+	for (int32 Index = 0; Index < Consumers.Num() && Index < ServeChecksPerSample; ++Index)
+	{
+		const FSTNode& Consumer = *Consumers[Index];
+		FServe Serve;
+		Serve.CheckedAt = Time;
+		for (const FSTTrainState& State : Subsystem.mTrains)
+		{
+			if (!State.bManaged || !IsValid(State.Train) || Serve.bFits)
+			{
+				continue;
+			}
+			for (const FSTNode& Supplier : Nodes)
+			{
+				if (Supplier.Role != ESTRole::Supply || Supplier.Item != Consumer.Item || Supplier.Station == Consumer.Station
+					|| !Subsystem.CanServe(State, Supplier.Station.Get()) || !Subsystem.CanServe(State, Consumer.Station.Get())
+					|| Subsystem.EstimateTravelSeconds(Supplier.Station.Get(), Consumer.Station.Get(), ASTSubsystem::IsPushPull(State.Train)) < 0.f)
+				{
+					continue;
+				}
+				Serve.bReach = true;
+				const FSTFit Fit = Subsystem.ComputeFit(State.Train, Supplier.Station.Get(), Consumer.Station.Get(), Consumer.Item);
+				if (Fit.Capacity > 0)
+				{
+					Serve.bFits = true;
+					break;
+				}
+				if (Serve.Problem.IsEmpty())
+				{
+					Serve.Problem = FString::Printf(TEXT("%s: %s"), *STLayout::Name(State.Train), *Fit.Problem);
+				}
+			}
+		}
+		mServe.Add(NodeKey(Consumer.Station.Get(), Consumer.Item.Get(), Consumer.Role), Serve);
+	}
 
 	for (const AFGTrainStationIdentifier* Station : Stations)
 	{
@@ -190,6 +251,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		Managed += Each.Managed;
 	}
 	const double BusyShareNow = Managed > 0.0 ? Busy / Managed : 0.0;
+	const double IdleShareNow = mFleet.Num() > 0 && mFleet.Last().Managed > 0 ? static_cast<double>(mFleet.Last().Idle) / mFleet.Last().Managed : 0.0;
 	if (mFleet.Num() > 0)
 	{
 		const FFleetSample& Last = mFleet.Last();
@@ -305,7 +367,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		{
 			Row.Details.Add(FString::Printf(TEXT("%d arrivals, on average %.0f s later than planned."), Arrivals, Late));
 		}
-		Row.Details.Add(TEXT("More platforms, a second station for the same items, or a waiting bay before it help."));
+		Row.Advice = TEXT("More platforms, a second station for the same items, or a waiting bay before it help.");
 	}
 
 	// Items.
@@ -401,12 +463,14 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			Row.Verdict = TEXT("No demand");
 			Row.Severity = SupplierFull >= FullShare ? 1 : 0;
 			Row.Details.Add(TEXT("No demand platform takes it, so its supply platforms fill up."));
+			Row.Advice = TEXT("Set a platform where it is used to Demand.");
 		}
 		else if (Group.Suppliers.Num() == 0)
 		{
 			Row.Verdict = TEXT("No supply");
 			Row.Severity = 2;
-			Row.Details.Add(TEXT("No supply platform offers it. Set a platform where it is made to Supply."));
+			Row.Details.Add(TEXT("No supply platform offers it."));
+			Row.Advice = TEXT("Set a platform where it is made to Supply.");
 		}
 		else if (Samples < MinSamples)
 		{
@@ -418,41 +482,48 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			Row.Verdict = TEXT("OK");
 			Row.Severity = 0;
 		}
-		else if (!Advice || Advice->Pairs == 0 || Advice->TrainsFitting == 0)
+		else if (const FServe* Serve = Worst ? mServe.Find(NodeKey(Worst->Station.Get(), Item, ESTRole::Demand)) : nullptr; Serve && !Serve->bFits)
 		{
-			Row.Verdict = TEXT("No train fits");
+			// The consumer that waits most has no managed train that can serve it.
+			Row.Verdict = Serve->bReach ? TEXT("No train fits") : TEXT("Unreachable");
 			Row.Severity = 2;
-			Row.Details.Add(Advice && Advice->Pairs > 0
-				? FString(TEXT("No managed train has cars that stop beside a supply platform and a demand platform for it. Check the platform order, or use /st fit on a train."))
-				: FString(TEXT("No route was planned: the stations may not be connected the way trains can drive, or no rate has been measured yet.")));
+			Row.Details.Add(Serve->bReach
+				? FString::Printf(TEXT("No managed train fits a trip to %s from a supplier of it. First problem: %s"), *STLayout::Name(Worst->Station.Get()), *Serve->Problem)
+				: FString::Printf(TEXT("No managed train can drive to %s from a supplier of it."), *STLayout::Name(Worst->Station.Get())));
+			Row.Advice = Serve->bReach
+				? FString::Printf(TEXT("Check the platform roles and items at %s, and the cars' order (/st fit on a train)."), *STLayout::Name(Worst->Station.Get()))
+				: FString::Printf(TEXT("Connect %s to a supplier's track, or manage a train on its network."), *STLayout::Name(Worst->Station.Get()));
 		}
 		else if (SupplierEmpty >= EmptyShare || (SupplyRate < DemandRate * 0.9 && !bSuppliersFull))
 		{
 			Row.Verdict = TEXT("Supply short");
 			Row.Severity = 2;
 			Row.Details.Add(SupplyRate < DemandRate
-				? FString::Printf(TEXT("Demand is %s/min more than supply. Build more production, or add supply platforms where it is made."),
-					*STNames::Amount(Item, DemandRate - SupplyRate))
+				? FString::Printf(TEXT("Demand is %s/min more than supply."), *STNames::Amount(Item, DemandRate - SupplyRate))
 				: FString(TEXT("Its supply platforms are mostly empty: trains take all that is made.")));
+			Row.Advice = TEXT("Build more production, or add supply platforms where it is made.");
 		}
-		else if ((SupplierFull >= FullShare || Advice->TrainsNeeded > Advice->TrainsFitting + 0.5) && BusyShareNow >= BusyShare)
+		else if ((SupplierFull >= FullShare || (Advice && Advice->TrainsNeeded > Advice->TrainsFitting + 0.5)) && BusyShareNow >= BusyShare && IdleShareNow < IdleShareForShort)
 		{
 			Row.Verdict = TEXT("Trains short");
 			Row.Severity = 2;
-			Row.Details.Add(FString::Printf(TEXT("The fleet is busy %s of the time. Add about %d trains whose cars fit these platforms."), *Percent(BusyShareNow),
-				FMath::Max(1, FMath::CeilToInt(Advice->TrainsNeeded - Advice->TrainsFitting))));
+			const int32 More = Advice ? FMath::Max(1, FMath::CeilToInt(Advice->TrainsNeeded - Advice->TrainsFitting)) : 1;
+			Row.Details.Add(FString::Printf(TEXT("The fleet is busy %s of the time and few trains are idle."), *Percent(BusyShareNow)));
+			Row.Advice = FString::Printf(TEXT("Add about %d %s whose cars fit these platforms."), More, More == 1 ? TEXT("train") : TEXT("trains"));
 		}
 		else if (bCongested)
 		{
 			Row.Verdict = TEXT("Congested");
 			Row.Severity = 2;
-			Row.Details.Add(TEXT("One of its stations is congested (below)."));
+			Row.Details.Add(TEXT("One of its stations is congested (Stations tab)."));
+			Row.Advice = TEXT("More platforms, a second station for the same items, or a waiting bay before it help.");
 		}
 		else
 		{
 			Row.Verdict = TEXT("Blocked");
 			Row.Severity = 2;
-			Row.Details.Add(TEXT("Supply waits and trains are free, but they aren't sent. The idle trains' reasons below say why."));
+			Row.Details.Add(TEXT("Supply waits and trains are free, but no trip is made."));
+			Row.Advice = TEXT("See why idle trains wait (Trains tab).");
 		}
 		if (Worst && Row.Severity > 0 && Group.Consumers.Num() > 1)
 		{
@@ -524,7 +595,8 @@ TArray<FString> FSTThroughput::Describe(const FSTMonitorView& View)
 	{
 		if (Row.Severity > 0)
 		{
-			Lines.Add(FString::Printf(TEXT("  %s: %s. %s"), *Row.Title, *Row.Verdict, *FString::Join(Row.Details, TEXT(" "))));
+			Lines.Add(FString::Printf(TEXT("  %s: %s. %s%s%s"), *Row.Title, *Row.Verdict, *FString::Join(Row.Details, TEXT(" ")), Row.Advice.IsEmpty() ? TEXT("") : TEXT(" "),
+				*Row.Advice));
 		}
 	}
 	int32 Fine = 0;

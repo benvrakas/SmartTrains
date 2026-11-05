@@ -441,8 +441,10 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 				{
 					continue;
 				}
-				if (mSubsystem.IsNoProgress(Train, Consumer.Station.Get(), Carried.Key, false))
+				if (mSubsystem.IsNoProgress(State, Consumer.Station.Get(), Carried.Key, false))
 				{
+					UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: no %s to %s for now (it unloaded none there lately)"), *STLayout::Name(Train), *STNames::Item(Carried.Key),
+						*STLayout::Name(Consumer.Station.Get()));
 					continue;
 				}
 				if (CarFits(CarIndex, Consumer.Station.Get(), Demands(Carried.Key)))
@@ -466,8 +468,10 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 			continue;
 		}
 		UClass* Item = Supplier.Item.Get();
-		if (mSubsystem.IsNoProgress(Train, Supplier.Station.Get(), Item, true))
+		if (mSubsystem.IsNoProgress(State, Supplier.Station.Get(), Item, true))
 		{
+			UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: no %s from %s for now (it loaded none there lately)"), *STLayout::Name(Train), *STNames::Item(Item),
+				*STLayout::Name(Supplier.Station.Get()));
 			continue;
 		}
 		const bool bFull = IsSupplyFull(From);

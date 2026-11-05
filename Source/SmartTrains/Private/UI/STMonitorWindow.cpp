@@ -56,7 +56,7 @@ namespace
 		{
 			for (const FSTMonitorRow& Row : *Rows)
 			{
-				Text += Row.Title + Row.Verdict + FString::Join(Row.Columns, TEXT("|")) + FString::Join(Row.Details, TEXT("|"));
+				Text += Row.Title + Row.Verdict + Row.Advice + FString::Join(Row.Columns, TEXT("|")) + FString::Join(Row.Details, TEXT("|"));
 			}
 		}
 		return Text;
@@ -464,7 +464,12 @@ void USTMonitorWindow::AddRow(const FSTMonitorRow& Row, bool bIcon, const TArray
 	}
 	if (Row.Severity > 0)
 	{
-		AddDetails(Row.Details, bIcon ? MonitorIconSize + 10.f : 0.f);
+		TArray<FString> Lines = Row.Details;
+		if (!Row.Advice.IsEmpty())
+		{
+			Lines.Add(TEXT("What to do: ") + Row.Advice);
+		}
+		AddDetails(Lines, bIcon ? MonitorIconSize + 10.f : 0.f);
 	}
 	AddDivider();
 }
@@ -505,7 +510,7 @@ void USTMonitorWindow::ShowOverview(const FSTMonitorView& View)
 		AddCell(Line, MakeIcon(Row.Item, MonitorIconSize), MonitorIconSize);
 		AddCell(Line, MakeCell(Row.Title, 12, MonitorText, true), 240.f);
 		AddCell(Line, MakeCell(Row.Verdict, 12, SeverityColor(Row.Severity)), 150.f);
-		AddCell(Line, MakeCell(Row.Details.Num() > 0 ? Row.Details.Last() : FString(), 10, MonitorDim, true), 0.f);
+		AddCell(Line, MakeCell(!Row.Advice.IsEmpty() ? Row.Advice : (Row.Details.Num() > 0 ? Row.Details[0] : FString()), 10, MonitorDim, true), 0.f);
 		AddDivider();
 	}
 	for (const FSTMonitorRow& Row : View.Stations)
@@ -519,7 +524,7 @@ void USTMonitorWindow::ShowOverview(const FSTMonitorView& View)
 		AddCell(Line, MakeIcon(nullptr, MonitorIconSize), MonitorIconSize);
 		AddCell(Line, MakeCell(Row.Title, 12, MonitorText, true), 240.f);
 		AddCell(Line, MakeCell(Row.Verdict, 12, SeverityColor(Row.Severity)), 150.f);
-		AddCell(Line, MakeCell(Row.Details.Num() > 0 ? Row.Details[0] : FString(), 10, MonitorDim, true), 0.f);
+		AddCell(Line, MakeCell(!Row.Advice.IsEmpty() ? Row.Advice : (Row.Details.Num() > 0 ? Row.Details[0] : FString()), 10, MonitorDim, true), 0.f);
 		AddDivider();
 	}
 	if (Shown == 0)

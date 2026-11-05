@@ -71,7 +71,18 @@ private:
 		double Late = 0.0;
 	};
 
+	// Whether a managed train can serve a demand node: reach it from a supplier of the item, and fit at both ends.
+	struct FServe
+	{
+		bool bReach = false;
+		bool bFits = false;
+		FString Problem;
+		double CheckedAt = -1000.0;
+	};
+
 	TArray<FFleetSample> mFleet;
+	// Per demand node key, checked a few per sample, oldest first.
+	TMap<FString, FServe> mServe;
 	TMap<FString, FNodeHistory> mNodes;
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, TArray<FStationSample>> mOccupied;
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, TArray<FArrival>> mArrivals;

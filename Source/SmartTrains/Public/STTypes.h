@@ -249,6 +249,15 @@ struct SMARTTRAINS_API FSTJob
 };
 
 // SmartTrains' state for one train.
+// A move that moved nothing: not planned again for the train until Until (runtime only).
+struct FSTNoProgress
+{
+	TWeakObjectPtr<AFGTrainStationIdentifier> Station;
+	TWeakObjectPtr<UClass> Item;
+	bool bLoad = false;
+	double Until = 0.0;
+};
+
 USTRUCT()
 struct SMARTTRAINS_API FSTTrainState
 {
@@ -311,6 +320,9 @@ struct SMARTTRAINS_API FSTTrainState
 	// When the train began carrying cargo no trip wanted (game seconds), 0 if it doesn't.
 	UPROPERTY(SaveGame)
 	double UnwantedCargoSince = 0.0;
+
+	// Runtime only: moves that moved nothing at their station lately.
+	TArray<FSTNoProgress> NoProgress;
 
 	// Runtime only: the name SmartTrains last gave the train, to notice a player renaming it.
 	FString LastWrittenName;

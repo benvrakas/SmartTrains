@@ -2,6 +2,16 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Monitor verdicts checked directly:**
+  - "No train fits" now comes from a direct check: whether any managed train can reach the consumer that waits most
+    from a supplier, and fit at both ends. It names the consumer and the first fit problem. "Unreachable" means no
+    train can drive there.
+  - It used to come from the flow plan, which plans nothing when full suppliers measure 0/min.
+  - "Trains short" also needs few idle trains.
+  - Every verdict has a "What to do" line, and the overview shows it instead of "Waits most".
+- The empty-loop guard keeps its record per train (the first version didn't stop the Sulfur loop); a skipped move is
+  logged at Verbose.
+
 - **Automated tests** for the trip planner, the flow plan and the assignment (6 tests, editor only; see Testing.md).
 
 - **Parked trains hold their station:** a parked train books its station for the minute it takes to move it out, so
