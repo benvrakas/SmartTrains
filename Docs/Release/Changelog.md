@@ -2,6 +2,13 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Push-pull trains turn round when they have no path:** a managed train standing 20 s with the game's "No Path" or
+  "Station Unreachable" error gets the locomotive at its other end to lead, as a player would by driving from the
+  other cab. It then plans a way in the other direction. At most once a minute; logged as `NOPATH`. A train with a
+  locomotive at one end only gets a warning instead. Seen after a deadlock pass-through left a water shuttle facing
+  the wrong way on the shared track, where it stood in the other's way.
+- Migration window: the tick and open switches are compact clickable texts instead of tall buttons.
+
 - **Migration window redesigned**, in the monitor's style:
   - **Steps:** Preview, Apply ticked and Undo stay on top, with the trace limit and items-per-platform options.
   - **Overview tab:** counts (stations, ticked, to check, platforms with a role, trains ticked) and a list of what

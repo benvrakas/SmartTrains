@@ -54,6 +54,11 @@ namespace
 	// How often Auto Trains is asked for a station's queue. [s]
 	constexpr double AtQueueSeconds = 15.0;
 
+	// A push-pull train standing this long with a no-path error gets its other end to lead, at most once per
+	// TurnAgainSeconds. [s]
+	constexpr double NoPathTurnSeconds = 20.0;
+	constexpr double TurnAgainSeconds = 60.0;
+
 	// Managed trains stuck together this long are sorted out, the one that backed off at most once per
 	// BackOffAgainSeconds. [s]
 	constexpr float StuckTogetherSeconds = 30.f;
@@ -692,6 +697,7 @@ void ASTSubsystem::DispatchRound()
 	if (!mSettings.bObserveOnly)
 	{
 		ResolveStuckTrains();
+		ResolveNoPath();
 		for (FSTTrainState& State : mTrains)
 		{
 			// A stop ahead whose station was dismantled.
@@ -1069,6 +1075,71 @@ void ASTSubsystem::ResolveStuckTrains()
 		UE_LOG(LogSmartTrains, Warning, TEXT("STUCK %s stands stuck with %s (Auto Trains); it goes back to %s and the others plan their trips again"),
 			*STLayout::Name(Latest.Train), *FString::Join(Others, TEXT(", ")), *STLayout::Name(Back));
 		SendToStation(Latest, Back, *FString::Printf(TEXT("backing off: stuck with %s"), *FString::Join(Others, TEXT(", "))));
+	}
+}
+
+void ASTSubsystem::ResolveNoPath()
+{
+	const double Clock = Now();
+	for (FSTTrainState& State : mTrains)
+	{
+		AFGTrain* Train = State.Train;
+		if (!State.bManaged || !State.bHasJob || !IsValid(Train) || !Train->IsSelfDrivingEnabled() || Train->IsDocked())
+		{
+			State.NoPathSince = 0.0;
+			continue;
+		}
+		const ESelfDrivingLocomotiveError Error = Train->GetSelfDrivingError();
+		const bool bNoPath = Error == ESelfDrivingLocomotiveError::SDLE_NoPath || Error == ESelfDrivingLocomotiveError::SDLE_StationUnreachable
+			|| Error == ESelfDrivingLocomotiveError::SDLE_StationUnreachableWithSignals;
+		const AFGRailroadVehicle* First = Train->GetFirstVehicle();
+		const bool bStanding = First && First->GetVelocity().Size() < 100.0;
+		if (!bNoPath || !bStanding)
+		{
+			State.NoPathSince = 0.0;
+			State.bNoPathWarned = false;
+			continue;
+		}
+		if (State.NoPathSince <= 0.0)
+		{
+			State.NoPathSince = Clock;
+			continue;
+		}
+		if (Clock - State.NoPathSince < NoPathTurnSeconds || Clock - State.LastTurned < TurnAgainSeconds)
+		{
+			continue;
+		}
+		const FString ErrorName = StaticEnum<ESelfDrivingLocomotiveError>()->GetNameStringByValue(static_cast<int64>(Error));
+		// The other end leads, as a player would by driving from the other cab.
+		AFGLocomotive* Master = Train->GetMultipleUnitMaster();
+		AFGLocomotive* Other = nullptr;
+		for (AFGLocomotive* Locomotive : STLayout::GetPossibleDockingLocomotives(Train))
+		{
+			if (Locomotive != Master)
+			{
+				Other = Locomotive;
+				break;
+			}
+		}
+		if (!Other)
+		{
+			if (!State.bNoPathWarned)
+			{
+				State.bNoPathWarned = true;
+				UE_LOG(LogSmartTrains, Warning, TEXT("NOPATH %s has stood %.0f s with %s and has no locomotive at its other end to turn round; it needs driving by hand"),
+					*STLayout::Name(Train), Clock - State.NoPathSince, *ErrorName);
+			}
+			continue;
+		}
+		State.LastTurned = Clock;
+		State.NoPathSince = 0.0;
+		const bool bTurned = Train->SetMultipleUnitMaster(Other, true);
+		UE_LOG(LogSmartTrains, Warning, TEXT("NOPATH %s stood with %s for %.0f s; %s"), *STLayout::Name(Train), *ErrorName, NoPathTurnSeconds,
+			bTurned ? TEXT("its other end leads now, so it can drive the other way") : TEXT("making its other end lead failed"));
+		if (bTurned)
+		{
+			STAt::TimeTableChanged(GetWorld(), Train);
+		}
 	}
 }
 

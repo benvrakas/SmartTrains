@@ -757,7 +757,7 @@ void USTMigrationWindow::ShowOverview(const FSTMigrationView& View)
 		AddNote(FString::Printf(TEXT("and %d more: see the Stations tab, filter \"To check\"."), NeedsLook - 12), MigrationDim);
 	}
 	AddHeading(LOCTEXT("NextHeading", "Next"));
-	AddNote(TEXT("Open the Stations tab to check platforms (click + to see a station's platforms), untick stations or trains you don't want, then press Apply ticked."),
+	AddNote(TEXT("Open the Stations tab to check platforms (click [+] to see a station's platforms), untick stations or trains you don't want, then press Apply ticked."),
 		MigrationText);
 }
 
@@ -836,23 +836,24 @@ void USTMigrationWindow::AddStation(const FSTMigrationRow& Row)
 	const FString Why = StationNeedsLook(Row);
 
 	UHorizontalBox* Line = AddLine(FMargin(0.f, 4.f, 0.f, 2.f));
-	USTButton* Tick = MakeButton(nullptr, FText::FromString(bTicked ? TEXT("[x]") : TEXT("[  ]")), [this, Key]()
+	// Compact clickable texts: the tick, and the open/close switch for the station's platforms.
+	USTRow* Tick = MakeRow(nullptr, FText::FromString(bTicked ? TEXT("[x]") : TEXT("[  ]")), [this, Key]()
 	{
 		bool& Ticked = mTicked.FindOrAdd(Key);
 		Ticked = !Ticked;
 		ShowTab();
-	}, FMargin(0.f));
-	Tick->SetFixedWidth(56.f);
-	AddCell(Line, Tick, 56.f);
-	USTButton* Open = MakeButton(nullptr, FText::FromString(bOpen ? TEXT("-") : TEXT("+")), [this, Key]()
+	});
+	Tick->SetStyle(GetFont(13), FSlateColor(bTicked ? MigrationReady : MigrationDim));
+	AddCell(Line, Tick, 44.f);
+	USTRow* Open = MakeRow(nullptr, FText::FromString(bOpen ? TEXT("[-]") : TEXT("[+]")), [this, Key]()
 	{
 		if (!mExpanded.Remove(Key))
 		{
 			mExpanded.Add(Key);
 		}
 		ShowTab();
-	}, FMargin(0.f));
-	Open->SetFixedWidth(44.f);
+	});
+	Open->SetStyle(GetFont(13), FSlateColor(MigrationText));
 	AddCell(Line, Open, 44.f);
 	AddCell(Line, MakeCell(FString::Printf(TEXT("%s   %s"), *Key, *Row.Title), 12, MigrationText, true), 0.f);
 	AddCell(Line, MakeCell(RoleCounts(Row), 10, MigrationDim), 170.f);
@@ -860,13 +861,13 @@ void USTMigrationWindow::AddStation(const FSTMigrationRow& Row)
 		!Row.Flag.IsEmpty() ? MigrationFlag : (Why.IsEmpty() ? MigrationReady : MigrationCheck)), 170.f);
 	if (!Why.IsEmpty())
 	{
-		AddNote(Why, Row.Flag.IsEmpty() ? MigrationCheck : MigrationFlag, 108.f);
+		AddNote(Why, Row.Flag.IsEmpty() ? MigrationCheck : MigrationFlag, 96.f);
 	}
 	if (bOpen)
 	{
 		for (const FSTMigrationPlatformRow& Platform : Row.Platforms)
 		{
-			UHorizontalBox* PlatformLine = AddLine(FMargin(108.f, 2.f, 0.f, 0.f));
+			UHorizontalBox* PlatformLine = AddLine(FMargin(96.f, 2.f, 0.f, 0.f));
 			AddCell(PlatformLine, MakeCell(FString::Printf(TEXT("P%d"), Platform.Number), 11, MigrationDim), 40.f);
 			AddCell(PlatformLine, MakeCell(STNames::Role(Platform.Role), 11, RoleColor(Platform.Role)), 80.f);
 			UHorizontalBox* Items = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
@@ -891,16 +892,16 @@ void USTMigrationWindow::AddStation(const FSTMigrationRow& Row)
 			AddCell(PlatformLine, MakeCell(Platform.Confidence, 11, ConfidenceColor(Platform.Confidence)), 90.f);
 			if (!Platform.Conflict.IsEmpty())
 			{
-				AddNote(TEXT("! ") + Platform.Conflict, MigrationFlag, 148.f);
+				AddNote(TEXT("! ") + Platform.Conflict, MigrationFlag, 136.f);
 			}
 			if (!Platform.Note.IsEmpty())
 			{
-				AddNote(Platform.Note, MigrationDim, 148.f);
+				AddNote(Platform.Note, MigrationDim, 136.f);
 			}
 		}
 		if (!Row.Users.IsEmpty())
 		{
-			AddNote(TEXT("Used by: ") + Row.Users, MigrationDim, 108.f);
+			AddNote(TEXT("Used by: ") + Row.Users, MigrationDim, 96.f);
 		}
 	}
 	AddDivider();
@@ -936,23 +937,23 @@ void USTMigrationWindow::AddTrain(const FSTMigrationRow& Row)
 	const FString Key = RowKey(Row);
 	const bool bTicked = mTicked.FindRef(Key);
 	UHorizontalBox* Line = AddLine(FMargin(0.f, 4.f, 0.f, 2.f));
-	USTButton* Tick = MakeButton(nullptr, FText::FromString(bTicked ? TEXT("[x]") : TEXT("[  ]")), [this, Key]()
+	USTRow* Tick = MakeRow(nullptr, FText::FromString(bTicked ? TEXT("[x]") : TEXT("[  ]")), [this, Key]()
 	{
 		bool& Ticked = mTicked.FindOrAdd(Key);
 		Ticked = !Ticked;
 		ShowTab();
-	}, FMargin(0.f));
-	Tick->SetFixedWidth(56.f);
-	AddCell(Line, Tick, 56.f);
+	});
+	Tick->SetStyle(GetFont(13), FSlateColor(bTicked ? MigrationReady : MigrationDim));
+	AddCell(Line, Tick, 44.f);
 	AddCell(Line, MakeCell(FString::Printf(TEXT("%s   %s"), *Key, *Row.Title), 12, MigrationText, true), 0.f);
 	AddCell(Line, MakeCell(bTicked ? TEXT("Will be managed") : TEXT("Keeps its timetable"), 11, bTicked ? MigrationReady : MigrationDim), 170.f);
 	if (!Row.Users.IsEmpty())
 	{
-		AddNote(Row.Users, MigrationDim, 64.f);
+		AddNote(Row.Users, MigrationDim, 52.f);
 	}
 	if (!Row.Note.IsEmpty())
 	{
-		AddNote(Row.Note, MigrationCheck, 64.f);
+		AddNote(Row.Note, MigrationCheck, 52.f);
 	}
 	AddDivider();
 }

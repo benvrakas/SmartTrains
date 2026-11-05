@@ -334,6 +334,11 @@ struct SMARTTRAINS_API FSTTrainState
 	bool bReplanFresh = false;
 	// Runtime only: when the train was last sent back because it stood stuck nose to nose with another. [game s]
 	double LastBackedOff = -1000.0;
+	// Runtime only: since when the train has stood with a no-path error (0 if it hasn't), when its other end was last
+	// made to lead, and whether a one-way train's warning was logged. [game s]
+	double NoPathSince = 0.0;
+	double LastTurned = -1000.0;
+	bool bNoPathWarned = false;
 	// Runtime only: docking state at the last check, when the current dock began, and where.
 	bool bWasDocked = false;
 	double DockedAt = 0.0;
