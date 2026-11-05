@@ -768,12 +768,6 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 		return;
 	}
 	Planner.Release(State.Job.Legs, State.Job.Leg);
-	// The trip limit is for planning new trips; the rest of a trip under way may take as long as it already does.
-	if (State.Job.Legs.Num() > State.Job.Leg)
-	{
-		const FSTJobLeg& Last = State.Job.Legs.Last();
-		Planner.RaiseTripLimit(Last.PlannedArrival - Now() + EstimateStaySeconds(Last.Station) + 120.0);
-	}
 	TArray<FSTPlanStop> Stops;
 	FString Before;
 	for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
@@ -784,7 +778,11 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 		Stop.LoadItems = Each.GetItems(true);
 		Stop.UnloadItems = Each.GetItems(false);
 	}
+	// The trip limit is for planning new trips: the rest of a trip under way is checked without it, and additions may
+	// make the trip as long as its rest already is.
+	Planner.RaiseTripLimit(1.0e9);
 	FSTPlanResult Result = Planner.Simulate(Stops);
+	Planner.ResetTripLimit(Result.bValid ? Result.EndTime - Now() + 120.0 : 0.0);
 	Before = Planner.Describe(Stops, Result);
 	if (!Result.bValid)
 	{
@@ -954,7 +952,7 @@ void ASTSubsystem::SendToStation(FSTTrainState& State, AFGTrainStationIdentifier
 	Job.bPark = true;
 	FSTJobLeg& Leg = Job.Legs.AddDefaulted_GetRef();
 	Leg.Station = Station;
-	Leg.PlannedArrival = Now() + FMath::Max(0.f, EstimateTravelSeconds(State.LastStation.Get(), Station));
+	Leg.PlannedArrival = Now() + FMath::Max(0.f, EstimateTravelSeconds(State.LastStation.Get(), Station, IsPushPull(State.Train)));
 	Job.Summary = FString::Printf(TEXT("to %s"), *STLayout::Name(Station));
 	State.Job = Job;
 	State.bHasJob = true;
@@ -989,7 +987,7 @@ AFGTrainStationIdentifier* ASTSubsystem::FindDepot(const FSTTrainState& State, c
 		{
 			continue;
 		}
-		const float Time = From ? EstimateTravelSeconds(From, Config.Station) : 0.f;
+		const float Time = From ? EstimateTravelSeconds(From, Config.Station, IsPushPull(State.Train)) : 0.f;
 		if (Time >= 0.f && Time < BestTime)
 		{
 			BestTime = Time;
@@ -1035,7 +1033,7 @@ void ASTSubsystem::ClearNeededBays()
 				{
 					continue;
 				}
-				const float Time = EstimateTravelSeconds(Here, Candidate);
+				const float Time = EstimateTravelSeconds(Here, Candidate, IsPushPull(State.Train));
 				if (Time >= 0.f && Time < BestTime)
 				{
 					BestTime = Time;
@@ -1261,7 +1259,7 @@ void ASTSubsystem::PlanFlows()
 					{
 						continue;
 					}
-					const float Time = EstimateTravelSeconds(Nodes[From].Station.Get(), Nodes[To].Station.Get());
+					const float Time = EstimateTravelSeconds(Nodes[From].Station.Get(), Nodes[To].Station.Get(), true);
 					if (Time < 0.f)
 					{
 						continue;
@@ -1299,7 +1297,7 @@ void ASTSubsystem::AddPlannedRoute(const TArray<FSTNode>& Nodes, int32 From, int
 	Advice.FlowPerMinute += Flow * 60.0;
 
 	// Trains needed for this route: flow x round trip / load of the trains that fit.
-	const float Back = EstimateTravelSeconds(Consumer.Station.Get(), Supplier.Station.Get());
+	const float Back = EstimateTravelSeconds(Consumer.Station.Get(), Supplier.Station.Get(), true);
 	const double RoundTrip = Time + FMath::Max(0.f, Back) + EstimateStaySeconds(Supplier.Station.Get()) + EstimateStaySeconds(Consumer.Station.Get());
 	int32 Fitting = 0;
 	double Load = 0.0;

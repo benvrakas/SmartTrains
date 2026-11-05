@@ -62,8 +62,9 @@ Not yet used:
   items away from its shuttle.
 - A station used by both kinds is flagged; apply it by number to give it roles anyway.
 - A station no train uses is flagged.
-- Without DynamicTimeTable no train is ticked and no station is flagged for that reason. Pick trains with `/st
-  migrate apply trains <numbers>`.
+- Without DynamicTimeTable every train that can dock (and isn't set to keep vanilla) is ticked: it joins the managed
+  pool, and a train that used to shuttle on one route takes other trips when that route is stocked. Untick a train
+  to keep it on its own timetable. No station is flagged for that reason.
 
 ## DynamicTimeTable
 

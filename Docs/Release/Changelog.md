@@ -33,6 +33,13 @@
   section beside the platform menu), instead of a tall panel beside it.
 - Trains managed out on the track with nothing to do drive to the nearest station before parking, instead of
   stopping on the line. Re-plans no longer drop the rest of a trip for being over the trip limit.
+- **Push-pull trains** can be sent to stations they can only enter from the far end (dead-end shuttles), which the
+  route search used to count as unreachable.
+- The trip limit no longer blocks direct trips (one pickup, one delivery) and never drops the rest of a running trip;
+  it only limits combining stops.
+- Pickups count what the platform makes while the train is docked (fluids fed by pipes).
+- **Migration without DynamicTimeTable** ticks every train that can dock (unless set to keep vanilla), so the whole
+  fleet joins the pool; untick any to keep.
 - **Train names** (setting): SmartTrains' name only, `ST: <trip>` or `ST: Idle`; a name a player gives a managed
   train is the one put back later.
 - Trips are re-planned when a station or a platform with settings is dismantled. Unwanted cargo means an item on

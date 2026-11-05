@@ -96,6 +96,8 @@ public:
 
 	// Lets the current train's trip run at least Seconds (for re-plans of trips under way); reset by BeginTrain.
 	void RaiseTripLimit(double Seconds);
+	// Back to the setting's limit, or AtLeast if that is longer.
+	void ResetTripLimit(double AtLeast);
 
 	// True when this round's planning time is used up.
 	bool IsOverBudget() const;
@@ -160,6 +162,8 @@ private:
 	double mFreeAt = 0.0;
 	bool bAnchorDocked = false;
 	bool bRelaxed = false;
+	// The current train has a locomotive at each end (travel estimates may reverse and arrive from a far end).
+	bool bPushPull = false;
 	TArray<FCarInfo> mCars;
 	TArray<FSTPlanMove> mMoves;
 

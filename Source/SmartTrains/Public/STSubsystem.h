@@ -129,7 +129,10 @@ public:
 	TArray<TArray<AFGRailroadVehicle*>> GetDockMaps(const AFGTrain* Train, const AFGTrainStationIdentifier* Station, bool* bLearned = nullptr) const;
 
 	// Estimated travel time from From to To. [s]
-	float EstimateTravelSeconds(const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To) const;
+	// bPushPull: the train has a locomotive at each end, so it may reverse out and arrive from a station's far end.
+	float EstimateTravelSeconds(const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, bool bPushPull = false) const;
+	// True if Train has locomotives that can dock facing both ways.
+	static bool IsPushPull(const AFGTrain* Train);
 	float EstimateStaySeconds(const AFGTrainStationIdentifier* Station) const;
 
 	const FSTSettings& GetSettings() const { return mSettings; }

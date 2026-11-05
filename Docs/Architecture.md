@@ -114,7 +114,8 @@ settings change (`DispatchRound`):
 
 ### Trip planning (`STTripPlanner.*`)
 
-A trip is a list of stops (at most **Most stops per trip**, each station once, no longer than **Longest trip**),
+A trip is a list of stops (at most **Most stops per trip**, each station once, and with more than two stops no longer
+than **Longest trip**: the limit only stops SmartTrains combining stops, a direct trip is never too long),
 each with the items loaded and unloaded there. These become the stop's load and unload filters.
 
 **Simulation** (`Simulate`): the stops' times come from travel estimates and stays, after the bookings of other
@@ -126,8 +127,8 @@ trains. Then each car, stop by stop, beside the platform it meets there (from th
   that takes all of them (or an any-item sink); otherwise it is harm.
 - If the possible dock maps disagree, or the car would do harm, the car skips the stop through Freight Car Control.
   Without FCC the trip is invalid.
-- Amounts come from the platform's stock plus its share of the node's production up to arrival, less what other
-  trips reserved. Unloads are limited by the platform's free slots.
+- Amounts come from the platform's stock plus its share of the node's production up to the end of the stay (a fluid
+  platform fed by pipes keeps filling while the train loads), less what other trips reserved. Unloads are limited by the platform's free slots.
 - Cargo loaded on the trip that no later stop unloads is stranded: with FCC that car skips the pickup and the
   simulation runs again; without FCC the trip is invalid.
 - **Batch:** per item, what loads must reach the send-at share of the loading cars' room, unless a critical
@@ -153,6 +154,8 @@ loads and unloads, or when a later stop moves the same item (a first pickup or a
 Otherwise it waits for full or empty cars, up to the load or unload wait.
 
 **Re-planning** (`ReplanTrip`): after every stop (`bReplan`) and after a platform setting changes (`bReplanAll`).
+The rest of the trip is checked without the trip limit, and additions may make the trip as long as its rest already
+is, so a running trip is never dropped for being long.
 The rest of the trip is simulated again from the cargo really on board, with its own reservations released first.
 Items that would move nothing and empty stops are trimmed, then regret insertion may add moves, such as delivering
 leftovers on the way. If the rest no longer works at all, it is planned again from the cargo on board. If nothing
@@ -193,6 +196,12 @@ at the cost of that track's length.
 
 Time = distance ÷ **Speed estimate** + 20 s. It is replaced by the learned trip time once a train has driven that
 pair: the first sample, then a 0.3-weight moving average. Stays per station are learned the same way.
+
+**Push-pull arrivals.** A train with a locomotive at each end can also enter a station from its far end, station
+building first, and dock with its rear locomotive. Each search therefore records arrivals through both ends
+(`FRow::ForwardBack`, `ReverseBack`). `EstimateTravelSeconds(..., bPushPull)` uses the far-end arrivals only for such
+trains (`IsPushPull`: more than one locomotive that can dock), so a single-locomotive train is never planned onto a
+route it can't drive. A shuttle between two dead-end stations is the usual case.
 
 ## Freight Car Control
 

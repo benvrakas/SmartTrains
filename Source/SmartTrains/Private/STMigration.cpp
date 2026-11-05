@@ -140,7 +140,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 	}
 	else
 	{
-		Preview.DttNote = TEXT("DynamicTimeTable not installed: no train is ticked, pick them with /st migrate apply trains <numbers>");
+		Preview.DttNote = TEXT("DynamicTimeTable not installed: every train that can dock is ticked to join the managed pool; untick any you want to keep on its own timetable");
 	}
 
 	TArray<AFGTrain*> Trains;
@@ -188,9 +188,13 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 			continue;
 		}
 		const bool bKeepVanilla = State && State->bKeepVanilla;
-		Proposal.bPreselected = Preview.bDttRead && Proposal.bPullBased && !bKeepVanilla;
-		Proposal.Note = bKeepVanilla ? TEXT("kept vanilla") : (Proposal.bPullBased ? TEXT("pull-based (stops in a DynamicTimeTable group)")
-			: (Preview.bDttRead ? TEXT("dedicated: kept as is") : TEXT("not ticked (no DynamicTimeTable to tell)")));
+		const bool bCanDock = STLayout::GetPossibleDockingLocomotives(Proposal.Train.Get()).Num() > 0;
+		// With DynamicTimeTable groups, pull-based trains are ticked and dedicated ones kept. Without them every train
+		// joins the managed pool (a train that used to shuttle simply takes other trips when its route is stocked).
+		Proposal.bPreselected = !bKeepVanilla && bCanDock && (Preview.bDttRead ? Proposal.bPullBased : true);
+		Proposal.Note = bKeepVanilla ? TEXT("kept vanilla") : (!bCanDock ? TEXT("no locomotive that can dock")
+			: (Proposal.bPullBased ? TEXT("pull-based (stops in a DynamicTimeTable group)")
+			: (Preview.bDttRead ? TEXT("dedicated: kept as is") : TEXT("joins the managed pool"))));
 		const int32 TrainIndex = Preview.Trains.Add(Proposal);
 		for (const FTimeTableStop& Stop : Stops)
 		{

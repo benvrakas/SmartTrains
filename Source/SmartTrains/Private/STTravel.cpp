@@ -74,6 +74,7 @@ void FSTTravel::Step(const TArray<AFGTrainStationIdentifier*>& Stations)
 	AFGTrainStationIdentifier* Source = mOrder[mNext++].Get();
 
 	TMap<UFGRailroadTrackConnectionComponent*, AFGTrainStationIdentifier*> Arrivals;
+	TMap<UFGRailroadTrackConnectionComponent*, AFGTrainStationIdentifier*> BackArrivals;
 	TMap<AFGTrainStationIdentifier*, float> ArrivalExtra;
 	for (AFGTrainStationIdentifier* Station : Stations)
 	{
@@ -83,6 +84,7 @@ void FSTTravel::Step(const TArray<AFGTrainStationIdentifier*>& Stations)
 		if (GetStationEnds(Station, PlatformEnd, FarEnd, Length))
 		{
 			Arrivals.Add(PlatformEnd, Station);
+			BackArrivals.Add(FarEnd, Station);
 			ArrivalExtra.Add(Station, Length);
 		}
 	}
@@ -97,15 +99,16 @@ void FSTTravel::Step(const TArray<AFGTrainStationIdentifier*>& Stations)
 	}
 	const double Started = FPlatformTime::Seconds();
 	FRow Row;
-	Search(FarEnd, Arrivals, ArrivalExtra, Row.Forward);
-	Search(PlatformEnd, Arrivals, ArrivalExtra, Row.Reverse);
-	UE_LOG(LogSmartTrains, Verbose, TEXT("Travel: from %s reaches %d stations forward, %d reversing (%.1f ms)"), *STLayout::Name(Source),
-		Row.Forward.Num(), Row.Reverse.Num(), (FPlatformTime::Seconds() - Started) * 1000.0);
+	Search(FarEnd, Arrivals, BackArrivals, ArrivalExtra, Row.Forward, Row.ForwardBack);
+	Search(PlatformEnd, Arrivals, BackArrivals, ArrivalExtra, Row.Reverse, Row.ReverseBack);
+	UE_LOG(LogSmartTrains, Verbose, TEXT("Travel: from %s reaches %d stations forward, %d reversing; push-pull trains also %d forward, %d reversing from the far end (%.1f ms)"),
+		*STLayout::Name(Source), Row.Forward.Num(), Row.Reverse.Num(), Row.ForwardBack.Num(), Row.ReverseBack.Num(), (FPlatformTime::Seconds() - Started) * 1000.0);
 	mRows.Add(Source, MoveTemp(Row));
 }
 
 void FSTTravel::Search(UFGRailroadTrackConnectionComponent* Exit, const TMap<UFGRailroadTrackConnectionComponent*, AFGTrainStationIdentifier*>& Arrivals,
-	const TMap<AFGTrainStationIdentifier*, float>& ArrivalExtra, TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& Out)
+	const TMap<UFGRailroadTrackConnectionComponent*, AFGTrainStationIdentifier*>& BackArrivals, const TMap<AFGTrainStationIdentifier*, float>& ArrivalExtra,
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& Out, TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& OutBack)
 {
 	// Dijkstra over track exits: a node is "about to leave a track through this connection".
 	struct FEntry
@@ -141,6 +144,12 @@ void FSTTravel::Search(UFGRailroadTrackConnectionComponent* Exit, const TMap<UFG
 				float& Recorded = Out.FindOrAdd(*Station, TNumericLimits<float>::Max());
 				Recorded = FMath::Min(Recorded, Arrival);
 			}
+			if (AFGTrainStationIdentifier* const* Station = BackArrivals.Find(Entrance))
+			{
+				const float Arrival = Entry.Distance + ArrivalExtra.FindRef(*Station);
+				float& Recorded = OutBack.FindOrAdd(*Station, TNumericLimits<float>::Max());
+				Recorded = FMath::Min(Recorded, Arrival);
+			}
 			AFGBuildableRailroadTrack* Track = Entrance->GetTrack();
 			UFGRailroadTrackConnectionComponent* Next = Entrance->GetOpposite();
 			if (!Track || !Next)
@@ -158,7 +167,7 @@ void FSTTravel::Search(UFGRailroadTrackConnectionComponent* Exit, const TMap<UFG
 	}
 }
 
-float FSTTravel::GetDistance(const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, bool* bReversing) const
+float FSTTravel::GetDistance(const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, bool* bReversing, bool bPushPull) const
 {
 	if (bReversing)
 	{
@@ -173,17 +182,37 @@ float FSTTravel::GetDistance(const AFGTrainStationIdentifier* From, const AFGTra
 	{
 		return -1.f;
 	}
-	if (const float* Forward = Row->Forward.Find(const_cast<AFGTrainStationIdentifier*>(To)))
+	// The shortest way the train can drive: forward first, then (push-pull) any way it can leave and arrive.
+	AFGTrainStationIdentifier* Key = const_cast<AFGTrainStationIdentifier*>(To);
+	float Best = TNumericLimits<float>::Max();
+	bool bBestReversing = false;
+	auto Consider = [&](const TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& Map, bool bReverse)
 	{
-		return *Forward;
-	}
-	if (const float* Reverse = Row->Reverse.Find(const_cast<AFGTrainStationIdentifier*>(To)))
-	{
-		if (bReversing)
+		if (const float* Found = Map.Find(Key); Found && *Found < Best)
 		{
-			*bReversing = true;
+			Best = *Found;
+			bBestReversing = bReverse;
 		}
-		return *Reverse;
+	};
+	Consider(Row->Forward, false);
+	if (Best == TNumericLimits<float>::Max())
+	{
+		Consider(Row->Reverse, true);
 	}
-	return -2.f;
+	if (bPushPull)
+	{
+		Consider(Row->Forward, false);
+		Consider(Row->Reverse, true);
+		Consider(Row->ForwardBack, false);
+		Consider(Row->ReverseBack, true);
+	}
+	if (Best == TNumericLimits<float>::Max())
+	{
+		return -2.f;
+	}
+	if (bReversing)
+	{
+		*bReversing = bBestReversing;
+	}
+	return Best;
 }

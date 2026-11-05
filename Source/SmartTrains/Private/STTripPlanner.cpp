@@ -107,6 +107,11 @@ void FSTTripPlanner::RaiseTripLimit(double Seconds)
 	mMaxTripSeconds = FMath::Max(mMaxTripSeconds, Seconds);
 }
 
+void FSTTripPlanner::ResetTripLimit(double AtLeast)
+{
+	mMaxTripSeconds = FMath::Max(FMath::Max(60.0, mSubsystem.mSettings.MaxTripMinutes * 60.0), AtLeast);
+}
+
 bool FSTTripPlanner::IsOverBudget() const
 {
 	return FPlatformTime::Seconds() > mDeadline;
@@ -149,7 +154,8 @@ double FSTTripPlanner::Busy(const AFGTrainStationIdentifier* Station) const
 double FSTTripPlanner::GetAvailable(int32 Node, double Arrive) const
 {
 	const FSTNode& Supplier = mNodes[Node];
-	return FMath::Min<double>(Supplier.Capacity, Supplier.Stock + Supplier.Rate * (Arrive - mTime)) - Supplier.Reserved;
+	const double Until = Arrive + mSubsystem.EstimateStaySeconds(Supplier.Station.Get()) - mTime;
+	return FMath::Min<double>(Supplier.Capacity, Supplier.Stock + Supplier.Rate * Until) - Supplier.Reserved;
 }
 
 double FSTTripPlanner::GetRoom(int32 Node, double Arrive, bool& bOutWants) const
@@ -293,6 +299,7 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 	mMoves.Reset();
 	mCarPlatforms.Reset();
 	mLastProblem.Reset();
+	bPushPull = ASTSubsystem::IsPushPull(mSubsystem.mTrains[TrainIndex].Train);
 	const FSTTrainState& State = mSubsystem.mTrains[TrainIndex];
 	const AFGTrain* Train = State.Train;
 	if (!IsValid(Train) || !Anchor)
@@ -382,7 +389,7 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 		{
 			continue;
 		}
-		const float ToSupplier = mSubsystem.EstimateTravelSeconds(Anchor, Supplier.Station.Get());
+		const float ToSupplier = mSubsystem.EstimateTravelSeconds(Anchor, Supplier.Station.Get(), bPushPull);
 		if (ToSupplier < 0.f || GetAvailable(From, mFreeAt + ToSupplier) <= 0.0)
 		{
 			continue;
@@ -415,7 +422,7 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 			}
 			if (!Consumer.bAnyItem && !bFull)
 			{
-				const float Leg = mSubsystem.EstimateTravelSeconds(Supplier.Station.Get(), Consumer.Station.Get());
+				const float Leg = mSubsystem.EstimateTravelSeconds(Supplier.Station.Get(), Consumer.Station.Get(), bPushPull);
 				bool bWants = false;
 				GetRoom(To, mFreeAt + ToSupplier + mSubsystem.EstimateStaySeconds(Supplier.Station.Get()) + FMath::Max(0.f, Leg), bWants);
 				if (!bWants || Leg < 0.f)
@@ -506,7 +513,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 				return Fail(TEXT("a station twice"));
 			}
 		}
-		const float Travel = Previous == Station ? 0.f : mSubsystem.EstimateTravelSeconds(Previous, Station);
+		const float Travel = Previous == Station ? 0.f : mSubsystem.EstimateTravelSeconds(Previous, Station, bPushPull);
 		if (Travel < 0.f)
 		{
 			return Fail(FString::Printf(TEXT("%s can't be reached"), *STLayout::Name(Station)));
@@ -516,7 +523,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 		Previous = Station;
 	}
 	Result.EndTime = Clock;
-	if (Result.EndTime - mFreeAt > mMaxTripSeconds)
+	if (Stops.Num() > 2 && Result.EndTime - mFreeAt > mMaxTripSeconds)
 	{
 		return Fail(TEXT("longer than the trip limit"));
 	}
@@ -668,7 +675,9 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 						}
 						const FSTNode& Supplier = mNodes[Node];
 						const double Share = Supplier.Stock > 0 ? Stock / Supplier.Stock : 1.0 / FMath::Max(1, Supplier.Platforms.Num());
-						return FMath::Max(0.0, Stock + Share * (Supplier.Rate * (Arrive - mTime) - Supplier.Reserved));
+						// What arrives up to the end of the stay, since the platform keeps filling while the train loads.
+						const double Until = Arrive + mSubsystem.EstimateStaySeconds(Stop.Station) - mTime;
+						return FMath::Max(0.0, Stock + Share * (Supplier.Rate * Until - Supplier.Reserved));
 					});
 					const double Room = GetCarRoom(mCars[CarIndex], Cargo[CarIndex], Item);
 					const double Amount = FMath::FloorToDouble(FMath::Min3(Room, Pool, FMath::Max(0.0, NodeLeft)));

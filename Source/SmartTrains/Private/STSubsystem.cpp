@@ -711,7 +711,12 @@ void ASTSubsystem::AddHistory(const AFGTrainStationIdentifier* Station, const FS
 	}
 }
 
-float ASTSubsystem::EstimateTravelSeconds(const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To) const
+bool ASTSubsystem::IsPushPull(const AFGTrain* Train)
+{
+	return STLayout::GetPossibleDockingLocomotives(Train).Num() > 1;
+}
+
+float ASTSubsystem::EstimateTravelSeconds(const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, bool bPushPull) const
 {
 	if (!From || !To)
 	{
@@ -727,7 +732,7 @@ float ASTSubsystem::EstimateTravelSeconds(const AFGTrainStationIdentifier* From,
 	}
 	const float Speed = FMath::Max(1.f, mSettings.AverageSpeedKmh / 3.6f) * 100.f;
 	bool bReversing = false;
-	float Distance = mTravel ? mTravel->GetDistance(From, To, &bReversing) : -1.f;
+	float Distance = mTravel ? mTravel->GetDistance(From, To, &bReversing, bPushPull) : -1.f;
 	if (Distance == -2.f)
 	{
 		return -1.f;
