@@ -340,6 +340,8 @@ private:
 	bool IsNoProgress(const FSTTrainState& State, const AFGTrainStationIdentifier* Station, const UClass* Item, bool bLoad) const;
 	// Auto Trains' station queues: seconds until the last train there has left, and when it was asked. [s]
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, TPair<float, double>> mAtQueues;
+	// The running trips' timetables were written again once after loading.
+	bool bRewroteAfterLoad = false;
 	// Stations that trips held this round wait for: a train parked there is moved out (ClearNeededBays).
 	TSet<TWeakObjectPtr<AFGTrainStationIdentifier>> mHeldFor;
 	// Auto Trains travel-time questions left this dispatch round (each is a search over the whole network).

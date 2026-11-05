@@ -46,6 +46,8 @@ namespace
 
 	// A parked train's booking of its station: about how long moving it out takes. [s]
 	constexpr double ParkedLeaveSeconds = 60.0;
+	// A parked train that couldn't get out books its station this long instead. [s]
+	constexpr double CantLeaveHoldSeconds = 180.0;
 	// Auto Trains travel-time questions per dispatch round. [calls]
 	constexpr int32 AtTravelCallsPerRound = 4;
 
@@ -53,6 +55,9 @@ namespace
 	constexpr float AtHeldUpSeconds = 20.f;
 	// How often Auto Trains is asked for a station's queue. [s]
 	constexpr double AtQueueSeconds = 15.0;
+
+	// A trip is planned again because a parked train can't leave a station it needs at most this often. [s]
+	constexpr double RerouteAgainSeconds = 60.0;
 
 	// A push-pull train standing this long with a no-path error gets its other end to lead, at most once per
 	// TurnAgainSeconds. [s]
@@ -658,7 +663,9 @@ void ASTSubsystem::DispatchRound()
 		const FSTTrainState& State = mTrains[TrainIndex];
 		if (State.bManaged && !State.bHasJob && State.Phase == ESTTrainPhase::Parked && State.LastStation && IsValid(State.Train) && !State.Train->IsSelfDrivingEnabled())
 		{
-			Bookings.FindOrAdd(State.LastStation.Get()).Add({TrainIndex, Time, Time + ParkedLeaveSeconds});
+			// One that couldn't get out lately holds it longer, so trips don't keep planning into it.
+			const double Hold = Time - State.LastCantLeave < CantLeaveHoldSeconds ? CantLeaveHoldSeconds : ParkedLeaveSeconds;
+			Bookings.FindOrAdd(State.LastStation.Get()).Add({TrainIndex, Time, Time + Hold});
 		}
 	}
 	if (STAt::IsAvailable(GetWorld()))
@@ -692,6 +699,22 @@ void ASTSubsystem::DispatchRound()
 	{
 		UE_LOG(LogSmartTrains, Log, TEXT("%d platforms with settings were dismantled; trips under way are re-planned"), Before - mPlatforms.Num());
 		bReplanAll = true;
+	}
+	// Once after loading, every running trip's timetable is written again from its current stop: saves can hold
+	// timetables that run a stop ahead of their trip (written during a dock before 2026-11-05).
+	if (!bRewroteAfterLoad && !mSettings.bObserveOnly)
+	{
+		bRewroteAfterLoad = true;
+		int32 Rewritten = 0;
+		for (FSTTrainState& State : mTrains)
+		{
+			if (State.bManaged && State.bHasJob && IsValid(State.Train) && !State.Train->IsDocked())
+			{
+				WriteJob(State, TEXT("timetable written again after loading"));
+				++Rewritten;
+			}
+		}
+		UE_LOG(LogSmartTrains, Log, TEXT("After loading: %d running trips' timetables written again from their current stop"), Rewritten);
 	}
 	// Trips under way that asked for a re-plan (after a stop, or after platform settings changed).
 	if (!mSettings.bObserveOnly)
@@ -1489,15 +1512,57 @@ void ASTSubsystem::ClearNeededBays()
 				}
 			}
 		}
-		if (Target)
-		{
-			SendToStation(State, Target, *Why);
-		}
-		else
+		if (!Target)
 		{
 			UE_LOG(LogSmartTrains, Warning, TEXT("%s is parked at %s, which a job needs, and there is nowhere to move it: add a depot (/st station depot on)"),
 				*STLayout::Name(State.Train), *STLayout::Name(Here));
+			continue;
 		}
+		// With Auto Trains the way out is checked first: a train coming the other way on a single track would meet it
+		// head on. Then it stays, and the trips heading here are planned again so they go elsewhere.
+		if (Target->GetStation())
+		{
+			float Seconds = -1.f;
+			FString Reason;
+			const STAt::ELegCheck Check = STAt::CheckLeg(GetWorld(), State.Train, Target->GetStation(), Seconds, Reason);
+			if (Check == STAt::ELegCheck::Pending)
+			{
+				continue;
+			}
+			if (Check == STAt::ELegCheck::Blocked)
+			{
+				State.LastCantLeave = Clock;
+				TArray<FString> Rerouted;
+				for (FSTTrainState& Other : mTrains)
+				{
+					if (&Other == &State || !Other.bManaged || !Other.bHasJob || Other.Job.bPark || !IsValid(Other.Train) || Other.Train->IsDocked()
+						|| Clock - Other.LastRerouted < RerouteAgainSeconds)
+					{
+						continue;
+					}
+					bool bComing = false;
+					for (int32 Leg = Other.Job.Leg; Leg < Other.Job.Legs.Num() && !bComing; ++Leg)
+					{
+						bComing = Other.Job.Legs[Leg].Station == Here;
+					}
+					if (bComing)
+					{
+						Other.LastRerouted = Clock;
+						Other.bReplan = true;
+						Other.bReplanFresh = true;
+						Rerouted.Add(STLayout::Name(Other.Train));
+					}
+				}
+				UE_LOG(LogSmartTrains, Log, TEXT("REROUTE %s, parked at %s, can't get out to %s now (%s)%s%s"), *STLayout::Name(State.Train), *STLayout::Name(Here),
+					*STLayout::Name(Target), *Reason, Rerouted.Num() > 0 ? TEXT("; planned again: ") : TEXT(""), *FString::Join(Rerouted, TEXT(", ")));
+				if (Rerouted.Num() > 0)
+				{
+					bDispatchSoon = true;
+				}
+				continue;
+			}
+		}
+		SendToStation(State, Target, *Why);
 	}
 }
 

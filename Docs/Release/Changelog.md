@@ -2,6 +2,14 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Parked trains check the way out first:** with Auto Trains, a parked train moved out of a station a trip needs
+  first asks whether it can drive to its new spot now. If a train comes the other way on a single track, it stays.
+  The trips heading for that station are then planned again from scratch, so they go elsewhere (at most once a minute
+  per trip), and the station counts as busy for 3 minutes. Logged as `REROUTE`. This was the water shuttles'
+  repeating deadlock: one finished at Water SNK B, was sent out towards Water SRC B, and met the other coming in.
+- **After loading,** every running trip's timetable is written again from its current stop once. Saves from before
+  the "written as it leaves" fix could hold timetables a stop ahead of their trip.
+
 - **Trips no longer drift off their timetable:** a trip chosen while the train is docked is written as the train
   leaves. Written during the dock, the game moved it on by one stop at departure, so the train skipped its first stop
   and SmartTrains' count of where it was went wrong ("docked at X but job N leg M is Y"). A train that still docks at a

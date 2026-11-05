@@ -337,6 +337,10 @@ struct SMARTTRAINS_API FSTTrainState
 	// Runtime only: since when the train has stood with a no-path error (0 if it hasn't), when its other end was last
 	// made to lead, and whether a one-way train's warning was logged. [game s]
 	double NoPathSince = 0.0;
+	// Runtime only: when the trip was last planned again because a parked train couldn't leave a station it needs.
+	double LastRerouted = -1000.0;
+	// Runtime only: when this parked train last couldn't get out of its station; it books the station longer then.
+	double LastCantLeave = -1000.0;
 	double LastTurned = -1000.0;
 	bool bNoPathWarned = false;
 	// Runtime only: docking state at the last check, when the current dock began, and where.
