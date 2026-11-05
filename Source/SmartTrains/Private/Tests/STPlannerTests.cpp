@@ -243,47 +243,6 @@ bool FSTWrongPlatformTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// A stop where a car will still hold what it unloads (the platform has no room for the rest) is "unload once"; one
-// where every car empties is not.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTUnloadOnceTest, "SmartTrains.Planner.UnloadOnceWhenCarCantEmpty", TestFlags)
-bool FSTUnloadOnceTest::RunTest(const FString& Parameters)
-{
-	UClass* Water = USTTestFluid::StaticClass();
-	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
-	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
-	FSTTestAccess::SetTrip(*Subsystem, Start, Sink, 60.f);
-	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
-	FSTPlanStop Unload;
-	Unload.Station = Sink;
-	Unload.UnloadItems.Add(Water);
-	FSTTestAccess::FCarPlatforms CarPlatforms;
-	CarPlatforms.Add(Sink, {{0}});
-
-	for (const bool bRoomForAll : {false, true})
-	{
-		// The platform holds 1,400 m3 (1,000 m3 of room), or nothing.
-		const double Stock = bRoomForAll ? 0.0 : 1400000.0;
-		TArray<FSTNode> Nodes = {FSTTestAccess::Node(Sink, Water, ESTRole::Demand, static_cast<int32>(Stock), FluidSlot, 1)};
-		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
-		FSTTestAccess::SetTrain(Planner, Start, true, false, {FSTTestAccess::Car(Water, 2000000.0)}, {FSTTestAccess::Platform(Water, false, Stock, Stock > 0.0 ? 1 : 0)},
-			CarPlatforms);
-		const FSTPlanResult Result = Planner.Simulate({Unload});
-		if (!TestTrue(FString::Printf(TEXT("delivery works (%s)"), *Result.Problem), Result.bValid))
-		{
-			continue;
-		}
-		TArray<FSTJobLeg> Legs;
-		Planner.MakeLegs({Unload}, Result, Legs);
-		TestEqual(TEXT("one leg"), Legs.Num(), 1);
-		if (Legs.Num() == 1)
-		{
-			TestTrue(bRoomForAll ? TEXT("a car that empties waits for empty cars") : TEXT("a car that can't empty unloads once"), Legs[0].bPartial == !bRoomForAll);
-		}
-	}
-	return true;
-}
-
 // The exact assignment beats the greedy choice.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTAssignmentTest, "SmartTrains.Planner.Assignment", TestFlags)
 bool FSTAssignmentTest::RunTest(const FString& Parameters)

@@ -35,7 +35,7 @@ SmartTrains works with it:
   train, including trains coming the other way on a single track. If not, the train waits in the station instead of
   meeting the other one head on.
 - Station queues, real travel times and which train waits for which feed into SmartTrains' trip timing.
-- Trains stuck or deadlocked together are sorted out, and the monitor shows them.
+- The monitor shows trains Auto Trains reports as stuck or deadlocked.
 
 Without it, the game's own self-driving and your signals keep trains apart, as in vanilla: you need a properly
 signalled network, above all on single track.

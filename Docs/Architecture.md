@@ -114,11 +114,12 @@ settings change (`DispatchRound`):
    self-driving off) and its first stop is free more than 20 s after the train could get there. The train waits
    where it is, and later rounds plan it again ("holding at ..."). A train queued on the line blocks the junctions
    behind it; one waiting in a station blocks nobody.
-8. Parked trains move to a depot, or else to the nearest station no trip uses, when:
-   - a trip needs their station;
-   - another train's timetable, managed or not, is heading there;
-   - a self-driving train has stood within 150 m of them for 45 s (`BLOCKING`, at most every 5 minutes per
-     parked train). This covers through-stations and parking spots on the line.
+8. Parked trains move to a depot, or else to the nearest station no trip uses, when a trip needs their station
+   (held trips included), or (with Auto Trains) when a train has waited 20 s for them (`BLOCKING`).
+   - With Auto Trains the way out is checked first (`ExternalCheckLeg`). If it isn't clear, the train stays, and the
+     trips heading there re-plan from scratch (`REROUTE`).
+   - A parked train books its station for 60 s. In a dead-end station (`IsDeadEnd`: no station reachable past its
+     building) it books it until it leaves, since a train sent there could neither get in nor let it out.
 
 ### Trip planning (`STTripPlanner.*`)
 
@@ -162,9 +163,8 @@ stop books from when it docked; one running late books from now. `FirstFreeArriv
   stops when nothing improves, or when the round's time budget (25 ms) is used up; the rest wait for the next round.
 
 **Turning a trip into a job** (`MakeLegs`): each stop gets per-car work (`FSTCarWork`: car, item, load or unload,
-planned amount). With FCC, every car without work at a stop skips it. A stop is "load/unload once" in four cases: it only unloads fluids (a fluid car empties in one transfer); it both loads and unloads; a later stop moves the same item (a first
-pickup or a first drop of a split load); or some car will still hold what it unloads there, because the platform has
-no room for the rest.
+planned amount). With FCC, every car without work at a stop skips it. A stop is "load/unload once" in three cases: it only unloads fluids (a fluid car empties in one transfer); it both
+loads and unloads; or a later stop moves the same item (a first pickup or a first drop of a split load).
 Otherwise it waits for full or empty cars, up to the load or unload wait.
 
 **Re-planning** (`ReplanTrip`): after every stop (`bReplan`) and after a platform setting changes (`bReplanAll`).
@@ -239,12 +239,11 @@ Optional, by reflection (`STAt` in `STBridges.*`, Auto Trains' `Docs/API.md`). T
 | Call | Used for |
 |---|---|
 | `ExternalTimeTableChanged` | After every real timetable write (`WriteJob`). |
-| `ExternalGetWaitingFor` | `ClearNeededBays`: a parked managed train moves when a train has waited 20 s for it. Replaces the 150 m / 45 s guess, which stays as the fallback without Auto Trains. |
+| `ExternalGetWaitingFor` | `ClearNeededBays`: a parked managed train moves when a train has waited 20 s for it. |
 | `ExternalGetStationQueue` | Each dispatch round, for stations with roles (asked every 15 s per station): a booking from now until the queue's last train should have left. Covers trains SmartTrains doesn't manage. |
 | `ExternalEstimateTravelSeconds` | `EstimateTravelSeconds` when SmartTrains' own search finds no way (cached 10 minutes; logged as `TRAVEL`). |
-| (game) `AFGTrain::GetSelfDrivingError` | `ResolveNoPath` (each dispatch round): a managed push-pull train standing 20 s with No Path or Station Unreachable gets the other end's locomotive as its lead (`SetMultipleUnitMaster`, forced), then `ExternalTimeTableChanged`. At most once a minute per train. |
 | `ExternalCheckLeg` | Holding (dispatch step 7): before a trip of a train standing in a station is committed, its first leg is checked. Pending: try again next round. Blocked: hold, with Auto Trains' reason. Clear, or can't be asked: commit. |
-| `ExternalGetTroubledTrains` | The monitor's Trains tab: deadlocked, stuck, lost or stalled trains. `ResolveStuckTrains` (each dispatch round): when two or more managed trains on one network have been Stuck or Deadlock for 30 s, the one whose trip started last (push-pull only, at most every 3 minutes) gets a park job back to its last station. The others re-plan from scratch (`bReplanFresh`). A stopgap until Auto Trains can check a leg before departure. |
+| `ExternalGetTroubledTrains` | The monitor's Trains tab: deadlocked, stuck, lost or stalled trains. |
 
 ## DynamicTimeTable
 

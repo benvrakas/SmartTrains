@@ -182,6 +182,12 @@ void FSTTravel::Search(UFGRailroadTrackConnectionComponent* Exit, const TMap<UFG
 	}
 }
 
+bool FSTTravel::IsDeadEnd(const AFGTrainStationIdentifier* Station) const
+{
+	const FRow* Row = mRows.Find(const_cast<AFGTrainStationIdentifier*>(Station));
+	return Row && Row->Forward.Num() == 0 && Row->ForwardBack.Num() == 0;
+}
+
 float FSTTravel::GetDistance(const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, bool* bReversing, bool bPushPull) const
 {
 	if (bReversing)

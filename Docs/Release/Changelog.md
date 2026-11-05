@@ -2,19 +2,13 @@
 
 ## 0.4.0 (beta, not released)
 
-- **Backing off sticks:** a train sent back to untangle a stuck pair keeps that job for 2 minutes. A train driving to
-  park counted as free, so the back-off was replaced by a new trip in the same round.
-- **No-path turn-round escalates:** from the second turn round in one spell, the train's trip is planned again from
-  scratch too, since its stop may be out of reach both ways. After two turns it is left for the player, with a
-  warning.
-
+- **Dead-end stations:** a train parked in a dead-end station (no way out past the station building) holds it until
+  it leaves. A train sent there could neither get in nor let the parked one out, the water shuttles' repeating
+  deadlock on their shared single track: each end has two bays, and both trains were sent to the same one.
 - **Parked trains check the way out first:** with Auto Trains, a parked train moved out of a station a trip needs
-  first asks whether it can drive to its new spot now. If a train comes the other way on a single track, it stays.
-  The trips heading for that station are then planned again from scratch, so they go elsewhere (at most once a minute
-  per trip), and the station counts as busy for 3 minutes. Logged as `REROUTE`. This was the water shuttles'
-  repeating deadlock: one finished at Water SNK B, was sent out towards Water SRC B, and met the other coming in.
-- **After loading,** every running trip's timetable is written again from its current stop once. Saves from before
-  the "written as it leaves" fix could hold timetables a stop ahead of their trip.
+  first asks whether it can drive to its new spot now. If a train comes the other way on a single track, it stays,
+  and the trips heading for that station are planned again from scratch, so they go elsewhere (at most once a minute
+  per trip). Logged as `REROUTE`.
 
 - **Trips no longer drift off their timetable:** a trip chosen while the train is docked is written as the train
   leaves. Written during the dock, the game moved it on by one stop at departure, so the train skipped its first stop
@@ -26,11 +20,6 @@
 - **Monitor:** "Trains short" needs the flow plan to call for more trains than fit. Supply backing up while fitting
   trains are busy is "Trains busy elsewhere", with its own advice.
 
-- **Push-pull trains turn round when they have no path:** a managed train standing 20 s with the game's "No Path" or
-  "Station Unreachable" error gets the locomotive at its other end to lead, as a player would by driving from the
-  other cab. It then plans a way in the other direction. At most once a minute; logged as `NOPATH`. A train with a
-  locomotive at one end only gets a warning instead. Seen after a deadlock pass-through left a water shuttle facing
-  the wrong way on the shared track, where it stood in the other's way.
 - Migration window: the tick and open switches are compact clickable texts instead of tall buttons.
 
 - **Migration window redesigned**, in the monitor's style:
@@ -53,7 +42,7 @@
 - The empty-loop guard keeps its record per train (the first version didn't stop the Sulfur loop); a skipped move is
   logged at Verbose.
 
-- **Automated tests** for the trip planner, the flow plan and the assignment (6 tests, editor only; see Testing.md).
+- **Automated tests** for the trip planner, the flow plan and the assignment (5 tests, editor only; see Testing.md).
 
 - **Parked trains hold their station:** a parked train books its station for the minute it takes to move it out, so
   trips prefer free stations. A trip held because its first stop is busy counts as needing that stop, so a train
@@ -82,14 +71,9 @@
   other way on a single track. If not, the train holds: "holding at ...: Auto Trains sees no way to ... now". The
   check takes one dispatch round.
 
-- **Stuck nose to nose (stopgap):** with Auto Trains, when two managed trains on one network have been stuck or
-  deadlocked for 30 s, the one whose trip started last goes back to the station it came from (push-pull trains only,
-  at most every 3 minutes). The others plan their trips again from scratch. Logged as `STUCK`. Seen with the two
-  water shuttles on one shared track: each headed for the station the other had just left.
-
 - **Works with Auto Trains' API** (optional, by reflection):
   - Auto Trains is told after every timetable rewrite.
-  - A parked train moves when Auto Trains reports a train waiting 20 s for it, replacing the distance guess.
+  - A parked train moves when Auto Trains reports a train waiting 20 s for it.
   - Station queues, trains SmartTrains doesn't manage included, count as station bookings.
   - Where SmartTrains' own route search finds no way, Auto Trains' travel time is used.
   - Deadlocked, stuck, lost and stalled trains show in the monitor's Trains tab.
@@ -109,16 +93,12 @@
 - **Push-pull platform room counted once:** a car that can stop beside either of two identical platforms used to
   take its amount from both, so half a push-pull train's cars found no room and were skipped while still full. Each
   way the train may dock now has its own platform room, and a car plans the smaller of its amounts.
-- **No waiting out the timeout:** a stop where a car can't unload everything it carries (the platform has no room
-  for the rest) is "unload once". It used to wait for empty cars until "Delivery: longest wait".
 
 - **Fluid trips were tiny:** the planner sized fluid cars and platforms by a fluid's stack (50 m3) instead of their
   real slot (1,600 m3 per car, 2,400 m3 per platform). Fluid trips were planned at a few dozen m3, and cars and
   platforms looked full after one stack. Solids were not affected.
-- **Parked trains move out of the way:** a parked managed train moves to a depot or a free station in three cases:
-  a trip needs its station; another train's timetable (managed or not) is heading there; or a self-driving train has
-  stood within 150 m of it for 45 s. The last case happens at most every 5 minutes per train, and is logged as
-  `BLOCKING`.
+- **Parked trains move out of the way:** a parked managed train moves to a depot or a free station when a trip needs
+  its station, or (with Auto Trains) when a train has waited 20 s for it (`BLOCKING`).
 - **Monitor:** full supply platforms stop their belts, so their measured rate is only a lower bound. Items whose
   suppliers are full are no longer called "Supply short". Platform counts say how many stations they span.
 - Diagnostics: "can't be reached" names the station it was tried from and whether the train counts as push-pull.

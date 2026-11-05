@@ -20,6 +20,9 @@ public:
 
 	// Number of source stations searched at least once.
 	int32 GetSearchedCount() const { return mRows.Num(); }
+	// True if Station has been searched and no station can be reached past its building (a dead end): a train in it
+	// can only leave the way trains come in.
+	bool IsDeadEnd(const AFGTrainStationIdentifier* Station) const;
 
 	// Forgets everything, e.g. when the world changes.
 	void Reset();

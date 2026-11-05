@@ -128,6 +128,8 @@ public:
 	// True if Train has locomotives that can dock facing both ways.
 	static bool IsPushPull(const AFGTrain* Train);
 	float EstimateStaySeconds(const AFGTrainStationIdentifier* Station) const;
+	// True if Station is a dead end: a train in it can only leave the way trains come in.
+	bool IsDeadEnd(const AFGTrainStationIdentifier* Station) const;
 
 	const FSTSettings& GetSettings() const { return mSettings; }
 
@@ -215,12 +217,6 @@ private:
 	AFGTrainStationIdentifier* FindDepot(const FSTTrainState& State, const AFGTrainStationIdentifier* From) const;
 	// Moves parked trains off stations a job needs.
 	void ClearNeededBays();
-	// With Auto Trains: managed trains stuck or deadlocked together for a while. The one that left last goes back to
-	// the station it came from (push-pull trains only), and the others plan their trips again from scratch.
-	void ResolveStuckTrains();
-	// Managed trains standing with the game's no-path error: a push-pull train gets its other end to lead, so it can
-	// drive the other way.
-	void ResolveNoPath();
 	// For a train without a job: hands out jobs now, else sends it to a depot or parks it.
 	// bDispatchFirst: hand out trips first (during a dispatch round the train is settled when the round ends instead).
 	void SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDispatchFirst = true);
@@ -331,17 +327,11 @@ private:
 	FTimerHandle mThroughputTimer;
 	// When the monitor report was last logged. [game s]
 	double mLastMonitorLog = 0.0;
-	// Per self-driving train out of a station: where its front stood and since when, to see it waiting.
-	TMap<TWeakObjectPtr<AFGTrain>, TPair<FVector, double>> mStandingSince;
-	// Per parked managed train: when it was last moved because it held another train up.
-	TMap<TWeakObjectPtr<AFGTrain>, double> mLastMovedAside;
 	// True if State's train moved none of Item at Station lately (FSTTrainState::NoProgress), so the move isn't
 	// planned again yet.
 	bool IsNoProgress(const FSTTrainState& State, const AFGTrainStationIdentifier* Station, const UClass* Item, bool bLoad) const;
 	// Auto Trains' station queues: seconds until the last train there has left, and when it was asked. [s]
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, TPair<float, double>> mAtQueues;
-	// The running trips' timetables were written again once after loading.
-	bool bRewroteAfterLoad = false;
 	// Stations that trips held this round wait for: a train parked there is moved out (ClearNeededBays).
 	TSet<TWeakObjectPtr<AFGTrainStationIdentifier>> mHeldFor;
 	// Auto Trains travel-time questions left this dispatch round (each is a search over the whole network).

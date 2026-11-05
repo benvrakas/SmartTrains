@@ -332,21 +332,9 @@ struct SMARTTRAINS_API FSTTrainState
 	bool bReplan = false;
 	// Runtime only: that re-plan starts from scratch (from the cargo on board), not from the stops it has.
 	bool bReplanFresh = false;
-	// Runtime only: when the train was last sent back because it stood stuck nose to nose with another. [game s]
-	double LastBackedOff = -1000.0;
-	// Runtime only: since when the train has stood with a no-path error (0 if it hasn't), when its other end was last
-	// made to lead, and whether a one-way train's warning was logged. [game s]
-	double NoPathSince = 0.0;
 	// Runtime only: when the trip was last planned again because a parked train couldn't leave a station it needs.
 	double LastRerouted = -1000.0;
-	// Runtime only: when this parked train last couldn't get out of its station; it books the station longer then.
-	double LastCantLeave = -1000.0;
-	double LastTurned = -1000.0;
-	// Runtime only: turns made for the current no-path spell.
-	int32 NoPathTurns = 0;
-	// Runtime only: until when a back-off park job may not be replaced by a new trip. [game s]
-	double BackOffUntil = 0.0;
-	bool bNoPathWarned = false;
+
 	// Runtime only: docking state at the last check, when the current dock began, and where.
 	bool bWasDocked = false;
 	double DockedAt = 0.0;

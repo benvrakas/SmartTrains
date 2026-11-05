@@ -1137,14 +1137,8 @@ void FSTTripPlanner::Trim(TArray<FSTPlanStop>& InOutStops, const FSTPlanResult& 
 void FSTTripPlanner::MakeLegs(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, TArray<FSTJobLeg>& OutLegs) const
 {
 	OutLegs.Reset();
-	TArray<TArray<TPair<UClass*, double>>> Cargo;
-	for (const FCarInfo& Car : mCars)
-	{
-		Cargo.Add(Car.Cargo);
-	}
 	for (int32 StopIndex = 0; StopIndex < Stops.Num(); ++StopIndex)
 	{
-		bool bUnfinished = false;
 		FSTJobLeg& Leg = OutLegs.AddDefaulted_GetRef();
 		Leg.Station = Stops[StopIndex].Station;
 		Leg.PlannedArrival = Result.Arrive.IsValidIndex(StopIndex) ? Result.Arrive[StopIndex] : mTime;
@@ -1164,13 +1158,7 @@ void FSTTripPlanner::MakeLegs(const TArray<FSTPlanStop>& Stops, const FSTPlanRes
 						Work.bLoad = Pass == 0;
 						Work.PlannedAmount = Each.Value;
 						bWorks = true;
-						AddCargo(Cargo[CarIndex], Each.Key, Pass == 0 ? Each.Value : -Each.Value);
 					}
-				}
-				// A car still holding what it unloads never meets the "fully unload" rule: the platform has no room for the rest.
-				for (const TPair<UClass*, int32>& Each : Step->Unloaded)
-				{
-					bUnfinished |= CargoOf(Cargo[CarIndex], Each.Key) >= 1.0;
 				}
 			}
 			// With FCC every car without work skips the stop, so nothing moves that wasn't planned.
@@ -1193,7 +1181,7 @@ void FSTTripPlanner::MakeLegs(const TArray<FSTPlanStop>& Stops, const FSTPlanRes
 				bLaterSame |= Stops[Later].UnloadItems.Contains(Item);
 			}
 		}
-		Leg.bPartial = bLaterSame || bUnfinished || (Loads.Num() > 0 && Unloads.Num() > 0);
+		Leg.bPartial = bLaterSame || (Loads.Num() > 0 && Unloads.Num() > 0);
 	}
 }
 

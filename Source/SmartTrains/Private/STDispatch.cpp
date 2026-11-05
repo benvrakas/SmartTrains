@@ -46,8 +46,8 @@ namespace
 
 	// A parked train's booking of its station: about how long moving it out takes. [s]
 	constexpr double ParkedLeaveSeconds = 60.0;
-	// A parked train that couldn't get out books its station this long instead. [s]
-	constexpr double CantLeaveHoldSeconds = 180.0;
+	// A parked train in a dead-end station books it this far ahead, i.e. until it leaves (booked again every round). [s]
+	constexpr double DeadEndHoldSeconds = 3600.0;
 	// Auto Trains travel-time questions per dispatch round. [calls]
 	constexpr int32 AtTravelCallsPerRound = 4;
 
@@ -59,28 +59,8 @@ namespace
 	// A trip is planned again because a parked train can't leave a station it needs at most this often. [s]
 	constexpr double RerouteAgainSeconds = 60.0;
 
-	// A push-pull train standing this long with a no-path error gets its other end to lead, at most once per
-	// TurnAgainSeconds. [s]
-	constexpr double NoPathTurnSeconds = 20.0;
-	constexpr double TurnAgainSeconds = 60.0;
-
-	// Managed trains stuck together this long are sorted out, the one that backed off at most once per
-	// BackOffAgainSeconds. [s]
-	constexpr float StuckTogetherSeconds = 30.f;
-	constexpr double BackOffAgainSeconds = 180.0;
-	// A back-off park job isn't replaced by a new trip for this long. [s]
-	constexpr double BackOffKeepSeconds = 120.0;
-	// Turns tried for one no-path spell before a train is left for the player.
-	constexpr int32 MaxNoPathTurns = 2;
-
 	// A planned trip whose first stop is free this much later than the train could arrive is not started yet. [s]
 	constexpr double HoldAfterWaitSeconds = 20.0;
-
-	// A self-driving train standing this long within BlockingDistance of a parked managed train moves the parked train,
-	// at most once per MovedAsideAgainSeconds. [s, cm]
-	constexpr double WaitingBehindSeconds = 45.0;
-	constexpr double BlockingDistance = 15000.0;
-	constexpr double MovedAsideAgainSeconds = 300.0;
 
 	FString NodeKey(const FSTNode& Node)
 	{
@@ -583,9 +563,9 @@ bool ASTSubsystem::GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifi
 		return OutStation != nullptr;
 	}
 	const FSTJob& Job = State.Job;
-	if (Job.bPark && Job.Legs.Num() == 1 && !Job.Legs[0].HasWork() && Time >= State.BackOffUntil)
+	if (Job.bPark && Job.Legs.Num() == 1 && !Job.Legs[0].HasWork())
 	{
-		// Heading for a depot or out of the way: free to take a job from where it last was (not while backing off).
+		// Heading for a depot or out of the way: free to take a job from where it last was.
 		OutStation = State.LastStation.Get() ? State.LastStation.Get() : Job.Legs[0].Station.Get();
 		OutTime = Time;
 		return OutStation != nullptr;
@@ -667,8 +647,8 @@ void ASTSubsystem::DispatchRound()
 		const FSTTrainState& State = mTrains[TrainIndex];
 		if (State.bManaged && !State.bHasJob && State.Phase == ESTTrainPhase::Parked && State.LastStation && IsValid(State.Train) && !State.Train->IsSelfDrivingEnabled())
 		{
-			// One that couldn't get out lately holds it longer, so trips don't keep planning into it.
-			const double Hold = Time - State.LastCantLeave < CantLeaveHoldSeconds ? CantLeaveHoldSeconds : ParkedLeaveSeconds;
+			// In a dead end it holds the station until it leaves: a train arriving there could neither get in nor let it out.
+			const double Hold = IsDeadEnd(State.LastStation.Get()) ? DeadEndHoldSeconds : ParkedLeaveSeconds;
 			Bookings.FindOrAdd(State.LastStation.Get()).Add({TrainIndex, Time, Time + Hold});
 		}
 	}
@@ -704,27 +684,9 @@ void ASTSubsystem::DispatchRound()
 		UE_LOG(LogSmartTrains, Log, TEXT("%d platforms with settings were dismantled; trips under way are re-planned"), Before - mPlatforms.Num());
 		bReplanAll = true;
 	}
-	// Once after loading, every running trip's timetable is written again from its current stop: saves can hold
-	// timetables that run a stop ahead of their trip (written during a dock before 2026-11-05).
-	if (!bRewroteAfterLoad && !mSettings.bObserveOnly)
-	{
-		bRewroteAfterLoad = true;
-		int32 Rewritten = 0;
-		for (FSTTrainState& State : mTrains)
-		{
-			if (State.bManaged && State.bHasJob && IsValid(State.Train) && !State.Train->IsDocked())
-			{
-				WriteJob(State, TEXT("timetable written again after loading"));
-				++Rewritten;
-			}
-		}
-		UE_LOG(LogSmartTrains, Log, TEXT("After loading: %d running trips' timetables written again from their current stop"), Rewritten);
-	}
 	// Trips under way that asked for a re-plan (after a stop, or after platform settings changed).
 	if (!mSettings.bObserveOnly)
 	{
-		ResolveStuckTrains();
-		ResolveNoPath();
 		for (FSTTrainState& State : mTrains)
 		{
 			// A stop ahead whose station was dismantled.
@@ -1049,138 +1011,6 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	UpdateUnwantedCargo(State);
 }
 
-void ASTSubsystem::ResolveStuckTrains()
-{
-	const UWorld* World = GetWorld();
-	if (!STAt::IsAvailable(World))
-	{
-		return;
-	}
-	const double Clock = Now();
-	// Managed trains with a trip that Auto Trains reports stuck or deadlocked long enough, per track network.
-	TMap<int32, TArray<int32>> ByNetwork;
-	for (const STAt::FTroubled& Each : STAt::GetTroubledTrains(World))
-	{
-		if ((Each.Kind != TEXT("Stuck") && Each.Kind != TEXT("Deadlock")) || Each.Seconds < StuckTogetherSeconds)
-		{
-			continue;
-		}
-		const int32 Index = mTrains.IndexOfByPredicate([&](const FSTTrainState& State) { return State.Train == Each.Train; });
-		if (Index == INDEX_NONE || !mTrains[Index].bManaged || !mTrains[Index].bHasJob || !IsValid(Each.Train) || Each.Train->IsDocked())
-		{
-			continue;
-		}
-		ByNetwork.FindOrAdd(Each.Train->GetTrackGraphID()).AddUnique(Index);
-	}
-	for (const TPair<int32, TArray<int32>>& Network : ByNetwork)
-	{
-		if (Network.Value.Num() < 2)
-		{
-			continue;
-		}
-		// The train whose trip started last backs off; it is the one that drove into the other's way.
-		TArray<int32> Order = Network.Value;
-		Order.Sort([this](int32 A, int32 B) { return mTrains[A].Job.StartedAt > mTrains[B].Job.StartedAt; });
-		FSTTrainState& Latest = mTrains[Order[0]];
-		AFGTrainStationIdentifier* Back = Latest.LastStation.Get();
-		if (!Back || !IsPushPull(Latest.Train) || Clock - Latest.LastBackedOff < BackOffAgainSeconds)
-		{
-			continue;
-		}
-		Latest.LastBackedOff = Clock;
-		TArray<FString> Others;
-		for (int32 Index = 1; Index < Order.Num(); ++Index)
-		{
-			FSTTrainState& Other = mTrains[Order[Index]];
-			Others.Add(STLayout::Name(Other.Train));
-			if (!Other.Job.bPark)
-			{
-				Other.bReplan = true;
-				Other.bReplanFresh = true;
-			}
-		}
-		UE_LOG(LogSmartTrains, Warning, TEXT("STUCK %s stands stuck with %s (Auto Trains); it goes back to %s and the others plan their trips again"),
-			*STLayout::Name(Latest.Train), *FString::Join(Others, TEXT(", ")), *STLayout::Name(Back));
-		SendToStation(Latest, Back, *FString::Printf(TEXT("backing off: stuck with %s"), *FString::Join(Others, TEXT(", "))));
-		Latest.BackOffUntil = Clock + BackOffKeepSeconds;
-	}
-}
-
-void ASTSubsystem::ResolveNoPath()
-{
-	const double Clock = Now();
-	for (FSTTrainState& State : mTrains)
-	{
-		AFGTrain* Train = State.Train;
-		if (!State.bManaged || !State.bHasJob || !IsValid(Train) || !Train->IsSelfDrivingEnabled() || Train->IsDocked())
-		{
-			State.NoPathSince = 0.0;
-			continue;
-		}
-		const ESelfDrivingLocomotiveError Error = Train->GetSelfDrivingError();
-		const bool bNoPath = Error == ESelfDrivingLocomotiveError::SDLE_NoPath || Error == ESelfDrivingLocomotiveError::SDLE_StationUnreachable
-			|| Error == ESelfDrivingLocomotiveError::SDLE_StationUnreachableWithSignals;
-		const AFGRailroadVehicle* First = Train->GetFirstVehicle();
-		const bool bStanding = First && First->GetVelocity().Size() < 100.0;
-		if (!bNoPath || !bStanding)
-		{
-			State.NoPathSince = 0.0;
-			State.NoPathTurns = 0;
-			State.bNoPathWarned = false;
-			continue;
-		}
-		if (State.NoPathSince <= 0.0)
-		{
-			State.NoPathSince = Clock;
-			continue;
-		}
-		if (Clock - State.NoPathSince < NoPathTurnSeconds || Clock - State.LastTurned < TurnAgainSeconds)
-		{
-			continue;
-		}
-		const FString ErrorName = StaticEnum<ESelfDrivingLocomotiveError>()->GetNameStringByValue(static_cast<int64>(Error));
-		// The other end leads, as a player would by driving from the other cab.
-		AFGLocomotive* Master = Train->GetMultipleUnitMaster();
-		AFGLocomotive* Other = nullptr;
-		for (AFGLocomotive* Locomotive : STLayout::GetPossibleDockingLocomotives(Train))
-		{
-			if (Locomotive != Master)
-			{
-				Other = Locomotive;
-				break;
-			}
-		}
-		if (!Other || State.NoPathTurns >= MaxNoPathTurns)
-		{
-			if (!State.bNoPathWarned)
-			{
-				State.bNoPathWarned = true;
-				UE_LOG(LogSmartTrains, Warning, TEXT("NOPATH %s has stood %.0f s with %s%s; it needs driving by hand"), *STLayout::Name(Train), Clock - State.NoPathSince, *ErrorName,
-					Other ? TEXT(" and turning it round didn't help") : TEXT(" and has no locomotive at its other end to turn round"));
-			}
-			continue;
-		}
-		State.LastTurned = Clock;
-		State.NoPathSince = 0.0;
-		++State.NoPathTurns;
-		const bool bTurned = Train->SetMultipleUnitMaster(Other, true);
-		// From the second turn on, the trip is planned again too: its stop may be out of reach both ways.
-		const bool bReplanToo = State.NoPathTurns > 1 && !State.Job.bPark;
-		if (bReplanToo)
-		{
-			State.bReplan = true;
-			State.bReplanFresh = true;
-		}
-		UE_LOG(LogSmartTrains, Warning, TEXT("NOPATH %s stood with %s for %.0f s; %s%s"), *STLayout::Name(Train), *ErrorName, NoPathTurnSeconds,
-			bTurned ? TEXT("its other end leads now, so it can drive the other way") : TEXT("making its other end lead failed"),
-			bReplanToo ? TEXT("; its trip is planned again") : TEXT(""));
-		if (bTurned)
-		{
-			STAt::TimeTableChanged(GetWorld(), Train);
-		}
-	}
-}
-
 void ASTSubsystem::UpdateUnwantedCargo(FSTTrainState& State)
 {
 	// Unwanted: an item on board that no stop still ahead unloads.
@@ -1373,20 +1203,10 @@ void ASTSubsystem::ClearNeededBays()
 		}
 	}
 
-	// Self-driving trains out of a station: where each is heading, and the ones standing still a while.
-	struct FWaiting
-	{
-		const AFGTrain* Train;
-		FVector Front;
-		FVector Back;
-	};
-	TArray<FWaiting> Waiting;
-	TMap<const AFGTrainStationIdentifier*, const AFGTrain*> HeadingFor;
-	TSet<TWeakObjectPtr<AFGTrain>> Seen;
 	// With Auto Trains: per train it reports as holding another up, the one held up and for how long.
-	const bool bAt = STAt::IsAvailable(GetWorld());
 	TMap<const AFGTrain*, TPair<const AFGTrain*, float>> HeldUp;
-	if (AFGRailroadSubsystem* Railroad = AFGRailroadSubsystem::Get(GetWorld()))
+	AFGRailroadSubsystem* Railroad = AFGRailroadSubsystem::Get(GetWorld());
+	if (Railroad && STAt::IsAvailable(GetWorld()))
 	{
 		TArray<AFGTrain*> Trains;
 		Railroad->GetAllTrains(Trains);
@@ -1396,58 +1216,22 @@ void ASTSubsystem::ClearNeededBays()
 			{
 				continue;
 			}
-			const TArray<AFGRailroadVehicle*> Vehicles = STLayout::GetVehicles(Train);
-			if (Vehicles.Num() == 0)
+			TArray<AFGTrain*> Blockers;
+			float Waited = 0.f;
+			FString Reason;
+			STAt::GetWaitingFor(GetWorld(), Train, Blockers, Waited, Reason);
+			if (Waited < AtHeldUpSeconds)
 			{
 				continue;
 			}
-			if (const AFGRailroadTimeTable* TimeTable = Train->GetTimeTable())
+			for (const AFGTrain* Blocker : Blockers)
 			{
-				TArray<FTimeTableStop> Stops;
-				TimeTable->GetStops(Stops);
-				const int32 Current = TimeTable->GetCurrentStop();
-				if (Stops.IsValidIndex(Current) && Stops[Current].Station)
+				TPair<const AFGTrain*, float>& Entry = HeldUp.FindOrAdd(Blocker, TPair<const AFGTrain*, float>(Train, 0.f));
+				if (Waited > Entry.Value)
 				{
-					HeadingFor.FindOrAdd(Stops[Current].Station) = Train;
+					Entry = TPair<const AFGTrain*, float>(Train, Waited);
 				}
 			}
-			if (bAt)
-			{
-				TArray<AFGTrain*> Blockers;
-				float Waited = 0.f;
-				FString Reason;
-				STAt::GetWaitingFor(GetWorld(), Train, Blockers, Waited, Reason);
-				if (Waited >= AtHeldUpSeconds)
-				{
-					for (const AFGTrain* Blocker : Blockers)
-					{
-						TPair<const AFGTrain*, float>& Entry = HeldUp.FindOrAdd(Blocker, TPair<const AFGTrain*, float>(Train, 0.f));
-						if (Waited > Entry.Value)
-						{
-							Entry = TPair<const AFGTrain*, float>(Train, Waited);
-						}
-					}
-				}
-				continue;
-			}
-			const FVector Front = Vehicles[0]->GetActorLocation();
-			Seen.Add(Train);
-			TPair<FVector, double>& Standing = mStandingSince.FindOrAdd(Train, TPair<FVector, double>(Front, Clock));
-			if (FVector::DistSquared(Standing.Key, Front) > FMath::Square(100.0))
-			{
-				Standing = TPair<FVector, double>(Front, Clock);
-			}
-			else if (Clock - Standing.Value >= WaitingBehindSeconds)
-			{
-				Waiting.Add({Train, Front, Vehicles.Last()->GetActorLocation()});
-			}
-		}
-	}
-	for (auto It = mStandingSince.CreateIterator(); It; ++It)
-	{
-		if (!Seen.Contains(It.Key()))
-		{
-			It.RemoveCurrent();
 		}
 	}
 
@@ -1458,46 +1242,16 @@ void ASTSubsystem::ClearNeededBays()
 		{
 			continue;
 		}
-		// Why it has to move: a trip needs its station, another train is heading there, or a train has stood near it.
+		// Why it has to move: a trip needs its station, or Auto Trains reports a train waiting for it.
 		FString Why;
 		if (Needed.Contains(Here))
 		{
 			Why = FString::Printf(TEXT("making room at %s"), *STLayout::Name(Here));
 		}
-		else if (const AFGTrain* const* Heading = HeadingFor.Find(Here); Heading && *Heading != State.Train)
-		{
-			Why = FString::Printf(TEXT("making room at %s for %s"), *STLayout::Name(Here), *STLayout::Name(*Heading));
-		}
 		else if (const TPair<const AFGTrain*, float>* Held = HeldUp.Find(State.Train.Get()))
 		{
 			Why = FString::Printf(TEXT("%s has waited %.0f s for it (Auto Trains)"), *STLayout::Name(Held->Key), Held->Value);
 			UE_LOG(LogSmartTrains, Log, TEXT("BLOCKING %s, parked at %s, holds a train up: %s; moving it"), *STLayout::Name(State.Train), *STLayout::Name(Here), *Why);
-		}
-		else if (!bAt && Clock - mLastMovedAside.FindRef(State.Train.Get()) >= MovedAsideAgainSeconds)
-		{
-			for (const FWaiting& Other : Waiting)
-			{
-				if (Other.Train == State.Train || Other.Train->GetTrackGraphID() != State.Train->GetTrackGraphID())
-				{
-					continue;
-				}
-				bool bNear = false;
-				for (const AFGRailroadVehicle* Vehicle : STLayout::GetVehicles(State.Train))
-				{
-					const FVector Where = Vehicle->GetActorLocation();
-					bNear |= FVector::DistSquared(Where, Other.Front) < FMath::Square(BlockingDistance) || FVector::DistSquared(Where, Other.Back) < FMath::Square(BlockingDistance);
-				}
-				if (bNear)
-				{
-					Why = FString::Printf(TEXT("%s has stood near it for %.0f s"), *STLayout::Name(Other.Train), Clock - mStandingSince.FindRef(Other.Train).Value);
-					break;
-				}
-			}
-			if (!Why.IsEmpty())
-			{
-				mLastMovedAside.Add(State.Train.Get(), Clock);
-				UE_LOG(LogSmartTrains, Log, TEXT("BLOCKING %s, parked at %s, may hold a train up: %s; moving it"), *STLayout::Name(State.Train), *STLayout::Name(Here), *Why);
-			}
 		}
 		if (Why.IsEmpty())
 		{
@@ -1509,7 +1263,7 @@ void ASTSubsystem::ClearNeededBays()
 			float BestTime = TNumericLimits<float>::Max();
 			Target = nullptr;
 			TArray<AFGTrainStationIdentifier*> Stations;
-			if (AFGRailroadSubsystem* Railroad = AFGRailroadSubsystem::Get(GetWorld()))
+			if (Railroad)
 			{
 				Railroad->GetAllTrainStations(Stations);
 			}
@@ -1546,7 +1300,6 @@ void ASTSubsystem::ClearNeededBays()
 			}
 			if (Check == STAt::ELegCheck::Blocked)
 			{
-				State.LastCantLeave = Clock;
 				TArray<FString> Rerouted;
 				for (FSTTrainState& Other : mTrains)
 				{

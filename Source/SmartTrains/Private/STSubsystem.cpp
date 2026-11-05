@@ -854,6 +854,11 @@ bool ASTSubsystem::IsNoProgress(const FSTTrainState& State, const AFGTrainStatio
 	});
 }
 
+bool ASTSubsystem::IsDeadEnd(const AFGTrainStationIdentifier* Station) const
+{
+	return mTravel && Station && mTravel->IsDeadEnd(Station);
+}
+
 float ASTSubsystem::EstimateStaySeconds(const AFGTrainStationIdentifier* Station) const
 {
 	if (const FSTDwellTime* Stay = mStays.FindByPredicate([&](const FSTDwellTime& Each) { return Each.Station == Station; }))

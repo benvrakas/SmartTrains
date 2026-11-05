@@ -85,9 +85,9 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
     (log: "drive to Alclad Aluminum Sheet SRC (4680) and park (making room at Heavy Oil Residue SNK (640))").
 18. **Eviction chains** (risk). A train sent away to make room may park in a station the next trip needs. Depots
     prevent this. Moves because a train stood near a parked one happen at most every 5 minutes per parked train.
-18a. **Parked trains give way** (designed, after 2026-11-05). A parked train moves when another train heads for its
-    station or stands near it for 45 s. Without that, a parked train in a through-station could hold up everything
-    behind it, since Auto Trains doesn't drive trains with self-driving off.
+18a. **Parked trains give way** (designed, after 2026-11-05). With Auto Trains, a parked train moves when a train has
+    waited 20 s for it, after checking its way out. In a dead-end station a parked train keeps the station until it
+    leaves, so a second train isn't sent into a bay it couldn't enter.
 19. **Traffic behind parked trains** (seen, with Auto Trains). Auto Trains holds a train before a track a parked
     SmartTrains train occupies, until the parked train has moved away.
 20. **Train not at a station goes to the nearest one first** (seen). A train managed in the middle of the line
