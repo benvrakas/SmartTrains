@@ -17,6 +17,33 @@
 
 namespace
 {
+	// What one written stop is: station, rules and the cars that skip it.
+	FString StopKey(const FTimeTableStop& Stop, const TArray<TObjectPtr<AFGRailroadVehicle>>& SkipCars)
+	{
+		const FTrainDockingRuleSet& Rules = Stop.DockingRuleSet;
+		FString Key = FString::Printf(TEXT("%p|%d|%.1f|%d|"), ToRawPtr(Stop.Station), static_cast<int32>(Rules.DockingDefinition), Rules.DockForDuration,
+			Rules.IsDurationAndRule ? 1 : 0);
+		for (const TSubclassOf<UFGItemDescriptor>& Item : Rules.LoadFilterDescriptors)
+		{
+			Key += FString::Printf(TEXT("L%p"), Item.Get());
+		}
+		for (const TSubclassOf<UFGItemDescriptor>& Item : Rules.UnloadFilterDescriptors)
+		{
+			Key += FString::Printf(TEXT("U%p"), Item.Get());
+		}
+		TArray<UPTRINT> Cars;
+		for (const TObjectPtr<AFGRailroadVehicle>& Car : SkipCars)
+		{
+			Cars.Add(reinterpret_cast<UPTRINT>(Car.Get()));
+		}
+		Cars.Sort();
+		for (const UPTRINT Car : Cars)
+		{
+			Key += FString::Printf(TEXT("S%llx"), static_cast<uint64>(Car));
+		}
+		return Key;
+	}
+
 	// A self-driving train standing this long within BlockingDistance of a parked managed train moves the parked train,
 	// at most once per MovedAsideAgainSeconds. [s, cm]
 	constexpr double WaitingBehindSeconds = 45.0;
@@ -1193,20 +1220,44 @@ void ASTSubsystem::WriteJob(FSTTrainState& State, const TCHAR* Why)
 	TArray<FTimeTableStop> Stops;
 	TArray<int32> SkipStops;
 	TArray<AFGRailroadVehicle*> SkipVehicles;
-	State.WrittenStations.Reset();
+	TArray<FString> Keys;
 	for (int32 Index = State.Job.Leg; Index < State.Job.Legs.Num(); ++Index)
 	{
 		const FSTJobLeg& Leg = State.Job.Legs[Index];
 		FTimeTableStop& Stop = Stops.AddDefaulted_GetRef();
 		Stop.Station = Leg.Station;
 		Stop.DockingRuleSet = MakeRules(Leg, mSettings);
-		State.WrittenStations.Add(Leg.Station);
 		for (AFGRailroadVehicle* Car : Leg.SkipCars)
 		{
 			SkipStops.Add(Stops.Num() - 1);
 			SkipVehicles.Add(Car);
 		}
+		Keys.Add(StopKey(Stop, Leg.SkipCars));
 	}
+	// The same stops as the rest of what the train already drives to: rewriting would only make the game (and Auto
+	// Trains) plan its route again, possibly while it pulls out.
+	const int32 Current = TimeTable->GetCurrentStop();
+	if (Train->IsSelfDrivingEnabled() && State.WrittenStopKeys.Num() - Current == Keys.Num() && Current >= 0 && Keys.Num() > 0)
+	{
+		bool bSame = TimeTable->GetNumStops() == State.WrittenStopKeys.Num();
+		for (int32 Index = 0; bSame && Index < Keys.Num(); ++Index)
+		{
+			bSame = State.WrittenStopKeys[Current + Index] == Keys[Index];
+		}
+		if (bSame)
+		{
+			UE_LOG(LogSmartTrains, Verbose, TEXT("WRITE %s job %d: timetable already has these %d stops from stop %d; not rewritten (%s)"), *STLayout::Name(Train),
+				State.Job.Id, Keys.Num(), Current + 1, Why);
+			UpdateTrainName(State);
+			return;
+		}
+	}
+	State.WrittenStations.Reset();
+	for (const FTimeTableStop& Stop : Stops)
+	{
+		State.WrittenStations.Add(Stop.Station);
+	}
+	State.WrittenStopKeys = Keys;
 	bool bByFcc = false;
 	if (IsFccAvailable())
 	{

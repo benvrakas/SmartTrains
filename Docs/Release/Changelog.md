@@ -2,6 +2,10 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Fewer timetable rewrites:** a re-plan that leaves the stops, rules and skipped cars as the train already has them
+  no longer writes the timetable again. Each write made the game, and Auto Trains, plan the route again, often while
+  the train pulled out of a station.
+
 - Monitor Trains tab: trains show the name the game shows (with train names on, the "ST: ..." trip name), not the
   name they had before SmartTrains managed them.
 

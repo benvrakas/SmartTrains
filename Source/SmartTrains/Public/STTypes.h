@@ -313,6 +313,8 @@ struct SMARTTRAINS_API FSTTrainState
 
 	// Runtime only: the name SmartTrains last gave the train, to notice a player renaming it.
 	FString LastWrittenName;
+	// Runtime only: one key per stop SmartTrains last wrote (station, rules, skipped cars), to skip rewriting the same.
+	TArray<FString> WrittenStopKeys;
 	// Runtime only: the rest of the trip is re-planned in the next dispatch.
 	bool bReplan = false;
 	// Runtime only: docking state at the last check, when the current dock began, and where.
