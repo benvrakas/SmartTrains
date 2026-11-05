@@ -15,5 +15,5 @@ Status: 0.4.0 beta. Settings are in the platform, locomotive and station menus, 
 - Logs and troubleshooting: [Docs/Debugging.md](Docs/Debugging.md)
 - In-game tests: [Docs/Testing.md](Docs/Testing.md)
 
-Works with Freight Car Control (optional: cars can skip stops, so trips can use only some cars), Auto Trains (traffic),
+Highly recommended (both optional): Auto Trains (traffic without signals; SmartTrains checks a train's way with it before it leaves) and Freight Car Control (cars can skip stops, so trips can use only some cars). Also works with
 Modular Stations and DynamicTimeTable (its groups are read for migration; managed trains are protected from it).

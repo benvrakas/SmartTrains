@@ -6,6 +6,10 @@ how long each consumer has waited. You don't need a train per factory.
 
 **Beta.** Try it on a copy of your save first (`/st testcopy`).
 
+**Highly recommended:** [Auto Trains](https://ficsit.app/mod/AutoTrains) and
+[Freight Car Control](https://ficsit.app/mod/FreightCarControl). SmartTrains works without them, but much better with
+them (see below).
+
 ### How it works
 
 - **Platforms:** open a freight or fluid platform and click **Open SmartTrains settings**.
@@ -21,16 +25,28 @@ how long each consumer has waited. You don't need a train per factory.
 - **Fit:** train length, the order of the cars and the order of the platforms are checked for every trip. Push-pull
   trains, with a locomotive at each end, are handled both ways round.
 
-### With and without Freight Car Control
+### Highly recommended mods
 
-[Freight Car Control](https://ficsit.app/mod/FreightCarControl) is optional. It lets each car skip a stop.
+Both are optional: SmartTrains finds them while the game runs and uses them when they're there.
 
-- **With it**, a train may stop at a station where only some of its cars have work. The other cars skip that stop,
-  so cargo for later stops stays on board.
-- **Without it**, every car loads or unloads at the platform it stops beside, as in vanilla. A trip is only used if
-  every car fits the platform it stops beside: no car may load an item nobody planned, or unload where it shouldn't.
-  Platforms still have their own roles and items either way. Fewer trips work without it, mostly at stations where
-  platforms differ along the train.
+**[Auto Trains](https://ficsit.app/mod/AutoTrains)** drives the trains without signals and books track ahead.
+SmartTrains works with it:
+- Before a train leaves a station, SmartTrains asks whether its first leg can be driven now, around every other
+  train, including trains coming the other way on a single track. If not, the train waits in the station instead of
+  meeting the other one head on.
+- Station queues, real travel times and which train waits for which feed into SmartTrains' trip timing.
+- Trains stuck or deadlocked together are sorted out, and the monitor shows them.
+
+Without it, the game's own self-driving and your signals keep trains apart, as in vanilla: you need a properly
+signalled network, above all on single track.
+
+**[Freight Car Control](https://ficsit.app/mod/FreightCarControl)** lets each car skip a stop.
+- With it, a train may stop at a station where only some of its cars have work. The other cars skip that stop, so
+  cargo for later stops stays on board.
+- Without it, every car loads or unloads at the platform it stops beside, as in vanilla. A trip is only used if every
+  car fits the platform it stops beside: no car may load an item nobody planned, or unload where it shouldn't. Platforms
+  still have their own roles and items either way, but far fewer trips work, mostly at stations where platforms differ
+  along the train.
 
 ### Tools
 
@@ -52,8 +68,8 @@ how long each consumer has waited. You don't need a train per factory.
 
 ### Works with
 
-- **Freight Car Control** (optional): skips cars at stops.
-- **Auto Trains**: drives and routes the trains.
+- **Auto Trains** (highly recommended): drives and routes the trains, and checks a train's way before it leaves.
+- **Freight Car Control** (highly recommended): skips cars at stops.
 - **Modular Stations.**
 - **DynamicTimeTable**: migration reads its station groups. Don't keep it installed with managed trains, as both mods
   would write the same timetables.
