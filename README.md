@@ -7,13 +7,16 @@ stock, rate and distance from where items pile up to where they're needed. You d
 length, car positions and platform positions are checked for every job. Everything is opt-in: unmanaged trains and
 platforms without a role work as in vanilla.
 
-Status: 0.4.0 beta. Settings are in the platform, locomotive and station menus, and in chat (`/st help`).
+Status: 0.4.0 beta, the first release ([changelog](Docs/Release/Changelog.md)). Settings are in the platform, locomotive and station menus, and in chat (`/st help`).
 
 - Commands: [Docs/Commands.md](Docs/Commands.md)
 - Moving an existing network over: [Docs/Migration.md](Docs/Migration.md)
 - How it works: [Docs/Architecture.md](Docs/Architecture.md)
 - Logs and troubleshooting: [Docs/Debugging.md](Docs/Debugging.md)
-- In-game tests: [Docs/Testing.md](Docs/Testing.md)
+- Tests: [Docs/Testing.md](Docs/Testing.md)
+- Notes from the unreleased betas: [Docs/DevLog.md](Docs/DevLog.md)
 
-Highly recommended (both optional): Auto Trains (traffic without signals; SmartTrains checks a train's way with it before it leaves) and Freight Car Control (cars can skip stops, so trips can use only some cars). Also works with
-Modular Stations and DynamicTimeTable (its groups are read for migration; managed trains are protected from it).
+Highly recommended (both optional): Auto Trains 1.3.9+ (traffic without signals; SmartTrains checks a train's way
+with it before it leaves) and Freight Car Control 1.1.0+ (cars can skip stops, so trips can use only some cars). Also
+works with Modular Stations. DynamicTimeTable's station groups are read for migration; don't keep it installed with
+managed trains.

@@ -25,6 +25,17 @@ them (see below).
 - **Fit:** train length, the order of the cars and the order of the platforms are checked for every trip. Push-pull
   trains, with a locomotive at each end, are handled both ways round.
 
+### Traffic
+
+- **Spacing:** trips are timed so trains arrive at a station at least **Gap between trains at a station** (Mods
+  menu, 30 s) apart.
+- **Waiting in the station:** a train whose next station is busy waits where it is instead of queueing on the line,
+  where it would block junctions.
+- **Parked trains give way:** idle trains park at a depot (a station setting) or where they finished. A parked train
+  moves to a depot or a free station when a trip needs its station.
+- **Dead ends:** a train parked in a dead-end station keeps it until it leaves, so no second train is sent into a
+  bay it couldn't enter.
+
 ### Highly recommended mods
 
 Both are optional: SmartTrains finds them while the game runs and uses them when they're there.
@@ -35,12 +46,15 @@ SmartTrains works with it:
   train, including trains coming the other way on a single track. If not, the train waits in the station instead of
   meeting the other one head on.
 - Station queues, real travel times and which train waits for which feed into SmartTrains' trip timing.
+- A parked train moves out of the way when Auto Trains reports a train waiting for it.
 - The monitor shows trains Auto Trains reports as stuck or deadlocked.
+
+Auto Trains 1.3.9 or later.
 
 Without it, the game's own self-driving and your signals keep trains apart, as in vanilla: you need a properly
 signalled network, above all on single track.
 
-**[Freight Car Control](https://ficsit.app/mod/FreightCarControl)** lets each car skip a stop.
+**[Freight Car Control](https://ficsit.app/mod/FreightCarControl)** (1.1.0 or later) lets each car skip a stop.
 - With it, a train may stop at a station where only some of its cars have work. The other cars skip that stop, so
   cargo for later stops stays on board.
 - Without it, every car loads or unloads at the platform it stops beside, as in vanilla. A trip is only used if every
@@ -56,7 +70,8 @@ signalled network, above all on single track.
     Modular Load Balancers and lifts.
   - Platforms the trace can't settle get items from their stock, their timetables, or the routes of trains that
     stop there.
-- **Monitor** (`/st monitor`): shows per item what limits deliveries:
+- **Monitor** (`/st monitor`): a window with Overview, Items, Stations, Platforms and Trains tabs. It shows per item
+  what limits deliveries, with advice:
   - not enough supply;
   - not enough trains;
   - no train that fits the platforms;
