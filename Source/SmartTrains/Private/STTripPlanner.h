@@ -76,6 +76,9 @@ public:
 	// Sets the train the next calls plan for and lists its moves. Returns false if it has no freight cars.
 	// bAnchorDocked: the train is at Anchor now (docked there, or just left it), so Anchor can't be the first stop.
 	bool BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bAnchorDocked);
+	// Makes TrainIndex the current train again as BeginTrain set it up earlier with the same anchor and time, without
+	// listing and scoring its moves again. Returns false if it wasn't set up that way this round.
+	bool ResumeTrain(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bAnchorDocked);
 	const TArray<FSTPlanMove>& GetMoves() const { return mMoves; }
 
 	FSTPlanResult Simulate(const TArray<FSTPlanStop>& Stops) const;
@@ -187,6 +190,22 @@ private:
 	mutable TArray<FPlatformInfo> mPlatforms;
 	mutable TMap<const AFGBuildableTrainPlatformCargo*, int32> mPlatformIndex;
 	mutable TMap<const AFGTrainStationIdentifier*, TArray<TArray<int32>>> mCarPlatforms;
+
+	// What BeginTrain worked out per train this round, for ResumeTrain.
+	struct FTrainSetup
+	{
+		const AFGTrainStationIdentifier* Anchor = nullptr;
+		double FreeAt = 0.0;
+		bool bAnchorDocked = false;
+		bool bRelaxed = false;
+		bool bPushPull = false;
+		TArray<FCarInfo> Cars;
+		TArray<FSTPlanMove> Moves;
+		TMap<const AFGTrainStationIdentifier*, TArray<TArray<int32>>> CarPlatforms;
+		// Rejection reasons from scoring the moves.
+		TMap<FString, int32> Problems;
+	};
+	TMap<int32, FTrainSetup> mSetups;
 };
 
 namespace STAssignment

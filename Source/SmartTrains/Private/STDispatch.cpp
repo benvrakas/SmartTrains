@@ -44,6 +44,11 @@ namespace
 		return Key;
 	}
 
+	// A parked train's booking of its station: about how long moving it out takes. [s]
+	constexpr double ParkedLeaveSeconds = 60.0;
+	// Auto Trains travel-time questions per dispatch round. [calls]
+	constexpr int32 AtTravelCallsPerRound = 4;
+
 	// With Auto Trains: a parked managed train moves when a train has waited this long for it. [s]
 	constexpr float AtHeldUpSeconds = 20.f;
 	// How often Auto Trains is asked for a station's queue. [s]
@@ -272,6 +277,7 @@ bool ASTSubsystem::CanServe(const FSTTrainState& State, const AFGTrainStationIde
 TArray<TArray<AFGRailroadVehicle*>> ASTSubsystem::GetDockMaps(const AFGTrain* Train, const AFGTrainStationIdentifier* Station, bool* bLearned) const
 {
 	TArray<TArray<AFGRailroadVehicle*>> Learned;
+	TArray<const AFGLocomotive*> LearnedBy;
 	const TArray<AFGRailroadVehicle*> Vehicles = STLayout::GetVehicles(Train);
 	for (const FSTDockMap& Seen : mDockMaps)
 	{
@@ -298,6 +304,7 @@ TArray<TArray<AFGRailroadVehicle*>> ASTSubsystem::GetDockMaps(const AFGTrain* Tr
 		if (bValid)
 		{
 			Learned.Add(MoveTemp(Map));
+			LearnedBy.Add(Seen.Locomotive.Get());
 		}
 	}
 	if (bLearned)
@@ -305,17 +312,36 @@ TArray<TArray<AFGRailroadVehicle*>> ASTSubsystem::GetDockMaps(const AFGTrain* Tr
 		*bLearned = Learned.Num() > 0;
 	}
 	TArray<TArray<AFGRailroadVehicle*>> Predicted;
+	TArray<const AFGLocomotive*> PredictedBy;
 	const AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
 	const int32 PlatformCount = STLayout::GetPlatforms(Building).Num();
 	for (AFGLocomotive* Locomotive : STLayout::GetPossibleDockingLocomotives(Train))
 	{
 		TArray<AFGRailroadVehicle*> Behind = STLayout::GetVehiclesBehind(Locomotive);
 		Behind.SetNum(FMath::Min(Behind.Num(), PlatformCount));
-		Predicted.AddUnique(MoveTemp(Behind));
+		if (!Predicted.Contains(Behind))
+		{
+			Predicted.Add(MoveTemp(Behind));
+			PredictedBy.Add(Locomotive);
+		}
 	}
 	if (Learned.Num() == 0)
 	{
 		return Predicted;
+	}
+	// Maps that know their docking locomotive: each replaces the prediction for that locomotive; the other ways round
+	// stay predicted until seen.
+	if (!LearnedBy.Contains(nullptr))
+	{
+		TArray<TArray<AFGRailroadVehicle*>> Maps = Learned;
+		for (int32 Index = 0; Index < Predicted.Num(); ++Index)
+		{
+			if (!LearnedBy.Contains(PredictedBy[Index]))
+			{
+				Maps.Add(Predicted[Index]);
+			}
+		}
+		return Maps;
 	}
 	// A learned map stands for the way round it was seen; the other ways round stay predicted until seen. If a learned
 	// map matches no prediction, the predictions are wrong for this station and only what was seen is used.
@@ -587,6 +613,8 @@ void ASTSubsystem::DispatchRound()
 	BuildNodes(Nodes);
 	const double Time = Now();
 
+	mAtTravelCallsLeft = AtTravelCallsPerRound;
+	mHeldFor.Reset();
 	// Station bookings of the trips already running, from arrival to the end of the stay. A train docked for its current
 	// stop holds the station from when it docked; one running late from now.
 	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
@@ -609,8 +637,23 @@ void ASTSubsystem::DispatchRound()
 			else if (Leg == State.Job.Leg)
 			{
 				From = FMath::Max(From, Time);
+				AFGBuildableRailroadStation* Goal = nullptr;
+				const float Eta = IsValid(State.Train) ? STAt::GetPlannedArrival(GetWorld(), State.Train, Goal) : -1.f;
+				if (Eta >= 0.f && Goal && Goal == Each.Station->GetStation())
+				{
+					From = Time + Eta;
+				}
 			}
 			Bookings.FindOrAdd(Each.Station.Get()).Add({TrainIndex, From, FMath::Max(Each.PlannedArrival, From) + Stay});
+		}
+	}
+	// A parked train holds its station until it is moved out, which takes about ParkedLeaveSeconds once a trip needs it.
+	for (int32 TrainIndex = 0; TrainIndex < mTrains.Num(); ++TrainIndex)
+	{
+		const FSTTrainState& State = mTrains[TrainIndex];
+		if (State.bManaged && !State.bHasJob && State.Phase == ESTTrainPhase::Parked && State.LastStation && IsValid(State.Train) && !State.Train->IsSelfDrivingEnabled())
+		{
+			Bookings.FindOrAdd(State.LastStation.Get()).Add({TrainIndex, Time, Time + ParkedLeaveSeconds});
 		}
 	}
 	if (STAt::IsAvailable(GetWorld()))
@@ -772,7 +815,8 @@ void ASTSubsystem::DispatchRound()
 		++Planned;
 		const FFree& Entry = Free[Row];
 		FSTTrainState& State = mTrains[Entry.TrainIndex];
-		if (!Planner.BeginTrain(Entry.TrainIndex, Entry.Anchor, Entry.FreeAt, Entry.bDocked))
+		if (!Planner.ResumeTrain(Entry.TrainIndex, Entry.Anchor, Entry.FreeAt, Entry.bDocked)
+			&& !Planner.BeginTrain(Entry.TrainIndex, Entry.Anchor, Entry.FreeAt, Entry.bDocked))
 		{
 			continue;
 		}
@@ -799,6 +843,7 @@ void ASTSubsystem::DispatchRound()
 			const double Wait = Result.Arrive[0] - (Entry.FreeAt + FMath::Max(0.f, Travel));
 			if (bInStation && Travel >= 0.f && Wait > HoldAfterWaitSeconds)
 			{
+				mHeldFor.Add(Stops[0].Station);
 				NoTrip(State, FString::Printf(TEXT("holding at %s: %s is booked by other trains, so it leaves later instead of queueing there"),
 					*STLayout::Name(Entry.Anchor), *STLayout::Name(Stops[0].Station)));
 				continue;
@@ -816,6 +861,7 @@ void ASTSubsystem::DispatchRound()
 				}
 				if (Check == STAt::ELegCheck::Blocked)
 				{
+					mHeldFor.Add(Stops[0].Station);
 					NoTrip(State, FString::Printf(TEXT("holding at %s: Auto Trains sees no way to %s now (%s)"), *STLayout::Name(Entry.Anchor),
 						*STLayout::Name(Stops[0].Station), *Reason));
 					continue;
@@ -1196,6 +1242,10 @@ void ASTSubsystem::ClearNeededBays()
 {
 	const double Clock = Now();
 	TSet<const AFGTrainStationIdentifier*> Needed;
+	for (const TWeakObjectPtr<AFGTrainStationIdentifier>& Station : mHeldFor)
+	{
+		Needed.Add(Station.Get());
+	}
 	for (const FSTTrainState& State : mTrains)
 	{
 		if (State.bManaged && State.bHasJob)

@@ -531,6 +531,37 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 	}
 	UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: %d moves (%d kept), %d cars, from %s at %+.0f s%s"), *STLayout::Name(Train), Moves.Num(), mMoves.Num(),
 		mCars.Num(), *STLayout::Name(Anchor), FreeAt - mTime, bRelaxed ? TEXT(", unwanted cargo may go anywhere") : TEXT(""));
+	FTrainSetup& Setup = mSetups.FindOrAdd(TrainIndex);
+	Setup.Anchor = Anchor;
+	Setup.FreeAt = FreeAt;
+	Setup.bAnchorDocked = bAnchorDocked;
+	Setup.bRelaxed = bRelaxed;
+	Setup.bPushPull = bPushPull;
+	Setup.Cars = mCars;
+	Setup.Moves = mMoves;
+	Setup.CarPlatforms = mCarPlatforms;
+	Setup.Problems = mProblems;
+	return true;
+}
+
+bool FSTTripPlanner::ResumeTrain(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bInAnchorDocked)
+{
+	const FTrainSetup* Setup = mSetups.Find(TrainIndex);
+	if (!Setup || Setup->Anchor != Anchor || Setup->FreeAt != FreeAt || Setup->bAnchorDocked != bInAnchorDocked)
+	{
+		return false;
+	}
+	mTrainIndex = TrainIndex;
+	mMaxTripSeconds = FMath::Max(60.0, mSubsystem.mSettings.MaxTripMinutes * 60.0);
+	mAnchor = Anchor;
+	mFreeAt = FreeAt;
+	bAnchorDocked = bInAnchorDocked;
+	bRelaxed = Setup->bRelaxed;
+	bPushPull = Setup->bPushPull;
+	mCars = Setup->Cars;
+	mMoves = Setup->Moves;
+	mCarPlatforms = Setup->CarPlatforms;
+	mProblems = Setup->Problems;
 	return true;
 }
 

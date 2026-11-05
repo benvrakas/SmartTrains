@@ -482,3 +482,22 @@ STAt::ELegCheck STAt::CheckLeg(const UWorld* World, AFGTrain* Train, AFGBuildabl
 	default: return ELegCheck::Unavailable;
 	}
 }
+
+float STAt::GetPlannedArrival(const UWorld* World, AFGTrain* Train, AFGBuildableRailroadStation*& OutGoal)
+{
+	OutGoal = nullptr;
+	float Seconds = -1.f;
+	TObjectPtr<AFGTrain> TrainPtr = Train;
+	CallAt(World, TEXT("ExternalGetPlannedArrival"), [&](const UFunction* Function, FStructOnScope& Params)
+	{
+		return Train && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr);
+	}, [&](const UFunction* Function, const uint8* Memory)
+	{
+		if (const TObjectPtr<AFGBuildableRailroadStation>* Goal = ParamValue<TObjectPtr<AFGBuildableRailroadStation>>(Function, Memory, TEXT("OutGoal")))
+		{
+			OutGoal = Goal->Get();
+		}
+		Seconds = ReturnFloat(Function, Memory);
+	});
+	return Seconds;
+}

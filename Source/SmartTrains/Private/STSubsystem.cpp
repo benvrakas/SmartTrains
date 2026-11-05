@@ -700,7 +700,9 @@ void ASTSubsystem::LearnDockMap(AFGTrain* Train, AFGTrainStationIdentifier* Stat
 	{
 		Seen.Consist.Add(Vehicle);
 	}
-	// One map per way round: the one seen with the same first docked vehicle is replaced, maps of another consist go.
+	Seen.Locomotive = Train->GetMultipleUnitMaster();
+	// One map per way round, told apart by the locomotive that docked (older maps by the first docked vehicle): the
+	// one of the same way round is replaced, maps of another consist go.
 	int32 FirstIndex = Seen.Vehicles.IndexOfByPredicate([](const TObjectPtr<AFGRailroadVehicle>& Vehicle) { return Vehicle != nullptr; });
 	mDockMaps.RemoveAll([&](const FSTDockMap& Map)
 	{
@@ -708,7 +710,8 @@ void ASTSubsystem::LearnDockMap(AFGTrain* Train, AFGTrainStationIdentifier* Stat
 		{
 			return false;
 		}
-		const bool bSameWayRound = Map.Vehicles.IsValidIndex(FirstIndex) && Map.Vehicles[FirstIndex] == Seen.Vehicles[FirstIndex];
+		const bool bSameWayRound = Map.Locomotive && Seen.Locomotive ? Map.Locomotive == Seen.Locomotive
+			: Map.Vehicles.IsValidIndex(FirstIndex) && Map.Vehicles[FirstIndex] == Seen.Vehicles[FirstIndex];
 		return bSameWayRound || Map.Consist != Seen.Consist;
 	});
 	mDockMaps.Add(Seen);
@@ -782,24 +785,32 @@ float ASTSubsystem::EstimateTravelSeconds(const AFGTrainStationIdentifier* From,
 	const float Speed = FMath::Max(1.f, mSettings.AverageSpeedKmh / 3.6f) * 100.f;
 	bool bReversing = false;
 	float Distance = mTravel ? mTravel->GetDistance(From, To, &bReversing, bPushPull) : -1.f;
+	// Auto Trains' time for a pair not driven yet: the way the signals allow, at real speeds and acceleration. Asked a
+	// few pairs per dispatch round and kept 10 minutes; SmartTrains' own estimate stands in meanwhile.
+	const TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, TWeakObjectPtr<AFGTrainStationIdentifier>> Key(const_cast<AFGTrainStationIdentifier*>(From),
+		const_cast<AFGTrainStationIdentifier*>(To));
+	TPair<float, double>* Cached = mAtTravel.Find(Key);
+	if ((!Cached || Now() - Cached->Value > 600.0) && mAtTravelCallsLeft > 0 && STAt::IsAvailable(GetWorld()))
+	{
+		--mAtTravelCallsLeft;
+		const float AtSeconds = STAt::EstimateTravelSeconds(GetWorld(), nullptr, const_cast<AFGBuildableRailroadStation*>(From->GetStation()),
+			const_cast<AFGBuildableRailroadStation*>(To->GetStation()));
+		if (!Cached && AtSeconds >= 0.f && Distance == -2.f)
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("TRAVEL %s -> %s: SmartTrains' search finds no way, Auto Trains does (%.0f s); using that"), *STLayout::Name(From),
+				*STLayout::Name(To), AtSeconds);
+		}
+		Cached = &mAtTravel.Add(Key, TPair<float, double>(AtSeconds, Now()));
+	}
+	// Auto Trains may leave either way, so a way only it finds is for push-pull trains.
+	if (Cached && Cached->Key >= 0.f && (Distance != -2.f || bPushPull))
+	{
+		// Plus time to start and stop at the stations.
+		return Cached->Key + 20.f;
+	}
 	if (Distance == -2.f)
 	{
-		// Auto Trains searches the way signals allow; ask it before giving up (cached for 10 minutes).
-		const TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, TWeakObjectPtr<AFGTrainStationIdentifier>> Key(const_cast<AFGTrainStationIdentifier*>(From),
-			const_cast<AFGTrainStationIdentifier*>(To));
-		TPair<float, double>* Cached = mAtTravel.Find(Key);
-		if (!Cached || Now() - Cached->Value > 600.0)
-		{
-			const float AtSeconds = STAt::EstimateTravelSeconds(GetWorld(), nullptr, const_cast<AFGBuildableRailroadStation*>(From->GetStation()),
-				const_cast<AFGBuildableRailroadStation*>(To->GetStation()));
-			if (!Cached && AtSeconds >= 0.f)
-			{
-				UE_LOG(LogSmartTrains, Log, TEXT("TRAVEL %s -> %s: SmartTrains' search finds no way, Auto Trains does (%.0f s); using that"), *STLayout::Name(From),
-					*STLayout::Name(To), AtSeconds);
-			}
-			Cached = &mAtTravel.Add(Key, TPair<float, double>(AtSeconds, Now()));
-		}
-		return Cached->Key >= 0.f ? Cached->Key + 20.f : -1.f;
+		return -1.f;
 	}
 	if (Distance < 0.f)
 	{

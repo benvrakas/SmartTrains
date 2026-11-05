@@ -9,6 +9,7 @@ class AFGBuildableTrainPlatformCargo;
 class AFGRailroadVehicle;
 class AFGTrain;
 class AFGTrainStationIdentifier;
+class AFGLocomotive;
 class UFGItemDescriptor;
 
 // What a freight or fluid platform does for SmartTrains.
@@ -354,6 +355,11 @@ struct SMARTTRAINS_API FSTDockMap
 	// from 0.1.0 to 0.3.0 saves, which are checked by vehicle set only.
 	UPROPERTY(SaveGame)
 	TArray<TObjectPtr<AFGRailroadVehicle>> Consist;
+
+	// The locomotive that docked (the train's lead), which says which way round the train stood. Null in maps from
+	// saves before 0.4.0, which are told apart by the first docked vehicle.
+	UPROPERTY(SaveGame)
+	TObjectPtr<AFGLocomotive> Locomotive = nullptr;
 };
 
 // Learned travel time between two stations.

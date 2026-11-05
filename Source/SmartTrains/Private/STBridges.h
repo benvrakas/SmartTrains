@@ -54,6 +54,10 @@ namespace STAt
 	// has no plan or Auto Trains isn't loaded.
 	float GetStationQueue(const UWorld* World, AFGBuildableRailroadStation* Station, TArray<AFGTrain*>& OutTrains);
 
+	// Seconds until Train reaches OutGoal by Auto Trains' plan, around every booking and queue (for a docked train its
+	// next stop, the stay included); -1 without such a plan or without Auto Trains.
+	float GetPlannedArrival(const UWorld* World, AFGTrain* Train, AFGBuildableRailroadStation*& OutGoal);
+
 	// Seconds from From to To on the shortest way the signals allow, without other traffic; -1 if there is no way or
 	// Auto Trains isn't loaded. A search over the whole network: call sparingly.
 	float EstimateTravelSeconds(const UWorld* World, AFGTrain* Train, AFGBuildableRailroadStation* From, AFGBuildableRailroadStation* To);

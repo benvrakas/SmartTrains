@@ -373,7 +373,8 @@ fields stay so older saves load. On load, each tag is logged and cleared.
 `GetDockMaps` returns the vehicle beside each platform for every way the train may dock:
 
 - Learned maps (`LearnDockMap`, one per way round) are used while the train has the same vehicles in the same order
-  (`FSTDockMap::Consist`).
+  (`FSTDockMap::Consist`). A map records the locomotive that docked (`FSTDockMap::Locomotive`, the train's lead), and
+  replaces the prediction for that locomotive. Maps from older saves are told apart by their first docked vehicle.
 - Ways round not seen yet stay predicted, from the vehicles behind each locomotive that can dock.
 - If a learned map matches no prediction, only learned maps are used for that station.
 - A car is planned at a stop only if it meets a suitable platform in every map. Otherwise FCC skips it, or the trip

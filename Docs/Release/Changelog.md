@@ -2,6 +2,19 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Parked trains hold their station:** a parked train books its station for the minute it takes to move it out, so
+  trips prefer free stations. A trip held because its first stop is busy counts as needing that stop, so a train
+  parked there is moved out.
+- **Auto Trains' times:**
+  - A running trip's next stop is booked from Auto Trains' planned arrival.
+  - Station pairs not driven yet get Auto Trains' travel time (a few new pairs per round, kept 10 minutes) instead of
+    distance divided by average speed.
+- **Dock maps by docking locomotive:** a learned dock map now records the locomotive that docked, which tells the ways
+  round apart for trains with locomotives in the middle or at both ends. False `DOCK MAP MISMATCH` lines came from
+  telling them apart by the first docked vehicle.
+- **Less planning work:** a free train's setup from scoring its options is reused when its trip is planned in the same
+  round, instead of being worked out twice.
+
 - **Fluid deliveries don't wait out the timeout:** a stop that only unloads fluids is "unload once". A fluid car empties
   into its platform in one transfer (about 27 s). "Fully unload" then held the train up to "Delivery: longest wait"
   (120 s) whenever a platform wasn't quite empty, while its next trip, going to refill, was already chosen. Fluid
