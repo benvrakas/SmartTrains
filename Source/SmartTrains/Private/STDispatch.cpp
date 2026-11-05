@@ -68,6 +68,10 @@ namespace
 	// BackOffAgainSeconds. [s]
 	constexpr float StuckTogetherSeconds = 30.f;
 	constexpr double BackOffAgainSeconds = 180.0;
+	// A back-off park job isn't replaced by a new trip for this long. [s]
+	constexpr double BackOffKeepSeconds = 120.0;
+	// Turns tried for one no-path spell before a train is left for the player.
+	constexpr int32 MaxNoPathTurns = 2;
 
 	// A planned trip whose first stop is free this much later than the train could arrive is not started yet. [s]
 	constexpr double HoldAfterWaitSeconds = 20.0;
@@ -579,9 +583,9 @@ bool ASTSubsystem::GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifi
 		return OutStation != nullptr;
 	}
 	const FSTJob& Job = State.Job;
-	if (Job.bPark && Job.Legs.Num() == 1 && !Job.Legs[0].HasWork())
+	if (Job.bPark && Job.Legs.Num() == 1 && !Job.Legs[0].HasWork() && Time >= State.BackOffUntil)
 	{
-		// Heading for a depot or out of the way: free to take a job from where it last was.
+		// Heading for a depot or out of the way: free to take a job from where it last was (not while backing off).
 		OutStation = State.LastStation.Get() ? State.LastStation.Get() : Job.Legs[0].Station.Get();
 		OutTime = Time;
 		return OutStation != nullptr;
@@ -1098,6 +1102,7 @@ void ASTSubsystem::ResolveStuckTrains()
 		UE_LOG(LogSmartTrains, Warning, TEXT("STUCK %s stands stuck with %s (Auto Trains); it goes back to %s and the others plan their trips again"),
 			*STLayout::Name(Latest.Train), *FString::Join(Others, TEXT(", ")), *STLayout::Name(Back));
 		SendToStation(Latest, Back, *FString::Printf(TEXT("backing off: stuck with %s"), *FString::Join(Others, TEXT(", "))));
+		Latest.BackOffUntil = Clock + BackOffKeepSeconds;
 	}
 }
 
@@ -1120,6 +1125,7 @@ void ASTSubsystem::ResolveNoPath()
 		if (!bNoPath || !bStanding)
 		{
 			State.NoPathSince = 0.0;
+			State.NoPathTurns = 0;
 			State.bNoPathWarned = false;
 			continue;
 		}
@@ -1144,21 +1150,30 @@ void ASTSubsystem::ResolveNoPath()
 				break;
 			}
 		}
-		if (!Other)
+		if (!Other || State.NoPathTurns >= MaxNoPathTurns)
 		{
 			if (!State.bNoPathWarned)
 			{
 				State.bNoPathWarned = true;
-				UE_LOG(LogSmartTrains, Warning, TEXT("NOPATH %s has stood %.0f s with %s and has no locomotive at its other end to turn round; it needs driving by hand"),
-					*STLayout::Name(Train), Clock - State.NoPathSince, *ErrorName);
+				UE_LOG(LogSmartTrains, Warning, TEXT("NOPATH %s has stood %.0f s with %s%s; it needs driving by hand"), *STLayout::Name(Train), Clock - State.NoPathSince, *ErrorName,
+					Other ? TEXT(" and turning it round didn't help") : TEXT(" and has no locomotive at its other end to turn round"));
 			}
 			continue;
 		}
 		State.LastTurned = Clock;
 		State.NoPathSince = 0.0;
+		++State.NoPathTurns;
 		const bool bTurned = Train->SetMultipleUnitMaster(Other, true);
-		UE_LOG(LogSmartTrains, Warning, TEXT("NOPATH %s stood with %s for %.0f s; %s"), *STLayout::Name(Train), *ErrorName, NoPathTurnSeconds,
-			bTurned ? TEXT("its other end leads now, so it can drive the other way") : TEXT("making its other end lead failed"));
+		// From the second turn on, the trip is planned again too: its stop may be out of reach both ways.
+		const bool bReplanToo = State.NoPathTurns > 1 && !State.Job.bPark;
+		if (bReplanToo)
+		{
+			State.bReplan = true;
+			State.bReplanFresh = true;
+		}
+		UE_LOG(LogSmartTrains, Warning, TEXT("NOPATH %s stood with %s for %.0f s; %s%s"), *STLayout::Name(Train), *ErrorName, NoPathTurnSeconds,
+			bTurned ? TEXT("its other end leads now, so it can drive the other way") : TEXT("making its other end lead failed"),
+			bReplanToo ? TEXT("; its trip is planned again") : TEXT(""));
 		if (bTurned)
 		{
 			STAt::TimeTableChanged(GetWorld(), Train);

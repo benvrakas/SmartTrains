@@ -2,6 +2,12 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Backing off sticks:** a train sent back to untangle a stuck pair keeps that job for 2 minutes. A train driving to
+  park counted as free, so the back-off was replaced by a new trip in the same round.
+- **No-path turn-round escalates:** from the second turn round in one spell, the train's trip is planned again from
+  scratch too, since its stop may be out of reach both ways. After two turns it is left for the player, with a
+  warning.
+
 - **Parked trains check the way out first:** with Auto Trains, a parked train moved out of a station a trip needs
   first asks whether it can drive to its new spot now. If a train comes the other way on a single track, it stays.
   The trips heading for that station are then planned again from scratch, so they go elsewhere (at most once a minute

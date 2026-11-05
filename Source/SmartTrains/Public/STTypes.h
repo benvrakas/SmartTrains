@@ -342,6 +342,10 @@ struct SMARTTRAINS_API FSTTrainState
 	// Runtime only: when this parked train last couldn't get out of its station; it books the station longer then.
 	double LastCantLeave = -1000.0;
 	double LastTurned = -1000.0;
+	// Runtime only: turns made for the current no-path spell.
+	int32 NoPathTurns = 0;
+	// Runtime only: until when a back-off park job may not be replaced by a new trip. [game s]
+	double BackOffUntil = 0.0;
 	bool bNoPathWarned = false;
 	// Runtime only: docking state at the last check, when the current dock began, and where.
 	bool bWasDocked = false;
