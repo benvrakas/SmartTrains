@@ -2,8 +2,8 @@
 
 ## 0.4.0 (beta, not released)
 
-- **Holding covers a train that just left:** a train whose trip ended as it undocked, still standing in the station,
-  counts as in the station for holding and the Auto Trains route check. Its next trip was otherwise started at once, onto
+- **Holding covers a train that just left a dead end:** a train whose trip ended as it undocked from a dead-end
+  station, still standing there, counts as in the station for holding and the Auto Trains route check. Its next trip was otherwise started at once, onto
   the shared track the other water shuttle was about to use.
 - **Dead-end stations:** a train parked in a dead-end station (no way out past the station building) holds it until
   it leaves. A train sent there could neither get in nor let the parked one out, the water shuttles' repeating
