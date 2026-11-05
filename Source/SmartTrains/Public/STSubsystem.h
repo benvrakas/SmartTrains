@@ -291,6 +291,8 @@ private:
 		int32 TrainsFitting = 0;
 		int32 Pairs = 0;
 	};
+	// Records Flow (items per second) on the planned route From -> To and adds its trains to Advice.
+	void AddPlannedRoute(const TArray<FSTNode>& Nodes, int32 From, int32 To, double Flow, float Time, FAdvice& Advice);
 
 	FSTSettings mSettings;
 	// Planned flow per (supplier node key, consumer node key), items per second, from the last flow plan.

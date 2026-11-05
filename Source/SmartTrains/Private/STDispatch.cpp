@@ -11,6 +11,7 @@
 #include "SmartTrains.h"
 #include "STBridges.h"
 #include "STLayout.h"
+#include "STMinCostFlow.h"
 #include "STSubsystem.h"
 
 namespace
@@ -1103,7 +1104,8 @@ void ASTSubsystem::PlanFlows()
 			continue;
 		}
 		FAdvice& Advice = mAdvice.FindOrAdd(Item);
-		// Highest priority consumers first; within a priority, repeatedly the cheapest open route (greedy transport plan).
+		// One minimum-cost flow per priority tier, highest first: within a tier the total travel time of the planned
+		// flow is as small as possible; later tiers get what is left of the suppliers.
 		Consumers.Sort([&](int32 A, int32 B) { return Nodes[A].Priority > Nodes[B].Priority; });
 		for (int32 Start = 0; Start < Consumers.Num();)
 		{
@@ -1112,74 +1114,96 @@ void ASTSubsystem::PlanFlows()
 			{
 				++End;
 			}
-			for (;;)
+			// Graph: 0 source, 1 sink, then the suppliers, then this tier's consumers.
+			const int32 SupplierBase = 2;
+			const int32 ConsumerBase = SupplierBase + Suppliers.Num();
+			FSTMinCostFlow Flow(ConsumerBase + (End - Start));
+			for (int32 S = 0; S < Suppliers.Num(); ++S)
 			{
-				int32 BestFrom = INDEX_NONE;
-				int32 BestTo = INDEX_NONE;
-				float BestTime = TNumericLimits<float>::Max();
-				for (int32 From : Suppliers)
+				Flow.AddEdge(0, SupplierBase + S, Left[Suppliers[S]], 0.0);
+			}
+			for (int32 C = Start; C < End; ++C)
+			{
+				Flow.AddEdge(ConsumerBase + (C - Start), 1, Left[Consumers[C]], 0.0);
+			}
+			struct FRoute
+			{
+				int32 Edge;
+				int32 From;
+				int32 To;
+				float Time;
+			};
+			TArray<FRoute> Routes;
+			for (int32 S = 0; S < Suppliers.Num(); ++S)
+			{
+				const int32 From = Suppliers[S];
+				for (int32 C = Start; C < End; ++C)
 				{
-					if (Left[From] <= 1e-6)
+					const int32 To = Consumers[C];
+					if (Nodes[To].TrackGraph != Nodes[From].TrackGraph || Nodes[To].Station == Nodes[From].Station)
 					{
 						continue;
 					}
-					for (int32 Each = Start; Each < End; ++Each)
-					{
-						const int32 To = Consumers[Each];
-						if (Left[To] <= 1e-6 || Nodes[To].TrackGraph != Nodes[From].TrackGraph || Nodes[To].Station == Nodes[From].Station)
-						{
-							continue;
-						}
-						const float Time = EstimateTravelSeconds(Nodes[From].Station.Get(), Nodes[To].Station.Get());
-						if (Time >= 0.f && Time < BestTime)
-						{
-							BestTime = Time;
-							BestFrom = From;
-							BestTo = To;
-						}
-					}
-				}
-				if (BestFrom == INDEX_NONE)
-				{
-					break;
-				}
-				const double Flow = FMath::Min(Left[BestFrom], Left[BestTo]);
-				Left[BestFrom] -= Flow;
-				Left[BestTo] -= Flow;
-				mPlannedPairs.FindOrAdd(PairKey(Nodes[BestFrom], Nodes[BestTo])) += Flow;
-				mPlannedPairs.FindOrAdd(NodeKey(Nodes[BestFrom])) += Flow;
-				mPlannedPairs.FindOrAdd(NodeKey(Nodes[BestTo])) += Flow;
-				++Advice.Pairs;
-				Advice.FlowPerMinute += Flow * 60.0;
-
-				// Trains needed for this route: flow x round trip / load of the trains that fit.
-				const float Back = EstimateTravelSeconds(Nodes[BestTo].Station.Get(), Nodes[BestFrom].Station.Get());
-				const double RoundTrip = BestTime + FMath::Max(0.f, Back) + EstimateStaySeconds(Nodes[BestFrom].Station.Get()) + EstimateStaySeconds(Nodes[BestTo].Station.Get());
-				int32 Fitting = 0;
-				double Load = 0.0;
-				for (const FSTTrainState& State : mTrains)
-				{
-					if (!State.bManaged || !IsValid(State.Train))
+					const float Time = EstimateTravelSeconds(Nodes[From].Station.Get(), Nodes[To].Station.Get());
+					if (Time < 0.f)
 					{
 						continue;
 					}
-					const FSTFit Fit = ComputeFit(State.Train, Nodes[BestFrom].Station.Get(), Nodes[BestTo].Station.Get(), Item);
-					if (Fit.Capacity > 0)
-					{
-						++Fitting;
-						Load += Fit.Capacity;
-					}
+					Routes.Add({Flow.AddEdge(SupplierBase + S, ConsumerBase + (C - Start), TNumericLimits<double>::Max(), Time), From, To, Time});
 				}
-				Advice.TrainsFitting = FMath::Max(Advice.TrainsFitting, Fitting);
-				if (Fitting > 0)
+			}
+			const double Sent = Flow.Solve(0, 1);
+			UE_LOG(LogSmartTrains, Verbose, TEXT("PLAN %s, priority %s: %d routes, %s/min planned"), *STNames::Item(Item),
+				STNames::Priority(Nodes[Consumers[Start]].Priority), Routes.Num(), *STNames::Amount(Item, Sent * 60.0));
+			for (const FRoute& Route : Routes)
+			{
+				const double Planned = Flow.GetFlow(Route.Edge);
+				if (Planned > 1e-6)
 				{
-					Advice.TrainsNeeded += Flow * RoundTrip / (Load / Fitting);
+					Left[Route.From] -= Planned;
+					Left[Route.To] -= Planned;
+					AddPlannedRoute(Nodes, Route.From, Route.To, Planned, Route.Time, Advice);
 				}
-				UE_LOG(LogSmartTrains, Verbose, TEXT("PLAN %s: %s -> %s %s/min, %.0f s each way, %d trains fit"), *STNames::Item(Item),
-					*STLayout::Name(Nodes[BestFrom].Station.Get()), *STLayout::Name(Nodes[BestTo].Station.Get()), *STNames::Amount(Item, Flow * 60.0), BestTime, Fitting);
 			}
 			Start = End;
 		}
 	}
 	mPlannedNodes = Nodes;
+}
+
+void ASTSubsystem::AddPlannedRoute(const TArray<FSTNode>& Nodes, int32 From, int32 To, double Flow, float Time, FAdvice& Advice)
+{
+	const FSTNode& Supplier = Nodes[From];
+	const FSTNode& Consumer = Nodes[To];
+	mPlannedPairs.FindOrAdd(PairKey(Supplier, Consumer)) += Flow;
+	mPlannedPairs.FindOrAdd(NodeKey(Supplier)) += Flow;
+	mPlannedPairs.FindOrAdd(NodeKey(Consumer)) += Flow;
+	++Advice.Pairs;
+	Advice.FlowPerMinute += Flow * 60.0;
+
+	// Trains needed for this route: flow x round trip / load of the trains that fit.
+	const float Back = EstimateTravelSeconds(Consumer.Station.Get(), Supplier.Station.Get());
+	const double RoundTrip = Time + FMath::Max(0.f, Back) + EstimateStaySeconds(Supplier.Station.Get()) + EstimateStaySeconds(Consumer.Station.Get());
+	int32 Fitting = 0;
+	double Load = 0.0;
+	for (const FSTTrainState& State : mTrains)
+	{
+		if (!State.bManaged || !IsValid(State.Train))
+		{
+			continue;
+		}
+		const FSTFit Fit = ComputeFit(State.Train, Supplier.Station.Get(), Consumer.Station.Get(), Supplier.Item);
+		if (Fit.Capacity > 0)
+		{
+			++Fitting;
+			Load += Fit.Capacity;
+		}
+	}
+	Advice.TrainsFitting = FMath::Max(Advice.TrainsFitting, Fitting);
+	if (Fitting > 0)
+	{
+		Advice.TrainsNeeded += Flow * RoundTrip / (Load / Fitting);
+	}
+	UE_LOG(LogSmartTrains, Verbose, TEXT("PLAN %s: %s -> %s %s/min, %.0f s each way, %d trains fit"), *STNames::Item(Supplier.Item),
+		*STLayout::Name(Supplier.Station.Get()), *STLayout::Name(Consumer.Station.Get()), *STNames::Amount(Supplier.Item, Flow * 60.0), Time, Fitting);
 }
