@@ -225,7 +225,8 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			continue;
 		}
 		FSTMonitorRow& Row = View.Trains.AddDefaulted_GetRef();
-		Row.Title = State.bRenamed && !State.OriginalName.IsEmpty() ? State.OriginalName.ToString() : STLayout::Name(State.Train.Get());
+		// The name the game shows; with job names on it already says the trip.
+		Row.Title = STLayout::Name(State.Train.Get());
 		const bool bDocked = State.Train->IsDocked();
 		if (!State.bHasJob)
 		{
@@ -237,7 +238,10 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		else
 		{
 			Row.Verdict = State.Job.bPark ? TEXT("Going to park") : (bDocked ? TEXT("At a stop") : TEXT("Driving"));
-			Row.Details.Add(State.Job.Summary);
+			if (!Subsystem.mSettings.bJobNames)
+			{
+				Row.Details.Add(State.Job.Summary);
+			}
 		}
 		Row.Columns.Add(State.LastStation ? STLayout::Name(State.LastStation.Get()) : FString(TEXT("-")));
 	}

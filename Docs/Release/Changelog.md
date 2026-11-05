@@ -2,6 +2,9 @@
 
 ## 0.4.0 (beta, not released)
 
+- Monitor Trains tab: trains show the name the game shows (with train names on, the "ST: ..." trip name), not the
+  name they had before SmartTrains managed them.
+
 - **Push-pull platform room counted once:** a car that can stop beside either of two identical platforms used to
   take its amount from both, so half a push-pull train's cars found no room and were skipped while still full. Each
   way the train may dock now has its own platform room, and a car plans the smaller of its amounts.
