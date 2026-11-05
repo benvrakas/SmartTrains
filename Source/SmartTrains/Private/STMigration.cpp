@@ -58,15 +58,14 @@ namespace
 		{
 			Line += FString::Printf(TEXT("   - %s"), *Platform.Confidence);
 		}
+		// The trace summary without its path (the CSV has the path); the notes stay.
 		FString Brief = Platform.TraceText;
-		int32 Via = INDEX_NONE;
-		if (Brief.FindChar(TEXT('('), Via))
+		const int32 Via = Brief.Find(TEXT(" via "));
+		if (Via != INDEX_NONE)
 		{
-			Brief.LeftInline(Via);
-		}
-		if (Brief.Find(TEXT(" via ")) != INDEX_NONE)
-		{
-			Brief.LeftInline(Brief.Find(TEXT(" via ")));
+			const FString Rest = Brief.Mid(Via);
+			const int32 Notes = Rest.Find(TEXT(" ("));
+			Brief = Brief.Left(Via) + (Notes != INDEX_NONE ? Rest.Mid(Notes) : FString());
 		}
 		Brief.TrimEndInline();
 		if (!Brief.IsEmpty())

@@ -251,8 +251,14 @@ namespace
 
 		void AddFlow(TSubclassOf<UFGItemDescriptor> Item, float PerMinute, const FStep& Step, const AActor* Machine)
 		{
-			if (!Item || !Step.Filter.Passes(Item.Get()))
+			if (!Item)
 			{
+				return;
+			}
+			if (!Step.Filter.Passes(Item.Get()))
+			{
+				++Result.Filtered;
+				AddUnique(Result.Notes, FString::Printf(TEXT("%s from %s is filtered away on the way"), *STNames::Item(Item), *Label(Machine)));
 				return;
 			}
 			for (STTrace::FFlow& Flow : Result.Flows)
@@ -423,9 +429,12 @@ namespace
 			{
 				return;
 			}
-			if (ReadMachine(Owner, Step, false))
+			if (!IsBalancer(Owner))
 			{
 				Visited.Add(Owner);
+			}
+			if (ReadMachine(Owner, Step, false))
+			{
 				return;
 			}
 			const EFactoryConnectionDirection ExitDirection = bUpstream ? EFactoryConnectionDirection::FCD_INPUT : EFactoryConnectionDirection::FCD_OUTPUT;
@@ -483,7 +492,42 @@ namespace
 				return;
 			}
 
-			Visited.Add(Owner);
+			// Belts and lifts: on through their other end, whatever direction its connection reports.
+			if (AFGBuildableConveyorBase* Conveyor = Cast<AFGBuildableConveyorBase>(Owner))
+			{
+				UFGFactoryConnectionComponent* Other = Conveyor->GetConnection0() == Neighbour ? Conveyor->GetConnection1() : Conveyor->GetConnection0();
+				if (Other && Other->IsConnected())
+				{
+					Push(Step, Other, nullptr, StepLabel, Step.Filter, false);
+					return;
+				}
+				// A lift ending in a floor hole continues on the other side of the hole.
+				if (AFGBuildableConveyorLift* Lift = Cast<AFGBuildableConveyorLift>(Conveyor))
+				{
+					bool bThrough = false;
+					for (AFGBuildablePassthrough* Hole : Lift->GetSnappedPassthroughs())
+					{
+						if (!Hole)
+						{
+							continue;
+						}
+						for (UFGFactoryConnectionComponent* Far : {Hole->GetTopSnappedConnection<UFGFactoryConnectionComponent>(), Hole->GetBottomSnappedConnection<UFGFactoryConnectionComponent>()})
+						{
+							if (Far && Far->GetOuterBuildable() != Lift)
+							{
+								Push(Step, nullptr, Far, TEXT("Lift"), Step.Filter, false);
+								bThrough = true;
+							}
+						}
+					}
+					if (bThrough)
+					{
+						return;
+					}
+				}
+				AddUnique(Result.Notes, FString::Printf(TEXT("a %s ends unconnected"), bBelt && Owner->IsA<AFGBuildableConveyorLift>() ? TEXT("lift") : TEXT("belt")));
+				return;
+			}
 			TInlineComponentArray<UFGFactoryConnectionComponent*> Connections;
 			Owner->GetComponents(Connections);
 			TArray<UFGFactoryConnectionComponent*> Exits;
@@ -493,29 +537,6 @@ namespace
 				if (Connection && Connection != Neighbour && Connection->IsConnected() && (Direction == ExitDirection || Direction == EFactoryConnectionDirection::FCD_ANY))
 				{
 					Exits.Add(Connection);
-				}
-			}
-			// A lift ending in a floor hole continues on the other side of the hole.
-			if (AFGBuildableConveyorLift* Lift = Cast<AFGBuildableConveyorLift>(Owner); Lift && Exits.Num() == 0)
-			{
-				for (AFGBuildablePassthrough* Hole : Lift->GetSnappedPassthroughs())
-				{
-					if (!Hole)
-					{
-						continue;
-					}
-					for (UFGFactoryConnectionComponent* Other : {Hole->GetTopSnappedConnection<UFGFactoryConnectionComponent>(), Hole->GetBottomSnappedConnection<UFGFactoryConnectionComponent>()})
-					{
-						if (Other && Other->GetOuterBuildable() != Lift)
-						{
-							Push(Step, nullptr, Other, TEXT("Lift"), Step.Filter, false);
-							Exits.Add(nullptr);
-						}
-					}
-				}
-				if (Exits.Num() > 0)
-				{
-					return;
 				}
 			}
 			if (Exits.Num() == 0)
@@ -635,7 +656,8 @@ FString STTrace::FResult::Summary() const
 	}
 	if (Text.IsEmpty())
 	{
-		Text = TEXT("no machine reached");
+		Text = Machines > 0 ? FString::Printf(TEXT("%d machines reached, but their items are filtered away or of the other cargo kind"), Machines)
+			: FString(TEXT("no machine reached"));
 	}
 	FString Out = FString::Printf(TEXT("%s: %s"), ConfidenceName(Confidence), *Text);
 	if (Flows.Num() > 0)

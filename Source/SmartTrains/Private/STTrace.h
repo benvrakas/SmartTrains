@@ -36,6 +36,8 @@ namespace STTrace
 		TSubclassOf<UFGItemDescriptor> PipeFluidHint;
 		EConfidence Confidence = EConfidence::Unclear;
 		int32 Machines = 0;
+		// Machine items stopped by a splitter or balancer filter on the way.
+		int32 Filtered = 0;
 		int32 Nodes = 0;
 		bool bBranched = false;
 		bool bShared = false;
