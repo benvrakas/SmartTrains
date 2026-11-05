@@ -7,6 +7,7 @@ class AFGFreightWagon;
 class AFGTrainStationIdentifier;
 class ASTSubsystem;
 struct FSTJobLeg;
+class UFGInventoryComponent;
 struct FSTNode;
 struct FSTTrainState;
 
@@ -122,11 +123,13 @@ private:
 		TMap<UClass*, int32> Stock;
 		int32 Slots = 0;
 		int32 Occupied = 0;
+		const UFGInventoryComponent* Inventory = nullptr;
 	};
 	struct FCarInfo
 	{
 		AFGFreightWagon* Car = nullptr;
 		int32 Slots = 0;
+		const UFGInventoryComponent* Inventory = nullptr;
 		TArray<TPair<UClass*, double>> Cargo;
 	};
 

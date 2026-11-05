@@ -53,6 +53,9 @@ namespace STLayout
 
 	// Returns how much of Item the inventory holds in total when full.
 	int32 GetCapacity(const class UFGInventoryComponent* Inventory, TSubclassOf<UFGItemDescriptor> Item);
+	// How much of Item one slot of Inventory holds: the item's stack size, or the slot's own size where the inventory
+	// sets one (fluid platforms and fluid cars hold far more than a fluid's stack).
+	int32 GetSlotSize(const class UFGInventoryComponent* Inventory, TSubclassOf<UFGItemDescriptor> Item);
 
 	// Returns true if Item can be put on a platform or car of cargo type Type.
 	bool ItemFitsCargoType(TSubclassOf<UFGItemDescriptor> Item, EFreightCargoType Type);

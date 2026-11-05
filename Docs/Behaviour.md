@@ -84,7 +84,10 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
     a station. When a trip needs that station, the parked train is sent to a depot or the nearest unused station
     (log: "drive to Alclad Aluminum Sheet SRC (4680) and park (making room at Heavy Oil Residue SNK (640))").
 18. **Eviction chains** (risk). A train sent away to make room may park in a station the next trip needs. Depots
-    prevent this.
+    prevent this. Moves because a train stood near a parked one happen at most every 5 minutes per parked train.
+18a. **Parked trains give way** (designed, after 2026-11-05). A parked train moves when another train heads for its
+    station or stands near it for 45 s. Without that, a parked train in a through-station could hold up everything
+    behind it, since Auto Trains doesn't drive trains with self-driving off.
 19. **Traffic behind parked trains** (seen, with Auto Trains). Auto Trains holds a train before a track a parked
     SmartTrains train occupies, until the parked train has moved away.
 20. **Train not at a station goes to the nearest one first** (seen). A train managed in the middle of the line
@@ -101,13 +104,13 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 24. **Unseen orientations restrict a train until it has docked both ways** (designed). Until then a car is only
     planned if it fits whichever way round the train arrives. At stations whose platforms differ along their length
     this can block trips without Freight Car Control.
-25. **Push-pull shuttles at identical platforms** (bug seen 2026-11-05, fixed). A push-pull train may dock either way
-    round, so each car meets a different platform depending on the way. The planner treated that as "works
-    differently" and skipped every car, so the water shuttles never got a trip. Equivalent platforms now count as
-    agreeing. The platform readout also counted only empty cars as fitting; a car holding the same item now counts.
-
-### Interactions
-
+25. **Push-pull water shuttles** (bug, partly fixed).
+    - **Identical platforms, fixed (kept):** a push-pull train may dock either way round, so each car meets a
+      different platform depending on the way. The planner treated that as "works differently" and skipped every
+      car. After the fix the B shuttle got trips (job 29, all four cars planned), so the fix stays.
+    - **Tiny fluid amounts, fixed:** fluid capacity came from the item stack (50 m3).
+    - **Still open:** the A shuttle at Water SNK A rejects every station as unreachable, although the route search
+      reaches two stations from there. The next log names them.
 26. **Freight Car Control is the executor** (seen). SmartTrains sets per-car skips through `ExternalSetStops` with
     owner "SmartTrains", which locks the car rules in FCC's menus. Unmanaged trains keep the player's FCC rules.
 27. **Without Freight Car Control a car can't skip a stop** (designed). Every car beside an active platform moves

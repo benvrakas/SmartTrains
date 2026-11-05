@@ -324,6 +324,10 @@ private:
 	FTimerHandle mThroughputTimer;
 	// When the monitor report was last logged. [game s]
 	double mLastMonitorLog = 0.0;
+	// Per self-driving train out of a station: where its front stood and since when, to see it waiting.
+	TMap<TWeakObjectPtr<AFGTrain>, TPair<FVector, double>> mStandingSince;
+	// Per parked managed train: when it was last moved because it held another train up.
+	TMap<TWeakObjectPtr<AFGTrain>, double> mLastMovedAside;
 	FTimerHandle mMonitorTimer;
 	FTimerHandle mSampleTimer;
 	FTimerHandle mDispatchTimer;

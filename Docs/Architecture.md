@@ -110,8 +110,11 @@ settings change (`DispatchRound`):
    train taking a move another could do almost as well while a move only it can do waits.
 6. **Trips**, best assigned train first: the assigned move, then **regret insertion** (`Improve`), then `Trim`.
    Each trip's amounts and station stays are reserved before the next train is planned.
-7. Parked trains standing at a station a trip needs are sent to a depot, or else to the nearest station no trip
-   uses.
+7. Parked trains move to a depot, or else to the nearest station no trip uses, when:
+   - a trip needs their station;
+   - another train's timetable, managed or not, is heading there;
+   - a self-driving train has stood within 150 m of them for 45 s (`BLOCKING`, at most every 5 minutes per
+     parked train). This covers through-stations and parking spots on the line.
 
 ### Trip planning (`STTripPlanner.*`)
 

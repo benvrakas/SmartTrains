@@ -68,11 +68,6 @@ namespace
 		}
 	}
 
-	int32 StackOf(UClass* Item)
-	{
-		return Item ? FMath::Max(1, UFGItemDescriptor::GetStackSize(Item)) : 1;
-	}
-
 	int32 FindStop(const TArray<FSTPlanStop>& Stops, const AFGTrainStationIdentifier* Station)
 	{
 		return Stops.IndexOfByPredicate([Station](const FSTPlanStop& Stop) { return Stop.Station == Station; });
@@ -248,7 +243,7 @@ double FSTTripPlanner::GetCarRoom(const FCarInfo& Car, const TArray<TPair<UClass
 		{
 			return 0.0;
 		}
-		const int32 Stack = StackOf(Each.Key);
+		const int32 Stack = STLayout::GetSlotSize(Car.Inventory, Each.Key);
 		Used += FMath::CeilToInt(Each.Value / Stack);
 		if (Each.Key == Item)
 		{
@@ -256,7 +251,7 @@ double FSTTripPlanner::GetCarRoom(const FCarInfo& Car, const TArray<TPair<UClass
 			Partial = Rest > 0.0 ? Stack - Rest : 0.0;
 		}
 	}
-	return FMath::Max(0, Car.Slots - Used) * static_cast<double>(StackOf(Item)) + Partial;
+	return FMath::Max(0, Car.Slots - Used) * static_cast<double>(STLayout::GetSlotSize(Car.Inventory, Item)) + Partial;
 }
 
 int32 FSTTripPlanner::GetPlatformInfo(const AFGBuildableTrainPlatformCargo* Platform) const
@@ -293,6 +288,7 @@ int32 FSTTripPlanner::GetPlatformInfo(const AFGBuildableTrainPlatformCargo* Plat
 	if (const UFGInventoryComponent* Inventory = Platform->GetInventory())
 	{
 		Info.Slots = Inventory->GetSizeLinear();
+		Info.Inventory = Inventory;
 		TArray<FInventoryStack> Stacks;
 		Inventory->GetInventoryStacks(Stacks, true);
 		for (const FInventoryStack& Stack : Stacks)
@@ -365,6 +361,7 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 		FCarInfo& Car = mCars.AddDefaulted_GetRef();
 		Car.Car = Wagon;
 		Car.Slots = Inventory->GetSizeLinear();
+		Car.Inventory = Inventory;
 		TArray<FInventoryStack> Stacks;
 		Inventory->GetInventoryStacks(Stacks, true);
 		for (const FInventoryStack& Stack : Stacks)
@@ -563,7 +560,8 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 		const float Travel = Previous == Station ? 0.f : mSubsystem.EstimateTravelSeconds(Previous, Station, bPushPull);
 		if (Travel < 0.f)
 		{
-			return Fail(FString::Printf(TEXT("%s can't be reached"), *STLayout::Name(Station)));
+			return Fail(FString::Printf(TEXT("%s can't be reached from %s%s"), *STLayout::Name(Station), *STLayout::Name(Previous),
+				bPushPull ? TEXT(" (push-pull)") : TEXT(" (one way only)")));
 		}
 		Result.Arrive[Index] = FMath::Max(Clock + Travel, Busy(Station));
 		Clock = Result.Arrive[Index] + mSubsystem.EstimateStaySeconds(Station);
@@ -784,7 +782,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					auto InitialSpace = [&](int32 PlatformIndex)
 					{
 						const FPlatformInfo& Platform = mPlatforms[PlatformIndex];
-						const int32 Stack = StackOf(Item);
+						const int32 Stack = STLayout::GetSlotSize(Platform.Inventory, Item);
 						const int32 Stock = Platform.Stock.FindRef(Item);
 						const int32 Rest = Stock % Stack;
 						return FMath::Max(0, Platform.Slots - Platform.Occupied) * static_cast<double>(Stack) + (Rest > 0 ? Stack - Rest : 0);

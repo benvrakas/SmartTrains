@@ -58,7 +58,7 @@ private:
 	void ShowTrains(const FSTMonitorView& View);
 
 	// Table pieces. Width 0 fills the rest of the line.
-	UHorizontalBox* AddLine(const FMargin& Padding = FMargin(0.f, 3.f));
+	UHorizontalBox* AddLine(const FMargin& Spacing = FMargin(0.f, 3.f));
 	void AddCell(UHorizontalBox* Line, UWidget* Cell, float Width);
 	UTextBlock* MakeCell(const FString& Text, int32 Size, const FLinearColor& Color, bool bWrap = false);
 	UWidget* MakeIcon(TSubclassOf<UFGItemDescriptor> Item, float Size);

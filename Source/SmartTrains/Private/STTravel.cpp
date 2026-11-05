@@ -101,8 +101,23 @@ void FSTTravel::Step(const TArray<AFGTrainStationIdentifier*>& Stations)
 	FRow Row;
 	Search(FarEnd, Arrivals, BackArrivals, ArrivalExtra, Row.Forward, Row.ForwardBack);
 	Search(PlatformEnd, Arrivals, BackArrivals, ArrivalExtra, Row.Reverse, Row.ReverseBack);
-	UE_LOG(LogSmartTrains, Verbose, TEXT("Travel: from %s reaches %d stations forward, %d reversing; push-pull trains also %d forward, %d reversing from the far end (%.1f ms)"),
-		*STLayout::Name(Source), Row.Forward.Num(), Row.Reverse.Num(), Row.ForwardBack.Num(), Row.ReverseBack.Num(), (FPlatformTime::Seconds() - Started) * 1000.0);
+	// Small networks get the stations by name, to check dead ends and shuttles.
+	auto Names = [](const TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& Map)
+	{
+		if (Map.Num() == 0 || Map.Num() > 6)
+		{
+			return FString();
+		}
+		TArray<FString> Parts;
+		for (const TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& Each : Map)
+		{
+			Parts.Add(FString::Printf(TEXT("%s %.0f m"), *STLayout::Name(Each.Key.Get()), Each.Value / 100.f));
+		}
+		return FString::Printf(TEXT(" [%s]"), *FString::Join(Parts, TEXT(", ")));
+	};
+	UE_LOG(LogSmartTrains, Verbose, TEXT("Travel: from %s reaches %d stations forward%s, %d reversing%s; push-pull trains also %d forward%s, %d reversing%s from the far end (%.1f ms)"),
+		*STLayout::Name(Source), Row.Forward.Num(), *Names(Row.Forward), Row.Reverse.Num(), *Names(Row.Reverse), Row.ForwardBack.Num(), *Names(Row.ForwardBack),
+		Row.ReverseBack.Num(), *Names(Row.ReverseBack), (FPlatformTime::Seconds() - Started) * 1000.0);
 	mRows.Add(Source, MoveTemp(Row));
 }
 

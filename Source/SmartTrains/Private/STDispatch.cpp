@@ -17,6 +17,12 @@
 
 namespace
 {
+	// A self-driving train standing this long within BlockingDistance of a parked managed train moves the parked train,
+	// at most once per MovedAsideAgainSeconds. [s, cm]
+	constexpr double WaitingBehindSeconds = 45.0;
+	constexpr double BlockingDistance = 15000.0;
+	constexpr double MovedAsideAgainSeconds = 300.0;
+
 	FString NodeKey(const FSTNode& Node)
 	{
 		return FString::Printf(TEXT("%p|%p|%d"), Node.Station.Get(), Node.Item.Get(), static_cast<int32>(Node.Role));
@@ -183,7 +189,6 @@ int32 ASTSubsystem::FindNode(const TArray<FSTNode>& Nodes, const AFGTrainStation
 int32 ASTSubsystem::GetSinkRoom(const FSTNode& Node, TSubclassOf<UFGItemDescriptor> Item) const
 {
 	int64 Room = 0;
-	const int32 Stack = Item ? UFGItemDescriptor::GetStackSize(Item) : 0;
 	for (const TWeakObjectPtr<AFGBuildableTrainPlatformCargo>& Platform : Node.Platforms)
 	{
 		const UFGInventoryComponent* Inventory = Platform.IsValid() ? Platform->GetInventory() : nullptr;
@@ -191,6 +196,7 @@ int32 ASTSubsystem::GetSinkRoom(const FSTNode& Node, TSubclassOf<UFGItemDescript
 		{
 			continue;
 		}
+		const int32 Stack = STLayout::GetSlotSize(Inventory, Item);
 		TArray<FInventoryStack> Stacks;
 		Inventory->GetInventoryStacks(Stacks, true);
 		for (const FInventoryStack& Each : Stacks)
@@ -1014,6 +1020,7 @@ AFGTrainStationIdentifier* ASTSubsystem::FindDepot(const FSTTrainState& State, c
 
 void ASTSubsystem::ClearNeededBays()
 {
+	const double Clock = Now();
 	TSet<const AFGTrainStationIdentifier*> Needed;
 	for (const FSTTrainState& State : mTrains)
 	{
@@ -1025,10 +1032,107 @@ void ASTSubsystem::ClearNeededBays()
 			}
 		}
 	}
+
+	// Self-driving trains out of a station: where each is heading, and the ones standing still a while.
+	struct FWaiting
+	{
+		const AFGTrain* Train;
+		FVector Front;
+		FVector Back;
+	};
+	TArray<FWaiting> Waiting;
+	TMap<const AFGTrainStationIdentifier*, const AFGTrain*> HeadingFor;
+	TSet<TWeakObjectPtr<AFGTrain>> Seen;
+	if (AFGRailroadSubsystem* Railroad = AFGRailroadSubsystem::Get(GetWorld()))
+	{
+		TArray<AFGTrain*> Trains;
+		Railroad->GetAllTrains(Trains);
+		for (AFGTrain* Train : Trains)
+		{
+			if (!IsValid(Train) || !Train->IsSelfDrivingEnabled() || Train->IsDocked())
+			{
+				continue;
+			}
+			const TArray<AFGRailroadVehicle*> Vehicles = STLayout::GetVehicles(Train);
+			if (Vehicles.Num() == 0)
+			{
+				continue;
+			}
+			if (const AFGRailroadTimeTable* TimeTable = Train->GetTimeTable())
+			{
+				TArray<FTimeTableStop> Stops;
+				TimeTable->GetStops(Stops);
+				const int32 Current = TimeTable->GetCurrentStop();
+				if (Stops.IsValidIndex(Current) && Stops[Current].Station)
+				{
+					HeadingFor.FindOrAdd(Stops[Current].Station) = Train;
+				}
+			}
+			const FVector Front = Vehicles[0]->GetActorLocation();
+			Seen.Add(Train);
+			TPair<FVector, double>& Standing = mStandingSince.FindOrAdd(Train, TPair<FVector, double>(Front, Clock));
+			if (FVector::DistSquared(Standing.Key, Front) > FMath::Square(100.0))
+			{
+				Standing = TPair<FVector, double>(Front, Clock);
+			}
+			else if (Clock - Standing.Value >= WaitingBehindSeconds)
+			{
+				Waiting.Add({Train, Front, Vehicles.Last()->GetActorLocation()});
+			}
+		}
+	}
+	for (auto It = mStandingSince.CreateIterator(); It; ++It)
+	{
+		if (!Seen.Contains(It.Key()))
+		{
+			It.RemoveCurrent();
+		}
+	}
+
 	for (FSTTrainState& State : mTrains)
 	{
 		const AFGTrainStationIdentifier* Here = State.LastStation.Get();
-		if (!State.bManaged || State.Phase != ESTTrainPhase::Parked || !Here || !Needed.Contains(Here) || !IsValid(State.Train))
+		if (!State.bManaged || State.Phase != ESTTrainPhase::Parked || !Here || !IsValid(State.Train))
+		{
+			continue;
+		}
+		// Why it has to move: a trip needs its station, another train is heading there, or a train has stood near it.
+		FString Why;
+		if (Needed.Contains(Here))
+		{
+			Why = FString::Printf(TEXT("making room at %s"), *STLayout::Name(Here));
+		}
+		else if (const AFGTrain* const* Heading = HeadingFor.Find(Here); Heading && *Heading != State.Train)
+		{
+			Why = FString::Printf(TEXT("making room at %s for %s"), *STLayout::Name(Here), *STLayout::Name(*Heading));
+		}
+		else if (Clock - mLastMovedAside.FindRef(State.Train.Get()) >= MovedAsideAgainSeconds)
+		{
+			for (const FWaiting& Other : Waiting)
+			{
+				if (Other.Train == State.Train || Other.Train->GetTrackGraphID() != State.Train->GetTrackGraphID())
+				{
+					continue;
+				}
+				bool bNear = false;
+				for (const AFGRailroadVehicle* Vehicle : STLayout::GetVehicles(State.Train))
+				{
+					const FVector Where = Vehicle->GetActorLocation();
+					bNear |= FVector::DistSquared(Where, Other.Front) < FMath::Square(BlockingDistance) || FVector::DistSquared(Where, Other.Back) < FMath::Square(BlockingDistance);
+				}
+				if (bNear)
+				{
+					Why = FString::Printf(TEXT("%s has stood near it for %.0f s"), *STLayout::Name(Other.Train), Clock - mStandingSince.FindRef(Other.Train).Value);
+					break;
+				}
+			}
+			if (!Why.IsEmpty())
+			{
+				mLastMovedAside.Add(State.Train.Get(), Clock);
+				UE_LOG(LogSmartTrains, Log, TEXT("BLOCKING %s, parked at %s, may hold a train up: %s; moving it"), *STLayout::Name(State.Train), *STLayout::Name(Here), *Why);
+			}
+		}
+		if (Why.IsEmpty())
 		{
 			continue;
 		}
@@ -1058,7 +1162,7 @@ void ASTSubsystem::ClearNeededBays()
 		}
 		if (Target)
 		{
-			SendToStation(State, Target, *FString::Printf(TEXT("making room at %s"), *STLayout::Name(Here)));
+			SendToStation(State, Target, *Why);
 		}
 		else
 		{

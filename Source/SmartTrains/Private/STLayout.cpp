@@ -224,6 +224,19 @@ int32 STLayout::GetCapacity(const UFGInventoryComponent* Inventory, TSubclassOf<
 	return static_cast<int32>(FMath::Min<int64>(Total, MAX_int32));
 }
 
+int32 STLayout::GetSlotSize(const UFGInventoryComponent* Inventory, TSubclassOf<UFGItemDescriptor> Item)
+{
+	if (!Item)
+	{
+		return 1;
+	}
+	if (!Inventory || Inventory->GetSizeLinear() == 0)
+	{
+		return FMath::Max(1, UFGItemDescriptor::GetStackSize(Item));
+	}
+	return FMath::Max(1, Inventory->GetSlotSize(0, Item));
+}
+
 bool STLayout::ItemFitsCargoType(TSubclassOf<UFGItemDescriptor> Item, EFreightCargoType Type)
 {
 	if (Type == EFreightCargoType::FCT_NONE || !Item)

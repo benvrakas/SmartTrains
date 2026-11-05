@@ -347,11 +347,14 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 				Worst = Each;
 			}
 		}
-		Row.Details.Add(FString::Printf(TEXT("Supply %s/min at %d platforms; demand %s%s/min at %d platforms."), *STNames::Amount(Item, SupplyRate), SupplyPlatforms,
-			bAnyStarvedNow ? TEXT("at least ") : TEXT(""), *STNames::Amount(Item, DemandRate), DemandPlatforms));
+		// Full supply platforms stop their belts, so their measured rate only shows what trains took.
+		const bool bSuppliersFull = SupplierFull >= FullShare;
+		Row.Details.Add(FString::Printf(TEXT("Supply %s%s/min at %d platforms in %d stations; demand %s%s/min at %d platforms in %d stations."),
+			bSuppliersFull ? TEXT("at least ") : TEXT(""), *STNames::Amount(Item, SupplyRate), SupplyPlatforms, Group.Suppliers.Num(),
+			bAnyStarvedNow ? TEXT("at least ") : TEXT(""), *STNames::Amount(Item, DemandRate), DemandPlatforms, Group.Consumers.Num()));
 		const ASTSubsystem::FAdvice* Advice = Subsystem.mAdvice.Find(Item);
 		Row.Columns = {
-			Group.Suppliers.Num() > 0 ? STNames::Amount(Item, SupplyRate) : FString(TEXT("-")),
+			Group.Suppliers.Num() > 0 ? FString::Printf(TEXT("%s%s"), bSuppliersFull ? TEXT(">") : TEXT(""), *STNames::Amount(Item, SupplyRate)) : FString(TEXT("-")),
 			Group.Consumers.Num() > 0 ? FString::Printf(TEXT("%s%s"), bAnyStarvedNow ? TEXT(">") : TEXT(""), *STNames::Amount(Item, DemandRate)) : FString(TEXT("-")),
 			Advice && Advice->Pairs > 0 ? FString::Printf(TEXT("%.1f / %d"), Advice->TrainsNeeded, Advice->TrainsFitting) : FString(TEXT("-")),
 			Group.Consumers.Num() > 0 ? Percent(Low) : FString(TEXT("-"))};
@@ -406,7 +409,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 				? FString(TEXT("No managed train has cars that stop beside a supply platform and a demand platform for it. Check the platform order, or use /st fit on a train."))
 				: FString(TEXT("No route was planned: the stations may not be connected the way trains can drive, or no rate has been measured yet.")));
 		}
-		else if (SupplierEmpty >= EmptyShare || SupplyRate < DemandRate * 0.9)
+		else if (SupplierEmpty >= EmptyShare || (SupplyRate < DemandRate * 0.9 && !bSuppliersFull))
 		{
 			Row.Verdict = TEXT("Supply short");
 			Row.Severity = 2;

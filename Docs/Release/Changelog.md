@@ -2,6 +2,18 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Fluid trips were tiny:** the planner sized fluid cars and platforms by a fluid's stack (50 m3) instead of their
+  real slot (1,600 m3 per car, 2,400 m3 per platform). Fluid trips were planned at a few dozen m3, and cars and
+  platforms looked full after one stack. Solids were not affected.
+- **Parked trains move out of the way:** a parked managed train moves to a depot or a free station in three cases:
+  a trip needs its station; another train's timetable (managed or not) is heading there; or a self-driving train has
+  stood within 150 m of it for 45 s. The last case happens at most every 5 minutes per train, and is logged as
+  `BLOCKING`.
+- **Monitor:** full supply platforms stop their belts, so their measured rate is only a lower bound. Items whose
+  suppliers are full are no longer called "Supply short". Platform counts say how many stations they span.
+- Diagnostics: "can't be reached" names the station it was tried from and whether the train counts as push-pull.
+  With Detailed log on, the route search names the stations it reaches on small networks.
+
 - **Item icons** beside the platform menu: the SmartTrains section lists the platform's items with their in-game icons.
 - **Clock carries on across saves.** SmartTrains' times used to restart at 0 on every load, so after loading, ETAs
   and "against plan" were off by the length of the last session, the unwanted-cargo timer stalled, and learned trip

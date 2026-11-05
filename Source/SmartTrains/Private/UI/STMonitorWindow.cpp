@@ -356,10 +356,10 @@ void USTMonitorWindow::ShowTab(const FSTMonitorView& View)
 
 //~ Table pieces
 
-UHorizontalBox* USTMonitorWindow::AddLine(const FMargin& Padding)
+UHorizontalBox* USTMonitorWindow::AddLine(const FMargin& Spacing)
 {
 	UHorizontalBox* Line = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
-	mContent->AddChildToVerticalBox(Line)->SetPadding(Padding);
+	mContent->AddChildToVerticalBox(Line)->SetPadding(Spacing);
 	return Line;
 }
 

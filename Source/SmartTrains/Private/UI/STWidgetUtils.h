@@ -5,6 +5,7 @@
 #include "Styling/SlateColor.h"
 #include "Templates/SubclassOf.h"
 
+class AFGBuildableTrainPlatformCargo;
 class UButton;
 class UFGItemDescriptor;
 class UUserWidget;
@@ -46,7 +47,7 @@ namespace STWidgetUtils
 	UUserWidget* GetOwningUserWidget(const UWidget* Widget);
 
 	// The cargo platform a vanilla freight or fluid platform menu shows, or nullptr.
-	class AFGBuildableTrainPlatformCargo* GetMenuPlatform(const UUserWidget* Menu);
+	AFGBuildableTrainPlatformCargo* GetMenuPlatform(const UUserWidget* Menu);
 
 	// Font and colour of the TextBlock named SourceName in Menu's tree (or its first TextBlock), at Size.
 	// Returns false and leaves the outputs alone if Menu has no TextBlock.
