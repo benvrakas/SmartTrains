@@ -127,6 +127,10 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 29. **Settings changes re-plan everything** (designed). Any platform edit re-plans all trips under way, so a change
     shows up at once but costs one heavy round.
 
+36. **Empty-trip loops are cut** (designed, after 2026-11-05). With unwanted cargo allowed anywhere, a train could
+    trip to a full sink, move nothing, and plan the same trip again every few seconds. A stop that moves nothing now
+    bars that move for that train for 10 minutes.
+
 ### Planning limits
 
 30. **Big networks plan in pieces** (risk). With the 25 ms budget, trains planned late in a round may get only

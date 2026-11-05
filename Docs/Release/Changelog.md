@@ -2,6 +2,10 @@
 
 ## 0.4.0 (beta, not released)
 
+- **No more empty loops:** a stop where a train moved none of an item it was planned to move is logged
+  (`NOPROGRESS`). That train doesn't plan that item at that station again for 10 minutes. Seen with leftover Sulfur
+  "delivered" to a full sink 7 times in 2 minutes.
+
 - **Route check before leaving (Auto Trains):** before a train standing in a station starts a trip, SmartTrains asks
   Auto Trains whether the first leg can be driven now, planned around every other train, including trains coming the
   other way on a single track. If not, the train holds: "holding at ...: Auto Trains sees no way to ... now". The

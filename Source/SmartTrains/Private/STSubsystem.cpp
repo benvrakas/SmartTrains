@@ -33,6 +33,12 @@ ASTSubsystem::~ASTSubsystem()
 	mThroughput = nullptr;
 }
 
+namespace
+{
+	// How long a move that moved nothing isn't planned again for that train. [min]
+	constexpr double NoProgressMinutes = 10.0;
+}
+
 ASTSubsystem* ASTSubsystem::Get(const UObject* WorldContext)
 {
 	UWorld* World = WorldContext ? WorldContext->GetWorld() : nullptr;
@@ -598,6 +604,23 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 	{
 		LearnStay(Station, Stay);
 	}
+	// Planned moves that moved nothing at all: not planned again for this train for a while, so it doesn't loop.
+	TMap<TPair<UClass*, bool>, TPair<int32, int32>> PerItem;
+	for (const FSTCarWork& Work : Leg.Work)
+	{
+		TPair<int32, int32>& Sum = PerItem.FindOrAdd(TPair<UClass*, bool>(Work.Item.Get(), Work.bLoad));
+		Sum.Key += Work.PlannedAmount;
+		Sum.Value += Work.MovedAmount;
+	}
+	for (const TPair<TPair<UClass*, bool>, TPair<int32, int32>>& Each : PerItem)
+	{
+		if (Each.Value.Key > 0 && Each.Value.Value == 0 && Each.Key.Key)
+		{
+			mNoProgress.Add(FString::Printf(TEXT("%p|%p|%p|%d"), Train, Station, Each.Key.Key, Each.Key.Value ? 1 : 0), Now());
+			UE_LOG(LogSmartTrains, Log, TEXT("NOPROGRESS %s %s no %s at %s (%d planned); not planned again for %.0f minutes"), *STLayout::Name(Train),
+				Each.Key.Value ? TEXT("loaded") : TEXT("unloaded"), *STNames::Item(Each.Key.Key), *STLayout::Name(Station), Each.Value.Key, NoProgressMinutes);
+		}
+	}
 	const FString Line = FString::Printf(TEXT("JOB %d %s: left %s after %.0f s: %s"), State.Job.Id, *STLayout::Name(Train), *STLayout::Name(Station), Stay,
 		Leg.HasWork() ? *DescribeLeg(Train, Leg, true) : TEXT("no transfer"));
 	UE_LOG(LogSmartTrains, Log, TEXT("%s"), *Line);
@@ -789,6 +812,12 @@ float ASTSubsystem::EstimateTravelSeconds(const AFGTrainStationIdentifier* From,
 		Distance = FVector::Dist(A->GetActorLocation(), B->GetActorLocation()) * 1.4f;
 	}
 	return Distance / Speed + 20.f + (bReversing ? 30.f : 0.f);
+}
+
+bool ASTSubsystem::IsNoProgress(const AFGTrain* Train, const AFGTrainStationIdentifier* Station, const UClass* Item, bool bLoad) const
+{
+	const double* When = mNoProgress.Find(FString::Printf(TEXT("%p|%p|%p|%d"), Train, Station, Item, bLoad ? 1 : 0));
+	return When && Now() - *When < NoProgressMinutes * 60.0;
 }
 
 float ASTSubsystem::EstimateStaySeconds(const AFGTrainStationIdentifier* Station) const

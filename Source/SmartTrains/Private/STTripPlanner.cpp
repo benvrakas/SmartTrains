@@ -441,6 +441,10 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 				{
 					continue;
 				}
+				if (mSubsystem.IsNoProgress(Train, Consumer.Station.Get(), Carried.Key, false))
+				{
+					continue;
+				}
 				if (CarFits(CarIndex, Consumer.Station.Get(), Demands(Carried.Key)))
 				{
 					Moves.AddUnique({INDEX_NONE, To, Carried.Key});
@@ -462,6 +466,10 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 			continue;
 		}
 		UClass* Item = Supplier.Item.Get();
+		if (mSubsystem.IsNoProgress(Train, Supplier.Station.Get(), Item, true))
+		{
+			continue;
+		}
 		const bool bFull = IsSupplyFull(From);
 		TArray<int32> SupplyCars;
 		for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
