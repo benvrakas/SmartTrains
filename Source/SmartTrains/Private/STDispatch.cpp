@@ -44,6 +44,9 @@ namespace
 		return Key;
 	}
 
+	// A planned trip whose first stop is free this much later than the train could arrive is not started yet. [s]
+	constexpr double HoldAfterWaitSeconds = 20.0;
+
 	// A self-driving train standing this long within BlockingDistance of a parked managed train moves the parked train,
 	// at most once per MovedAsideAgainSeconds. [s, cm]
 	constexpr double WaitingBehindSeconds = 45.0;
@@ -567,8 +570,9 @@ void ASTSubsystem::DispatchRound()
 	BuildNodes(Nodes);
 	const double Time = Now();
 
-	// Station bookings of the trips already running: (train index, booked until).
-	TMap<const AFGTrainStationIdentifier*, TArray<TPair<int32, double>>> BusyUntil;
+	// Station bookings of the trips already running, from arrival to the end of the stay. A train docked for its current
+	// stop holds the station from when it docked; one running late from now.
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
 	for (int32 TrainIndex = 0; TrainIndex < mTrains.Num(); ++TrainIndex)
 	{
 		const FSTTrainState& State = mTrains[TrainIndex];
@@ -579,10 +583,20 @@ void ASTSubsystem::DispatchRound()
 		for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
 		{
 			const FSTJobLeg& Each = State.Job.Legs[Leg];
-			BusyUntil.FindOrAdd(Each.Station.Get()).Emplace(TrainIndex, Each.PlannedArrival + EstimateStaySeconds(Each.Station));
+			const double Stay = EstimateStaySeconds(Each.Station);
+			double From = Each.PlannedArrival;
+			if (Leg == State.Job.Leg && IsValid(State.Train) && State.Train->IsDocked() && State.DockedStation.Get() == Each.Station)
+			{
+				From = State.DockedAt;
+			}
+			else if (Leg == State.Job.Leg)
+			{
+				From = FMath::Max(From, Time);
+			}
+			Bookings.FindOrAdd(Each.Station.Get()).Add({TrainIndex, From, FMath::Max(Each.PlannedArrival, From) + Stay});
 		}
 	}
-	FSTTripPlanner Planner(*this, Nodes, BusyUntil);
+	FSTTripPlanner Planner(*this, Nodes, Bookings);
 
 	// A platform with settings that was dismantled: its trips are re-planned.
 	const int32 Before = mPlatforms.Num();
@@ -737,6 +751,19 @@ void ASTSubsystem::DispatchRound()
 		FSTTripPlanner::Trim(Stops, Result, 0);
 		Result = Planner.Simulate(Stops);
 		const bool bCarrying = GetCargo(State.Train).Num() > 0;
+		if (Result.bValid && Stops.Num() > 0 && Result.Value > 0.0 && Result.Arrive.Num() > 0)
+		{
+			// A train standing in a station whose first stop is booked waits where it is, so it doesn't queue on the line.
+			const bool bInStation = State.Train->IsDocked() || (State.Phase == ESTTrainPhase::Parked && !State.Train->IsSelfDrivingEnabled());
+			const float Travel = Stops[0].Station == Entry.Anchor ? 0.f : EstimateTravelSeconds(Entry.Anchor, Stops[0].Station, IsPushPull(State.Train));
+			const double Wait = Result.Arrive[0] - (Entry.FreeAt + FMath::Max(0.f, Travel));
+			if (bInStation && Travel >= 0.f && Wait > HoldAfterWaitSeconds)
+			{
+				NoTrip(State, FString::Printf(TEXT("holding at %s: %s is booked by other trains, so it leaves later instead of queueing there"),
+					*STLayout::Name(Entry.Anchor), *STLayout::Name(Stops[0].Station)));
+				continue;
+			}
+		}
 		if (!Result.bValid || Stops.Num() == 0 || Result.Value <= 0.0)
 		{
 			if (bCarrying && State.UnwantedCargoSince <= 0.0)

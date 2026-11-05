@@ -2,6 +2,11 @@
 
 ## 0.4.0 (beta, not released)
 
+- **Trains are spaced at stations:** trips are timed so the next train arrives at least **Gap between trains at a
+  station** (Mods menu, 30 s) after the last one left. Bookings now have a start and an end, so a trip can use a free
+  slot between two others. A train standing in a station whose first stop is booked waits there. It leaves later
+  instead of queueing on the line, where it would block junctions. Its idle reason says "holding at ...".
+
 - **Fewer timetable rewrites:** a re-plan that leaves the stops, rules and skipped cars as the train already has them
   no longer writes the timetable again. Each write made the game, and Auto Trains, plan the route again, often while
   the train pulled out of a station.

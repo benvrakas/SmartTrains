@@ -11,6 +11,14 @@ class UFGInventoryComponent;
 struct FSTNode;
 struct FSTTrainState;
 
+// A train's planned time at a station: from its arrival to the end of its stay.
+struct FSTBooking
+{
+	int32 Train = INDEX_NONE;
+	double From = 0.0;
+	double Until = 0.0;
+};
+
 // One stop of a trip being planned: the station and the items moved there.
 struct FSTPlanStop
 {
@@ -62,8 +70,8 @@ struct FSTPlanMove
 class FSTTripPlanner
 {
 public:
-	// BusyUntil: per station, (train index, booked until) of the jobs already running.
-	FSTTripPlanner(const ASTSubsystem& InSubsystem, TArray<FSTNode>& InNodes, TMap<const AFGTrainStationIdentifier*, TArray<TPair<int32, double>>>& InBusyUntil);
+	// InBookings: per station, the bookings of the jobs already running; Reserve adds the planned trip's.
+	FSTTripPlanner(const ASTSubsystem& InSubsystem, TArray<FSTNode>& InNodes, TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& InBookings);
 
 	// Sets the train the next calls plan for and lists its moves. Returns false if it has no freight cars.
 	// bAnchorDocked: the train is at Anchor now (docked there, or just left it), so Anchor can't be the first stop.
@@ -137,7 +145,9 @@ private:
 	// [map][car] platform info index (INDEX_NONE where no cargo platform is beside the car) at Station.
 	const TArray<TArray<int32>>& GetCarPlatforms(const AFGTrainStationIdentifier* Station) const;
 	int32 FindNode(const AFGTrainStationIdentifier* Station, UClass* Item, bool bSupply) const;
-	double Busy(const AFGTrainStationIdentifier* Station) const;
+	// Earliest arrival at Station from Arrive on that keeps the arrival gap to other trains' bookings there, for a stay
+	// of Stay seconds.
+	double FirstFreeArrival(const AFGTrainStationIdentifier* Station, double Arrive, double Stay) const;
 	double GetAvailable(int32 Node, double Arrive) const;
 	// Room below capacity at Arrive, and whether the consumer wants more (below target).
 	double GetRoom(int32 Node, double Arrive, bool& bOutWants) const;
@@ -151,7 +161,7 @@ private:
 
 	const ASTSubsystem& mSubsystem;
 	TArray<FSTNode>& mNodes;
-	TMap<const AFGTrainStationIdentifier*, TArray<TPair<int32, double>>>& mBusyUntil;
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& mBookings;
 	TMap<TTuple<const AFGTrainStationIdentifier*, UClass*, bool>, int32> mNodeIndex;
 	TMap<const AFGTrainStationIdentifier*, int32> mAnyNode;
 	double mTime = 0.0;

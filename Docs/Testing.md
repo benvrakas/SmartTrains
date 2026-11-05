@@ -102,3 +102,6 @@ On a test copy of the user's network:
 4. Migration on a station with an empty platform that no belt reaches: the preview fills it from a train's route
    ("inferred from ... route"), at medium confidence.
 5. Idle trains are named "ST: parked at <station>".
+6. A busy consumer with several trains heading for it: trains standing in stations show "holding at ..." in the
+   monitor's Trains tab, then leave so they arrive a gap after the train before. Fewer Auto Trains DEADLOCK and
+   "can't stop short" lines near that station.

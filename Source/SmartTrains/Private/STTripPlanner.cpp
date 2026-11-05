@@ -80,8 +80,8 @@ namespace
 	}
 }
 
-FSTTripPlanner::FSTTripPlanner(const ASTSubsystem& InSubsystem, TArray<FSTNode>& InNodes, TMap<const AFGTrainStationIdentifier*, TArray<TPair<int32, double>>>& InBusyUntil)
-	: mSubsystem(InSubsystem), mNodes(InNodes), mBusyUntil(InBusyUntil)
+FSTTripPlanner::FSTTripPlanner(const ASTSubsystem& InSubsystem, TArray<FSTNode>& InNodes, TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& InBookings)
+	: mSubsystem(InSubsystem), mNodes(InNodes), mBookings(InBookings)
 {
 	mTime = mSubsystem.Now();
 	mStarted = FPlatformTime::Seconds();
@@ -139,17 +139,34 @@ int32 FSTTripPlanner::FindNode(const AFGTrainStationIdentifier* Station, UClass*
 	return INDEX_NONE;
 }
 
-double FSTTripPlanner::Busy(const AFGTrainStationIdentifier* Station) const
+double FSTTripPlanner::FirstFreeArrival(const AFGTrainStationIdentifier* Station, double Arrive, double Stay) const
 {
-	double Until = 0.0;
-	if (const TArray<TPair<int32, double>>* Bookings = mBusyUntil.Find(Station))
+	const TArray<FSTBooking>* Bookings = mBookings.Find(Station);
+	if (!Bookings)
 	{
-		for (const TPair<int32, double>& Each : *Bookings)
+		return Arrive;
+	}
+	const double Gap = FMath::Max(0.0, static_cast<double>(mSubsystem.mSettings.ArrivalGapSeconds));
+	TArray<FSTBooking> Others;
+	for (const FSTBooking& Each : *Bookings)
+	{
+		if (Each.Train != mTrainIndex)
 		{
-			Until = Each.Key != mTrainIndex ? FMath::Max(Until, Each.Value) : Until;
+			Others.Add(Each);
 		}
 	}
-	return Until;
+	Others.Sort([](const FSTBooking& A, const FSTBooking& B) { return A.From < B.From; });
+	// The first slot that fits between bookings, gaps included.
+	double Candidate = Arrive;
+	for (const FSTBooking& Each : Others)
+	{
+		if (Candidate + Stay + Gap <= Each.From)
+		{
+			break;
+		}
+		Candidate = FMath::Max(Candidate, Each.Until + Gap);
+	}
+	return Candidate;
 }
 
 double FSTTripPlanner::GetAvailable(int32 Node, double Arrive) const
@@ -569,7 +586,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 			return Fail(FString::Printf(TEXT("%s can't be reached from %s%s"), *STLayout::Name(Station), *STLayout::Name(Previous),
 				bPushPull ? TEXT(" (push-pull)") : TEXT(" (one way only)")));
 		}
-		Result.Arrive[Index] = FMath::Max(Clock + Travel, Busy(Station));
+		Result.Arrive[Index] = FirstFreeArrival(Station, Clock + Travel, mSubsystem.EstimateStaySeconds(Station));
 		Clock = Result.Arrive[Index] + mSubsystem.EstimateStaySeconds(Station);
 		Previous = Station;
 	}
@@ -1146,7 +1163,7 @@ void FSTTripPlanner::Reserve(const TArray<FSTPlanStop>& Stops, const FSTPlanResu
 		}
 		if (Result.Arrive.IsValidIndex(StopIndex))
 		{
-			mBusyUntil.FindOrAdd(Station).Emplace(mTrainIndex, Result.Arrive[StopIndex] + mSubsystem.EstimateStaySeconds(Station));
+			mBookings.FindOrAdd(Station).Add({mTrainIndex, Result.Arrive[StopIndex], Result.Arrive[StopIndex] + mSubsystem.EstimateStaySeconds(Station)});
 		}
 	}
 }

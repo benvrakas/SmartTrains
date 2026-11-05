@@ -97,6 +97,11 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 22. **Idle names carry the station** (designed, fixed after 2026-11-05). With JobNames on, an idle train is "ST: parked
     at <station>". It used to be plain "ST: parked" for all of them.
 
+18b. **Trains wait their turn in a station** (designed, after 2026-11-05). A train whose first stop is booked holds
+    where it is, and others are timed a gap apart. Fewer trains queue on the line in front of busy stations. Risk: a
+    held train parked in a bay another trip needs gets moved (item 18). A busy station's trips get later arrivals and
+    lower scores, so they spread to other stations.
+
 ### Push-pull and orientation
 
 23. **Push-pull trains back out and may arrive from the far end** (designed, since aaa465e). Trains with a

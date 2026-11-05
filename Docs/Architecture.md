@@ -110,7 +110,11 @@ settings change (`DispatchRound`):
    train taking a move another could do almost as well while a move only it can do waits.
 6. **Trips**, best assigned train first: the assigned move, then **regret insertion** (`Improve`), then `Trim`.
    Each trip's amounts and station stays are reserved before the next train is planned.
-7. Parked trains move to a depot, or else to the nearest station no trip uses, when:
+7. **Holding:** a trip is not started yet when the train is standing in a station (docked, or parked with
+   self-driving off) and its first stop is free more than 20 s after the train could get there. The train waits
+   where it is, and later rounds plan it again ("holding at ..."). A train queued on the line blocks the junctions
+   behind it; one waiting in a station blocks nobody.
+8. Parked trains move to a depot, or else to the nearest station no trip uses, when:
    - a trip needs their station;
    - another train's timetable, managed or not, is heading there;
    - a self-driving train has stood within 150 m of them for 45 s (`BLOCKING`, at most every 5 minutes per
@@ -123,7 +127,9 @@ than **Longest trip**: the limit only stops SmartTrains combining stops, a direc
 each with the items loaded and unloaded there. These become the stop's load and unload filters.
 
 **Simulation** (`Simulate`): the stops' times come from travel estimates and stays, after the bookings of other
-trains. Then each car, stop by stop, beside the platform it meets there (from the dock maps):
+trains. A booking (`FSTBooking`) runs from a train's arrival to the end of its stay. A train docked for its current
+stop books from when it docked; one running late books from now. `FirstFreeArrival` finds the first slot that keeps
+**Gap between trains at a station** to every other booking there. Then each car, stop by stop, beside the platform it meets there (from the dock maps):
 
 - At a loading platform, a car loads every filter item the platform holds or is set to supply, if it has room.
   Freight cars hold solids or one fluid, never both. Loading from a platform without a supply role is harm.

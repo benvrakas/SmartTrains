@@ -39,6 +39,8 @@ struct FSTSettings
 	float MaxTripMinutes = 45.f;
 	// After this long carrying cargo no trip wants, it may go to any consumer with room or a sink. [min]
 	float LeftoverMinutes = 30.f;
+	// Least time between one train leaving a station and the next arriving there. [s]
+	float ArrivalGapSeconds = 30.f;
 };
 
 // SmartTrains' mod configuration: switches and numbers shown in the Mods menu and Satisfactory Mod Manager.
