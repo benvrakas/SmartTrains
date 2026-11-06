@@ -47,9 +47,9 @@ struct FSTSettings
 	float LeftoverMinutes = 30.f;
 	// Least time between one train leaving a station and the next arriving there. [s]
 	float ArrivalGapSeconds = 30.f;
-	// With bLeaveAtOnce: no trip makes a train wait longer than this before a stop that other trains have booked. 0:
-	// no limit. [s]
-	float QueueLimitSeconds = 60.f;
+	// With bLeaveAtOnce: no trip makes more than this many trains wait on the line before a stop, itself included. 0:
+	// no limit. [trains]
+	float QueueTrains = 2.f;
 };
 
 // SmartTrains' mod configuration: switches and numbers shown in the Mods menu and Satisfactory Mod Manager.

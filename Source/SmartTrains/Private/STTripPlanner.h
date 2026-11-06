@@ -156,6 +156,9 @@ private:
 	// Earliest arrival at Station from Arrive on that keeps the arrival gap to other trains' bookings there, for a stay
 	// of Stay seconds.
 	double FirstFreeArrival(const AFGTrainStationIdentifier* Station, double Arrive, double Stay) const;
+	// Other trains booked at Station that are still there at Reach (when this train could get there) or dock before
+	// Dock (when it can dock): the docked one and those waiting with it.
+	int32 CountAhead(const AFGTrainStationIdentifier* Station, double Reach, double Dock) const;
 	double GetAvailable(int32 Node, double Arrive) const;
 	// What platform info index Info of supply node Node can give until Until seconds from now: its stock, its share of
 	// the node's rate, less the pickups promised at it and its share of promises made at no known platform.

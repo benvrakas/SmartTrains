@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.8 (beta)
+
+- **Queue limit counts trains, not seconds** (new setting **Most trains waiting before a station**, 2; it replaces
+  **Longest wait on the line**). A trip is no longer planned when more than 2 trains, itself included, would wait on
+  the line before a station. The old 60 s limit stacked each train's estimated stay and the arrival gap, so it really
+  allowed one train ahead, and it was by far the most common reason trips were rejected on the server. A longer wait still makes a
+  trip score lower, since it counts as trip time.
+- **Removed: setting back a timetable the game moved on right after it was written.** It hasn't fired since jobs
+  chosen while docked are written as the train leaves.
+
 ## 0.6.7 (beta)
 
 - **A newly managed train gets its first trip at once, also when it stands docked at a station.** A docked train

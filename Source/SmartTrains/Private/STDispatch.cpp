@@ -1742,7 +1742,6 @@ void ASTSubsystem::WriteJob(FSTTrainState& State, const TCHAR* Why)
 		TimeTable->SetStops(Stops);
 	}
 	TimeTable->SetCurrentStop(0);
-	State.WrittenFromLeg = State.Job.Leg;
 	if (!Train->IsSelfDrivingEnabled())
 	{
 		Train->SetSelfDrivingEnabled(true);

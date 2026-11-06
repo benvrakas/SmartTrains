@@ -31,6 +31,12 @@ struct FSTTestAccess
 		return Subsystem;
 	}
 
+	static void SetQueueTrains(ASTSubsystem& Subsystem, float Trains)
+	{
+		Subsystem.mSettings.bLeaveAtOnce = true;
+		Subsystem.mSettings.QueueTrains = Trains;
+	}
+
 	static AFGTrainStationIdentifier* MakeStation()
 	{
 		return NewObject<AFGTrainStationIdentifier>(GetTransientPackage());
@@ -452,6 +458,46 @@ bool FSTSlotValueTest::RunTest(const FString& Parameters)
 	const double Fluid = ValueOf(USTTestFluid::StaticClass(), 1600000.0);
 	TestTrue(FString::Printf(TEXT("a full solid car is worth something (%.3f)"), Solid), Solid > 0.0);
 	TestTrue(FString::Printf(TEXT("a full fluid car is worth the same as a full solid car (%.3f and %.3f)"), Fluid, Solid), FMath::IsNearlyEqual(Solid, Fluid, Solid * 0.01));
+	return true;
+}
+
+// Leaving at once, the queue limit counts the trains a train would wait behind, not the seconds: one docked train and
+// one waiting ahead are fine with the default of 2; a third is too many.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTQueueTrainsTest, "SmartTrains.Planner.QueueTrains", TestFlags)
+bool FSTQueueTrainsTest::RunTest(const FString& Parameters)
+{
+	UClass* Ingot = USTTestSolid::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	FSTTestAccess::SetQueueTrains(*Subsystem, 2.f);
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
+	FSTTestAccess::SetTrip(*Subsystem, Start, Sink, 60.f);
+	auto Try = [&](int32 Ahead)
+	{
+		TArray<FSTNode> Nodes = {FSTTestAccess::Node(Sink, Ingot, ESTRole::Demand, 0, 100000, 1)};
+		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+		for (int32 Index = 0; Index < Ahead; ++Index)
+		{
+			// Back to back from now: the first is docked, the others wait for it.
+			Bookings.FindOrAdd(Sink).Add({10 + Index, Index * 100.0, Index * 100.0 + 90.0});
+		}
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		FSTTestAccess::FPlatformInfo Platform = FSTTestAccess::Platform(Ingot, false, 0.0, 0);
+		Platform.Slots = 48;
+		FSTTestAccess::FCarInfo Car = FSTTestAccess::Car(Ingot, 3200.0);
+		Car.Slots = 32;
+		FSTTestAccess::FCarPlatforms CarPlatforms;
+		CarPlatforms.Add(Sink, {{0}});
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, {Platform}, CarPlatforms);
+		FSTPlanStop Unload;
+		Unload.Station = Sink;
+		Unload.UnloadItems.Add(Ingot);
+		return Planner.Simulate({Unload});
+	};
+	const FSTPlanResult Two = Try(2);
+	TestTrue(FString::Printf(TEXT("behind two trains the trip works (%s)"), *Two.Problem), Two.bValid);
+	const FSTPlanResult Three = Try(3);
+	TestFalse(TEXT("behind three trains the trip would queue"), Three.bValid);
 	return true;
 }
 

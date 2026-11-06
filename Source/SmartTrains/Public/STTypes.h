@@ -365,8 +365,6 @@ struct SMARTTRAINS_API FSTTrainState
 	double SelfDrivingErrorSince = 0.0;
 	// Runtime only: a player in the driver's seat at the last check (0 none, 1 with autopilot on, 2 driving by hand).
 	uint8 PlayerAboard = 0;
-	// Runtime only: the job leg the last written timetable starts with (its stop 0).
-	int32 WrittenFromLeg = 0;
 	// Runtime only, for the current dock: the stay was ended early, the cargo moved so far, and when it last changed.
 	bool bDockReleased = false;
 	int32 DockMoved = 0;

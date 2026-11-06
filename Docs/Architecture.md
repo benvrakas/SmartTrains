@@ -164,10 +164,12 @@ settings change (`DispatchRound`):
 
 ### Trip planning (`STTripPlanner.*`)
 
-**Queue limit** (`QueueLimitSeconds`, 60 s; only while `LeaveAtOnce` is on): `Simulate` fails a trip ("would queue
-for X") when any stop's arrival, pushed back by other trains' bookings and Auto Trains' station queue
-(`FirstFreeArrival`), is more than the limit after the train could get there. Leaving at once, such a train would wait
-on the line before the station. Repeats skip stations `IsStationQueued` (2 or more managed trains on their way, or an
+**Queue limit** (`QueueTrains`, 2 trains; only while `LeaveAtOnce` is on): when a stop's arrival is pushed back by
+other trains' bookings or Auto Trains' station queue (`FirstFreeArrival`), the train waits on the line before the
+station, and so do the trains ahead of it except the docked one. `Simulate` fails a trip ("would queue at X behind N
+trains") when the trains ahead (`CountAhead`: bookings still there when it could get there, or docking before it can)
+are more than the limit. The waiting itself isn't limited: it counts as trip time, so it lowers the score. (Until
+0.6.8 the limit was a time, 60 s: each train ahead adds its stay and the arrival gap, so it meant one train ahead.) Repeats skip stations `IsStationQueued` (2 or more managed trains on their way, or an
 Auto Trains queue), starting at another stop of the trip, or from the stop after the one it is at when all are queued.
 A repeat is simulated like a new trip (`RepeatLastJob`: `BuildNodes`, `BuildBookings`, `BeginTrain`, `Simulate`) from
 the cargo on board and the stations now; stops whose cars move nothing are dropped and it is simulated again. It isn't

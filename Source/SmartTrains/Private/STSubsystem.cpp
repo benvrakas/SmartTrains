@@ -37,8 +37,6 @@ namespace
 {
 	// How long a move that moved nothing isn't planned again for that train. [min]
 	constexpr double NoProgressMinutes = 10.0;
-	// For this long after a timetable is written, a current stop the game moved on by one is set back. [s]
-	constexpr double WriteSettleSeconds = 10.0;
 	// A known trip pair's sample counts at most this many times its estimate (queues and deadlocks are outliers).
 	constexpr float TripOutlierFactor = 1.5f;
 	// A self-driving error is logged once it has lasted this long; shorter ones are the game re-routing. [s]
@@ -532,20 +530,6 @@ void ASTSubsystem::MonitorTrains()
 					State.Phase = ESTTrainPhase::Idle;
 					State.WrittenStations.Reset();
 				}
-			}
-		}
-		// A timetable written as the train pulls out can be moved on by the game's departure right after: its first stop
-		// would be skipped. Shortly after a write, the current stop is kept at the job's leg.
-		if (State.Phase == ESTTrainPhase::Working && State.bHasJob && !bDocked && Time - State.LastCommandAt < WriteSettleSeconds)
-		{
-			const int32 Expected = State.Job.Leg - State.WrittenFromLeg;
-			const int32 Current = TimeTable->GetCurrentStop();
-			if (Expected >= 0 && Expected < TimeTable->GetNumStops() && Current == Expected + 1)
-			{
-				TimeTable->SetCurrentStop(Expected);
-				STAt::TimeTableChanged(GetWorld(), Train);
-				UE_LOG(LogSmartTrains, Log, TEXT("TIMETABLE %s: the game moved on to stop %d right after job %d was written; set back to stop %d (%s)"), *STLayout::Name(Train),
-					Current + 1, State.Job.Id, Expected + 1, *STLayout::Name(TimeTable->GetStop(Expected).Station.Get()));
 			}
 		}
 		// The game's self-driving error (no path, station unreachable, ...), logged when it changes.

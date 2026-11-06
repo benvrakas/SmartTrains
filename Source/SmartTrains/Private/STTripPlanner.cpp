@@ -171,6 +171,19 @@ double FSTTripPlanner::FirstFreeArrival(const AFGTrainStationIdentifier* Station
 	return Candidate;
 }
 
+int32 FSTTripPlanner::CountAhead(const AFGTrainStationIdentifier* Station, double Reach, double Dock) const
+{
+	int32 Ahead = 0;
+	if (const TArray<FSTBooking>* Bookings = mBookings.Find(Station))
+	{
+		for (const FSTBooking& Each : *Bookings)
+		{
+			Ahead += Each.Train != mTrainIndex && Each.Until > Reach && Each.From < Dock ? 1 : 0;
+		}
+	}
+	return Ahead;
+}
+
 double FSTTripPlanner::GetAvailable(int32 Node, double Arrive) const
 {
 	const FSTNode& Supplier = mNodes[Node];
@@ -748,12 +761,18 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 				bPushPull ? TEXT(" (push-pull)") : TEXT(" (one way only)")));
 		}
 		Result.Arrive[Index] = FirstFreeArrival(Station, Clock + Travel, mSubsystem.EstimateStaySeconds(Station));
-		// Leaving at once, a train that has to wait for a booked station waits on the line before it.
+		// Leaving at once, a train that has to wait for a booked station waits on the line before it: so do all the trains
+		// still there or not yet docked when it gets there, but the one docked (the waiting time itself only lowers the
+		// score, since it counts as trip time).
 		const FSTSettings& Settings = mSubsystem.mSettings;
-		const double Queue = Result.Arrive[Index] - (Clock + Travel);
-		if (Settings.bLeaveAtOnce && Settings.QueueLimitSeconds > 0.f && Queue > Settings.QueueLimitSeconds)
+		const int32 Limit = FMath::RoundToInt(Settings.QueueTrains);
+		if (Settings.bLeaveAtOnce && Limit > 0 && Result.Arrive[Index] > Clock + Travel)
 		{
-			return Fail(FString::Printf(TEXT("would queue for %s (more than %.0f s)"), *STLayout::Name(Station), Settings.QueueLimitSeconds));
+			const int32 Ahead = CountAhead(Station, Clock + Travel, Result.Arrive[Index]);
+			if (Ahead > Limit)
+			{
+				return Fail(FString::Printf(TEXT("would queue at %s behind %d trains (most %d waiting)"), *STLayout::Name(Station), Ahead, Limit));
+			}
 		}
 		Clock = Result.Arrive[Index] + mSubsystem.EstimateStaySeconds(Station);
 		Previous = Station;
