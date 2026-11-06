@@ -164,6 +164,20 @@ settings change (`DispatchRound`):
 
 ### Trip planning (`STTripPlanner.*`)
 
+**Queue limit** (`QueueLimitSeconds`, 60 s; only while `LeaveAtOnce` is on): `Simulate` fails a trip ("would queue
+for X") when any stop's arrival, pushed back by other trains' bookings and Auto Trains' station queue
+(`FirstFreeArrival`), is more than the limit after the train could get there. Leaving at once, such a train would wait
+on the line before the station. Repeats skip stations `IsStationQueued` (2 or more managed trains on their way, or an
+Auto Trains queue), starting at another stop of the trip or not at all. A parked train with a trip to repeat tries
+again after every dispatch round.
+
+**Delivery reservations per platform:** like pickups, a planned delivery records its platform. `GetPlatformRoom` is
+the platform's free room plus what its machines use before the train arrives, less the deliveries promised to it and
+its share of promises made at no known platform. Test: `SmartTrains.Planner.DeliveryReservations`.
+
+**Trip times:** `LearnTrip` keeps a moving average (30% per trip). Once a pair has two samples, one sample counts at
+most 1.5 times the estimate (`TripOutlierFactor`), so a trip held up in a queue doesn't skew the next plans.
+
 **Supply reservations per platform:** a planned pickup records the platform the car loads from (`FSTCarWork::Platform`,
 saved; `FSTPlanCarStep::LoadPlatform`). The supply node keeps those amounts per platform (`FSTNode::PlatformReserved`)
 besides the station total (`Reserved`). `GetPlatformAvailable` gives a platform its stock and its share of the rate,

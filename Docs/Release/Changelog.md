@@ -2,6 +2,20 @@
 
 ## 0.6.4 (beta)
 
+- **No more queues before busy stations** (new setting **Longest wait on the line**, 60 s). While trains leave
+  stations at once, a trip is no longer planned if a train would wait longer than this before any of its stops,
+  because other trains are booked or queued there. A repeat doesn't head for a station other trains are already on
+  their way to. Ten or more trains had queued for Aluminum Ingot RSC across a crossing and deadlocked there.
+- **Monitor: bottleneck stations.** A station that several managed trains head for at once on average is flagged
+  "Bottleneck", with how many are on their way and advice (more bays, a second station, or a waiting bay).
+- **Fixed: "needs about 0.0 trains"** in the monitor for items. Trains needed per route now count a car's capacity
+  as its slots times the item's stack size, as the planner does.
+- **Fewer leftover trips:** deliveries promised to a consumer now count against the platform they're planned at, like
+  pickups. Two trains no longer both plan to fill the same platform's room, where the second one would unload nothing
+  and then need a trip for its leftovers. A platform's room also counts what its machines use before the train
+  arrives.
+- **Steadier trip times:** once a station pair has been driven twice, one slow trip (a queue or a deadlock) counts at
+  most 1.5 times the estimate.
 - **Fixed: a supply platform only some trains can reach was left full.** Pickups promised to trains counted against
   the whole station, so trains loading from platforms 1-3 also used up platform 4's share. A train whose car beside
   platform 4 could load then found nothing left, and that car skipped the stop. Seen at the sulfur stations, where most

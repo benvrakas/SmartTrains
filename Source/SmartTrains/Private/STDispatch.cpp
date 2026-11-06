@@ -46,6 +46,8 @@ namespace
 
 	// A parked train's booking of its station: about how long moving it out takes. [s]
 	constexpr double ParkedLeaveSeconds = 60.0;
+	// A station counts as queued for repeats once this many managed trains are on their way to it.
+	constexpr int32 QueuedTrains = 2;
 	// A train that left a station this recently doesn't start a trip with that station again. [s]
 	constexpr double JustLeftAnchorSeconds = 60.0;
 	// A parked train in a dead-end station books it this far ahead, i.e. until it leaves (booked again every round). [s]
@@ -221,7 +223,7 @@ void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 				if (Index != INDEX_NONE)
 				{
 					OutNodes[Index].Reserved += Work.PlannedAmount;
-					if (Work.bLoad && Work.Platform)
+					if (Work.Platform)
 					{
 						OutNodes[Index].PlatformReserved.FindOrAdd(Work.Platform.Get()) += Work.PlannedAmount;
 					}
@@ -445,7 +447,8 @@ FSTFit ASTSubsystem::ComputeFit(const AFGTrain* Train, const AFGTrainStationIden
 		if (bFitsFrom && bFitsTo && bEmpty)
 		{
 			Fit.Cars.Add(Car);
-			Fit.Capacity += STLayout::GetCapacity(Car->GetFreightInventory(), Item);
+			const UFGInventoryComponent* CarInventory = Car->GetFreightInventory();
+			Fit.Capacity += CarInventory ? CarInventory->GetSizeLinear() * STLayout::GetSlotSize(CarInventory, Item) : 0;
 		}
 		else if (bMayLoad)
 		{
@@ -617,6 +620,17 @@ void ASTSubsystem::Dispatch()
 		if (State && State->bManaged && !State->bHasJob)
 		{
 			SettleIdle(*State, TEXT("no trip after a re-plan"), false);
+		}
+	}
+	// Parked trains with a trip to repeat run it again once one of its stations is free.
+	if (mSettings.bRepeatLastJob && !mSettings.bObserveOnly)
+	{
+		for (FSTTrainState& State : mTrains)
+		{
+			if (State.bManaged && !State.bHasJob && State.Phase == ESTTrainPhase::Parked && State.LastWorkJob.Legs.Num() > 0 && IsValid(State.Train))
+			{
+				RepeatLastJob(State, TEXT("parked, and one of its stations is free now"));
+			}
 		}
 	}
 }
@@ -1155,6 +1169,27 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 	Park(State, Why);
 }
 
+bool ASTSubsystem::IsStationQueued(const AFGTrainStationIdentifier* Station, const AFGTrain* Except) const
+{
+	if (!Station)
+	{
+		return false;
+	}
+	int32 Heading = 0;
+	for (const FSTTrainState& Other : mTrains)
+	{
+		if (Other.Train == Except || !Other.bManaged || !Other.bHasJob || !IsValid(Other.Train) || !Other.Job.Legs.IsValidIndex(Other.Job.Leg))
+		{
+			continue;
+		}
+		const bool bThere = Other.Train->IsDocked() && Other.DockedStation.Get() == Station;
+		Heading += !bThere && Other.Job.Legs[Other.Job.Leg].Station == Station ? 1 : 0;
+	}
+	const TPair<float, double>* AtQueue = mAtQueues.Find(const_cast<AFGTrainStationIdentifier*>(Station));
+	const bool bAtQueued = AtQueue && AtQueue->Key > 0.f && Now() - AtQueue->Value < AtQueue->Key;
+	return Heading >= QueuedTrains || bAtQueued;
+}
+
 bool ASTSubsystem::RepeatLastJob(FSTTrainState& State, const TCHAR* Why)
 {
 	const FSTJob& Last = State.LastWorkJob;
@@ -1162,13 +1197,33 @@ bool ASTSubsystem::RepeatLastJob(FSTTrainState& State, const TCHAR* Why)
 	{
 		return false;
 	}
-	// Start from the stop after the one it is at, so it doesn't stop where it already stands.
+	// Start from the stop after the one it is at, so it doesn't stop where it already stands; and not towards a station
+	// other trains are already heading or queued for, which would only make a queue on the line.
 	const AFGTrainStationIdentifier* Here = State.Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation.Get() : State.LastStation.Get();
 	int32 First = 0;
 	if (Here)
 	{
 		const int32 At = Last.Legs.IndexOfByPredicate([Here](const FSTJobLeg& Leg) { return Leg.Station == Here; });
 		First = At == INDEX_NONE ? 0 : (At + 1) % Last.Legs.Num();
+	}
+	if (mSettings.bLeaveAtOnce)
+	{
+		int32 Free = INDEX_NONE;
+		for (int32 Offset = 0; Offset < Last.Legs.Num() && Free == INDEX_NONE; ++Offset)
+		{
+			const int32 Start = (First + Offset) % Last.Legs.Num();
+			const AFGTrainStationIdentifier* Station = Last.Legs[Start].Station.Get();
+			if (Station != Here && !IsStationQueued(Station, State.Train))
+			{
+				Free = Start;
+			}
+		}
+		if (Free == INDEX_NONE)
+		{
+			UE_LOG(LogSmartTrains, Verbose, TEXT("%s: not repeating its last job now: trains are heading or queued for each of its stations"), *STLayout::Name(State.Train));
+			return false;
+		}
+		First = Free;
 	}
 	FSTJob Job;
 	Job.Id = mNextJobId++;
@@ -1727,6 +1782,7 @@ void ASTSubsystem::AddPlannedRoute(const TArray<FSTNode>& Nodes, int32 From, int
 	{
 		Advice.TrainsNeeded += Flow * RoundTrip / (Load / Fitting);
 	}
-	UE_LOG(LogSmartTrains, Verbose, TEXT("PLAN %s: %s -> %s %s/min, %.0f s each way, %d trains fit"), *STNames::Item(Supplier.Item),
-		*STLayout::Name(Supplier.Station.Get()), *STLayout::Name(Consumer.Station.Get()), *STNames::Amount(Supplier.Item, Flow * 60.0), Time, Fitting);
+	UE_LOG(LogSmartTrains, Verbose, TEXT("PLAN %s: %s -> %s %s/min, %.0f s each way, round trip %.0f s, %d trains fit carrying %s each on average, %.2f trains needed"),
+		*STNames::Item(Supplier.Item), *STLayout::Name(Supplier.Station.Get()), *STLayout::Name(Consumer.Station.Get()), *STNames::Amount(Supplier.Item, Flow * 60.0), Time,
+		RoundTrip, Fitting, *STNames::Amount(Supplier.Item, Fitting > 0 ? Load / Fitting : 0.0), Fitting > 0 ? Flow * RoundTrip / (Load / Fitting) : 0.0);
 }

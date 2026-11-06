@@ -30,7 +30,8 @@ them (see below).
 - **Spacing:** trips are timed so trains arrive at a station at least **Gap between trains at a station** (Mods
   menu, 30 s) apart.
 - **Leaving at once** (default): a train moves what it can in one transfer and leaves. A train with a trip starts it
-  straight away. Switch **Trains leave stations at once** off for the old behaviour: deliveries and pickups wait up
+  straight away. No trip makes a train wait more than **Longest wait on the line** (60 s) before a busy station, so
+  trains don't queue across junctions. Switch **Trains leave stations at once** off for the old behaviour: deliveries and pickups wait up
   to their longest wait, and a train whose next station is busy waits in its station.
 - **No parking** (default): a train with no new trip runs its last job again, like a timetable loop, until a new trip
   is worth it. With **Repeat the last job instead of parking** off, idle trains park at a depot (a station setting)

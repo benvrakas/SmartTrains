@@ -372,6 +372,55 @@ bool FSTPlatformReservationsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// Deliveries promised to one platform use up its room only: a car beside a platform another train is already
+// filling unloads nothing there, and one beside a platform with room delivers.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTDeliveryReservationsTest, "SmartTrains.Planner.DeliveryReservations", TestFlags)
+bool FSTDeliveryReservationsTest::RunTest(const FString& Parameters)
+{
+	UClass* Ingot = USTTestSolid::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
+	FSTTestAccess::SetTrip(*Subsystem, Start, Sink, 60.f);
+	AFGBuildableTrainPlatformCargo* Filled = NewObject<AFGBuildableTrainPlatformCargo>(GetTransientPackage());
+	AFGBuildableTrainPlatformCargo* Open = NewObject<AFGBuildableTrainPlatformCargo>(GetTransientPackage());
+	TArray<FSTNode> Nodes = {FSTTestAccess::Node(Sink, Ingot, ESTRole::Demand, 0, 2000, 0)};
+	Nodes[0].Platforms = {Filled, Open};
+	Nodes[0].Reserved = 1000;
+	Nodes[0].PlatformReserved.Add(Filled, 1000);
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Ingot, false, 0.0, 0), FSTTestAccess::Platform(Ingot, false, 0.0, 0)};
+	Platforms[0].Platform = Filled;
+	Platforms[1].Platform = Open;
+	for (FSTTestAccess::FPlatformInfo& Platform : Platforms)
+	{
+		Platform.Slots = 10;
+	}
+	FSTPlanStop Unload;
+	Unload.Station = Sink;
+	Unload.UnloadItems.Add(Ingot);
+	FSTTestAccess::FCarInfo Car = FSTTestAccess::Car(Ingot, 1000.0);
+	Car.Slots = 10;
+	for (int32 Beside = 0; Beside < 2; ++Beside)
+	{
+		FSTTestAccess::FCarPlatforms CarPlatforms;
+		CarPlatforms.Add(Sink, {{Beside}});
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, Platforms, CarPlatforms);
+		const FSTPlanResult Result = Planner.Simulate({Unload});
+		const int32 Unloaded = Result.bValid && Result.Steps[0][0].Unloaded.Num() > 0 ? Result.Steps[0][0].Unloaded[0].Value : 0;
+		if (Beside == 0)
+		{
+			TestEqual(TEXT("beside the platform another train fills, nothing is unloaded"), Unloaded, 0);
+		}
+		else
+		{
+			TestEqual(TEXT("beside the platform with room, the car delivers"), Unloaded, 1000);
+		}
+	}
+	return true;
+}
+
 // The exact assignment beats the greedy choice.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTAssignmentTest, "SmartTrains.Planner.Assignment", TestFlags)
 bool FSTAssignmentTest::RunTest(const FString& Parameters)

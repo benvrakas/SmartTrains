@@ -194,6 +194,31 @@ double FSTTripPlanner::GetAvailable(int32 Node, double Arrive) const
 	return bAny ? FMath::Min(Sum, static_cast<double>(Supplier.Capacity)) : Whole;
 }
 
+double FSTTripPlanner::GetPlatformRoom(int32 Node, int32 Info, UClass* Item, double Arrive) const
+{
+	const FPlatformInfo& Platform = mPlatforms[Info];
+	const int32 Stack = STLayout::GetSlotSize(Platform.Inventory, Item);
+	const int32 Stock = Platform.Stock.FindRef(Item);
+	const int32 Rest = Stock % Stack;
+	const double Free = FMath::Max(0, Platform.Slots - Platform.Occupied) * static_cast<double>(Stack) + (Rest > 0 ? Stack - Rest : 0);
+	if (Node == INDEX_NONE || mNodes[Node].bAnyItem)
+	{
+		return Free;
+	}
+	const FSTNode& Consumer = mNodes[Node];
+	const int32 Count = FMath::Max(1, Consumer.Platforms.Num());
+	const double Share = Consumer.Stock > 0 ? static_cast<double>(Stock) / Consumer.Stock : 1.0 / Count;
+	// What its machines take out of it before the train arrives (no more than it holds).
+	const double Used = FMath::Min(static_cast<double>(Stock), Share * Consumer.Rate * FMath::Max(0.0, Arrive - mTime));
+	int32 Assigned = 0;
+	for (const TPair<const AFGBuildableTrainPlatformCargo*, int32>& Each : Consumer.PlatformReserved)
+	{
+		Assigned += Each.Value;
+	}
+	const double Unassigned = FMath::Max(0, Consumer.Reserved - Assigned) / static_cast<double>(Count);
+	return FMath::Max(0.0, Free + Used - Consumer.PlatformReserved.FindRef(Platform.Platform) - Unassigned);
+}
+
 double FSTTripPlanner::GetPlatformAvailable(int32 Node, int32 Info, double Until) const
 {
 	const FSTNode& Supplier = mNodes[Node];
@@ -709,6 +734,13 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 				bPushPull ? TEXT(" (push-pull)") : TEXT(" (one way only)")));
 		}
 		Result.Arrive[Index] = FirstFreeArrival(Station, Clock + Travel, mSubsystem.EstimateStaySeconds(Station));
+		// Leaving at once, a train that has to wait for a booked station waits on the line before it.
+		const FSTSettings& Settings = mSubsystem.mSettings;
+		const double Queue = Result.Arrive[Index] - (Clock + Travel);
+		if (Settings.bLeaveAtOnce && Settings.QueueLimitSeconds > 0.f && Queue > Settings.QueueLimitSeconds)
+		{
+			return Fail(FString::Printf(TEXT("would queue for %s (more than %.0f s)"), *STLayout::Name(Station), Settings.QueueLimitSeconds));
+		}
 		Clock = Result.Arrive[Index] + mSubsystem.EstimateStaySeconds(Station);
 		Previous = Station;
 	}
@@ -927,7 +959,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 						continue;
 					}
 					AddCargo(Cargo[CarIndex], Item, Amount);
-					Step.LoadPlatform = Beside.Num() > 0 ? mPlatforms[Beside[0]].Platform : nullptr;
+					Step.Platform = Beside.Num() > 0 ? mPlatforms[Beside[0]].Platform : nullptr;
 					for (double* Each : Pools)
 					{
 						*Each -= Amount;
@@ -943,13 +975,10 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 				for (UClass* Item : Items)
 				{
 					const double Carried = CargoOf(Cargo[CarIndex], Item);
+					const int32 RoomNode = FindNode(Stop.Station, Item, false);
 					auto InitialSpace = [&](int32 PlatformIndex)
 					{
-						const FPlatformInfo& Platform = mPlatforms[PlatformIndex];
-						const int32 Stack = STLayout::GetSlotSize(Platform.Inventory, Item);
-						const int32 Stock = Platform.Stock.FindRef(Item);
-						const int32 Rest = Stock % Stack;
-						return FMath::Max(0, Platform.Slots - Platform.Occupied) * static_cast<double>(Stack) + (Rest > 0 ? Stack - Rest : 0);
+						return GetPlatformRoom(RoomNode, PlatformIndex, Item, Arrive);
 					};
 					for (int32 MapIndex = 0; MapIndex < Beside.Num(); ++MapIndex)
 					{
@@ -974,6 +1003,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 						continue;
 					}
 					AddCargo(Cargo[CarIndex], Item, -Amount);
+					Step.Platform = Beside.Num() > 0 ? mPlatforms[Beside[0]].Platform : nullptr;
 					for (double* Each : Spaces)
 					{
 						*Each -= Amount;
@@ -1237,7 +1267,7 @@ void FSTTripPlanner::MakeLegs(const TArray<FSTPlanStop>& Stops, const FSTPlanRes
 						Work.Item = Each.Key;
 						Work.bLoad = Pass == 0;
 						Work.PlannedAmount = Each.Value;
-						Work.Platform = Pass == 0 ? const_cast<AFGBuildableTrainPlatformCargo*>(Step->LoadPlatform) : nullptr;
+						Work.Platform = const_cast<AFGBuildableTrainPlatformCargo*>(Step->Platform);
 						bWorks = true;
 					}
 				}
@@ -1279,9 +1309,9 @@ void FSTTripPlanner::Reserve(const TArray<FSTPlanStop>& Stops, const FSTPlanResu
 				if (Node != INDEX_NONE)
 				{
 					mNodes[Node].Reserved += Each.Value;
-					if (Step.LoadPlatform)
+					if (Step.Platform)
 					{
-						mNodes[Node].PlatformReserved.FindOrAdd(Step.LoadPlatform) += Each.Value;
+						mNodes[Node].PlatformReserved.FindOrAdd(Step.Platform) += Each.Value;
 					}
 				}
 			}
@@ -1291,6 +1321,10 @@ void FSTTripPlanner::Reserve(const TArray<FSTPlanStop>& Stops, const FSTPlanResu
 				if (Node != INDEX_NONE)
 				{
 					mNodes[Node].Reserved += Each.Value;
+					if (Step.Platform)
+					{
+						mNodes[Node].PlatformReserved.FindOrAdd(Step.Platform) += Each.Value;
+					}
 				}
 			}
 		}
@@ -1311,7 +1345,7 @@ void FSTTripPlanner::Release(const TArray<FSTJobLeg>& Legs, int32 From)
 			if (Node != INDEX_NONE)
 			{
 				mNodes[Node].Reserved = FMath::Max(0, mNodes[Node].Reserved - Work.PlannedAmount);
-				if (int32* AtPlatform = Work.bLoad && Work.Platform ? mNodes[Node].PlatformReserved.Find(Work.Platform.Get()) : nullptr)
+				if (int32* AtPlatform = Work.Platform ? mNodes[Node].PlatformReserved.Find(Work.Platform.Get()) : nullptr)
 				{
 					*AtPlatform = FMath::Max(0, *AtPlatform - Work.PlannedAmount);
 				}

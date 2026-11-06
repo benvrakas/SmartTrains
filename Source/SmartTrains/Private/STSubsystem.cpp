@@ -39,6 +39,8 @@ namespace
 	constexpr double NoProgressMinutes = 10.0;
 	// For this long after a timetable is written, a current stop the game moved on by one is set back. [s]
 	constexpr double WriteSettleSeconds = 10.0;
+	// A known trip pair's sample counts at most this many times its estimate (queues and deadlocks are outliers).
+	constexpr float TripOutlierFactor = 1.5f;
 	// A self-driving error is logged once it has lasted this long; shorter ones are the game re-routing. [s]
 	constexpr double SelfDrivingErrorLogSeconds = 5.0;
 	// A docked train's stay ends once nothing has moved for this long, after at least the first transfer. [s]
@@ -934,10 +936,13 @@ void ASTSubsystem::LearnTrip(AFGTrainStationIdentifier* From, AFGTrainStationIde
 		Trip->To = To;
 	}
 	const float Estimate = Trip->Samples > 0 ? Trip->Seconds : EstimateTravelSeconds(From, To);
-	Trip->Seconds = Trip->Samples == 0 ? Seconds : FMath::Lerp(Trip->Seconds, Seconds, 0.3f);
+	// A trip held up in a queue or a deadlock says little about the next one: once the pair is known, one sample counts
+	// at most TripOutlierFactor times the estimate.
+	const float Counted = Trip->Samples >= 2 ? FMath::Min(Seconds, Trip->Seconds * TripOutlierFactor) : Seconds;
+	Trip->Seconds = Trip->Samples == 0 ? Counted : FMath::Lerp(Trip->Seconds, Counted, 0.3f);
 	++Trip->Samples;
-	UE_LOG(LogSmartTrains, Log, TEXT("TRIP %s -> %s took %.0f s (estimate was %.0f s, now %.0f s from %d trips)"), *STLayout::Name(From), *STLayout::Name(To), Seconds,
-		Estimate, Trip->Seconds, Trip->Samples);
+	UE_LOG(LogSmartTrains, Log, TEXT("TRIP %s -> %s took %.0f s (estimate was %.0f s, now %.0f s from %d trips%s)"), *STLayout::Name(From), *STLayout::Name(To), Seconds,
+		Estimate, Trip->Seconds, Trip->Samples, Counted < Seconds ? *FString::Printf(TEXT("; counted as %.0f s"), Counted) : TEXT(""));
 }
 
 void ASTSubsystem::LearnStay(AFGTrainStationIdentifier* Station, float Seconds)

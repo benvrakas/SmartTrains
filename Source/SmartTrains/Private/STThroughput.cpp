@@ -18,6 +18,8 @@ namespace
 	constexpr double CongestedShare = 0.85;
 	// Average lateness of arrivals at a station that counts as congestion, and the fewest arrivals to judge it. [s]
 	constexpr double CongestedLate = 120.0;
+	// A station with this many managed trains on their way to it on average is a bottleneck: they queue before it.
+	constexpr double QueueTrains = 2.5;
 	constexpr int32 MinArrivals = 3;
 	// Demand nodes whose serving trains are checked per sample, and the idle share of the fleet below which it is
 	// short of trains.
@@ -211,7 +213,16 @@ void FSTThroughput::Sample(const ASTSubsystem& Subsystem)
 	for (const AFGTrainStationIdentifier* Station : Stations)
 	{
 		TArray<FStationSample>& Samples = mOccupied.FindOrAdd(const_cast<AFGTrainStationIdentifier*>(Station));
-		Samples.Add({Time, Occupied.Contains(Station)});
+		int32 Heading = 0;
+		for (const FSTTrainState& State : Subsystem.mTrains)
+		{
+			if (State.bManaged && State.bHasJob && IsValid(State.Train) && State.Job.Legs.IsValidIndex(State.Job.Leg) && State.Job.Legs[State.Job.Leg].Station == Station
+				&& !(State.Train->IsDocked() && State.DockedStation.Get() == Station))
+			{
+				++Heading;
+			}
+		}
+		Samples.Add({Time, Occupied.Contains(Station), Heading});
 		TrimWindow(Samples, Time);
 	}
 	for (auto It = mOccupied.CreateIterator(); It; ++It)
@@ -339,11 +350,16 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			continue;
 		}
 		int32 Count = 0;
+		int32 HeadingSum = 0;
+		int32 HeadingMax = 0;
 		for (const FStationSample& Each : Pair.Value)
 		{
 			Count += Each.bOccupied ? 1 : 0;
+			HeadingSum += Each.Heading;
+			HeadingMax = FMath::Max(HeadingMax, Each.Heading);
 		}
 		const double Share = static_cast<double>(Count) / Pair.Value.Num();
+		const double Heading = static_cast<double>(HeadingSum) / Pair.Value.Num();
 		double Late = 0.0;
 		int32 Arrivals = 0;
 		if (const TArray<FArrival>* Found = mArrivals.Find(Pair.Key))
@@ -359,6 +375,16 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		FSTMonitorRow& Row = View.Stations.AddDefaulted_GetRef();
 		Row.Title = STLayout::Name(Pair.Key.Get());
 		Row.Columns = {Percent(Share), FString::FromInt(Arrivals), Arrivals > 0 ? FString::Printf(TEXT("%+.0f s"), Late) : FString(TEXT("-"))};
+		if (Heading >= QueueTrains)
+		{
+			Congested.Add(Pair.Key.Get());
+			Row.Verdict = TEXT("Bottleneck");
+			Row.Severity = 2;
+			Row.Details.Add(FString::Printf(TEXT("On average %.1f managed trains are on their way here at once (up to %d), so they queue before it."), Heading, HeadingMax));
+			Row.Details.Add(FString::Printf(TEXT("A train is docked here %s of the time."), *Percent(Share)));
+			Row.Advice = TEXT("Too many trips use this station: add bays or a second station for some of its items, or a waiting bay before it so queues don't block junctions.");
+			continue;
+		}
 		if (Share < CongestedShare && !bLate)
 		{
 			Row.Verdict = TEXT("OK");

@@ -41,7 +41,8 @@ struct FSTNode
 	int32 TrackGraph = INDEX_NONE;
 	// Amounts already promised: to be picked up (supply) or on the way (demand).
 	int32 Reserved = 0;
-	// Supply: the part of Reserved planned at a known platform. The rest is shared out over the platforms by stock.
+	// The part of Reserved planned at a known platform: pickups (supply) or deliveries (demand). The rest is shared out
+	// over the platforms.
 	TMap<const AFGBuildableTrainPlatformCargo*, int32> PlatformReserved;
 	// Planned flow from the flow plan, items per second: out of a supplier, into a consumer.
 	double PlannedFlow = 0.0;
@@ -246,6 +247,9 @@ private:
 	FString DescribeStationPlatforms(const AFGTrainStationIdentifier* Station) const;
 	// Gives the train its last job again (RepeatLastJob). Returns false if it has none to repeat from where it is.
 	bool RepeatLastJob(FSTTrainState& State, const TCHAR* Why);
+	// True if other managed trains (2 or more, Except not counted) are on their way to Station, or Auto Trains reports a
+	// queue there.
+	bool IsStationQueued(const AFGTrainStationIdentifier* Station, const AFGTrain* Except) const;
 	// Records which vehicle is beside each platform of Station now.
 	void LearnDockMap(AFGTrain* Train, AFGTrainStationIdentifier* Station);
 	void LearnTrip(AFGTrainStationIdentifier* From, AFGTrainStationIdentifier* To, float Seconds);

@@ -66,6 +66,8 @@ private:
 	{
 		double Time = 0.0;
 		bool bOccupied = false;
+		// Managed trains on their way to the station (its stop is their current leg), not docked there.
+		int32 Heading = 0;
 	};
 	struct FArrival
 	{

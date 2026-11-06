@@ -79,6 +79,8 @@ namespace
 				LOCTEXT("MaxTripTip", "Trips are planned at most this long, 5 to 120 minutes. Stock forecasts get unreliable over long trips.")},
 			{TEXT("LeftoverMinutes"), &FSTSettings::LeftoverMinutes, 5.f, 240.f, LOCTEXT("Leftover", "Unwanted cargo after (minutes)"),
 				LOCTEXT("LeftoverTip", "Cargo that no consumer below its target wants for this long may go to any consumer with room, or to an any-item sink, 5 to 240 minutes.")},
+			{TEXT("QueueLimitSeconds"), &FSTSettings::QueueLimitSeconds, 0.f, 600.f, LOCTEXT("QueueLimit", "Longest wait on the line (seconds)"),
+				LOCTEXT("QueueLimitTip", "While trains leave stations at once, no trip is planned that would make a train wait longer than this before a station it stops at, because other trains are booked or queued there. Queues before busy stations block junctions and cause deadlocks. 0 to 600 seconds; 0 means no limit.")},
 			{TEXT("ArrivalGapSeconds"), &FSTSettings::ArrivalGapSeconds, 0.f, 300.f, LOCTEXT("ArrivalGap", "Gap between trains at a station (seconds)"),
 				LOCTEXT("ArrivalGapTip", "Trips are timed so the next train arrives at a station at least this long after the last one left, 0 to 300 seconds. A train whose first stop is busy waits where it is instead of queueing on the line.")},
 		};

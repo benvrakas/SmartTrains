@@ -161,7 +161,7 @@ struct SMARTTRAINS_API FSTCarWork
 	UPROPERTY(SaveGame)
 	int32 PlannedAmount = 0;
 
-	// Loads: the platform the car was planned to load from, so the promise counts against that platform only.
+	// The platform the car was planned to load from or unload into, so the promise counts against that platform only.
 	UPROPERTY(SaveGame)
 	TObjectPtr<AFGBuildableTrainPlatformCargo> Platform = nullptr;
 
