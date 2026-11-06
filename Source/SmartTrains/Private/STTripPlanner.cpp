@@ -22,6 +22,8 @@ namespace
 	constexpr double OverTargetWeight = 0.2;
 	// Value weight of cargo delivered to an any-item sink.
 	constexpr double SinkWeight = 0.1;
+	// Least a car unloads at a stop, in car slots (or all it holds when that is less). [slots]
+	constexpr double MinUnloadSlots = 2.0;
 
 	template <typename KeyType>
 	double& FindOrAddValue(TArray<TPair<KeyType, double>>& Pairs, const KeyType& Key, TFunctionRef<double()> Initial)
@@ -200,7 +202,8 @@ double FSTTripPlanner::GetPlatformRoom(int32 Node, int32 Info, UClass* Item, dou
 	const int32 Stack = STLayout::GetSlotSize(Platform.Inventory, Item);
 	const int32 Stock = Platform.Stock.FindRef(Item);
 	const int32 Rest = Stock % Stack;
-	const double Free = FMath::Max(0, Platform.Slots - Platform.Occupied) * static_cast<double>(Stack) + (Rest > 0 ? Stack - Rest : 0);
+	// Free slots; for a fluid also the rest of its one slot. A train doesn't top up part-full solid stacks.
+	const double Free = FMath::Max(0, Platform.Slots - Platform.Occupied) * static_cast<double>(Stack) + (Platform.bFluid && Rest > 0 ? Stack - Rest : 0);
 	if (Node == INDEX_NONE || mNodes[Node].bAnyItem)
 	{
 		return Free;
@@ -325,24 +328,35 @@ bool FSTTripPlanner::HoldsOtherItem(const TArray<TPair<UClass*, double>>& Cargo,
 double FSTTripPlanner::GetCarRoom(const FCarInfo& Car, const TArray<TPair<UClass*, double>>& Cargo, UClass* Item) const
 {
 	const bool bFluid = STNames::IsFluid(Item);
+	if (bFluid)
+	{
+		// A car carries solids or one fluid, never both.
+		for (const TPair<UClass*, double>& Each : Cargo)
+		{
+			if (Each.Key != Item)
+			{
+				return 0.0;
+			}
+		}
+		return FMath::Max(0.0, STLayout::GetCarCapacity(Car.Car, Item) - CargoOf(Cargo, Item));
+	}
 	int32 Used = 0;
 	double Partial = 0.0;
 	for (const TPair<UClass*, double>& Each : Cargo)
 	{
-		// A car carries solids or one fluid, never both.
-		if (STNames::IsFluid(Each.Key) != bFluid || (bFluid && Each.Key != Item))
+		if (STNames::IsFluid(Each.Key))
 		{
 			return 0.0;
 		}
-		const int32 Stack = STLayout::GetSlotSize(Car.Inventory, Each.Key);
+		const double Stack = STLayout::GetCarSlotAmount(Car.Car, Each.Key);
 		Used += FMath::CeilToInt(Each.Value / Stack);
 		if (Each.Key == Item)
 		{
-			const double Rest = FMath::Fmod(Each.Value, static_cast<double>(Stack));
+			const double Rest = FMath::Fmod(Each.Value, Stack);
 			Partial = Rest > 0.0 ? Stack - Rest : 0.0;
 		}
 	}
-	return FMath::Max(0, Car.Slots - Used) * static_cast<double>(STLayout::GetSlotSize(Car.Inventory, Item)) + Partial;
+	return FMath::Max(0, Car.Slots - Used) * STLayout::GetCarSlotAmount(Car.Car, Item) + Partial;
 }
 
 int32 FSTTripPlanner::GetPlatformInfo(const AFGBuildableTrainPlatformCargo* Platform) const
@@ -451,7 +465,7 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 		}
 		FCarInfo& Car = mCars.AddDefaulted_GetRef();
 		Car.Car = Wagon;
-		Car.Slots = Inventory->GetSizeLinear();
+		Car.Slots = STLayout::GetWagonSlots(Wagon);
 		Car.Inventory = Inventory;
 		TArray<FInventoryStack> Stacks;
 		Inventory->GetInventoryStacks(Stacks, true);
@@ -467,6 +481,28 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 	if (mCars.Num() == 0)
 	{
 		return false;
+	}
+	// Docked for a stop of its trip: what is still to move there counts as moved, so the next trip starts from the
+	// cargo the train leaves with.
+	if (bInAnchorDocked && State.bHasJob && Train->IsDocked() && State.DockedStation.Get() == Anchor && !State.bChainedWhileDocked
+		&& State.Job.Legs.IsValidIndex(State.Job.Leg) && State.Job.Legs[State.Job.Leg].Station == Anchor)
+	{
+		const FSTJobLeg& Leg = State.Job.Legs[State.Job.Leg];
+		const TArray<int32> Before = mSubsystem.mDockStartAmounts.FindRef(State.Train);
+		for (int32 Index = 0; Index < Leg.Work.Num() && Index < Before.Num(); ++Index)
+		{
+			const FSTCarWork& Work = Leg.Work[Index];
+			UClass* Item = Work.Item.Get();
+			FCarInfo* Car = mCars.FindByPredicate([&Work](const FCarInfo& Each) { return Work.Car.Get() == Each.Car; });
+			if (!Car || !Item)
+			{
+				continue;
+			}
+			const double Held = CargoOf(Car->Cargo, Item);
+			const double Left = FMath::Max(0.0, Work.PlannedAmount - FMath::Abs(Held - Before[Index]));
+			AddCargo(Car->Cargo, Item, Work.bLoad ? FMath::Min(Left, GetCarRoom(*Car, Car->Cargo, Item)) : -FMath::Min(Left, Held));
+		}
+		bCarrying = mCars.ContainsByPredicate([](const FCarInfo& Each) { return Each.Cargo.Num() > 0; });
 	}
 	bRelaxed = bCarrying && State.UnwantedCargoSince > 0.0 && mTime - State.UnwantedCargoSince > mSubsystem.mSettings.LeftoverMinutes * 60.0;
 
@@ -780,6 +816,15 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 		bool bCritical = false;
 	};
 	TArray<FItemTotals> Totals;
+	auto SlotAmount = [this](UClass* Item)
+	{
+		return STLayout::GetCarSlotAmount(mCars.Num() > 0 ? mCars[0].Car : nullptr, Item);
+	};
+	// Share of a car Amount of Item fills: a delivery's value counts only how full the car is.
+	auto CarShare = [this](UClass* Item, double Amount)
+	{
+		return Amount / FMath::Max(1.0, STLayout::GetCarCapacity(mCars.Num() > 0 ? mCars[0].Car : nullptr, Item));
+	};
 	auto TotalsFor = [&Totals](UClass* Item) -> FItemTotals&
 	{
 		for (FItemTotals& Each : Totals)
@@ -993,7 +1038,9 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 						Spaces.Add(&Each);
 						Space = FMath::Min(Space, Each);
 					}
-					const double Amount = FMath::FloorToDouble(FMath::Min(Carried, Space));
+					// No small top-ups: the stay ends at once if the platform has no room the moment the train docks.
+					const double Possible = FMath::FloorToDouble(FMath::Min(Carried, Space));
+					const double Amount = Possible + 0.5 >= FMath::Min(Carried, MinUnloadSlots * SlotAmount(Item)) ? Possible : 0.0;
 					for (FLoaded& Each : Loaded)
 					{
 						Each.bDelivered |= Each.Car == CarIndex && Each.Item == Item;
@@ -1018,13 +1065,13 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					FItemTotals& Total = TotalsFor(Item);
 					if (mNodes[Node].bAnyItem)
 					{
-						Result.Value += (Total.bFromFull || bRelaxed) ? SinkWeight * Amount : 0.0;
+						Result.Value += (Total.bFromFull || bRelaxed) ? SinkWeight * CarShare(Item, Amount) : 0.0;
 						continue;
 					}
 					bool bWants = false;
 					double& RoomLeft = FindOrAddValue<int32>(NodeRoom, Node, [&]() { return GetRoom(Node, Arrive, bWants); });
 					GetRoom(Node, Arrive, bWants);
-					const double Valued = FMath::Clamp(RoomLeft, 0.0, Amount);
+					const double Valued = CarShare(Item, FMath::Clamp(RoomLeft, 0.0, Amount));
 					RoomLeft -= Amount;
 					Total.bCritical |= mNodes[Node].Priority == ESTPriority::Critical;
 					const double Weight = STNames::PriorityWeight(mNodes[Node].Priority);

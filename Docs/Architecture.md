@@ -205,12 +205,21 @@ stop books from when it docked; one running late books from now. `FirstFreeArriv
   platform pools and room (`PoolKey`). A car plans the smallest of its amounts over the maps, and that amount comes
   off its platform in every map.
 - Amounts come from the platform's stock plus its share of the node's production up to the end of the stay (a fluid
-  platform fed by pipes keeps filling while the train loads), less what other trips reserved. Unloads are limited by the platform's free slots.
+  platform fed by pipes keeps filling while the train loads), less what other trips reserved. Unloads are limited by
+  the platform's free slots (a fluid platform also by the rest of its one slot; a train doesn't top up part-full
+  solid stacks). A car unloads at least 2 car slots of an item, or all it holds of it when that is less; a smaller
+  amount counts as nothing, since the stay ends at once when the platform has no room the moment the train docks.
+- A car's room comes from its wagon type (`STLayout::GetCarCapacity`): slots × stack for a solid, the wagon's fluid
+  capacity for a fluid. Its inventory now can't be used: a car set up for a fluid has one big slot.
+- A train planned while docked for a stop of its trip starts from the cargo it will leave with: what is still to load
+  or unload there counts as done.
 - Cargo loaded on the trip that no later stop unloads is stranded: with FCC that car skips the pickup and the
   simulation runs again; without FCC the trip is invalid.
 - **Batch:** per item, what loads must reach the send-at share of the loading cars' room, unless a critical
   consumer is served or a supplier is nearly full.
-- **Value** of each delivery: priority weight × urgency × the amount up to the consumer's room. Urgency is 1, plus up
+- **Value** of each delivery: priority weight × urgency × the share of a car it fills (the amount up to the
+  consumer's room ÷ the car's capacity for that item). Only how full the car is counts: 100 sulfur is worth 500
+  concrete, and a full car of fluid is worth a full car of any solid. Urgency is 1, plus up
   to 2 for the share below target, plus 2 if starved, plus up to 2 for the time since the last delivery there (an
   hour gives the full 2; fairness). Over target, it is worth 0.2 × weight for unwanted cargo or a nearly full
   supplier; sinks are worth 0.1.

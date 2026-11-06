@@ -470,7 +470,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			Group.Consumers.Num() > 0 ? Percent(Low) : FString(TEXT("-"))};
 		if (Advice && Advice->Pairs > 0)
 		{
-			Row.Details.Add(FString::Printf(TEXT("Flow plan: %s/min over %d routes, needs about %.1f trains; %d managed trains fit those routes."),
+			Row.Details.Add(FString::Printf(TEXT("Flow plan: %s/min over %d routes, needs about %.1f trains; %d managed trains could serve those routes."),
 				*STNames::Amount(Item, Advice->FlowPerMinute), Advice->Pairs, Advice->TrainsNeeded, Advice->TrainsFitting));
 		}
 		if (Group.Consumers.Num() > 0 && Group.Suppliers.Num() > 0)

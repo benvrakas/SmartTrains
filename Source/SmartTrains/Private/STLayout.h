@@ -57,6 +57,14 @@ namespace STLayout
 	// sets one (fluid platforms and fluid cars hold far more than a fluid's stack).
 	int32 GetSlotSize(const class UFGInventoryComponent* Inventory, TSubclassOf<UFGItemDescriptor> Item);
 
+	// Freight car size from its type, not its inventory now (a car set up for a fluid has one big slot).
+	int32 GetWagonSlots(const AFGFreightWagon* Wagon);
+	int64 GetWagonFluidCapacity(const AFGFreightWagon* Wagon);
+	// How much of Item a freight car holds when empty.
+	double GetCarCapacity(const AFGFreightWagon* Wagon, TSubclassOf<UFGItemDescriptor> Item);
+	// How much of Item fills one car slot: its stack size, or for a fluid the car's fluid room per slot.
+	double GetCarSlotAmount(const AFGFreightWagon* Wagon, TSubclassOf<UFGItemDescriptor> Item);
+
 	// Returns true if Item can be put on a platform or car of cargo type Type.
 	bool ItemFitsCargoType(TSubclassOf<UFGItemDescriptor> Item, EFreightCargoType Type);
 

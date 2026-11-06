@@ -447,8 +447,7 @@ FSTFit ASTSubsystem::ComputeFit(const AFGTrain* Train, const AFGTrainStationIden
 		if (bFitsFrom && bFitsTo && bEmpty)
 		{
 			Fit.Cars.Add(Car);
-			const UFGInventoryComponent* CarInventory = Car->GetFreightInventory();
-			Fit.Capacity += CarInventory ? CarInventory->GetSizeLinear() * STLayout::GetSlotSize(CarInventory, Item) : 0;
+			Fit.Capacity += static_cast<int32>(STLayout::GetCarCapacity(Car, Item));
 		}
 		else if (bMayLoad)
 		{
@@ -1619,7 +1618,7 @@ bool ASTSubsystem::AssignManualJob(AFGTrain* Train, AFGTrainStationIdentifier* F
 			Work.Car = Car;
 			Work.Item = Item;
 			Work.bLoad = Pass == 0;
-			Work.PlannedAmount = STLayout::GetCapacity(Car->GetFreightInventory(), Item);
+			Work.PlannedAmount = static_cast<int32>(STLayout::GetCarCapacity(Car, Item));
 		}
 		if (Pass == 0)
 		{

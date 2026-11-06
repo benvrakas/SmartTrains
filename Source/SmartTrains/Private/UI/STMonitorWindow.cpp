@@ -552,11 +552,11 @@ void USTMonitorWindow::ShowItems(const FSTMonitorView& View)
 		SelectTab(ETab::Items);
 	}, FMargin(0.f));
 	AddCell(Tools, Filter, 520.f);
-	AddCell(Tools, MakeCell(TEXT("Rates per minute. Trains: needed by the flow plan / managed trains that fit."), 10, MonitorDim, true), 0.f);
+	AddCell(Tools, MakeCell(TEXT("Rates per minute. Trains needed / able: trains the flow plan needs / managed trains that could serve its routes (not trains sent)."), 10, MonitorDim, true), 0.f);
 
 	const TArray<float> Widths = {120.f, 120.f, 110.f, 100.f};
 	AddHeader({{FText::GetEmpty(), MonitorIconSize}, {LOCTEXT("ColItem", "Item"), 0.f}, {LOCTEXT("ColLimit", "Limit"), 150.f},
-		{LOCTEXT("ColSupply", "Supply"), Widths[0]}, {LOCTEXT("ColDemand", "Demand"), Widths[1]}, {LOCTEXT("ColTrains", "Trains"), Widths[2]},
+		{LOCTEXT("ColSupply", "Supply"), Widths[0]}, {LOCTEXT("ColDemand", "Demand"), Widths[1]}, {LOCTEXT("ColTrains", "Needed / able"), Widths[2]},
 		{LOCTEXT("ColBelow", "Below target"), Widths[3]}});
 	int32 Shown = 0;
 	for (const FSTMonitorRow& Row : View.Items)

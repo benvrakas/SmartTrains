@@ -421,6 +421,40 @@ bool FSTDeliveryReservationsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// A full car is worth the same whatever it carries: fluids count in litres, so a fluid car once outscored a solid one
+// about 500 times (server log of 2026-11-06).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTSlotValueTest, "SmartTrains.Planner.SlotValue", TestFlags)
+bool FSTSlotValueTest::RunTest(const FString& Parameters)
+{
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
+	FSTTestAccess::SetTrip(*Subsystem, Start, Sink, 60.f);
+	auto ValueOf = [&](UClass* Item, double Full)
+	{
+		TArray<FSTNode> Nodes = {FSTTestAccess::Node(Sink, Item, ESTRole::Demand, 0, 100000000, 1)};
+		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		FSTTestAccess::FPlatformInfo Platform = FSTTestAccess::Platform(Item, false, 0.0, 0);
+		Platform.Slots = STNames::IsFluid(Item) ? 1 : 48;
+		FSTTestAccess::FCarInfo Car = FSTTestAccess::Car(Item, Full);
+		Car.Slots = 32;
+		FSTTestAccess::FCarPlatforms CarPlatforms;
+		CarPlatforms.Add(Sink, {{0}});
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, {Platform}, CarPlatforms);
+		FSTPlanStop Unload;
+		Unload.Station = Sink;
+		Unload.UnloadItems.Add(Item);
+		const FSTPlanResult Result = Planner.Simulate({Unload});
+		return Result.bValid ? Result.Value : -1.0;
+	};
+	const double Solid = ValueOf(USTTestSolid::StaticClass(), 32 * 100.0);
+	const double Fluid = ValueOf(USTTestFluid::StaticClass(), 1600000.0);
+	TestTrue(FString::Printf(TEXT("a full solid car is worth something (%.3f)"), Solid), Solid > 0.0);
+	TestTrue(FString::Printf(TEXT("a full fluid car is worth the same as a full solid car (%.3f and %.3f)"), Fluid, Solid), FMath::IsNearlyEqual(Solid, Fluid, Solid * 0.01));
+	return true;
+}
+
 // The exact assignment beats the greedy choice.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTAssignmentTest, "SmartTrains.Planner.Assignment", TestFlags)
 bool FSTAssignmentTest::RunTest(const FString& Parameters)

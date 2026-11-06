@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.5 (beta)
+
+- **Fixed: fluid trips beat everything else.** Deliveries were valued by amount, and fluids count in litres, so a
+  car of fluid was worth about 500 times a car of sulfur. Trains kept choosing fluid trips, and starved items stayed
+  starved even at Critical priority. A delivery's value now counts only how full it makes the car, solid or fluid:
+  100 sulfur is worth 500 concrete, and a full car is worth the same whatever it carries. High-stack items like
+  concrete no longer outscore low-stack ones either.
+- **Fixed: wrong car capacity for cars that last carried fluid.** Such a car counted as holding 1,600,000 of a solid,
+  so the monitor showed "needs about 0.0 trains", and the planner could plan more cargo into a car than it holds. A
+  car's capacity now comes from its wagon type. The log shows the size it reads once ("Freight car size").
+- **Fixed: trips to unload cargo that was already unloaded.** The next trip of a docked train was planned from the
+  cargo on board while it was still unloading, so it could drive to another station with an empty car, dock for 0 s
+  and leave. The cargo still to load or unload at the stop now counts as done.
+- **No more top-up trips to full platforms.** A train doesn't fill part-full stacks, and the stay ends at once when a
+  platform has no room the moment the train docks. A car now unloads at least 2 slots' worth of an item (or all it
+  holds of it), into free slots only. Small deliveries to full platforms made up most of the 0-second stops.
+- **Monitor:** the items tab's Trains column is now "Needed / able": trains the flow plan needs, and managed trains
+  that could serve the item's routes. It was easy to read the second number as trains sent there.
+
 ## 0.6.4 (beta)
 
 - **No more queues before busy stations** (new setting **Longest wait on the line**, 60 s). While trains leave

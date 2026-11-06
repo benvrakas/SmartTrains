@@ -13,6 +13,7 @@
 #include "FGTrainPlatformConnection.h"
 #include "FGTrainStationIdentifier.h"
 #include "Resources/FGItemDescriptor.h"
+#include "SmartTrains.h"
 #include "STTypes.h"
 
 EFreightCargoType FSTPlatformAccess::GetCargoType(const AFGBuildableTrainPlatformCargo* Platform)
@@ -235,6 +236,46 @@ int32 STLayout::GetSlotSize(const UFGInventoryComponent* Inventory, TSubclassOf<
 		return FMath::Max(1, UFGItemDescriptor::GetStackSize(Item));
 	}
 	return FMath::Max(1, Inventory->GetSlotSize(0, Item));
+}
+
+int32 STLayout::GetWagonSlots(const AFGFreightWagon* Wagon)
+{
+	static const FIntProperty* Property = FindFProperty<FIntProperty>(AFGFreightWagon::StaticClass(), TEXT("mInventorySize"));
+	const int32 Slots = Property && Wagon ? Property->GetPropertyValue_InContainer(Wagon) : 0;
+	return Slots > 0 ? Slots : 32;
+}
+
+int64 STLayout::GetWagonFluidCapacity(const AFGFreightWagon* Wagon)
+{
+	const int64 Capacity = Wagon ? Wagon->GetScaledFluidStackSize() : 0;
+	// Logged once, from the first wagon seen.
+	static bool bLogged = false;
+	if (Wagon && !bLogged)
+	{
+		bLogged = true;
+		UE_LOG(LogSmartTrains, Log, TEXT("Freight car size: %d slots, %lld fluid (%s)"), GetWagonSlots(Wagon), Capacity, *GetNameSafe(Wagon->GetClass()));
+	}
+	return Capacity > 0 ? Capacity : 1600000;
+}
+
+double STLayout::GetCarCapacity(const AFGFreightWagon* Wagon, TSubclassOf<UFGItemDescriptor> Item)
+{
+	if (!Item)
+	{
+		return 0.0;
+	}
+	return STNames::IsFluid(Item) ? static_cast<double>(GetWagonFluidCapacity(Wagon))
+		: static_cast<double>(GetWagonSlots(Wagon)) * FMath::Max(1, UFGItemDescriptor::GetStackSize(Item));
+}
+
+double STLayout::GetCarSlotAmount(const AFGFreightWagon* Wagon, TSubclassOf<UFGItemDescriptor> Item)
+{
+	if (!Item)
+	{
+		return 1.0;
+	}
+	return STNames::IsFluid(Item) ? static_cast<double>(GetWagonFluidCapacity(Wagon)) / GetWagonSlots(Wagon)
+		: static_cast<double>(FMath::Max(1, UFGItemDescriptor::GetStackSize(Item)));
 }
 
 bool STLayout::ItemFitsCargoType(TSubclassOf<UFGItemDescriptor> Item, EFreightCargoType Type)
