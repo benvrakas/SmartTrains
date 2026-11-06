@@ -122,8 +122,10 @@ public:
 	// Platform rate in items per second and whether it has been measured long enough.
 	double GetMeasuredRate(const AFGBuildableTrainPlatformCargo* Platform, TSubclassOf<UFGItemDescriptor> Item, bool* bKnown = nullptr) const;
 
-	// Works out whether Train can carry Item from From to To, and with which cars.
-	FSTFit ComputeFit(const AFGTrain* Train, const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, TSubclassOf<UFGItemDescriptor> Item) const;
+	// Works out whether Train can carry Item from From to To, and with which cars. bIgnoreCargo: by the cars' positions
+	// alone, as if they were empty (a train carrying something else delivers it first), for counts and readouts.
+	FSTFit ComputeFit(const AFGTrain* Train, const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, TSubclassOf<UFGItemDescriptor> Item,
+		bool bIgnoreCargo = false) const;
 
 	// Vehicles beside each platform of Station when Train docks there: learned if seen, else predicted. bLearned is set
 	// when it was seen. Several maps come back when the train may arrive either way round and hasn't been seen.

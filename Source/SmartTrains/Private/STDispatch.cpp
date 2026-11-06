@@ -380,7 +380,8 @@ TArray<TArray<AFGRailroadVehicle*>> ASTSubsystem::GetDockMaps(const AFGTrain* Tr
 	return Maps;
 }
 
-FSTFit ASTSubsystem::ComputeFit(const AFGTrain* Train, const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, TSubclassOf<UFGItemDescriptor> Item) const
+FSTFit ASTSubsystem::ComputeFit(const AFGTrain* Train, const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, TSubclassOf<UFGItemDescriptor> Item,
+	bool bIgnoreCargo) const
 {
 	FSTFit Fit;
 	const AFGBuildableRailroadStation* FromStation = From ? From->GetStation() : nullptr;
@@ -428,7 +429,7 @@ FSTFit ASTSubsystem::ComputeFit(const AFGTrain* Train, const AFGTrainStationIden
 		}
 		// Empty, or holding only this item (it tops up or delivers it first).
 		bool bEmpty = true;
-		if (const UFGInventoryComponent* Inventory = Car->GetFreightInventory())
+		if (const UFGInventoryComponent* Inventory = bIgnoreCargo ? nullptr : Car->GetFreightInventory())
 		{
 			TArray<FInventoryStack> Stacks;
 			Inventory->GetInventoryStacks(Stacks, true);
@@ -1714,7 +1715,7 @@ void ASTSubsystem::AddPlannedRoute(const TArray<FSTNode>& Nodes, int32 From, int
 		{
 			continue;
 		}
-		const FSTFit Fit = ComputeFit(State.Train, Supplier.Station.Get(), Consumer.Station.Get(), Supplier.Item);
+		const FSTFit Fit = ComputeFit(State.Train, Supplier.Station.Get(), Consumer.Station.Get(), Supplier.Item, true);
 		if (Fit.Capacity > 0)
 		{
 			++Fitting;

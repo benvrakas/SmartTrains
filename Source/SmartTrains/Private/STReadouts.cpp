@@ -213,7 +213,7 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 				{
 					continue;
 				}
-				const FSTFit Fit = bSupply ? ComputeFit(State.Train, Identifier, PartnerStation, Rule.Item) : ComputeFit(State.Train, PartnerStation, Identifier, Rule.Item);
+				const FSTFit Fit = bSupply ? ComputeFit(State.Train, Identifier, PartnerStation, Rule.Item, true) : ComputeFit(State.Train, PartnerStation, Identifier, Rule.Item, true);
 				if (Fit.Capacity > 0)
 				{
 					bFits = true;
@@ -225,7 +225,8 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 				}
 			}
 			Fitting += bFits ? 1 : 0;
-			FreeFitting += bFits && !State.bHasJob ? 1 : 0;
+			// Free: no job, or only repeating its last one.
+			FreeFitting += bFits && (!State.bHasJob || State.Job.bRepeat) ? 1 : 0;
 		}
 		if (Serving == 0)
 		{

@@ -193,7 +193,7 @@ void FSTThroughput::Sample(const ASTSubsystem& Subsystem)
 					continue;
 				}
 				Serve.bReach = true;
-				const FSTFit Fit = Subsystem.ComputeFit(State.Train, Supplier.Station.Get(), Consumer.Station.Get(), Consumer.Item);
+				const FSTFit Fit = Subsystem.ComputeFit(State.Train, Supplier.Station.Get(), Consumer.Station.Get(), Consumer.Item, true);
 				if (Fit.Capacity > 0)
 				{
 					Serve.bFits = true;

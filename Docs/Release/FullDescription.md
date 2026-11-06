@@ -44,10 +44,10 @@ Both are optional: SmartTrains finds them while the game runs and uses them when
 
 **[Auto Trains](https://ficsit.app/mod/AutoTrains)** drives the trains without signals and books track ahead.
 SmartTrains works with it:
-- Before a train leaves a station, SmartTrains asks whether its first leg can be driven now, around every other
-  train, including trains coming the other way on a single track. If not, the train waits in the station instead of
-  meeting the other one head on.
 - Station queues, real travel times and which train waits for which feed into SmartTrains' trip timing.
+- With **Trains leave stations at once** off, SmartTrains also asks before a train leaves a station whether its
+  first leg can be driven now, around every other train, including trains coming the other way on a single track.
+  If not, the train waits in the station instead of meeting the other one head on.
 - A parked train moves out of the way when Auto Trains reports a train waiting for it.
 - The monitor shows trains Auto Trains reports as stuck or deadlocked.
 
@@ -71,7 +71,8 @@ signalled network, above all on single track.
   - It traces belts and pipes back to the machines behind each platform, and follows splitters, smart splitters,
     Modular Load Balancers and lifts.
   - Platforms the trace can't settle get items from their stock, their timetables, or the routes of trains that
-    stop there.
+    stop there. Platforms whose belts reach the same machines share the items out between them.
+  - Click a station to open its platforms, and change a platform's role or items by hand before applying.
 - **Monitor** (`/st monitor`): a window with Overview, Items, Stations, Platforms and Trains tabs. It shows per item
   what limits deliveries, with advice:
   - not enough supply;
@@ -82,10 +83,13 @@ signalled network, above all on single track.
   It also lists starved and backed-up platforms, and why idle trains wait.
 - **Status and jobs** (`/st status`, `/st jobs`, `/st fit`): fleet advice, each train's trip, and which car stops
   beside which platform.
+- **Empty cars** (`/st emptycars`, admin): deletes the cargo of the train you drive or look at;
+  `/st emptycars all confirm` empties every managed train.
 
 ### Works with
 
-- **Auto Trains** (highly recommended): drives and routes the trains, and checks a train's way before it leaves.
+- **Auto Trains** (highly recommended): drives and routes the trains, and feeds its travel times and station queues
+  into SmartTrains' planning.
 - **Freight Car Control** (highly recommended): skips cars at stops.
 - **Modular Stations.**
 - **DynamicTimeTable**: migration reads its station groups. Don't keep it installed with managed trains, as both mods

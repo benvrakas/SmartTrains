@@ -13,6 +13,10 @@
     unload, role, slots used and what it holds, so you can see why.
   - Self-driving errors are logged only once they last 5 s. Short "No Path" blips as trains re-route on leaving a
     station no longer fill the log.
+- **Platform readouts:** "N managed trains fit" counts every train whose cars line up with the platforms, also while
+  it carries something else (it delivers that first). It used to count only trains that were empty right now, and it
+  called trains repeating their last job busy. The monitor's "No train fits" check and the fleet advice count the same
+  way.
 - **Monitor:** trains repeating their last job count as free, not busy ("repeating their last job (free for new
   trips)", tile "Free now"). Arrivals on repeats no longer make stations look hours late.
 
