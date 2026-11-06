@@ -576,7 +576,8 @@ bool ASTSubsystem::GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifi
 	{
 		OutStation = Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation.Get() : State.LastStation.Get();
 		OutStation = OutStation ? OutStation : FindNearestStation(Train);
-		OutTime = Train->IsDocked() ? FMath::Max(Time, State.DockedAt + EstimateStaySeconds(OutStation)) : Time;
+		// No job: nothing of its own to move here, so it is free now, docked or not.
+		OutTime = Time;
 		return OutStation != nullptr;
 	}
 	const FSTJob& Job = State.Job;
@@ -1104,6 +1105,7 @@ void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& 
 	{
 		UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s done: %s (next job chosen before leaving)"), State.Job.Id, *STLayout::Name(State.Train), *State.Job.Summary);
 	}
+	const bool bHadJob = State.bHasJob;
 	State.bChainedWhileDocked = State.Train->IsDocked();
 	State.Job = MoveTemp(Job);
 	State.bHasJob = true;
@@ -1128,6 +1130,15 @@ void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& 
 		// The game moves a timetable on by one stop when the train departs, so the new one is written as it leaves.
 		State.bWriteOnUndock = true;
 		UE_LOG(LogSmartTrains, Verbose, TEXT("WRITE %s job %d: written when it leaves its stop"), *STLayout::Name(State.Train), State.Job.Id);
+		// Docked with no job before (just managed, or idle there): its stay isn't one of SmartTrains' stops, so it ends
+		// now and the train starts its first trip, instead of waiting out the stop's old rules.
+		AFGBuildableRailroadStation* Building = !bHadJob && State.DockedStation.IsValid() ? State.DockedStation->GetStation() : nullptr;
+		if (Building)
+		{
+			Building->ClearRuleSetTimeRequirement();
+			UE_LOG(LogSmartTrains, Log, TEXT("DOCK %s at %s: it had no job; the stay ends now so it starts job %d"), *STLayout::Name(State.Train),
+				*STLayout::Name(State.DockedStation.Get()), State.Job.Id);
+		}
 		return;
 	}
 	WriteJob(State, TEXT("new job"));

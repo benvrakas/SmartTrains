@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.7 (beta)
+
+- **A newly managed train gets its first trip at once, also when it stands docked at a station.** A docked train
+  without a job only counted as free once the station's estimated stay had passed (about a minute), and then waited
+  out its old timetable's stop rules. It is now free at once, and the stay ends as soon as it has a trip.
+
 ## 0.6.6 (beta)
 
 - **Repeats are planned, not copied.** A train with no new trip still runs its last trip again instead of parking,
