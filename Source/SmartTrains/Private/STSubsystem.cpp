@@ -564,6 +564,15 @@ void ASTSubsystem::MonitorTrains()
 				Error != 0 && State.bHasJob ? *FString::Printf(TEXT(" for %.0f s (job %d, leg %d)"), Time - State.SelfDrivingErrorSince, State.Job.Id, State.Job.Leg + 1) : TEXT(""));
 			State.LastSelfDrivingError = Error;
 		}
+		// A player in the driver's seat, logged when it changes: driving by hand holds the train (no new trips).
+		const uint8 Aboard = !Train->IsPlayerDriven() ? 0 : (Train->IsSelfDrivingEnabled() ? 1 : 2);
+		if (Aboard != State.PlayerAboard)
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("PLAYER %s: %s"), *STLayout::Name(Train), Aboard == 0 ? TEXT("no player driving it now")
+				: (Aboard == 1 ? TEXT("a player is in the driver's seat with autopilot on; it keeps getting trips")
+				: TEXT("a player drives it by hand (autopilot off); no new trips until autopilot is on")));
+			State.PlayerAboard = Aboard;
+		}
 		if (State.Phase == ESTTrainPhase::Parked && Train->IsSelfDrivingEnabled() && !bDocked)
 		{
 			UE_LOG(LogSmartTrains, Log, TEXT("%s: autopilot switched on while parked; it gets the next job that fits"), *STLayout::Name(Train));

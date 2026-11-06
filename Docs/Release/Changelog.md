@@ -6,6 +6,8 @@
   heading for every station of that trip. It repeats anyway, from its next stop. Parking it
   filled stations, and other trains were sent away to park elsewhere to make room. Only a train that never had a
   trip that picks up and delivers still parks.
+- **Log:** `PLAYER` lines show when a player sits in a managed train's driver seat: with autopilot on it keeps getting
+  trips; driving it by hand (autopilot off) holds it until autopilot is on again.
 
 ## 0.6.5 (beta)
 
