@@ -118,6 +118,7 @@ tests are compiled only where `WITH_DEV_AUTOMATION_TESTS` is on, so not into the
 |---|---|
 | `SmartTrains.Planner.FirstFreeArrival` | Bookings with start and end and the arrival gap: a slot before, between or after bookings. |
 | `SmartTrains.Planner.PushPullIdenticalPlatforms` | A push-pull train at four identical platforms in both ways round: no car skipped, each platform's stock and room counted once per way round. |
+| `SmartTrains.Planner.NoMixedCars` | A car holding one item skips a pickup of another and a consumer that would take its cargo too; an empty car still loads. Without Freight Car Control the trip is refused. |
 | `SmartTrains.Planner.WrongPlatformNeedsSkip` | A car beside a load-mode platform without a supply role: the trip is invalid without Freight Car Control, and the car skips with it. |
 | `SmartTrains.Planner.Assignment` | The Hungarian assignment beats the greedy choice; rows worth nothing get nothing. |
 | `SmartTrains.FlowPlan.MinCostFlow` | The flow plan fills the cheap route first and sends all the consumer takes. |

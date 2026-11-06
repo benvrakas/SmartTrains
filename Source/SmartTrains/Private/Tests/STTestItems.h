@@ -20,6 +20,20 @@ public:
 	}
 };
 
+// A second solid, with stacks of 500.
+UCLASS(Abstract, NotBlueprintable, HideDropdown)
+class USTTestSolidB : public UFGItemDescriptor
+{
+	GENERATED_BODY()
+
+public:
+	USTTestSolidB()
+	{
+		mForm = EResourceForm::RF_SOLID;
+		mCachedStackSize = 500;
+	}
+};
+
 // A fluid whose stack stands in for a whole fluid platform or car (2,400 m3), since the editor's inventories don't
 // report slot sizes.
 UCLASS(Abstract, NotBlueprintable, HideDropdown)

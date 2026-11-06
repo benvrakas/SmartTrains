@@ -259,6 +259,11 @@ bool FSTTripPlanner::IsSupplyFull(int32 Node) const
 	return Supplier.Capacity > 0 && Supplier.Stock >= 0.9 * Supplier.Capacity;
 }
 
+bool FSTTripPlanner::HoldsOtherItem(const TArray<TPair<UClass*, double>>& Cargo, UClass* Item)
+{
+	return Cargo.ContainsByPredicate([Item](const TPair<UClass*, double>& Each) { return Each.Key != Item && Each.Value >= 1.0; });
+}
+
 double FSTTripPlanner::GetCarRoom(const FCarInfo& Car, const TArray<TPair<UClass*, double>>& Cargo, UClass* Item) const
 {
 	const bool bFluid = STNames::IsFluid(Item);
@@ -728,19 +733,27 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					const FPlatformInfo& Platform = mPlatforms[Here];
 					if (Platform.bLoadMode)
 					{
+						// Cars only come out mixed from one platform with several items: a car holding another item never takes
+						// on a new one, and a configured platform only gives its own items.
+						bool bWouldMix = false;
 						for (UClass* Item : Stop.LoadItems)
 						{
 							if (IsNoProgressHere(Stop.Station, Item, true))
 							{
 								continue;
 							}
-							const bool bOffers = Platform.Items.Contains(Item) || Platform.Stock.Contains(Item);
+							const bool bOffers = Platform.bConfigured ? Platform.Items.Contains(Item) : Platform.Stock.Contains(Item);
 							if (bOffers && STNames::IsFluid(Item) == Platform.bFluid && GetCarRoom(mCars[CarIndex], Cargo[CarIndex], Item) > 0.0)
 							{
+								if (HoldsOtherItem(Cargo[CarIndex], Item))
+								{
+									bWouldMix = true;
+									continue;
+								}
 								ThisItems.Add(Item);
 							}
 						}
-						ThisEffect = ThisItems.Num() == 0 ? EEffect::None : (Platform.bSupply ? EEffect::Load : EEffect::Harm);
+						ThisEffect = bWouldMix ? EEffect::Harm : (ThisItems.Num() == 0 ? EEffect::None : (Platform.bSupply ? EEffect::Load : EEffect::Harm));
 					}
 					else
 					{
@@ -760,7 +773,12 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 						{
 							bTakesAll &= Platform.bAnyItem || Platform.Items.Contains(Item);
 						}
-						ThisEffect = ThisItems.Num() == 0 ? EEffect::None : (bTakesAll ? EEffect::Unload : EEffect::Harm);
+						// An unloading platform takes everything the car holds, planned here or not.
+						const bool bOthers = Cargo[CarIndex].ContainsByPredicate([&](const TPair<UClass*, double>& Each)
+						{
+							return Each.Value >= 1.0 && STNames::IsFluid(Each.Key) == Platform.bFluid && !ThisItems.Contains(Each.Key);
+						});
+						ThisEffect = bOthers ? EEffect::Harm : (ThisItems.Num() == 0 ? EEffect::None : (bTakesAll ? EEffect::Unload : EEffect::Harm));
 					}
 				}
 				if (MapIndex == 0)

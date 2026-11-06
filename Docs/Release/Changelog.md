@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.1 (beta)
+
+- **Fixed: cars came out with mixed cargo.** A car holding one item could load another into its free slots, e.g. a
+  stack of concrete beside aluminium ingots. It would then have unloaded both wherever the concrete was going, and
+  clogged that factory.
+  - A car holding cargo now only tops up the item it holds.
+  - A car only stops at an unloading platform that takes everything it holds.
+  - A platform with one item only gives that item.
+  - Cars only come out mixed from a platform with several items selected.
+- Cars that are already mixed are skipped at stops that would take only part of their cargo. Empty them by hand, or
+  let them go to a sink (a demand platform set to any item).
+
+**Good to know**
+
+- Everyone in a multiplayer session needs SmartTrains 0.6.1.
+
 ## 0.6.0 (beta)
 
 - **Set platforms by hand in the migration window:** in the Stations tab, click a station to open its platforms.

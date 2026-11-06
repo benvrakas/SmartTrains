@@ -89,6 +89,18 @@ A loaded train only gets delivery jobs for what it carries. Cars carrying X that
 X at D are handled the same way: skipped with Freight Car Control, otherwise the job is refused if they would unload
 into another platform.
 
+**No mixed cars** (trip planner, `Simulate`): a car comes out mixed only when an empty car loads several items at
+one stop from a platform with several items. The planner counts it as harm, so with Freight Car Control the car
+skips the stop and without it the trip is refused, when:
+- a car holding any item (`HoldsOtherItem`) stops beside a loading platform that would give it a different one,
+  even into free slots;
+- a car stops beside an unloading platform and holds anything the stop doesn't unload there. The platform would
+  take all of it.
+
+A configured platform only gives its own items: stray stock of another item isn't planned as a pickup. Before
+2026-11-06 a car with one free slot beside its aluminium ingots took a stack of concrete, so it would have unloaded
+aluminium into the concrete consumer.
+
 ## Dispatching
 
 Every **Dispatch interval**, as soon as a train docks for its last stop or leaves a stop, and after platform

@@ -243,6 +243,64 @@ bool FSTWrongPlatformTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// A car holding one item never loads another into its free slots, and never stops beside an unloading platform
+// that would take cargo it didn't plan to unload there: both leave mixed cars (the aluminium and concrete cars of
+// 2026-11-05). Empty cars still load.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTNoMixedCarsTest, "SmartTrains.Planner.NoMixedCars", TestFlags)
+bool FSTNoMixedCarsTest::RunTest(const FString& Parameters)
+{
+	UClass* Ingot = USTTestSolid::StaticClass();
+	UClass* Concrete = USTTestSolidB::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Source = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
+	FSTTestAccess::SetTrip(*Subsystem, Start, Source, 60.f);
+	FSTTestAccess::SetTrip(*Subsystem, Source, Sink, 60.f);
+	TArray<FSTNode> Nodes = {FSTTestAccess::Node(Source, Concrete, ESTRole::Supply, 100000, 100000, 2),
+		FSTTestAccess::Node(Sink, Concrete, ESTRole::Demand, 0, 100000, 2)};
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Concrete, true, 50000.0, 1), FSTTestAccess::Platform(Concrete, true, 50000.0, 1),
+		FSTTestAccess::Platform(Concrete, false, 0.0, 0), FSTTestAccess::Platform(Concrete, false, 0.0, 0)};
+	for (FSTTestAccess::FPlatformInfo& Platform : Platforms)
+	{
+		Platform.Slots = 10;
+	}
+	FSTTestAccess::FCarPlatforms CarPlatforms;
+	CarPlatforms.Add(Source, {{0, 1}});
+	CarPlatforms.Add(Sink, {{2, 3}});
+	FSTPlanStop Load;
+	Load.Station = Source;
+	Load.LoadItems.Add(Concrete);
+	FSTPlanStop Unload;
+	Unload.Station = Sink;
+	Unload.UnloadItems.Add(Concrete);
+
+	// Car 1 is empty; car 2 holds one stack of ingots and has a free slot.
+	FSTTestAccess::FCarInfo Empty = FSTTestAccess::Car();
+	Empty.Slots = 2;
+	FSTTestAccess::FCarInfo Holding = FSTTestAccess::Car(Ingot, 100.0);
+	Holding.Slots = 2;
+	{
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {Empty, Holding}, Platforms, CarPlatforms);
+		const FSTPlanResult Result = Planner.Simulate({Load, Unload});
+		if (TestTrue(FString::Printf(TEXT("the trip works with Freight Car Control (%s)"), *Result.Problem), Result.bValid))
+		{
+			TestEqual(TEXT("the empty car loads two stacks of concrete"), Result.Steps[0][0].Loaded.Num() > 0 ? Result.Steps[0][0].Loaded[0].Value : 0, 1000);
+			TestTrue(TEXT("the car holding ingots skips the pickup"), Result.Steps[0][1].bSkip);
+			TestTrue(TEXT("and skips the concrete consumer, which would take its ingots too"), Result.Steps[1][1].bSkip);
+		}
+	}
+	{
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		FSTTestAccess::SetTrain(Planner, Start, false, false, {Empty, Holding}, Platforms, CarPlatforms);
+		const FSTPlanResult Result = Planner.Simulate({Load, Unload});
+		TestFalse(TEXT("without Freight Car Control the car holding ingots makes the trip invalid"), Result.bValid);
+	}
+	return true;
+}
+
 // The exact assignment beats the greedy choice.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTAssignmentTest, "SmartTrains.Planner.Assignment", TestFlags)
 bool FSTAssignmentTest::RunTest(const FString& Parameters)

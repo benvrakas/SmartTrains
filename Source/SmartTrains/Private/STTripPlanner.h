@@ -160,6 +160,8 @@ private:
 	double GetUrgency(int32 Node, double Arrive) const;
 	// Car's room for Item with Cargo on board.
 	double GetCarRoom(const FCarInfo& Car, const TArray<TPair<UClass*, double>>& Cargo, UClass* Item) const;
+	// True if Cargo holds at least one of an item other than Item.
+	static bool HoldsOtherItem(const TArray<TPair<UClass*, double>>& Cargo, UClass* Item);
 	bool IsSupplyFull(int32 Node) const;
 	// True if the current train loaded (bLoad) or unloaded none of Item at Station lately.
 	bool IsNoProgressHere(const AFGTrainStationIdentifier* Station, UClass* Item, bool bLoad) const;
