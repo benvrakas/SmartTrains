@@ -70,6 +70,20 @@ Not yet used:
   pool, and a train that used to shuttle on one route takes other trips when that route is stocked. Untick a train
   to keep it on its own timetable. No station is flagged for that reason.
 
+## Changing a platform by hand
+
+In the migration window's Stations tab, click a station's name or `[+]` to open its platforms. Then:
+- click a platform's role to cycle it: supply, demand, off;
+- click `[items]` to pick its items: a search field and every item that fits the platform, its own items ticked
+  first. Clicking an item adds it, or removes a ticked one. A demand platform can also be a sink ("Any item").
+  `[done]` closes the picker.
+
+Each change goes to the server at once (`Server_MigratePlatform` -> `STMigration::SetPlatform`) and ticks the
+station. Applying the station gives the platform that setting. The platform shows confidence "by hand".
+
+Settings by hand are kept for the session and used again by later previews, until their station is applied.
+Changing the preview counts as an ordinary edit: with "Only admins change SmartTrains" on, only admins can.
+
 ## DynamicTimeTable
 
 Read through `DynamicTimeTableSubsystem::GetStationGroups` by reflection (see Architecture.md). Its data is never

@@ -21,6 +21,44 @@ namespace
 {
 	TMap<TWeakObjectPtr<UWorld>, STMigration::FPreview> GPreviews;
 
+	// A platform set by hand in the migration window.
+	struct FHandSetting
+	{
+		ESTRole Role = ESTRole::Off;
+		TArray<TSubclassOf<UFGItemDescriptor>> Items;
+		FString Who;
+	};
+	TMap<TWeakObjectPtr<UWorld>, TMap<TWeakObjectPtr<AFGBuildableTrainPlatformCargo>, FHandSetting>> GHandSettings;
+
+	const TCHAR* ByHand = TEXT("by hand");
+
+	void UseHandSetting(STMigration::FPlatformProposal& Platform, const FHandSetting& Setting)
+	{
+		Platform.Role = Setting.Role;
+		Platform.Items = Setting.Role == ESTRole::Off ? TArray<TSubclassOf<UFGItemDescriptor>>() : Setting.Items;
+		Platform.Confidence = ByHand;
+		Platform.Note = FString::Printf(TEXT("set by hand (%s)"), *Setting.Who);
+		Platform.Conflict = Platform.Role != ESTRole::Off && Platform.Items.Num() == 0 ? FString(TEXT("no item chosen")) : FString();
+	}
+
+	// After a platform changed: a station flagged for a platform's problem takes the next platform's problem, or none.
+	void UpdatePlatformFlag(STMigration::FStationProposal& Station)
+	{
+		if (!Station.Flag.IsEmpty() && !Station.Flag.StartsWith(TEXT("platform ")))
+		{
+			return;
+		}
+		Station.Flag.Reset();
+		for (const STMigration::FPlatformProposal& Platform : Station.Platforms)
+		{
+			if (!Platform.Conflict.IsEmpty())
+			{
+				Station.Flag = FString::Printf(TEXT("platform %d: %s"), Platform.Index + 1, *Platform.Conflict);
+				return;
+			}
+		}
+	}
+
 	FString ItemList(const TArray<TSubclassOf<UFGItemDescriptor>>& Items)
 	{
 		FString Text;
@@ -584,6 +622,30 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 
 	InferFromRoutes(Preview, bOneItem);
 
+	// Platforms set by hand in the migration window keep that setting.
+	if (const TMap<TWeakObjectPtr<AFGBuildableTrainPlatformCargo>, FHandSetting>* Hand = GHandSettings.Find(World))
+	{
+		int32 Used = 0;
+		for (FStationProposal& Station : Preview.Stations)
+		{
+			bool bChanged = false;
+			for (FPlatformProposal& Platform : Station.Platforms)
+			{
+				if (const FHandSetting* Setting = Hand->Find(Platform.Platform))
+				{
+					UseHandSetting(Platform, *Setting);
+					bChanged = true;
+					++Used;
+				}
+			}
+			if (bChanged)
+			{
+				UpdatePlatformFlag(Station);
+			}
+		}
+		UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION %d platforms keep their setting by hand"), Used);
+	}
+
 	// The report.
 	FString Report = TEXT("Kind,Number,Station or train,Platform,Role,Items,Evidence,Flag or note,Used by,Confidence,Connection trace\n");
 	int32 Ready = 0;
@@ -723,6 +785,14 @@ TArray<FString> STMigration::Apply(ASTSubsystem* Subsystem, UWorld* World, const
 			Subsystem->SetPlatformConfig(Cargo, Platform.Role, Rules, Cause + TEXT(" (migration)"));
 			++PlatformsSet;
 		}
+		// Applied: its platforms' settings by hand are done with.
+		if (TMap<TWeakObjectPtr<AFGBuildableTrainPlatformCargo>, FHandSetting>* Hand = GHandSettings.Find(World))
+		{
+			for (const FPlatformProposal& Platform : Preview->Stations[Index].Platforms)
+			{
+				Hand->Remove(Platform.Platform);
+			}
+		}
 	}
 	int32 TrainsManaged = 0;
 	for (int32 Index : Trains)
@@ -857,6 +927,8 @@ FSTMigrationView STMigration::MakeView(ASTSubsystem* Subsystem, UWorld* World)
 			Each.Confidence = Platform.Role != ESTRole::Off ? Platform.Confidence : FString();
 			Each.Note = Platform.Note;
 			Each.Conflict = Platform.Conflict;
+			const AFGBuildableTrainPlatformCargo* Cargo = Platform.Platform.Get();
+			Each.bFluid = Cargo && STLayout::GetPlatformCargoType(Cargo) == EFreightCargoType::FCT_Liquid;
 		}
 		if (Station.Users.Num() > 0)
 		{
@@ -883,6 +955,46 @@ FSTMigrationView STMigration::MakeView(ASTSubsystem* Subsystem, UWorld* World)
 		Row.bProposed = Train.bPreselected;
 	}
 	return View;
+}
+
+bool STMigration::SetPlatform(UWorld* World, int32 Station, int32 Platform, ESTRole Role, const TArray<TSubclassOf<UFGItemDescriptor>>& Items, const FString& Who,
+	FString& OutMessage)
+{
+	FPreview* Preview = GPreviews.Find(World);
+	FStationProposal* Proposal = Preview && Preview->Stations.IsValidIndex(Station - 1) ? &Preview->Stations[Station - 1] : nullptr;
+	FPlatformProposal* Target = Proposal ? Proposal->Platforms.FindByPredicate([Platform](const FPlatformProposal& Each) { return Each.Index + 1 == Platform; }) : nullptr;
+	AFGBuildableTrainPlatformCargo* Cargo = Target ? Target->Platform.Get() : nullptr;
+	if (!Cargo)
+	{
+		OutMessage = FString::Printf(TEXT("Station %d platform %d isn't in the preview any more; press Preview again."), Station, Platform);
+		return false;
+	}
+	const EFreightCargoType CargoType = STLayout::GetPlatformCargoType(Cargo);
+	FHandSetting Setting;
+	Setting.Role = Role;
+	Setting.Who = Who;
+	for (const TSubclassOf<UFGItemDescriptor>& Item : Items)
+	{
+		if (!Item && Role != ESTRole::Demand)
+		{
+			OutMessage = TEXT("'Any item' only works on a demand platform (a sink).");
+			return false;
+		}
+		if (Item && !STLayout::ItemFitsCargoType(Item, CargoType))
+		{
+			OutMessage = FString::Printf(TEXT("%s doesn't fit this kind of platform."), *STNames::Item(Item));
+			return false;
+		}
+		Setting.Items.AddUnique(Item);
+	}
+	UseHandSetting(*Target, Setting);
+	UpdatePlatformFlag(*Proposal);
+	GHandSettings.FindOrAdd(World).Add(Cargo, Setting);
+	const FString Name = STLayout::Name(Proposal->Station.Get());
+	OutMessage = FString::Printf(TEXT("S%d %s, platform %d: %s %s (by hand; applied with its station)."), Station, *Name, Platform, STNames::Role(Target->Role),
+		Target->Items.Num() > 0 ? *ItemList(Target->Items) : TEXT("with no item"));
+	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION %s set S%d %s platform %d by hand: %s %s"), *Who, Station, *Name, Platform, STNames::Role(Target->Role), *ItemList(Target->Items));
+	return true;
 }
 
 int32 STMigration::ParseTraceLimit(const TArray<FString>& Words, int32 Default)

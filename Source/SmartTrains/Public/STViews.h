@@ -153,6 +153,10 @@ struct SMARTTRAINS_API FSTMigrationPlatformRow
 	// Why the platform needs a look, if it does.
 	UPROPERTY()
 	FString Conflict;
+
+	// A fluid platform (liquids and gases), for the item picker.
+	UPROPERTY()
+	bool bFluid = false;
 };
 
 // One station or train of a migration preview.

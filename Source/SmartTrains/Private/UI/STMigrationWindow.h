@@ -9,15 +9,19 @@ class UBorder;
 class UFGItemDescriptor;
 class UHorizontalBox;
 class USTButton;
+class USTRow;
 class USTTextInput;
+enum class ESTRole : uint8;
 class UTextBlock;
 class UVerticalBox;
+struct FSTMigrationPlatformRow;
 struct FSTMigrationRow;
 struct FSTMigrationView;
 
 // Migration window opened by "/st migrate", in tabs:
 // - Overview: counts and what needs a look.
 // - Stations: one row per station, ticked to apply, opening to its platforms with role, item icons and confidence.
+//   A platform's role and items can be changed there by hand before applying.
 // - Trains: one row per train, ticked to be managed.
 // - Last result: what the last step said.
 // Preview, Apply ticked and Undo stay above the tabs. A full-screen popup; Close or Escape closes it.
@@ -76,6 +80,11 @@ private:
 	void ShowResult(const FSTMigrationView& View);
 	void AddFilterBar(bool bStations, int32 Shown, int32 Total);
 	void AddStation(const FSTMigrationRow& Row);
+	// Sends a platform's role and items set by hand, and ticks its station.
+	void SendPlatform(int32 Station, int32 Platform, ESTRole Role, const TArray<TSubclassOf<UFGItemDescriptor>>& Items);
+	// The item picker under a platform being changed: a search field and every item that fits, its items first.
+	void AddPicker(int32 Station, const FSTMigrationPlatformRow& Platform);
+	void FilterPicker(const FString& Search);
 	void AddTrain(const FSTMigrationRow& Row);
 	// Ticks or unticks every row of a kind that the current filter shows.
 	void SetAllTicks(bool bStations, bool bTicked);
@@ -121,6 +130,12 @@ private:
 	// Ticks per row, keyed "S3" / "T5", and the stations opened to their platforms.
 	TMap<FString, bool> mTicked;
 	TSet<FString> mExpanded;
+
+	// The platform whose items are being picked ("S3/2": station row key and platform number), the picker's search
+	// text and its rows with their item names.
+	FString mPicking;
+	FString mPickSearch;
+	TArray<TPair<TWeakObjectPtr<USTRow>, FString>> mPickerRows;
 
 	// Trace limit and items mode for this session's previews; the open tab and filters.
 	static int32 sTraceLimit;

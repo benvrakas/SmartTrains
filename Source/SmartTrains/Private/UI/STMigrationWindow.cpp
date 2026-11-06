@@ -87,7 +87,22 @@ namespace
 
 	FLinearColor ConfidenceColor(const FString& Confidence)
 	{
+		if (Confidence == TEXT("by hand"))
+		{
+			return MigrationText;
+		}
 		return Confidence == TEXT("high") ? MigrationReady : (Confidence == TEXT("medium") ? MigrationCheck : MigrationFlag);
+	}
+
+	// Supply, then demand, then off.
+	ESTRole NextRole(ESTRole Role)
+	{
+		return Role == ESTRole::Supply ? ESTRole::Demand : (Role == ESTRole::Demand ? ESTRole::Off : ESTRole::Supply);
+	}
+
+	FString PickKey(const FString& RowKey, int32 Platform)
+	{
+		return FString::Printf(TEXT("%s/%d"), *RowKey, Platform);
 	}
 
 	FString RoleCounts(const FSTMigrationRow& Row)
@@ -855,7 +870,16 @@ void USTMigrationWindow::AddStation(const FSTMigrationRow& Row)
 	});
 	Open->SetStyle(GetFont(13), FSlateColor(MigrationText));
 	AddCell(Line, Open, 44.f);
-	AddCell(Line, MakeCell(FString::Printf(TEXT("%s   %s"), *Key, *Row.Title), 12, MigrationText, true), 0.f);
+	USTRow* Title = MakeRow(nullptr, FText::FromString(FString::Printf(TEXT("%s   %s"), *Key, *Row.Title)), [this, Key]()
+	{
+		if (!mExpanded.Remove(Key))
+		{
+			mExpanded.Add(Key);
+		}
+		ShowTab();
+	});
+	Title->SetStyle(GetFont(12), FSlateColor(MigrationText));
+	AddCell(Line, Title, 0.f);
 	AddCell(Line, MakeCell(RoleCounts(Row), 10, MigrationDim), 170.f);
 	AddCell(Line, MakeCell(!Row.Flag.IsEmpty() ? TEXT("Not ticked by default") : (Why.IsEmpty() ? TEXT("Ready") : TEXT("Check")), 11,
 		!Row.Flag.IsEmpty() ? MigrationFlag : (Why.IsEmpty() ? MigrationReady : MigrationCheck)), 170.f);
@@ -865,11 +889,28 @@ void USTMigrationWindow::AddStation(const FSTMigrationRow& Row)
 	}
 	if (bOpen)
 	{
+		AddNote(TEXT("Click a role to change it (supply, demand, off), or [items] to choose a platform's items. Changes are applied with the station."), MigrationDim, 96.f);
 		for (const FSTMigrationPlatformRow& Platform : Row.Platforms)
 		{
 			UHorizontalBox* PlatformLine = AddLine(FMargin(96.f, 2.f, 0.f, 0.f));
 			AddCell(PlatformLine, MakeCell(FString::Printf(TEXT("P%d"), Platform.Number), 11, MigrationDim), 40.f);
-			AddCell(PlatformLine, MakeCell(STNames::Role(Platform.Role), 11, RoleColor(Platform.Role)), 80.f);
+			const int32 Number = Platform.Number;
+			const ESTRole Next = NextRole(Platform.Role);
+			TArray<TSubclassOf<UFGItemDescriptor>> Kept;
+			for (const TSubclassOf<UFGItemDescriptor>& Item : Platform.Items)
+			{
+				if (Item || Next == ESTRole::Demand)
+				{
+					Kept.Add(Item);
+				}
+			}
+			const int32 Station = Row.Number;
+			USTRow* RoleSwitch = MakeRow(nullptr, FText::FromString(STNames::Role(Platform.Role)), [this, Station, Number, Next, Kept]()
+			{
+				SendPlatform(Station, Number, Next, Next == ESTRole::Off ? TArray<TSubclassOf<UFGItemDescriptor>>() : Kept);
+			});
+			RoleSwitch->SetStyle(GetFont(11), FSlateColor(RoleColor(Platform.Role)));
+			AddCell(PlatformLine, RoleSwitch, 80.f);
 			UHorizontalBox* Items = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
 			for (const TSubclassOf<UFGItemDescriptor>& Item : Platform.Items)
 			{
@@ -889,6 +930,23 @@ void USTMigrationWindow::AddStation(const FSTMigrationRow& Row)
 				Items->AddChildToHorizontalBox(MakeCell(Platform.Role == ESTRole::Off ? TEXT("-") : TEXT("no item"), 11, Platform.Role == ESTRole::Off ? MigrationDim : MigrationFlag));
 			}
 			AddCell(PlatformLine, Items, 0.f);
+			const FString Pick = PickKey(Key, Number);
+			if (Platform.Role != ESTRole::Off)
+			{
+				const bool bPicking = mPicking == Pick;
+				USTRow* Change = MakeRow(nullptr, FText::FromString(bPicking ? TEXT("[done]") : TEXT("[items]")), [this, Pick, bPicking]()
+				{
+					mPicking = bPicking ? FString() : Pick;
+					mPickSearch.Reset();
+					ShowTab();
+				});
+				Change->SetStyle(GetFont(11), FSlateColor(MigrationText));
+				AddCell(PlatformLine, Change, 70.f);
+			}
+			else
+			{
+				AddCell(PlatformLine, MakeCell(FString(), 11, MigrationDim), 70.f);
+			}
 			AddCell(PlatformLine, MakeCell(Platform.Confidence, 11, ConfidenceColor(Platform.Confidence)), 90.f);
 			if (!Platform.Conflict.IsEmpty())
 			{
@@ -898,6 +956,10 @@ void USTMigrationWindow::AddStation(const FSTMigrationRow& Row)
 			{
 				AddNote(Platform.Note, MigrationDim, 136.f);
 			}
+			if (mPicking == Pick && Platform.Role != ESTRole::Off)
+			{
+				AddPicker(Row.Number, Platform);
+			}
 		}
 		if (!Row.Users.IsEmpty())
 		{
@@ -905,6 +967,86 @@ void USTMigrationWindow::AddStation(const FSTMigrationRow& Row)
 		}
 	}
 	AddDivider();
+}
+
+void USTMigrationWindow::SendPlatform(int32 Station, int32 Platform, ESTRole Role, const TArray<TSubclassOf<UFGItemDescriptor>>& Items)
+{
+	USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
+	if (!RCO)
+	{
+		return;
+	}
+	mTicked.Add(FString::Printf(TEXT("S%d"), Station), true);
+	UE_LOG(LogSmartTrains, Log, TEXT("Migration window: S%d platform %d set to %s with %d items"), Station, Platform, STNames::Role(Role), Items.Num());
+	RCO->Server_MigratePlatform(Station, Platform, Role, Items);
+}
+
+void USTMigrationWindow::AddPicker(int32 Station, const FSTMigrationPlatformRow& Platform)
+{
+	mPickerRows.Reset();
+	UVerticalBox* Box = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
+	mContent->AddChildToVerticalBox(Box)->SetPadding(FMargin(136.f, 4.f, 0.f, 6.f));
+	MakeText(Box, FText::FromString(TEXT("Click an item to add it, or a ticked one to remove it.")), 10, true)->SetColorAndOpacity(FSlateColor(MigrationDim));
+	USTTextInput* Search = MakeInput(Box, LOCTEXT("MigrationSearch", "Search"));
+	Search->SetTextIfIdle(mPickSearch);
+	Search->OnChanged = [this](const FString& Text)
+	{
+		mPickSearch = Text;
+		FilterPicker(Text);
+	};
+
+	const int32 Number = Platform.Number;
+	const ESTRole Role = Platform.Role;
+	const TArray<TSubclassOf<UFGItemDescriptor>> Current = Platform.Items;
+	auto AddItemRow = [this, Box, Station, Number, Role, &Current](TSubclassOf<UFGItemDescriptor> Item)
+	{
+		const bool bHas = Current.Contains(Item);
+		const FString Name = Item ? STNames::Item(Item) : FString(TEXT("Any item (sink for surplus)"));
+		TArray<TSubclassOf<UFGItemDescriptor>> Changed = Current;
+		if (bHas)
+		{
+			Changed.Remove(Item);
+		}
+		else
+		{
+			Changed.Add(Item);
+		}
+		USTRow* ItemRow = MakeRow(Box, FText::FromString((bHas ? TEXT("[x]  ") : TEXT("[  ]  ")) + Name), [this, Station, Number, Role, Changed]()
+		{
+			SendPlatform(Station, Number, Role, Changed);
+		});
+		ItemRow->SetIcon(Item ? UFGItemDescriptor::GetSmallIcon(Item) : nullptr);
+		ItemRow->SetStyle(GetFont(11), FSlateColor(bHas ? MigrationReady : MigrationText));
+		mPickerRows.Add({ItemRow, Name});
+	};
+	for (const TSubclassOf<UFGItemDescriptor>& Item : Current)
+	{
+		AddItemRow(Item);
+	}
+	if (Role == ESTRole::Demand && !Current.Contains(nullptr))
+	{
+		AddItemRow(nullptr);
+	}
+	for (const TSubclassOf<UFGItemDescriptor>& Item : STWidgetUtils::GetPickableItems(this, Platform.bFluid))
+	{
+		if (!Current.Contains(Item))
+		{
+			AddItemRow(Item);
+		}
+	}
+	FilterPicker(mPickSearch);
+}
+
+void USTMigrationWindow::FilterPicker(const FString& Search)
+{
+	const FString Wanted = Search.TrimStartAndEnd();
+	for (const TPair<TWeakObjectPtr<USTRow>, FString>& Each : mPickerRows)
+	{
+		if (USTRow* ItemRow = Each.Key.Get())
+		{
+			ItemRow->SetVisibility(Wanted.IsEmpty() || Each.Value.Contains(Wanted, ESearchCase::IgnoreCase) ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		}
+	}
 }
 
 void USTMigrationWindow::ShowTrains(const FSTMigrationView& View)

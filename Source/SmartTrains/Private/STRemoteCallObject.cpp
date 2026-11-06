@@ -450,6 +450,30 @@ void USTRemoteCallObject::Server_Migrate_Implementation(ESTMigrationStep Step, c
 	SendMigration(MoveTemp(View));
 }
 
+bool USTRemoteCallObject::Server_MigratePlatform_Validate(int32 Station, int32 Platform, ESTRole Role, const TArray<TSubclassOf<UFGItemDescriptor>>& Items)
+{
+	return Items.Num() <= MaxItems && Role <= ESTRole::Demand;
+}
+
+void USTRemoteCallObject::Server_MigratePlatform_Implementation(int32 Station, int32 Platform, ESTRole Role, const TArray<TSubclassOf<UFGItemDescriptor>>& Items)
+{
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	UWorld* World = GetWorld();
+	if (!Subsystem || !World)
+	{
+		return;
+	}
+	FString Message;
+	if (STAccess::MayChange(*Subsystem, GetOwnerPlayerController(), STAccess::EChange::Edit, TEXT("change the migration preview"), Message))
+	{
+		STMigration::SetPlatform(World, Station, Platform, Role, Items, GetPlayerName(), Message);
+	}
+	FSTMigrationView View = STMigration::MakeView(Subsystem, World);
+	View.Lines.Add(Message);
+	View.Serial = ++mMigrationSerial;
+	SendMigration(MoveTemp(View));
+}
+
 //~ Readouts
 
 void USTRemoteCallObject::Server_RequestPlatform_Implementation(AFGBuildableTrainPlatformCargo* Platform)

@@ -84,6 +84,12 @@ namespace STMigration
 
 	// The migration window's rows from the last preview, and whether applying or undoing is possible.
 	FSTMigrationView MakeView(ASTSubsystem* Subsystem, UWorld* World);
+
+	// Sets a platform of the last preview by hand. Station is the preview's station number, Platform the platform's
+	// number in its station (both from 1). The setting is kept for later previews until its station is applied.
+	// Returns false with OutMessage saying why if it can't be set.
+	bool SetPlatform(UWorld* World, int32 Station, int32 Platform, ESTRole Role, const TArray<TSubclassOf<UFGItemDescriptor>>& Items, const FString& Who,
+		FString& OutMessage);
 }
 
 // Save copies for testing (Docs/Commands.md, "Beta tools").

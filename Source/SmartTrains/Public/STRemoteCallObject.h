@@ -43,6 +43,10 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_Migrate(ESTMigrationStep Step, const TArray<FString>& Selection);
 
+	// Sets a platform of the migration preview by hand (station and platform numbers from the preview, from 1).
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_MigratePlatform(int32 Station, int32 Platform, ESTRole Role, const TArray<TSubclassOf<UFGItemDescriptor>>& Items);
+
 	//~ Readouts: the server answers each request with the matching Client_ call.
 
 	UFUNCTION(Server, Unreliable)
