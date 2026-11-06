@@ -57,6 +57,21 @@ double FSTThroughput::FNodeHistory::Share(uint8 Flag) const
 	return static_cast<double>(Count) / Samples.Num();
 }
 
+double FSTThroughput::FNodeHistory::ShareOf(uint8 Flag, uint8 Within) const
+{
+	int32 Count = 0;
+	int32 Total = 0;
+	for (const FNodeSample& Each : Samples)
+	{
+		if (Each.Flags & Within)
+		{
+			++Total;
+			Count += (Each.Flags & Flag) ? 1 : 0;
+		}
+	}
+	return Total > 0 ? static_cast<double>(Count) / Total : 0.0;
+}
+
 void FSTThroughput::Sample(const ASTSubsystem& Subsystem)
 {
 	const double Time = Subsystem.Now();
@@ -141,6 +156,10 @@ void FSTThroughput::Sample(const ASTSubsystem& Subsystem)
 		if (Node.Stock <= 0.1 * Node.Capacity)
 		{
 			Flags |= Empty;
+		}
+		if (Node.Role == ESTRole::Demand && Node.Reserved > 0)
+		{
+			Flags |= OnTheWay;
 		}
 		History.Samples.Add({Time, Flags});
 		TrimWindow(History.Samples, Time);
@@ -343,6 +362,8 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 
 	// Stations: occupancy and late arrivals.
 	TSet<const AFGTrainStationIdentifier*> Congested;
+	// Average lateness of arrivals per station (with enough arrivals to judge). [s]
+	TMap<const AFGTrainStationIdentifier*, double> LateAt;
 	for (const TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, TArray<FStationSample>>& Pair : mOccupied)
 	{
 		if (!Pair.Key.IsValid() || Pair.Value.Num() < MinSamples)
@@ -372,6 +393,10 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			Late = Arrivals > 0 ? Late / Arrivals : 0.0;
 		}
 		const bool bLate = Arrivals >= MinArrivals && Late >= CongestedLate;
+		if (Arrivals >= MinArrivals)
+		{
+			LateAt.Add(Pair.Key.Get(), Late);
+		}
 		FSTMonitorRow& Row = View.Stations.AddDefaulted_GetRef();
 		Row.Title = STLayout::Name(Pair.Key.Get());
 		Row.Columns = {Percent(Share), FString::FromInt(Arrivals), Arrivals > 0 ? FString::Printf(TEXT("%+.0f s"), Late) : FString(TEXT("-"))};
@@ -479,6 +504,23 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 				FMath::Max(1, View.WindowMinutes), *Percent(Low), *Percent(StarvedShare), *Percent(SupplierFull), *Percent(SupplierEmpty)));
 		}
 
+		// Starvation: deliveries on the way but late (congestion), or none on the way (no trips).
+		double StarvedWaiting = 0.0;
+		int32 StarvedConsumers = 0;
+		for (const FNodeHistory* Each : Group.Consumers)
+		{
+			if (Each->Share(ENodeFlag::Starved) > 0.0)
+			{
+				StarvedWaiting += Each->ShareOf(ENodeFlag::OnTheWay, ENodeFlag::Starved);
+				++StarvedConsumers;
+			}
+		}
+		if (StarvedConsumers > 0)
+		{
+			Row.Details.Add(FString::Printf(TEXT("While its consumers were empty, a delivery was on its way %s of the time (late trains: congestion) and none %s (no trips: starvation)."),
+				*Percent(StarvedWaiting / StarvedConsumers), *Percent(1.0 - StarvedWaiting / StarvedConsumers)));
+		}
+
 		// Verdict: what limits this item.
 		bool bCongested = false;
 		for (const FNodeHistory* Each : Group.Consumers)
@@ -562,10 +604,10 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		}
 		else
 		{
-			Row.Verdict = TEXT("Blocked");
+			Row.Verdict = TEXT("No trips planned");
 			Row.Severity = 2;
-			Row.Details.Add(TEXT("Supply waits and trains are free, but no trip is made."));
-			Row.Advice = TEXT("See why idle trains wait (Trains tab).");
+			Row.Details.Add(TEXT("Its supply is there and trains are free, but SmartTrains plans no trip for it."));
+			Row.Advice = TEXT("Check its platforms' roles and items, and why free trains wait (Trains tab). With Detailed log on, PLANNER lines say why its trips score nothing.");
 		}
 		if (Worst && Row.Severity > 0 && Group.Consumers.Num() > 1)
 		{
@@ -580,10 +622,26 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 				FSTMonitorRow& Platform = View.Platforms.AddDefaulted_GetRef();
 				Platform.Title = STLayout::Name(Each->Station.Get());
 				Platform.Item = Item;
-				Platform.Verdict = TEXT("Starved");
+				const double Waiting = Each->ShareOf(ENodeFlag::OnTheWay, ENodeFlag::Starved);
+				const double* Late = LateAt.Find(Each->Station.Get());
 				Platform.Severity = 2;
 				Platform.Columns = {Row.Title, Percent(Each->Share(ENodeFlag::Starved))};
 				Platform.Details.Add(FString::Printf(TEXT("Wants %s and was empty %s of the time."), *Row.Title, *Percent(Each->Share(ENodeFlag::Starved))));
+				if (Waiting >= 0.5)
+				{
+					// Deliveries are coming but don't arrive in time: trains are held up on the way or at the station.
+					Platform.Verdict = TEXT("Starved: trains held up");
+					Platform.Details.Add(FString::Printf(TEXT("A delivery was on its way %s of the time it was empty, so trains are held up on the way or queue at the station%s."),
+						*Percent(Waiting), Late ? *FString::Printf(TEXT(" (arrivals here %+.0f s against plan on average)"), *Late) : TEXT("")));
+					Platform.Advice = TEXT("Congestion: see this station in the Stations tab. More platforms, a second station, or a waiting bay help.");
+				}
+				else
+				{
+					// No delivery is coming most of the time: no trip is planned for it.
+					Platform.Verdict = TEXT("Starved: no trips");
+					Platform.Details.Add(FString::Printf(TEXT("No delivery was on its way %s of the time it was empty, so no train was sent."), *Percent(1.0 - Waiting)));
+					Platform.Advice = FString::Printf(TEXT("Starvation: see %s in the Items tab (%s)."), *Row.Title, *Row.Verdict);
+				}
 			}
 		}
 		for (const FNodeHistory* Each : Group.Suppliers)

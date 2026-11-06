@@ -138,7 +138,8 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 31. **Idle reasons with counts** (designed, after 2026-11-05). The idle message lists the three most frequent reasons
     trips were rejected, with counts. It used to keep only the last one, which hid the water shuttles' blocker.
 32. **Throughput verdicts** (designed). `/st monitor` names one limit per item from the last half hour: supply, trains,
-    fit, congestion, or "Blocked" when supply and trains are there but no trips are made. A verdict needs a minute of
+    fit, congestion, or "No trips planned" when supply and trains are there but no trips are made. A starved
+    platform says "trains held up" (deliveries on the way but late: congestion) or "no trips" (none sent: starvation). A verdict needs a minute of
     samples, and the thresholds are shares of the window, so a short quiet spell doesn't flip it.
 
 ### Migration

@@ -41,6 +41,8 @@ private:
 		Starved = 2,
 		Full = 4,
 		Empty = 8,
+		// Demand: a train is on its way with a delivery for it.
+		OnTheWay = 16,
 	};
 	struct FNodeSample
 	{
@@ -61,6 +63,8 @@ private:
 
 		// Share of the samples with Flag set.
 		double Share(uint8 Flag) const;
+		// Share of the samples with Within set that also have Flag set (0 if none has Within).
+		double ShareOf(uint8 Flag, uint8 Within) const;
 	};
 	struct FStationSample
 	{

@@ -564,7 +564,8 @@ AFGTrainStationIdentifier* ASTSubsystem::FindNearestStation(const AFGTrain* Trai
 bool ASTSubsystem::GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifier*& OutStation, double& OutTime) const
 {
 	const AFGTrain* Train = State.Train;
-	if (!State.bManaged || State.bKeepVanilla || !IsValid(Train) || Train->IsPlayerDriven() || Train->IsDerailed())
+	// A player in the driver's seat holds the train only while driving it by hand (autopilot off).
+	if (!State.bManaged || State.bKeepVanilla || !IsValid(Train) || (Train->IsPlayerDriven() && !Train->IsSelfDrivingEnabled()) || Train->IsDerailed())
 	{
 		return false;
 	}
@@ -592,7 +593,9 @@ bool ASTSubsystem::GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifi
 		OutTime = Time;
 		return OutStation != nullptr;
 	}
-	if (Job.Leg == Job.Legs.Num() - 1 && Train->IsDocked() && State.DockedStation.Get() == Job.Legs.Last().Station)
+	// Docked at its last stop: free there only if that stop moves nothing. What a transfer moved is known once the
+	// train leaves (platforms keep loading and unloading while it is docked), and its next trip is planned from that.
+	if (Job.Leg == Job.Legs.Num() - 1 && Train->IsDocked() && State.DockedStation.Get() == Job.Legs.Last().Station && !Job.Legs.Last().HasWork())
 	{
 		OutStation = Job.Legs.Last().Station;
 		OutTime = FMath::Max(Time, State.DockedAt + EstimateStaySeconds(OutStation));

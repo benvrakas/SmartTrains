@@ -211,8 +211,10 @@ stop books from when it docked; one running late books from now. `FirstFreeArriv
   amount counts as nothing, since the stay ends at once when the platform has no room the moment the train docks.
 - A car's room comes from its wagon type (`STLayout::GetCarCapacity`): slots × stack for a solid, the wagon's fluid
   capacity for a fluid. Its inventory now can't be used: a car set up for a fluid has one big slot.
-- A train planned while docked for a stop of its trip starts from the cargo it will leave with: what is still to load
-  or unload there counts as done.
+- A train docked at the last stop of its trip is planned only once it leaves, if that stop moves cargo
+  (`GetFreeAt`): platforms keep loading and unloading while it is docked, so what the stop moved is known only
+  afterwards. Its next trip starts from what the cars really hold. A last stop that moves nothing is planned while
+  docked, as before.
 - Cargo loaded on the trip that no later stop unloads is stranded: with FCC that car skips the pickup and the
   simulation runs again; without FCC the trip is invalid.
 - **Batch:** per item, what loads must reach the send-at share of the loading cars' room, unless a critical
@@ -455,7 +457,12 @@ Verdict per item, first match:
 6. suppliers full 30 % of the time (or the flow plan needs more trains than fit) while the fleet is busy 80 % of the
    time: "Trains short";
 7. one of its stations congested (a train docked 85 % of the time, or arrivals 120 s late on average): "Congested";
-8. otherwise "Blocked": supply and trains are there but trips aren't made, so the idle reasons tell why.
+8. otherwise "No trips planned": supply and trains are there but trips aren't made, so the idle reasons tell why.
+
+Starvation or congestion: each demand sample records whether a delivery to it is on its way (`OnTheWay`: the node has
+reserved deliveries). A platform empty half the window is "Starved: trains held up" when a delivery was on its way
+for at least half of the time it was empty (congestion; with the station's average lateness), else "Starved: no
+trips" (starvation; it points at the item's verdict). The item's details give the same split over its consumers.
 
 The window has five tabs:
 - **Overview:** tiles (managed trains, busy share, idle trains, limited items, congested stations), what limits

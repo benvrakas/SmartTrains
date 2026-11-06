@@ -12,10 +12,20 @@
   car's capacity now comes from its wagon type. The log shows the size it reads once ("Freight car size").
 - **Fixed: trips to unload cargo that was already unloaded.** The next trip of a docked train was planned from the
   cargo on board while it was still unloading, so it could drive to another station with an empty car, dock for 0 s
-  and leave. The cargo still to load or unload at the stop now counts as done.
+  and leave. Platforms keep loading and unloading while a train is docked, so what a stop moved is only known once
+  the train leaves. A train whose last stop moves cargo now gets its next trip as it leaves, planned from what its
+  cars really hold.
 - **No more top-up trips to full platforms.** A train doesn't fill part-full stacks, and the stay ends at once when a
   platform has no room the moment the train docks. A car now unloads at least 2 slots' worth of an item (or all it
   holds of it), into free slots only. Small deliveries to full platforms made up most of the 0-second stops.
+- **Fixed: a train with a player in it got no new trips.** A player sitting in the locomotive now only holds the
+  train while driving it by hand (autopilot off). With autopilot on, the train keeps getting trips.
+- **Monitor: starvation or congestion.** A starved platform now says which: "Starved: trains held up" when a
+  delivery was on its way most of the time it was empty (trains held up on the way or queueing at the station, with
+  how late arrivals there are), or "Starved: no trips" when none was (no train was sent; see the item's verdict). The
+  item's details give the same split over all its consumers.
+- **Monitor:** the item verdict "Blocked" is now "No trips planned": its supply is there and trains are free, but
+  SmartTrains plans no trip for it.
 - **Monitor:** the items tab's Trains column is now "Needed / able": trains the flow plan needs, and managed trains
   that could serve the item's routes. It was easy to read the second number as trains sent there.
 

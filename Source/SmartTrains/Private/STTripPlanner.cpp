@@ -482,28 +482,6 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 	{
 		return false;
 	}
-	// Docked for a stop of its trip: what is still to move there counts as moved, so the next trip starts from the
-	// cargo the train leaves with.
-	if (bInAnchorDocked && State.bHasJob && Train->IsDocked() && State.DockedStation.Get() == Anchor && !State.bChainedWhileDocked
-		&& State.Job.Legs.IsValidIndex(State.Job.Leg) && State.Job.Legs[State.Job.Leg].Station == Anchor)
-	{
-		const FSTJobLeg& Leg = State.Job.Legs[State.Job.Leg];
-		const TArray<int32> Before = mSubsystem.mDockStartAmounts.FindRef(State.Train);
-		for (int32 Index = 0; Index < Leg.Work.Num() && Index < Before.Num(); ++Index)
-		{
-			const FSTCarWork& Work = Leg.Work[Index];
-			UClass* Item = Work.Item.Get();
-			FCarInfo* Car = mCars.FindByPredicate([&Work](const FCarInfo& Each) { return Work.Car.Get() == Each.Car; });
-			if (!Car || !Item)
-			{
-				continue;
-			}
-			const double Held = CargoOf(Car->Cargo, Item);
-			const double Left = FMath::Max(0.0, Work.PlannedAmount - FMath::Abs(Held - Before[Index]));
-			AddCargo(Car->Cargo, Item, Work.bLoad ? FMath::Min(Left, GetCarRoom(*Car, Car->Cargo, Item)) : -FMath::Min(Left, Held));
-		}
-		bCarrying = mCars.ContainsByPredicate([](const FCarInfo& Each) { return Each.Cargo.Num() > 0; });
-	}
 	bRelaxed = bCarrying && State.UnwantedCargoSince > 0.0 && mTime - State.UnwantedCargoSince > mSubsystem.mSettings.LeftoverMinutes * 60.0;
 
 	// Does car Index stop beside a platform matching Test at Station, whichever way the train docks?
