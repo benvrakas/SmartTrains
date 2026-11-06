@@ -1199,8 +1199,9 @@ bool ASTSubsystem::RepeatLastJob(FSTTrainState& State, const TCHAR* Why)
 	{
 		return false;
 	}
-	// Start from the stop after the one it is at, so it doesn't stop where it already stands; and not towards a station
-	// other trains are already heading or queued for, which would only make a queue on the line.
+	// Start from the stop after the one it is at, so it doesn't stop where it already stands; and, where it can, not
+	// towards a station other trains are already heading or queued for. Trains never park: when every station is busy
+	// it repeats from the stop after this one anyway.
 	const AFGTrainStationIdentifier* Here = State.Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation.Get() : State.LastStation.Get();
 	int32 First = 0;
 	if (Here)
@@ -1222,10 +1223,12 @@ bool ASTSubsystem::RepeatLastJob(FSTTrainState& State, const TCHAR* Why)
 		}
 		if (Free == INDEX_NONE)
 		{
-			UE_LOG(LogSmartTrains, Verbose, TEXT("%s: not repeating its last job now: trains are heading or queued for each of its stations"), *STLayout::Name(State.Train));
-			return false;
+			UE_LOG(LogSmartTrains, Verbose, TEXT("%s: repeats its last job although trains are heading or queued for each of its stations"), *STLayout::Name(State.Train));
 		}
-		First = Free;
+		else
+		{
+			First = Free;
+		}
 	}
 	FSTJob Job;
 	Job.Id = mNextJobId++;

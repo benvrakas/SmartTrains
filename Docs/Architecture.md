@@ -168,8 +168,9 @@ settings change (`DispatchRound`):
 for X") when any stop's arrival, pushed back by other trains' bookings and Auto Trains' station queue
 (`FirstFreeArrival`), is more than the limit after the train could get there. Leaving at once, such a train would wait
 on the line before the station. Repeats skip stations `IsStationQueued` (2 or more managed trains on their way, or an
-Auto Trains queue), starting at another stop of the trip or not at all. A parked train with a trip to repeat tries
-again after every dispatch round.
+Auto Trains queue), starting at another stop of the trip. When every stop is queued it repeats from the stop after
+the one it is at anyway: trains never park while they have a trip to repeat. A parked train with a trip to repeat
+tries again after every dispatch round.
 
 **Delivery reservations per platform:** like pickups, a planned delivery records its platform. `GetPlatformRoom` is
 the platform's free room plus what its machines use before the train arrives, less the deliveries promised to it and

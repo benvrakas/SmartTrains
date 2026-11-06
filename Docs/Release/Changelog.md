@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.6 (beta)
+
+- **Fixed: trains still parked.** A train with a trip to repeat no longer parks when other trains are already
+  heading for every station of that trip. It repeats anyway, from its next stop. Parking it
+  filled stations, and other trains were sent away to park elsewhere to make room. Only a train that never had a
+  trip that picks up and delivers still parks.
+
 ## 0.6.5 (beta)
 
 - **Fixed: fluid trips beat everything else.** Deliveries were valued by amount, and fluids count in litres, so a
