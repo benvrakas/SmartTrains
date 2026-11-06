@@ -196,6 +196,12 @@ void USTRemoteCallObject::Server_SetPlatform_Implementation(AFGBuildableTrainPla
 		Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
 		return;
 	}
+	if (Role != ESTRole::Off && !STLayout::CanMoveCargo(Platform))
+	{
+		Client_Message(TEXT("This platform can't move freight or fluid, so it can't have a role."), true);
+		Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
+		return;
+	}
 	const bool bFluid = STLayout::GetPlatformCargoType(Platform) == EFreightCargoType::FCT_Liquid;
 	TArray<FSTItemRule> Clean;
 	for (const FSTItemRule& Rule : Items)
@@ -269,6 +275,14 @@ void USTRemoteCallObject::Server_PastePlatformSettings_Implementation(AFGBuildab
 	if (Slot.bValid && !Allowed(*this, *Subsystem, STAccess::EChange::Edit, TEXT("paste platform settings")))
 	{
 		Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
+		return;
+	}
+	if (Slot.bValid && Slot.Role != ESTRole::Off && !STLayout::CanMoveCargo(Platform))
+	{
+		if (!bFromGameKey)
+		{
+			Client_Message(TEXT("This platform can't move freight or fluid, so it can't have a role."), true);
+		}
 		return;
 	}
 	if (!Slot.bValid)

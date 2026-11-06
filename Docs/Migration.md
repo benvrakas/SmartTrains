@@ -82,6 +82,12 @@ Each change goes to the server at once (`Server_MigratePlatform` -> `STMigration
 station. Applying the station gives the platform that setting. The platform shows confidence "by hand".
 
 Settings by hand are kept for the session and used again by later previews, until their station is applied.
+
+Pieces that can't move freight or fluid show as "Empty platform" and can't be set. These are Modular Stations' empty
+platforms, which are built on the cargo platform class. `STLayout::CanMoveCargo` is false for them: they have no
+inventory, or no belt or pipe connectors. Whether anything is attached doesn't count, so a station not yet connected
+to the factory can still be migrated. The same check refuses a role from the platform menu, a paste, `/st platform`
+and the copy to the station's other platforms. A station with only such pieces isn't listed.
 Changing the preview counts as an ordinary edit: with "Only admins change SmartTrains" on, only admins can.
 
 ## DynamicTimeTable

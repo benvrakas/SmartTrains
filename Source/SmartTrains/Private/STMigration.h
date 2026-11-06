@@ -18,6 +18,8 @@ namespace STMigration
 	{
 		TWeakObjectPtr<AFGBuildableTrainPlatformCargo> Platform;
 		int32 Index = 0;
+		// False for a piece that can't move freight or fluid (STLayout::CanMoveCargo): listed, never given a role.
+		bool bCargo = true;
 		ESTRole Role = ESTRole::Off;
 		TArray<TSubclassOf<class UFGItemDescriptor>> Items;
 		FString Evidence;

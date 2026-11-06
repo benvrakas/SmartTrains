@@ -337,6 +337,11 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 				Sender->SendChatMessage(TEXT("Role must be supply, demand or off."), FLinearColor::Red);
 				return EExecutionStatus::BAD_ARGUMENTS;
 			}
+			if (WantedRole.GetValue() != ESTRole::Off && !STLayout::CanMoveCargo(Platform))
+			{
+				Sender->SendChatMessage(TEXT("This platform can't move freight or fluid, so it can't have a role."), FLinearColor::Red);
+				return EExecutionStatus::UNCOMPLETED;
+			}
 			const FSTPlatformConfig* Existing = Subsystem->FindPlatformConfig(Platform);
 			TArray<FSTItemRule> Rules = Existing ? Existing->Items : TArray<FSTItemRule>();
 			float Target = -1.f;

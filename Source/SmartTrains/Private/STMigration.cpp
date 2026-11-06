@@ -387,6 +387,15 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 			FPlatformProposal Platform;
 			Platform.Platform = Cargo;
 			Platform.Index = Index;
+			if (!STLayout::CanMoveCargo(Cargo))
+			{
+				Platform.bCargo = false;
+				Platform.Evidence = FString::Printf(TEXT("%s: no inventory or no belt or pipe connectors, can't move cargo"), *Cargo->GetClass()->GetName());
+				UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION %s platform %d (%s) can't move cargo: listed without a role"), *STLayout::Name(Identifier), Index + 1,
+					*Cargo->GetClass()->GetName());
+				Station.Platforms.Add(Platform);
+				continue;
+			}
 			const bool bLoadMode = Cargo->GetIsInLoadMode();
 			int32 Inputs = 0;
 			int32 Outputs = 0;
@@ -586,7 +595,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 			}
 			Station.Platforms.Add(Platform);
 		}
-		if (Station.Platforms.Num() == 0)
+		if (!Station.Platforms.ContainsByPredicate([](const FPlatformProposal& Each) { return Each.bCargo; }))
 		{
 			continue;
 		}
@@ -631,7 +640,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 			bool bChanged = false;
 			for (FPlatformProposal& Platform : Station.Platforms)
 			{
-				if (const FHandSetting* Setting = Hand->Find(Platform.Platform))
+				if (const FHandSetting* Setting = Platform.bCargo ? Hand->Find(Platform.Platform) : nullptr)
 				{
 					UseHandSetting(Platform, *Setting);
 					bChanged = true;
@@ -929,6 +938,7 @@ FSTMigrationView STMigration::MakeView(ASTSubsystem* Subsystem, UWorld* World)
 			Each.Conflict = Platform.Conflict;
 			const AFGBuildableTrainPlatformCargo* Cargo = Platform.Platform.Get();
 			Each.bFluid = Cargo && STLayout::GetPlatformCargoType(Cargo) == EFreightCargoType::FCT_Liquid;
+			Each.bCargo = Platform.bCargo;
 		}
 		if (Station.Users.Num() > 0)
 		{
@@ -967,6 +977,11 @@ bool STMigration::SetPlatform(UWorld* World, int32 Station, int32 Platform, ESTR
 	if (!Cargo)
 	{
 		OutMessage = FString::Printf(TEXT("Station %d platform %d isn't in the preview any more; press Preview again."), Station, Platform);
+		return false;
+	}
+	if (!Target->bCargo)
+	{
+		OutMessage = FString::Printf(TEXT("Station %d platform %d can't move freight or fluid, so it can't have a role."), Station, Platform);
 		return false;
 	}
 	const EFreightCargoType CargoType = STLayout::GetPlatformCargoType(Cargo);

@@ -157,6 +157,10 @@ struct SMARTTRAINS_API FSTMigrationPlatformRow
 	// A fluid platform (liquids and gases), for the item picker.
 	UPROPERTY()
 	bool bFluid = false;
+
+	// False for a piece that can't move freight or fluid: shown, not settable.
+	UPROPERTY()
+	bool bCargo = true;
 };
 
 // One station or train of a migration preview.

@@ -23,7 +23,7 @@ int32 ASTSubsystem::CopyPlatformToStation(AFGBuildableTrainPlatformCargo* Platfo
 	for (AFGBuildableTrainPlatform* Each : STLayout::GetPlatforms(Station))
 	{
 		AFGBuildableTrainPlatformCargo* Other = Cast<AFGBuildableTrainPlatformCargo>(Each);
-		if (Other && Other != Platform && STLayout::GetPlatformCargoType(Other) == Type)
+		if (Other && Other != Platform && STLayout::GetPlatformCargoType(Other) == Type && STLayout::CanMoveCargo(Other))
 		{
 			SetPlatformConfig(Other, Copy.Role, Copy.Items, Cause);
 			++Copied;

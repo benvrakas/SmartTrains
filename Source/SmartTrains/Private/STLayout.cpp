@@ -251,6 +251,20 @@ EFreightCargoType STLayout::GetPlatformCargoType(const AFGBuildableTrainPlatform
 	return FSTPlatformAccess::GetCargoType(Platform);
 }
 
+bool STLayout::CanMoveCargo(const AFGBuildableTrainPlatformCargo* Platform)
+{
+	if (!Platform)
+	{
+		return false;
+	}
+	const UFGInventoryComponent* Inventory = Platform->GetInventory();
+	TInlineComponentArray<UFGFactoryConnectionComponent*> Belts;
+	Platform->GetComponents(Belts);
+	TInlineComponentArray<UFGPipeConnectionComponent*> Pipes;
+	Platform->GetComponents(Pipes);
+	return Inventory && Inventory->GetSizeLinear() > 0 && Belts.Num() + Pipes.Num() > 0;
+}
+
 AFGTrainStationIdentifier* STLayout::GetIdentifier(const AFGBuildableRailroadStation* Station)
 {
 	return Station ? Station->GetStationIdentifier() : nullptr;

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.2 (beta)
+
+- **Fixed: empty platforms could get a role.** Modular Stations' empty platforms can't move freight or fluid. They
+  now show as "Empty platform" in the migration window, can't be set there, and are refused a role everywhere else:
+  the platform menu, pasted settings, `/st platform` and the copy to the station's other platforms. Freight and fluid
+  platforms with nothing attached yet can still be set, so a station can be migrated before it's connected to the
+  factory.
+
+**Good to know**
+
+- Everyone in a multiplayer session needs SmartTrains 0.6.2.
+
 ## 0.6.1 (beta)
 
 - **Fixed: cars came out with mixed cargo.** A car holding one item could load another into its free slots, e.g. a

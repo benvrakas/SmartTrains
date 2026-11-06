@@ -63,6 +63,10 @@ namespace STLayout
 	// Returns the platform's cargo type (solid or fluid).
 	EFreightCargoType GetPlatformCargoType(const AFGBuildableTrainPlatformCargo* Platform);
 
+	// True if Platform can move freight or fluid: it has an inventory and belt or pipe connectors, attached or not.
+	// Empty platform pieces built on the cargo platform class (Modular Stations) have neither.
+	bool CanMoveCargo(const AFGBuildableTrainPlatformCargo* Platform);
+
 	// Station identifier of Station, or nullptr.
 	AFGTrainStationIdentifier* GetIdentifier(const AFGBuildableRailroadStation* Station);
 

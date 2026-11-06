@@ -110,11 +110,13 @@ namespace
 		int32 Supply = 0;
 		int32 Demand = 0;
 		int32 Off = 0;
+		int32 Empty = 0;
 		for (const FSTMigrationPlatformRow& Platform : Row.Platforms)
 		{
-			Supply += Platform.Role == ESTRole::Supply ? 1 : 0;
-			Demand += Platform.Role == ESTRole::Demand ? 1 : 0;
-			Off += Platform.Role == ESTRole::Off ? 1 : 0;
+			Empty += Platform.bCargo ? 0 : 1;
+			Supply += Platform.bCargo && Platform.Role == ESTRole::Supply ? 1 : 0;
+			Demand += Platform.bCargo && Platform.Role == ESTRole::Demand ? 1 : 0;
+			Off += Platform.bCargo && Platform.Role == ESTRole::Off ? 1 : 0;
 		}
 		TArray<FString> Parts;
 		if (Supply > 0)
@@ -128,6 +130,10 @@ namespace
 		if (Off > 0)
 		{
 			Parts.Add(FString::Printf(TEXT("%d off"), Off));
+		}
+		if (Empty > 0)
+		{
+			Parts.Add(FString::Printf(TEXT("%d empty"), Empty));
 		}
 		return FString::Join(Parts, TEXT(", "));
 	}
@@ -894,6 +900,11 @@ void USTMigrationWindow::AddStation(const FSTMigrationRow& Row)
 		{
 			UHorizontalBox* PlatformLine = AddLine(FMargin(96.f, 2.f, 0.f, 0.f));
 			AddCell(PlatformLine, MakeCell(FString::Printf(TEXT("P%d"), Platform.Number), 11, MigrationDim), 40.f);
+			if (!Platform.bCargo)
+			{
+				AddCell(PlatformLine, MakeCell(TEXT("Empty platform: no freight or fluid"), 11, MigrationDim), 0.f);
+				continue;
+			}
 			const int32 Number = Platform.Number;
 			const ESTRole Next = NextRole(Platform.Role);
 			TArray<TSubclassOf<UFGItemDescriptor>> Kept;

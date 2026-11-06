@@ -271,6 +271,12 @@ void ASTSubsystem::SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, E
 	{
 		return;
 	}
+	if (NewRole != ESTRole::Off && !STLayout::CanMoveCargo(Platform))
+	{
+		UE_LOG(LogSmartTrains, Warning, TEXT("PLATFORM %s (%s) can't move cargo: role %s from %s refused"), *Platform->GetName(), *Platform->GetClass()->GetName(),
+			STNames::Role(NewRole), *Cause);
+		return;
+	}
 	FSTPlatformConfig* Config = FindPlatformConfig(Platform);
 	if (!Config)
 	{
