@@ -1,5 +1,8 @@
 #include "STThroughput.h"
+#include "Buildables/FGBuildableRailroadStation.h"
+#include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "FGFreightWagon.h"
+#include "FGInventoryComponent.h"
 #include "FGTrain.h"
 #include "FGTrainStationIdentifier.h"
 #include "SmartTrains.h"
@@ -141,6 +144,7 @@ void FSTThroughput::Sample(const ASTSubsystem& Subsystem)
 		History.Item = Node.Item.Get();
 		History.Role = Node.Role;
 		History.Platforms = Node.Platforms.Num();
+		History.PlatformList = Node.Platforms;
 		History.Rate = Node.Rate;
 		History.Stock = Node.Stock;
 		History.Capacity = Node.Capacity;
@@ -164,6 +168,10 @@ void FSTThroughput::Sample(const ASTSubsystem& Subsystem)
 		if (Node.Role == ESTRole::Demand && Node.Reserved > 0)
 		{
 			Flags |= OnTheWay;
+		}
+		if (Node.Role == ESTRole::Demand && Node.Stock <= 0)
+		{
+			Flags |= AllEmpty;
 		}
 		History.Samples.Add({Time, Flags});
 		TrimWindow(History.Samples, Time);
@@ -457,6 +465,31 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		}
 		return Share;
 	};
+	// A platform group's row title: the station, then each of its platforms by position (P1 is the first from the
+	// station building, as in the log) with how full it is now.
+	auto GroupTitle = [](const FNodeHistory& History, UClass* Item)
+	{
+		const AFGTrainStationIdentifier* Station = History.Station.Get();
+		const TArray<AFGBuildableTrainPlatform*> All = STLayout::GetPlatforms(Station ? Station->GetStation() : nullptr);
+		TArray<TPair<int32, FString>> Parts;
+		for (const TWeakObjectPtr<AFGBuildableTrainPlatformCargo>& Platform : History.PlatformList)
+		{
+			const UFGInventoryComponent* Inventory = Platform.IsValid() ? Platform->GetInventory() : nullptr;
+			const int32 Capacity = Inventory ? STLayout::GetCapacity(Inventory, Item) : 0;
+			const double Fill = Capacity > 0 ? static_cast<double>(Inventory->GetNumItems(Item)) / Capacity : 0.0;
+			const int32 Position = Platform.IsValid() ? All.IndexOfByKey(Platform.Get()) + 1 : 0;
+			Parts.Emplace(Position, FString::Printf(TEXT("P%d %s"), Position,
+				Fill <= 0.0 ? TEXT("empty") : (Fill >= 0.995 ? TEXT("full") : *Percent(Fill))));
+		}
+		Parts.Sort([](const TPair<int32, FString>& A, const TPair<int32, FString>& B) { return A.Key < B.Key; });
+		TArray<FString> Texts;
+		for (const TPair<int32, FString>& Each : Parts)
+		{
+			Texts.Add(Each.Value);
+		}
+		return FString::Printf(TEXT("%s\n%d %s: %s"), *STLayout::Name(Station), Parts.Num(), Parts.Num() == 1 ? TEXT("platform") : TEXT("platforms"),
+			*FString::Join(Texts, TEXT(", ")));
+	};
 	// A freight car of the fleet, for how long supply takes to fill one.
 	const AFGFreightWagon* AnyWagon = nullptr;
 	for (const FSTTrainState& State : Subsystem.mTrains)
@@ -657,17 +690,23 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			if (Each->Samples.Num() >= MinSamples && Each->Share(ENodeFlag::Starved) >= 0.5)
 			{
 				FSTMonitorRow& Platform = View.Platforms.AddDefaulted_GetRef();
-				Platform.Title = STLayout::Name(Each->Station.Get());
+				Platform.Title = GroupTitle(*Each, Item);
 				Platform.Item = Item;
 				const double Waiting = Each->ShareOf(ENodeFlag::OnTheWay, ENodeFlag::Starved);
 				const double* Late = LateAt.Find(Each->Station.Get());
+				// Starved: all its platforms empty most of the time; partly: some empty while others hold stock.
+				const bool bAll = Each->Share(ENodeFlag::AllEmpty) >= 0.5;
+				const FString Kind = bAll ? TEXT("Starved") : TEXT("Partly starved");
 				Platform.Severity = 2;
 				Platform.Columns = {Row.Title, Percent(Each->Share(ENodeFlag::Starved))};
-				Platform.Details.Add(FString::Printf(TEXT("Wants %s and was empty %s of the time."), *Row.Title, *Percent(Each->Share(ENodeFlag::Starved))));
+				Platform.Details.Add(Each->Platforms > 1
+					? FString::Printf(TEXT("Wants %s: some of its platforms were empty %s of the time, all of them %s."), *Row.Title,
+						*Percent(Each->Share(ENodeFlag::Starved)), *Percent(Each->Share(ENodeFlag::AllEmpty)))
+					: FString::Printf(TEXT("Wants %s and was empty %s of the time."), *Row.Title, *Percent(Each->Share(ENodeFlag::Starved))));
 				if (Waiting >= 0.5)
 				{
 					// Deliveries are coming but don't arrive in time: trains are held up on the way or at the station.
-					Platform.Verdict = TEXT("Starved: trains held up");
+					Platform.Verdict = Kind + TEXT(": trains held up");
 					Platform.Details.Add(FString::Printf(TEXT("A delivery was on its way %s of the time it was empty, so trains are held up on the way or queue at the station%s."),
 						*Percent(Waiting), Late ? *FString::Printf(TEXT(" (arrivals here %+.0f s against plan on average)"), *Late) : TEXT("")));
 					Platform.Advice = TEXT("Congestion: see this station in the Stations tab. More platforms, a second station, or a waiting bay help.");
@@ -675,7 +714,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 				else
 				{
 					// No delivery is coming most of the time: no trip is planned for it.
-					Platform.Verdict = TEXT("Starved: no trips");
+					Platform.Verdict = Kind + TEXT(": no trips");
 					Platform.Details.Add(FString::Printf(TEXT("No delivery was on its way %s of the time it was empty, so no train was sent."), *Percent(1.0 - Waiting)));
 					Platform.Advice = Row.Severity > 0
 						? FString::Printf(TEXT("Starvation: see %s in the Items tab (%s)."), *Row.Title, *Row.Verdict)
@@ -688,7 +727,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			if (Each->Samples.Num() >= MinSamples && Each->Share(ENodeFlag::Full) >= 0.5)
 			{
 				FSTMonitorRow& Platform = View.Platforms.AddDefaulted_GetRef();
-				Platform.Title = STLayout::Name(Each->Station.Get());
+				Platform.Title = GroupTitle(*Each, Item);
 				Platform.Item = Item;
 				Platform.Verdict = TEXT("Backing up");
 				Platform.Severity = 1;
@@ -757,7 +796,7 @@ TArray<FString> FSTThroughput::Describe(const FSTMonitorView& View)
 	}
 	for (const FSTMonitorRow& Row : View.Platforms)
 	{
-		Lines.Add(FString::Printf(TEXT("  %s: %s %s. %s"), *Row.Verdict, *Row.Title, Row.Columns.Num() > 0 ? *Row.Columns[0] : TEXT(""), *FString::Join(Row.Details, TEXT(" "))));
+		Lines.Add(FString::Printf(TEXT("  %s: %s %s. %s"), *Row.Verdict, *Row.Title.Replace(TEXT("\n"), TEXT(" - ")), Row.Columns.Num() > 0 ? *Row.Columns[0] : TEXT(""), *FString::Join(Row.Details, TEXT(" "))));
 	}
 	for (const FString& Line : View.Idle)
 	{

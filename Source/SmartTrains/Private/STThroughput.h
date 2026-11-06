@@ -43,6 +43,8 @@ private:
 		Empty = 8,
 		// Demand: a train is on its way with a delivery for it.
 		OnTheWay = 16,
+		// Demand: every one of its platforms is empty (Starved: at least one has been empty for 30 s).
+		AllEmpty = 32,
 	};
 	struct FNodeSample
 	{
@@ -55,6 +57,8 @@ private:
 		TWeakObjectPtr<UClass> Item;
 		ESTRole Role = ESTRole::Off;
 		int32 Platforms = 0;
+		// Its platforms (the station's platforms set to this item and role), at the last sample.
+		TArray<TWeakObjectPtr<AFGBuildableTrainPlatformCargo>> PlatformList;
 		// Latest rate, items per second, and stock and capacity.
 		double Rate = 0.0;
 		int32 Stock = 0;

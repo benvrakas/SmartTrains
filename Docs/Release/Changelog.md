@@ -5,6 +5,14 @@
 - **A newly managed train gets its first trip at once, also when it stands docked at a station.** A docked train
   without a job only counted as free once the station's estimated stay had passed (about a minute), and then waited
   out its old timetable's stop rules. It is now free at once, and the stay ends as soon as it has a trip.
+- **Monitor: the Platforms tab says which platforms.** Each row is one station's platforms for one item, judged
+  together; it showed only the station's name. Under the name it now lists those platforms by position (P1 is the
+  first from the station building, as in the log) with how full each is now, for example "4 platforms: P1 empty,
+  P2 46%, P3 empty, P4 empty". The column is "Station and its platforms", and the tab's note explains the rows.
+- **Monitor: "Partly starved".** A station counted as starved as soon as one of its platforms for an item was
+  empty, so RockPow- Sulfur SNK showed "Starved" while another of its sulfur platforms held stock. "Starved" now
+  means all of them were empty most of the time; "Partly starved" means some were empty while others held stock.
+  The details give both: "some of its platforms were empty 86% of the time, all of them 10%".
 
 ## 0.6.6 (beta)
 

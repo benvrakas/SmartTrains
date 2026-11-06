@@ -471,8 +471,8 @@ Verdict per item, first match:
 8. otherwise "No trips planned": supply and trains are there but trips aren't made, so the idle reasons tell why.
 
 Starvation or congestion: each demand sample records whether a delivery to it is on its way (`OnTheWay`: the node has
-reserved deliveries). A platform empty half the window is "Starved: trains held up" when a delivery was on its way
-for at least half of the time it was empty (congestion; with the station's average lateness), else "Starved: no
+reserved deliveries). A demand group (a station's platforms for one item) with a platform empty for 30 s counts as starved in that sample, and `AllEmpty` when all of them are empty. One starved half the window is "Starved", or "Partly starved" unless all were empty half the window; then ": trains held up" when a delivery was on its way
+for at least half of the time it was empty (congestion; with the station's average lateness), else ": no
 trips" (starvation; it points at the item's verdict). The item's details give the same split over its consumers.
 
 The window has five tabs:
