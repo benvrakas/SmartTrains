@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.3 (beta)
+
+- **Migration shares items out between platforms.** Some platforms' belts lead to machines that use several items,
+  e.g. Copper Ingot and Caterium Ingot for one cable factory, and nothing they hold decides between them. Those
+  platforms now get different items instead of the same one. Platforms count together when their belts reach the same
+  machines, also at different stations. A platform's own stock still decides first. Changed platforms say "check it".
+
+**Good to know**
+
+- Everyone in a multiplayer session needs SmartTrains 0.6.3.
+
 ## 0.6.2 (beta)
 
 - **Fixed: empty platforms could get a role.** Modular Stations' empty platforms can't move freight or fluid. They

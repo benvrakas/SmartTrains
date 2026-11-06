@@ -32,6 +32,11 @@ namespace STMigration
 		FString Note;
 		// Which items were left out to keep one item per platform.
 		FString OneItemNote;
+		// When its one item wasn't settled by its own stock: the items it could have, best first, so platforms serving
+		// the same machines can share them out (ShareOutItems).
+		TArray<TSubclassOf<class UFGItemDescriptor>> SpreadChoices;
+		// The machines its connection trace reached.
+		TArray<TWeakObjectPtr<const AActor>> Machines;
 	};
 
 	struct FStationProposal

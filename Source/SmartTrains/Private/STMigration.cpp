@@ -153,6 +153,120 @@ namespace
 	// Route inference: a platform the other evidence left without items gets the items that trains stopping there
 	// carry from or to the other stations on their timetables (loads elsewhere for a demand platform, deliveries
 	// elsewhere for a supply platform). Repeats while it fills platforms, so items carry along chains of routes.
+	// Platforms whose one item wasn't settled by their own stock share out the items their traces found. A group is the
+	// platforms of one role whose traces reach a machine in common, across stations. A platform the trace reached no
+	// machine from groups with its station's platforms of that role. Each platform takes the best item no other
+	// platform of its group has yet. Groups with more platforms than items give the rest their best item again.
+	void ShareOutItems(STMigration::FPreview& Preview)
+	{
+		struct FRef
+		{
+			int32 Station = 0;
+			int32 Platform = 0;
+		};
+		TArray<FRef> Refs;
+		for (int32 StationIndex = 0; StationIndex < Preview.Stations.Num(); ++StationIndex)
+		{
+			const TArray<STMigration::FPlatformProposal>& Platforms = Preview.Stations[StationIndex].Platforms;
+			for (int32 PlatformIndex = 0; PlatformIndex < Platforms.Num(); ++PlatformIndex)
+			{
+				const STMigration::FPlatformProposal& Each = Platforms[PlatformIndex];
+				if (Each.bCargo && Each.Role != ESTRole::Off && Each.Items.Num() > 0)
+				{
+					Refs.Add({StationIndex, PlatformIndex});
+				}
+			}
+		}
+		auto Get = [&Preview](const FRef& Ref) -> STMigration::FPlatformProposal& { return Preview.Stations[Ref.Station].Platforms[Ref.Platform]; };
+
+		// Union-find over Refs.
+		TArray<int32> Parent;
+		for (int32 Index = 0; Index < Refs.Num(); ++Index)
+		{
+			Parent.Add(Index);
+		}
+		TFunction<int32(int32)> Find = [&Parent, &Find](int32 Index) { return Parent[Index] == Index ? Index : (Parent[Index] = Find(Parent[Index])); };
+		auto Join = [&](int32 A, int32 B) { Parent[Find(A)] = Find(B); };
+		TMap<TPair<const AActor*, ESTRole>, int32> ByMachine;
+		TMap<TPair<int32, ESTRole>, TArray<int32>> ByStation;
+		for (int32 Index = 0; Index < Refs.Num(); ++Index)
+		{
+			const STMigration::FPlatformProposal& Each = Get(Refs[Index]);
+			ByStation.FindOrAdd(TPair<int32, ESTRole>(Refs[Index].Station, Each.Role)).Add(Index);
+			for (const TWeakObjectPtr<const AActor>& Machine : Each.Machines)
+			{
+				if (const int32* First = ByMachine.Find(TPair<const AActor*, ESTRole>(Machine.Get(), Each.Role)))
+				{
+					Join(Index, *First);
+				}
+				else if (Machine.IsValid())
+				{
+					ByMachine.Add(TPair<const AActor*, ESTRole>(Machine.Get(), Each.Role), Index);
+				}
+			}
+		}
+		for (int32 Index = 0; Index < Refs.Num(); ++Index)
+		{
+			const STMigration::FPlatformProposal& Each = Get(Refs[Index]);
+			if (Each.Machines.Num() == 0 && Each.SpreadChoices.Num() > 0)
+			{
+				for (int32 Other : ByStation.FindRef(TPair<int32, ESTRole>(Refs[Index].Station, Each.Role)))
+				{
+					Join(Index, Other);
+				}
+			}
+		}
+
+		TMap<int32, TSet<UClass*>> Taken;
+		for (int32 Index = 0; Index < Refs.Num(); ++Index)
+		{
+			const STMigration::FPlatformProposal& Each = Get(Refs[Index]);
+			if (Each.SpreadChoices.Num() == 0)
+			{
+				for (const TSubclassOf<UFGItemDescriptor>& Item : Each.Items)
+				{
+					Taken.FindOrAdd(Find(Index)).Add(Item.Get());
+				}
+			}
+		}
+		int32 Changed = 0;
+		for (int32 Index = 0; Index < Refs.Num(); ++Index)
+		{
+			STMigration::FPlatformProposal& Each = Get(Refs[Index]);
+			if (Each.SpreadChoices.Num() < 2 || Each.Items.Num() != 1)
+			{
+				continue;
+			}
+			TSet<UClass*>& Used = Taken.FindOrAdd(Find(Index));
+			const TSubclassOf<UFGItemDescriptor>* Free = Each.SpreadChoices.FindByPredicate([&Used](const TSubclassOf<UFGItemDescriptor>& Item) { return !Used.Contains(Item.Get()); });
+			const TSubclassOf<UFGItemDescriptor> Pick = Free ? *Free : Each.Items[0];
+			Used.Add(Pick.Get());
+			if (Pick == Each.Items[0])
+			{
+				continue;
+			}
+			TArray<FString> Others;
+			for (const TSubclassOf<UFGItemDescriptor>& Item : Each.SpreadChoices)
+			{
+				if (Item != Pick)
+				{
+					Others.Add(STNames::Item(Item));
+				}
+			}
+			const FString Old = Each.OneItemNote;
+			Each.OneItemNote = FString::Printf(TEXT("belts also carry %s; one item per platform: one no other platform for the same %s has yet; check it"),
+				*FString::Join(Others, TEXT(", ")), Each.Machines.Num() > 0 ? TEXT("machines") : TEXT("station"));
+			Each.Note = Old.IsEmpty() || !Each.Note.Contains(Old) ? (Each.Note.IsEmpty() ? Each.OneItemNote : Each.OneItemNote + TEXT("; ") + Each.Note)
+				: Each.Note.Replace(*Old, *Each.OneItemNote);
+			Each.Confidence = TEXT("medium");
+			UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION %s platform %d: %s instead of %s, which another platform for the same machines already has"),
+				*STLayout::Name(Preview.Stations[Refs[Index].Station].Station.Get()), Each.Index + 1, *STNames::Item(Pick), *STNames::Item(Each.Items[0]));
+			Each.Items = {Pick};
+			++Changed;
+		}
+		UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION shared out items: %d platforms changed"), Changed);
+	}
+
 	void InferFromRoutes(STMigration::FPreview& Preview, bool bOneItem)
 	{
 		TMap<const AFGTrainStationIdentifier*, int32> StationIndex;
@@ -472,6 +586,18 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 				}
 				return TEXT("the largest flow; check it");
 			};
+			// The choices in ChooseOne's order after stock: the ones its timetables send, then by traced flow.
+			auto SpreadOrder = [&Scheduled](const TArray<UClass*>& Choices, const TMap<UClass*, float>& Flow)
+			{
+				TArray<UClass*> Order = Choices;
+				Order.StableSort([&](const UClass& A, const UClass& B)
+				{
+					const bool bA = Scheduled.Contains(&A);
+					const bool bB = Scheduled.Contains(&B);
+					return bA != bB ? bA : Flow.FindRef(&A) > Flow.FindRef(&B);
+				});
+				return TArray<TSubclassOf<UFGItemDescriptor>>(Order);
+			};
 			const int32 FromInventory = Backup.Num();
 			for (UClass* Item : (bLoadMode ? LoadItemsAt : UnloadItemsAt).FindRef(Identifier))
 			{
@@ -502,6 +628,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 				if (Traced.Num() > 0)
 				{
 					Source = TEXT("trace");
+					Platform.Machines = Trace.MachineActors;
 					if (bOneItem && Traced.Num() > 1)
 					{
 						TMap<UClass*, float> Flow;
@@ -511,6 +638,10 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 						}
 						UClass* Chosen = nullptr;
 						const FString How = ChooseOne(Traced.Array(), Flow, Chosen);
+						if (!How.StartsWith(TEXT("the one it holds")))
+						{
+							Platform.SpreadChoices = SpreadOrder(Traced.Array(), Flow);
+						}
 						TArray<FString> Others;
 						for (UClass* Item : Traced)
 						{
@@ -565,6 +696,10 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 					{
 						UClass* Chosen = nullptr;
 						const FString How = ChooseOne(Backup.Array(), TMap<UClass*, float>(), Chosen);
+						if (!How.StartsWith(TEXT("the one it holds")))
+						{
+							Platform.SpreadChoices = SpreadOrder(Backup.Array(), TMap<UClass*, float>());
+						}
 						Platform.Items.Add(Chosen);
 						Platform.Note += FString::Printf(TEXT("; one item per platform: %s"), *How);
 					}
@@ -629,6 +764,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 		Preview.Stations.Add(MoveTemp(Station));
 	}
 
+	ShareOutItems(Preview);
 	InferFromRoutes(Preview, bOneItem);
 
 	// Platforms set by hand in the migration window keep that setting.

@@ -304,6 +304,7 @@ namespace
 			if (const AFGBuildableManufacturer* Manufacturer = Cast<AFGBuildableManufacturer>(Owner))
 			{
 				++Result.Machines;
+				Result.MachineActors.AddUnique(Owner);
 				const TSubclassOf<UFGRecipe> Recipe = Manufacturer->GetCurrentRecipe();
 				if (!Recipe)
 				{
@@ -328,6 +329,7 @@ namespace
 			if (const AFGBuildableResourceExtractorBase* Extractor = Cast<AFGBuildableResourceExtractorBase>(Owner))
 			{
 				++Result.Machines;
+				Result.MachineActors.AddUnique(Owner);
 				if (!bUpstream)
 				{
 					AddUnique(Result.Notes, FString::Printf(TEXT("%s only produces"), *Label(Owner)));

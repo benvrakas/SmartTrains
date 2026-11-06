@@ -36,6 +36,8 @@ namespace STTrace
 		TSubclassOf<UFGItemDescriptor> PipeFluidHint;
 		EConfidence Confidence = EConfidence::Unclear;
 		int32 Machines = 0;
+		// The machines reached, for grouping platforms that serve the same machines.
+		TArray<TWeakObjectPtr<const AActor>> MachineActors;
 		// Machine items stopped by a splitter or balancer filter on the way.
 		int32 Filtered = 0;
 		int32 Nodes = 0;

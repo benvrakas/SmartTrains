@@ -38,6 +38,18 @@ through belts, lifts, splitters, mergers, pipes, junctions and pumps and stops a
   the one it holds most of now, else one its timetables send (DynamicTimeTable or vanilla), else the largest traced
   flow (marked medium, "check it"). The others are listed in the note. The window's "Items per platform" switch
   (or `allitems` in chat) keeps every traced item, for mixed (sushi) belts.
+- **Sharing out between platforms** (`ShareOutItems`): platforms whose one item wasn't settled by their own stock
+  share out the items their traces found.
+  - A group is the platforms of one role whose traces reach a machine in common, across stations. Two platforms
+    feeding the same cable machines are one group, even at different stations.
+  - A platform whose trace reached no machine groups with its station's platforms of that role.
+  - Each platform takes the best item no other platform of its group has yet. Platforms settled by their stock keep
+    their item and count as taken.
+  - A group with more platforms than items gives the rest their best item again.
+  - A changed platform is marked medium, "one no other platform for the same machines has yet; check it", and logged
+    as `MIGRATION <station> platform <n>: <item> instead of <item>`.
+  - Without it, two empty platforms whose belts reach machines using Copper Ingot and Caterium Ingot would both get
+    the same item.
 - **The trace decides the items** whenever it finds any. The platform's inventory and timetable filters are only
   used when the trace finds nothing; items they name that aren't on the belts are listed as ignored.
 - Confidence: **high** for a clean trace, or one the platform's stock or timetables confirm; **medium** through
