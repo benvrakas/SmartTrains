@@ -1156,21 +1156,25 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 	{
 		return;
 	}
-	// A train with a trip to repeat waits where it is, ready for it; only one that never had a trip goes to a depot.
-	const bool bHasTrip = mSettings.bRepeatLastJob && State.LastWorkJob.Legs.Num() > 0;
-	AFGTrainStationIdentifier* Depot = bHasTrip ? nullptr : FindDepot(State, State.LastStation.Get());
+	// Nothing worth repeating: a train goes to a depot if there is one. With no depot, a train with a trip keeps running
+	// its last trip as it was until it gets a new one, so it never stands still on the line.
+	AFGTrainStationIdentifier* Depot = FindDepot(State, State.LastStation.Get());
 	if (Depot && Depot != State.LastStation)
 	{
 		SendToStation(State, Depot, Why);
 		return;
 	}
-	// A train isn't parked on the line: one still at speed drives on to the stop it was heading for, and one that
-	// isn't at a station (e.g. just managed out on the track) drives to the nearest station, and parks there.
+	if (!Depot && mSettings.bRepeatLastJob && KeepRunningLastJob(State, Why))
+	{
+		return;
+	}
 	const AFGRailroadVehicle* First = State.Train->GetFirstVehicle();
 	const bool bMoving = First && First->GetVelocity().Size() > 300.0;
 	const bool bOnTheLine = !State.Train->IsDocked() && !State.LastStation;
 	AFGRailroadTimeTable* TimeTable = State.Train->GetTimeTable();
 	AFGTrainStationIdentifier* Heading = TimeTable && TimeTable->IsValidStop(TimeTable->GetCurrentStop()) ? TimeTable->GetStop(TimeTable->GetCurrentStop()).Station.Get() : nullptr;
+	// A train isn't parked on the line: one still at speed drives on to the stop it was heading for, and one that
+	// isn't at a station (e.g. just managed out on the track) drives to the nearest station, and parks there.
 	if (bMoving || bOnTheLine)
 	{
 		Heading = Heading ? Heading : FindNearestStation(State.Train);
@@ -1356,6 +1360,71 @@ bool ASTSubsystem::RepeatLastJob(FSTTrainState& State, const TCHAR* Why)
 	State.Phase = ESTTrainPhase::Working;
 	CommitJob(State, MoveTemp(Job), FString::Printf(TEXT("%s: repeats its last trip (%s) [%s], %d moved"), *STLayout::Name(State.Train), Why,
 		*Planner.Describe(Stops, Result), Result.Moved));
+	return true;
+}
+
+bool ASTSubsystem::KeepRunningLastJob(FSTTrainState& State, const TCHAR* Why)
+{
+	const FSTJob& Last = State.LastWorkJob;
+	if (Last.Legs.Num() == 0 || !IsValid(State.Train))
+	{
+		return false;
+	}
+	// From the stop after the one it is at, and where it can not towards a station other trains are heading for.
+	const AFGTrainStationIdentifier* Here = State.Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation.Get() : State.LastStation.Get();
+	int32 First = 0;
+	if (Here)
+	{
+		const int32 At = Last.Legs.IndexOfByPredicate([Here](const FSTJobLeg& Leg) { return Leg.Station == Here; });
+		First = At == INDEX_NONE ? 0 : (At + 1) % Last.Legs.Num();
+	}
+	for (int32 Offset = 0; Offset < Last.Legs.Num(); ++Offset)
+	{
+		const int32 Start = (First + Offset) % Last.Legs.Num();
+		const AFGTrainStationIdentifier* Station = Last.Legs[Start].Station.Get();
+		if (Station != Here && !IsStationQueued(Station, State.Train))
+		{
+			First = Start;
+			break;
+		}
+	}
+	FSTJob Job;
+	Job.Id = mNextJobId++;
+	Job.bRepeat = true;
+	Job.StartedAt = Now();
+	Job.LegStartedAt = Job.StartedAt;
+	for (int32 Offset = 0; Offset < Last.Legs.Num(); ++Offset)
+	{
+		FSTJobLeg Leg = Last.Legs[(First + Offset) % Last.Legs.Num()];
+		for (FSTCarWork& Work : Leg.Work)
+		{
+			Work.MovedAmount = 0;
+		}
+		Job.Legs.Add(MoveTemp(Leg));
+	}
+	if (Job.Legs.Num() == 1 && Job.Legs[0].Station == Here)
+	{
+		return false;
+	}
+	double Clock = Now();
+	const AFGTrainStationIdentifier* Previous = Here;
+	for (FSTJobLeg& Leg : Job.Legs)
+	{
+		const float Travel = Previous && Previous != Leg.Station ? EstimateTravelSeconds(Previous, Leg.Station, IsPushPull(State.Train)) : 0.f;
+		Clock += FMath::Max(0.f, Travel);
+		Leg.PlannedArrival = Clock;
+		Clock += EstimateStaySeconds(Leg.Station);
+		Previous = Leg.Station;
+	}
+	Job.Summary = TEXT("again: ") + (Last.Summary.StartsWith(TEXT("again: ")) ? Last.Summary.RightChop(7) : Last.Summary);
+	TArray<FString> Stations;
+	for (const FSTJobLeg& Leg : Job.Legs)
+	{
+		Stations.Add(STLayout::Name(Leg.Station.Get()));
+	}
+	State.Phase = ESTTrainPhase::Working;
+	CommitJob(State, MoveTemp(Job), FString::Printf(TEXT("%s: keeps running its last trip until it gets a new one (%s; nothing worth repeating, no depot): %s"), *STLayout::Name(State.Train), Why,
+		*FString::Join(Stations, TEXT(" -> "))));
 	return true;
 }
 

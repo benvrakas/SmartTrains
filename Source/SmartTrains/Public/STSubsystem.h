@@ -252,6 +252,10 @@ private:
 	// stops that would move nothing (RepeatLastJob). Returns false if nothing of it is worth driving, or another train
 	// already runs it.
 	bool RepeatLastJob(FSTTrainState& State, const TCHAR* Why);
+	// Gives the train its last trip as it was, with no simulation, to run until it gets a new one: for when nothing is
+	// worth repeating and there is no depot, so it keeps moving instead of standing on the line. Returns false if it has
+	// no trip.
+	bool KeepRunningLastJob(FSTTrainState& State, const TCHAR* Why);
 	// True if other managed trains (2 or more, Except not counted) are on their way to Station, or Auto Trains reports a
 	// queue there.
 	bool IsStationQueued(const AFGTrainStationIdentifier* Station, const AFGTrain* Except) const;

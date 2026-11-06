@@ -173,8 +173,12 @@ A repeat is simulated like a new trip (`RepeatLastJob`: `BuildNodes`, `BuildBook
 the cargo on board and the stations now; stops whose cars move nothing are dropped and it is simulated again. It isn't
 run when nothing is left, the simulation fails (queue limit, batch), or another managed train's remaining stops are
 the same stations. Repeats book nothing (`BuildBookings`) and reserve nothing, and a repeat ends at every stop it
-leaves, so the train is planned again from there. A train whose repeat isn't run waits where it is (no depot) and
-tries again every 30 s (`RepeatRetrySeconds`).
+leaves, so the train is planned again from there. When the repeat isn't run, the train goes to a depot if there is
+one and tries again from there every 30 s (`RepeatRetrySeconds`). With no depot it keeps running its last trip as it
+was until it gets a new one (`KeepRunningLastJob`, no simulation; like any repeat it books nothing, a new trip can
+take the train at any time, and it ends at the next stop it leaves), so it keeps moving: a waiting train has self-driving off, and Auto
+Trains treats it as standing there for good, so on a through line or single track it would block every train
+passing.
 
 **Delivery reservations per platform:** like pickups, a planned delivery records its platform. `GetPlatformRoom` is
 the platform's free room plus what its machines use before the train arrives, less the deliveries promised to it and

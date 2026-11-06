@@ -10,10 +10,11 @@
     route at once and filled its stations;
   - repeats don't book stations, so new trips are no longer turned away because of them;
   - a repeat is looked at again at every stop it leaves, so the train takes a new trip as soon as there is one.
-  A train whose repeat has nothing to do waits where it is (the monitor says "Going to wait"), and tries again every
-  30 s. It no longer drives to a depot, and it no longer parks because other trains head for its stations. Only a
-  train that never had a trip that picks up and delivers still goes to a depot. `REPEAT` log lines say why a repeat
-  isn't run.
+  When the repeat has nothing worth doing, a train goes to a depot if there is one (the monitor says "Going to
+  wait") and tries again from there every 30 s. With no depot, it keeps running its last trip as it was until it
+  gets a new one (it takes a new trip at any time, and is looked at again at every stop), so it never stands still on
+  a line. It no longer parks because other trains head for its stations. `REPEAT` log lines
+  say why a planned repeat isn't run.
 - **Monitor: "Low supply".** An item whose demand platforms are starved and whose supply takes over 30 minutes to fill
   one freight car is "Low supply", with how long a car takes. A trip for it carries a nearly empty car, so trains
   rarely go. It used to show "No trips planned", since starved platforms use nothing and their demand can't be
