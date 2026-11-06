@@ -42,6 +42,10 @@ namespace
 				LOCTEXT("DetailedLogTip", "Writes much more to FactoryGame.log: every dispatch round, why each free train got no trip, re-plans, connection traces and dock maps. Turn it on to report a problem.")},
 			{TEXT("JobNames"), &FSTSettings::bJobNames, LOCTEXT("JobNames", "Show jobs in train names"),
 				LOCTEXT("JobNamesTip", "Renames each managed train to show what it is doing, e.g. \"ST: Iron Plate -> Steel Mill\". The original name comes back when this is turned off or the train is no longer managed.")},
+			{TEXT("LeaveAtOnce"), &FSTSettings::bLeaveAtOnce, LOCTEXT("LeaveAtOnce", "Trains leave stations at once"),
+				LOCTEXT("LeaveAtOnceTip", "Every stop is load/unload once: a train moves what it can in one transfer and leaves. A train with a trip also starts it at once instead of holding in the station while its next stop is busy or Auto Trains sees no way yet. Off: deliveries and pickups wait up to their longest wait, and trains hold in stations.")},
+			{TEXT("RepeatLastJob"), &FSTSettings::bRepeatLastJob, LOCTEXT("RepeatLastJob", "Repeat the last job instead of parking"),
+				LOCTEXT("RepeatLastJobTip", "A train with no new trip runs its last job again, like a timetable loop, instead of parking in a station. It takes a new trip as soon as one is worth it. Off: idle trains park and move out of the way when a station is needed.")},
 			{TEXT("AdminsOnly"), &FSTSettings::bAdminsOnly, LOCTEXT("AdminsOnly", "Only admins change SmartTrains"),
 				LOCTEXT("AdminsOnlyTip", "In multiplayer, only the host (or, on a dedicated server, its admins) can change platform, station and train settings. Server settings, migration, test copies and backups are always admin only. On a dedicated server, change settings in game with /st set.")},
 		};

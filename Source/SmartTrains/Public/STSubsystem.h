@@ -84,6 +84,11 @@ public:
 	// Starts or ends management of Train. Starting saves its timetable; ending puts it back and lets it drive on.
 	// Returns false with OutWhy set if it can't be managed (kept vanilla, no locomotive).
 	bool SetTrainManaged(AFGTrain* Train, bool bManaged, const FString& Cause, FString& OutWhy);
+	// Deletes everything in Train's freight cars; a managed train's trip is planned again. Returns the items removed
+	// (fluids in m3).
+	int32 EmptyTrainCars(AFGTrain* Train, const FString& Cause);
+	// Managed trains, for commands that act on all of them.
+	TArray<AFGTrain*> GetManagedTrains() const;
 	void SetTrainKeepVanilla(AFGTrain* Train, bool bKeepVanilla, const FString& Cause);
 
 	// Gives Train a job by hand (for testing): pick up Item at From with the cars that fit, deliver it to To.
@@ -230,6 +235,11 @@ private:
 	// Called when State's train docks at Station / leaves it.
 	void OnDocked(FSTTrainState& State, AFGTrainStationIdentifier* Station);
 	void OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* Station, double Stay);
+	// Ends a docked train's stay once its planned transfer here is done, or when nothing has moved for a while, so it
+	// doesn't wait out the stop's time while blocking the station and locking its platforms.
+	void ReleaseDockWhenDone(FSTTrainState& State, double Time);
+	// Gives the train its last job again (RepeatLastJob). Returns false if it has none to repeat from where it is.
+	bool RepeatLastJob(FSTTrainState& State, const TCHAR* Why);
 	// Records which vehicle is beside each platform of Station now.
 	void LearnDockMap(AFGTrain* Train, AFGTrainStationIdentifier* Station);
 	void LearnTrip(AFGTrainStationIdentifier* From, AFGTrainStationIdentifier* To, float Seconds);

@@ -48,6 +48,9 @@ Setting a role switches the platform to load (supply) or unload (demand).
 - `/st train unmanage`: gives the saved timetable and autopilot back.
 - `/st train keepvanilla on|off`: never managed or proposed by the migration tool.
 - `/st job <item> from <station> to <station>`: a test job for a managed train, using the cars that fit.
+- `/st emptycars`: deletes all cargo in the freight cars of the train you drive or look at (admin only, no undo).
+  `/st emptycars all confirm` does it for every managed train. A managed train's trip is planned again. Logged as
+  `EMPTY <train> by <player>: removed ...`.
 
 ## Migration (see Migration.md)
 
@@ -84,6 +87,7 @@ to the server with the admin password in the Server Manager. The server console 
 
 - **Always admin only:**
   - `/st set`;
+  - `/st emptycars`;
   - `/st migrate apply` and `undo`, and Apply and Undo in the migration window;
   - `/st testcopy` and `/st backup`, also from the migration window.
 - **Admin only when "Only admins change SmartTrains" is on** (`/st set AdminsOnly on`, off by default): platform,

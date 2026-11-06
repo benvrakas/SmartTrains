@@ -35,6 +35,19 @@ Trains, if installed) drive and dock:
   load filter = `[None]`.
 - Drive-only stop (depot, moving out of the way): *load/unload once*, no wait, both filters `[None]`.
 
+**Stays end when the work is done** (`ReleaseDockWhenDone`, every 0.25 s while a managed train is docked):
+- The stay ends at once when every car has moved its planned amount for this stop.
+- After the first 30 s, it also ends when nothing has moved for 20 s, e.g. a platform with no room left.
+- It ends through the station's `ClearRuleSetTimeRequirement`: the stop's time drops to 0, so "fully load/unload,
+  or N s" lets the train go. Logged as `DOCK <train> at <station>: ... the stay ends now`.
+- Stops are also written with `IgnoreFullLoadUnloadIfTransferBlockedByFilters`. A car only moves its filtered items,
+  so cargo kept for a later stop no longer holds up "fully".
+
+Before this, a train that unloaded what the platform had room for waited out the whole delivery wait. With the
+docking sequence that came to 3-4 minutes. Meanwhile it blocked the station for the trains behind it and locked its
+platforms and locomotive menu. The long stays also made the learned stay times, and every trip estimate built on
+them, far too long.
+
 `[None]` is a filter list holding only a null class. `IsLoadUnloadBlockedByNoneFilter` treats it as "transfer
 nothing" and such a platform doesn't hold the train. An empty list would mean "everything".
 
@@ -126,8 +139,21 @@ settings change (`DispatchRound`):
 7. **Holding:** a trip is not started yet when the train is standing in a station (docked, or parked with
    self-driving off) and its first stop is free more than 20 s after the train could get there. The train waits
    where it is, and later rounds plan it again ("holding at ..."). A train queued on the line blocks the junctions
-   behind it; one waiting in a station blocks nobody.
-8. Parked trains move to a depot, or else to the nearest station no trip uses, when a trip needs their station
+   behind it; one waiting in a station blocks nobody. **Off while "Trains leave stations at once" is on** (the
+   default since 0.6.3), together with the Auto Trains way-out check before leaving: a train starts its trip at once.
+- A trip never starts at the station the train is docked at, or left in the last 60 s (`JustLeftAnchorSeconds`)
+  unless it stands there parked. A train with leftovers for a consumer it just served would otherwise dock there
+  again at once, over and over.
+- For 10 s after a timetable write, a current stop the game moved on by one (the departure that followed the write)
+  is set back to the job's leg (`TIMETABLE` log line).
+8. **Repeat instead of parking** ("Repeat the last job instead of parking", on by default since 0.6.3, `RepeatLastJob`):
+   - A train left with no new trip runs its last job that moved cargo (`LastWorkJob`, saved) again, from the stop after
+     the one it is at. Only a train that never had such a job, or whose job was a single stop where it stands, parks.
+   - A repeat (`FSTJob::bRepeat`, summary "again: ...") reserves no stock or room.
+   - It isn't planned again after each stop.
+   - The train counts as free in every dispatch round, so the first trip worth running replaces it.
+   - Logged as `JOB <id> <train>: repeats its last job (...)`.
+9. Parked trains move to a depot, or else to the nearest station no trip uses, when a trip needs their station
    (held trips included), or (with Auto Trains) when a train has waited 20 s for them (`BLOCKING`).
    - With Auto Trains the way out is checked first (`ExternalCheckLeg`). If it isn't clear, the train stays, and the
      trips heading there re-plan from scratch (`REROUTE`).

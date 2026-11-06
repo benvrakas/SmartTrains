@@ -37,6 +37,11 @@ namespace
 {
 	// How long a move that moved nothing isn't planned again for that train. [min]
 	constexpr double NoProgressMinutes = 10.0;
+	// For this long after a timetable is written, a current stop the game moved on by one is set back. [s]
+	constexpr double WriteSettleSeconds = 10.0;
+	// A docked train's stay ends once nothing has moved for this long, after at least the first transfer. [s]
+	constexpr double DockIdleSeconds = 20.0;
+	constexpr double DockFirstTransferSeconds = 30.0;
 }
 
 ASTSubsystem* ASTSubsystem::Get(const UObject* WorldContext)
@@ -462,6 +467,9 @@ void ASTSubsystem::MonitorTrains()
 			}
 			State.DockedAt = Time;
 			State.DockedStation = Station;
+			State.bDockReleased = false;
+			State.DockMoved = 0;
+			State.DockProgressAt = Time;
 			OnDocked(State, Station);
 		}
 		else if (!bDocked && State.bWasDocked)
@@ -473,6 +481,10 @@ void ASTSubsystem::MonitorTrains()
 		if (bDocked && mPendingDockMaps.Contains(Train))
 		{
 			LearnDockMap(Train, State.DockedStation.Get());
+		}
+		if (bDocked && !mSettings.bObserveOnly)
+		{
+			ReleaseDockWhenDone(State, Time);
 		}
 
 		if (mSettings.bObserveOnly || !TimeTable)
@@ -518,6 +530,20 @@ void ASTSubsystem::MonitorTrains()
 				}
 			}
 		}
+		// A timetable written as the train pulls out can be moved on by the game's departure right after: its first stop
+		// would be skipped. Shortly after a write, the current stop is kept at the job's leg.
+		if (State.Phase == ESTTrainPhase::Working && State.bHasJob && !bDocked && Time - State.LastCommandAt < WriteSettleSeconds)
+		{
+			const int32 Expected = State.Job.Leg - State.WrittenFromLeg;
+			const int32 Current = TimeTable->GetCurrentStop();
+			if (Expected >= 0 && Expected < TimeTable->GetNumStops() && Current == Expected + 1)
+			{
+				TimeTable->SetCurrentStop(Expected);
+				STAt::TimeTableChanged(GetWorld(), Train);
+				UE_LOG(LogSmartTrains, Log, TEXT("TIMETABLE %s: the game moved on to stop %d right after job %d was written; set back to stop %d (%s)"), *STLayout::Name(Train),
+					Current + 1, State.Job.Id, Expected + 1, *STLayout::Name(TimeTable->GetStop(Expected).Station.Get()));
+			}
+		}
 		// The game's self-driving error (no path, station unreachable, ...), logged when it changes.
 		const uint8 Error = Train->IsSelfDrivingEnabled() ? static_cast<uint8>(Train->GetSelfDrivingError()) : 0;
 		if (Error != State.LastSelfDrivingError)
@@ -534,6 +560,98 @@ void ASTSubsystem::MonitorTrains()
 			SettleIdle(State, TEXT("autopilot switched on by someone"));
 		}
 	}
+}
+
+int32 ASTSubsystem::EmptyTrainCars(AFGTrain* Train, const FString& Cause)
+{
+	if (!IsValid(Train))
+	{
+		return 0;
+	}
+	int64 Removed = 0;
+	TArray<FString> Items;
+	for (const TPair<UClass*, int32>& Each : GetCargo(Train))
+	{
+		const bool bFluid = STNames::IsFluid(Each.Key);
+		Removed += bFluid ? Each.Value / 1000 : Each.Value;
+		Items.Add(FString::Printf(TEXT("%d %s"), bFluid ? Each.Value / 1000 : Each.Value, *STNames::Item(Each.Key)));
+	}
+	for (AFGRailroadVehicle* Vehicle : STLayout::GetVehicles(Train))
+	{
+		if (AFGFreightWagon* Car = Cast<AFGFreightWagon>(Vehicle))
+		{
+			if (UFGInventoryComponent* Inventory = Car->GetFreightInventory())
+			{
+				Inventory->Empty();
+			}
+		}
+	}
+	UE_LOG(LogSmartTrains, Log, TEXT("EMPTY %s by %s: removed %s"), *STLayout::Name(Train), *Cause, Items.Num() > 0 ? *FString::Join(Items, TEXT(", ")) : TEXT("nothing"));
+	if (FSTTrainState* State = mTrains.FindByPredicate([Train](const FSTTrainState& Each) { return Each.Train == Train; }); State && State->bManaged && State->bHasJob && !State->Job.bPark)
+	{
+		State->bReplan = true;
+		State->bReplanFresh = true;
+		bDispatchSoon = true;
+	}
+	return static_cast<int32>(FMath::Min<int64>(Removed, MAX_int32));
+}
+
+TArray<AFGTrain*> ASTSubsystem::GetManagedTrains() const
+{
+	TArray<AFGTrain*> Trains;
+	for (const FSTTrainState& State : mTrains)
+	{
+		if (State.bManaged && IsValid(State.Train))
+		{
+			Trains.Add(State.Train);
+		}
+	}
+	return Trains;
+}
+
+void ASTSubsystem::ReleaseDockWhenDone(FSTTrainState& State, double Time)
+{
+	AFGTrainStationIdentifier* Station = State.DockedStation.Get();
+	if (State.bDockReleased || !State.bHasJob || State.Job.bPark || !Station || !State.Job.Legs.IsValidIndex(State.Job.Leg)
+		|| State.Job.Legs[State.Job.Leg].Station != Station)
+	{
+		return;
+	}
+	const FSTJobLeg& Leg = State.Job.Legs[State.Job.Leg];
+	if (!Leg.HasWork())
+	{
+		return;
+	}
+	const TArray<int32> Before = mDockStartAmounts.FindRef(State.Train);
+	int32 Moved = 0;
+	bool bAllDone = true;
+	for (int32 Index = 0; Index < Leg.Work.Num(); ++Index)
+	{
+		const FSTCarWork& Work = Leg.Work[Index];
+		const int32 Start = Before.IsValidIndex(Index) ? Before[Index] : 0;
+		const int32 Done = FMath::Abs(CountInCar(Work.Car, Work.Item) - Start);
+		Moved += Done;
+		bAllDone &= Done >= Work.PlannedAmount;
+	}
+	if (Moved != State.DockMoved)
+	{
+		State.DockMoved = Moved;
+		State.DockProgressAt = Time;
+	}
+	const bool bIdle = Time - State.DockedAt >= DockFirstTransferSeconds && Time - State.DockProgressAt >= DockIdleSeconds;
+	if (!bAllDone && !bIdle)
+	{
+		return;
+	}
+	AFGBuildableRailroadStation* Building = Station->GetStation();
+	if (!Building)
+	{
+		return;
+	}
+	State.bDockReleased = true;
+	Building->ClearRuleSetTimeRequirement();
+	UE_LOG(LogSmartTrains, Log, TEXT("DOCK %s at %s: %s after %.0f s (%d moved); the stay ends now"), *STLayout::Name(State.Train), *STLayout::Name(Station),
+		bAllDone ? TEXT("planned transfer done") : *FString::Printf(TEXT("nothing moved for %.0f s"), Time - State.DockProgressAt), Time - State.DockedAt, Moved);
 }
 
 void ASTSubsystem::OnDocked(FSTTrainState& State, AFGTrainStationIdentifier* Station)
@@ -669,7 +787,7 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 	{
 		FinishJob(State);
 	}
-	else if (!State.Job.bPark)
+	else if (!State.Job.bPark && !State.Job.bRepeat)
 	{
 		// The rest of the trip is planned again from what the cars really hold now.
 		State.bReplan = true;

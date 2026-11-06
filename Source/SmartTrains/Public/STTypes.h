@@ -243,6 +243,11 @@ struct SMARTTRAINS_API FSTJob
 	UPROPERTY(SaveGame)
 	bool bPark = false;
 
+	// A run of the train's last job again, because nothing new was worth it: reserves nothing, and the train counts as
+	// free for new trips.
+	UPROPERTY(SaveGame)
+	bool bRepeat = false;
+
 	// One line for logs and readouts.
 	UPROPERTY(SaveGame)
 	FString Summary;
@@ -268,6 +273,10 @@ struct SMARTTRAINS_API FSTTrainState
 
 	UPROPERTY(SaveGame)
 	bool bManaged = false;
+
+	// The last finished job that moved cargo, to run again when nothing new is worth it.
+	UPROPERTY(SaveGame)
+	FSTJob LastWorkJob;
 
 	// Never managed and never proposed by the migration tool.
 	UPROPERTY(SaveGame)
@@ -343,6 +352,12 @@ struct SMARTTRAINS_API FSTTrainState
 	double LastCommandAt = 0.0;
 	// Runtime only: the game's self-driving error at the last check, logged when it changes (0 = none).
 	uint8 LastSelfDrivingError = 0;
+	// Runtime only: the job leg the last written timetable starts with (its stop 0).
+	int32 WrittenFromLeg = 0;
+	// Runtime only, for the current dock: the stay was ended early, the cargo moved so far, and when it last changed.
+	bool bDockReleased = false;
+	int32 DockMoved = 0;
+	double DockProgressAt = 0.0;
 	// Runtime only: the job was replaced while the train was docked, so the coming departure ends the old job's dock.
 	bool bChainedWhileDocked = false;
 	// Runtime only: that job's timetable is written as the train leaves; written during the dock, the game moves it

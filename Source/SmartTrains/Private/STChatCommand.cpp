@@ -210,6 +210,7 @@ namespace
 		TEXT("/st migrate preview [tracelimit 5000] [allitems] | apply all [confirm] | apply stations 1,2 trains 3 | undo"),
 		TEXT("/st testcopy [session name] | /st backup"),
 		TEXT("/st settings | /st set <setting> <value>   (the server's settings; changing them is admin only)"),
+		TEXT("/st emptycars | /st emptycars all confirm   (deletes the cargo of the train you drive or look at, or of every managed train; admin only)"),
 	};
 }
 
@@ -291,6 +292,39 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		UE_LOG(LogSmartTrains, Log, TEXT("Settings: /st set %s %s by %s: %s"), *Arguments[1], *Arguments[2], *Who, *Message);
 		Sender->SendChatMessage(Message, bOk ? FLinearColor::White : FLinearColor::Red);
 		return bOk ? EExecutionStatus::COMPLETED : EExecutionStatus::BAD_ARGUMENTS;
+	}
+	if (Verb == TEXT("emptycars"))
+	{
+		if (!Allowed(Sender, *Subsystem, STAccess::EChange::Network, TEXT("empty trains' freight cars")))
+		{
+			return EExecutionStatus::UNCOMPLETED;
+		}
+		const bool bAll = Arguments.Num() > 1 && Arguments[1].Equals(TEXT("all"), ESearchCase::IgnoreCase);
+		if (bAll)
+		{
+			const TArray<AFGTrain*> Trains = Subsystem->GetManagedTrains();
+			if (!(Arguments.Num() > 2 && Arguments[2].Equals(TEXT("confirm"), ESearchCase::IgnoreCase)))
+			{
+				Sender->SendChatMessage(FString::Printf(TEXT("This deletes all cargo in the freight cars of %d managed trains, with no undo. Type /st emptycars all confirm to do it."), Trains.Num()), FLinearColor::Red);
+				return EExecutionStatus::BAD_ARGUMENTS;
+			}
+			int64 Removed = 0;
+			for (AFGTrain* Train : Trains)
+			{
+				Removed += Subsystem->EmptyTrainCars(Train, Who);
+			}
+			Sender->SendChatMessage(FString::Printf(TEXT("Emptied the freight cars of %d managed trains (%lld items and m3 deleted)."), Trains.Num(), Removed));
+			return EExecutionStatus::COMPLETED;
+		}
+		AFGTrain* Train = FindTrain(Sender);
+		if (!Train)
+		{
+			Sender->SendChatMessage(TEXT("Drive or look at a train first, or use /st emptycars all confirm."), FLinearColor::Red);
+			return EExecutionStatus::UNCOMPLETED;
+		}
+		const int32 Removed = Subsystem->EmptyTrainCars(Train, Who);
+		Sender->SendChatMessage(FString::Printf(TEXT("Emptied the freight cars of %s (%d items and m3 deleted)."), *STLayout::Name(Train), Removed));
+		return EExecutionStatus::COMPLETED;
 	}
 	if (Verb == TEXT("jobs"))
 	{

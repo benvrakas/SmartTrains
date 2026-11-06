@@ -530,15 +530,47 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 			}
 		}
 	}
-	// Solo scores, then keep the best few (cargo on board always).
+	// Solo scores, then keep the best few (cargo on board always). With Detailed log: why deliveries to High and
+	// Critical consumers score nothing by themselves.
+	const bool bDetail = UE_LOG_ACTIVE(LogSmartTrains, Verbose);
+	auto MoveName = [this](const FSTPlanMove& Move)
+	{
+		return FString::Printf(TEXT("%s %s -> %s"), *STNames::Item(Move.Item), Move.From == INDEX_NONE ? TEXT("on board") : *STLayout::Name(mNodes[Move.From].Station.Get()),
+			*STLayout::Name(mNodes[Move.To].Station.Get()));
+	};
+	TArray<FString> Unscored;
 	for (FSTPlanMove& Move : Moves)
 	{
 		TArray<FSTPlanStop> Stops;
 		FSTPlanResult Result;
 		double Second = 0.0;
+		const TMap<FString, int32> Before = bDetail ? mProblems : TMap<FString, int32>();
 		Move.SoloScore = InsertBest(Stops, Move, 0, Result, Second) ? Result.Score : 0.0;
+		if (bDetail && Move.SoloScore <= 0.0 && static_cast<uint8>(mNodes[Move.To].Priority) >= static_cast<uint8>(ESTPriority::High))
+		{
+			FString Why = TEXT("no value");
+			for (const TPair<FString, int32>& Each : mProblems)
+			{
+				if (Each.Value > Before.FindRef(Each.Key))
+				{
+					Why = Each.Key;
+					break;
+				}
+			}
+			Unscored.Add(FString::Printf(TEXT("%s (%s)"), *MoveName(Move), *Why));
+		}
 	}
 	Moves.Sort([](const FSTPlanMove& A, const FSTPlanMove& B) { return A.SoloScore > B.SoloScore; });
+	if (bDetail && Moves.Num() > 0)
+	{
+		TArray<FString> Best;
+		for (int32 Index = 0; Index < Moves.Num() && Index < 3; ++Index)
+		{
+			Best.Add(FString::Printf(TEXT("%s %.3f"), *MoveName(Moves[Index]), Moves[Index].SoloScore));
+		}
+		UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: best moves alone: %s%s%s"), *STLayout::Name(Train), *FString::Join(Best, TEXT("; ")),
+			Unscored.Num() > 0 ? TEXT("; scoring nothing alone: ") : TEXT(""), *FString::Join(TArray<FString>(Unscored.GetData(), FMath::Min(4, Unscored.Num())), TEXT("; ")));
+	}
 	int32 Kept = 0;
 	for (const FSTPlanMove& Move : Moves)
 	{

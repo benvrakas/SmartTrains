@@ -17,6 +17,10 @@ struct FSTSettings
 	bool bJobNames = false;
 	// Only admins (the host, or dedicated server admins) may change platform, station and train settings.
 	bool bAdminsOnly = false;
+	// Every stop is load/unload once, and a train with a trip leaves at once instead of holding in the station.
+	bool bLeaveAtOnce = true;
+	// A train with no new trip runs its last job again instead of parking.
+	bool bRepeatLastJob = true;
 	// How often jobs are handed out. [s]
 	float DispatchSeconds = 3.f;
 	// How often the flow plan is worked out again. [s]

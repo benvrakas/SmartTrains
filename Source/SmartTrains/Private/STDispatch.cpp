@@ -21,8 +21,8 @@ namespace
 	FString StopKey(const FTimeTableStop& Stop, const TArray<TObjectPtr<AFGRailroadVehicle>>& SkipCars)
 	{
 		const FTrainDockingRuleSet& Rules = Stop.DockingRuleSet;
-		FString Key = FString::Printf(TEXT("%p|%d|%.1f|%d|"), ToRawPtr(Stop.Station), static_cast<int32>(Rules.DockingDefinition), Rules.DockForDuration,
-			Rules.IsDurationAndRule ? 1 : 0);
+		FString Key = FString::Printf(TEXT("%p|%d|%.1f|%d|%d|"), ToRawPtr(Stop.Station), static_cast<int32>(Rules.DockingDefinition), Rules.DockForDuration,
+			Rules.IsDurationAndRule ? 1 : 0, Rules.IgnoreFullLoadUnloadIfTransferBlockedByFilters ? 1 : 0);
 		for (const TSubclassOf<UFGItemDescriptor>& Item : Rules.LoadFilterDescriptors)
 		{
 			Key += FString::Printf(TEXT("L%p"), Item.Get());
@@ -46,6 +46,8 @@ namespace
 
 	// A parked train's booking of its station: about how long moving it out takes. [s]
 	constexpr double ParkedLeaveSeconds = 60.0;
+	// A train that left a station this recently doesn't start a trip with that station again. [s]
+	constexpr double JustLeftAnchorSeconds = 60.0;
 	// A parked train in a dead-end station books it this far ahead, i.e. until it leaves (booked again every round). [s]
 	constexpr double DeadEndHoldSeconds = 3600.0;
 	// Auto Trains travel-time questions per dispatch round. [calls]
@@ -99,6 +101,8 @@ namespace
 	{
 		FTrainDockingRuleSet Rules;
 		Rules.IsDurationAndRule = false;
+		// A car only moves its filtered items, so cargo kept for a later stop never counts against "fully".
+		Rules.IgnoreFullLoadUnloadIfTransferBlockedByFilters = true;
 		const TSubclassOf<UFGItemDescriptor> None = nullptr;
 		const TArray<UClass*> Loads = Leg.GetItems(true);
 		const TArray<UClass*> Unloads = Leg.GetItems(false);
@@ -126,7 +130,7 @@ namespace
 		{
 			bFluidDeliveryOnly &= STNames::IsFluid(Item);
 		}
-		if (!Leg.HasWork() || Leg.bPartial || bFluidDeliveryOnly)
+		if (Settings.bLeaveAtOnce || !Leg.HasWork() || Leg.bPartial || bFluidDeliveryOnly)
 		{
 			Rules.DockingDefinition = ETrainDockingDefinition::TDD_LoadUnloadOnce;
 			Rules.DockForDuration = 0.f;
@@ -197,10 +201,10 @@ void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 			Node.bStarved |= Config.Role == ESTRole::Demand && ItemStats && ItemStats->EmptySeconds > 30.0;
 		}
 	}
-	// Amounts promised by jobs still to come.
+	// Amounts promised by jobs still to come (repeats promise nothing).
 	for (const FSTTrainState& State : mTrains)
 	{
-		if (!State.bManaged || !State.bHasJob)
+		if (!State.bManaged || !State.bHasJob || State.Job.bRepeat)
 		{
 			continue;
 		}
@@ -566,6 +570,14 @@ bool ASTSubsystem::GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifi
 		return OutStation != nullptr;
 	}
 	const FSTJob& Job = State.Job;
+	if (Job.bRepeat)
+	{
+		// Running its last job again: free to take a new trip from where it is.
+		OutStation = Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation.Get() : State.LastStation.Get();
+		OutStation = OutStation ? OutStation : FindNearestStation(Train);
+		OutTime = Train->IsDocked() ? FMath::Max(Time, State.DockedAt + EstimateStaySeconds(OutStation)) : Time;
+		return OutStation != nullptr;
+	}
 	if (Job.bPark && Job.Legs.Num() == 1 && !Job.Legs[0].HasWork())
 	{
 		// Heading for a depot or out of the way: free to take a job from where it last was.
@@ -737,7 +749,11 @@ void ASTSubsystem::DispatchRound()
 		{
 			continue;
 		}
-		Entry.bDocked = State.Train->IsDocked() && State.DockedStation.Get() == Entry.Anchor;
+		// Docked there, or just left it on the way out: no trip starts with that station again, so a train with leftovers
+		// doesn't dock at the same platform over and over. A train standing parked there may dock where it stands.
+		const bool bJustLeftAnchor = State.LastStation.Get() == Entry.Anchor && Time - State.LastDepartureAt < JustLeftAnchorSeconds
+			&& !(State.Phase == ESTTrainPhase::Parked && !State.Train->IsSelfDrivingEnabled());
+		Entry.bDocked = (State.Train->IsDocked() && State.DockedStation.Get() == Entry.Anchor) || bJustLeftAnchor;
 		if (Planner.BeginTrain(TrainIndex, Entry.Anchor, Entry.FreeAt, Entry.bDocked) && Planner.GetMoves().Num() > 0)
 		{
 			Entry.Moves = Planner.GetMoves();
@@ -843,7 +859,7 @@ void ASTSubsystem::DispatchRound()
 			const bool bInStation = State.Train->IsDocked() || (State.Phase == ESTTrainPhase::Parked && !State.Train->IsSelfDrivingEnabled()) || bJustLeft;
 			const float Travel = Stops[0].Station == Entry.Anchor ? 0.f : EstimateTravelSeconds(Entry.Anchor, Stops[0].Station, IsPushPull(State.Train));
 			const double Wait = Result.Arrive[0] - (Entry.FreeAt + FMath::Max(0.f, Travel));
-			if (bInStation && Travel >= 0.f && Wait > HoldAfterWaitSeconds)
+			if (bInStation && !mSettings.bLeaveAtOnce && Travel >= 0.f && Wait > HoldAfterWaitSeconds)
 			{
 				mHeldFor.Add(Stops[0].Station);
 				NoTrip(State, FString::Printf(TEXT("holding at %s: %s is booked by other trains, so it leaves later instead of queueing there"),
@@ -851,7 +867,7 @@ void ASTSubsystem::DispatchRound()
 				continue;
 			}
 			// With Auto Trains: the first leg must be drivable now, around every other train (single track included).
-			if (bInStation && Stops[0].Station != Entry.Anchor && Stops[0].Station->GetStation())
+			if (bInStation && !mSettings.bLeaveAtOnce && Stops[0].Station != Entry.Anchor && Stops[0].Station->GetStation())
 			{
 				float Seconds = -1.f;
 				FString Reason;
@@ -1090,6 +1106,10 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 			return;
 		}
 	}
+	if (mSettings.bRepeatLastJob && RepeatLastJob(State, Why))
+	{
+		return;
+	}
 	AFGTrainStationIdentifier* Depot = FindDepot(State, State.LastStation.Get());
 	if (Depot && Depot != State.LastStation)
 	{
@@ -1115,6 +1135,51 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 	Park(State, Why);
 }
 
+bool ASTSubsystem::RepeatLastJob(FSTTrainState& State, const TCHAR* Why)
+{
+	const FSTJob& Last = State.LastWorkJob;
+	if (Last.Legs.Num() == 0 || !IsValid(State.Train))
+	{
+		return false;
+	}
+	// Start from the stop after the one it is at, so it doesn't stop where it already stands.
+	const AFGTrainStationIdentifier* Here = State.Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation.Get() : State.LastStation.Get();
+	int32 First = 0;
+	if (Here)
+	{
+		const int32 At = Last.Legs.IndexOfByPredicate([Here](const FSTJobLeg& Leg) { return Leg.Station == Here; });
+		First = At == INDEX_NONE ? 0 : (At + 1) % Last.Legs.Num();
+	}
+	FSTJob Job;
+	Job.Id = mNextJobId++;
+	Job.bRepeat = true;
+	Job.StartedAt = Now();
+	Job.LegStartedAt = Job.StartedAt;
+	for (int32 Offset = 0; Offset < Last.Legs.Num(); ++Offset)
+	{
+		FSTJobLeg Leg = Last.Legs[(First + Offset) % Last.Legs.Num()];
+		for (FSTCarWork& Work : Leg.Work)
+		{
+			Work.MovedAmount = 0;
+		}
+		Leg.PlannedArrival = 0.0;
+		Job.Legs.Add(MoveTemp(Leg));
+	}
+	if (Job.Legs.Num() == 1 && Job.Legs[0].Station == Here)
+	{
+		return false;
+	}
+	Job.Summary = TEXT("again: ") + (Last.Summary.StartsWith(TEXT("again: ")) ? Last.Summary.RightChop(7) : Last.Summary);
+	TArray<FString> Stations;
+	for (const FSTJobLeg& Leg : Job.Legs)
+	{
+		Stations.Add(STLayout::Name(Leg.Station.Get()));
+	}
+	State.Phase = ESTTrainPhase::Working;
+	CommitJob(State, MoveTemp(Job), FString::Printf(TEXT("%s: repeats its last job (%s): %s"), *STLayout::Name(State.Train), Why, *FString::Join(Stations, TEXT(" -> "))));
+	return true;
+}
+
 void ASTSubsystem::FinishJob(FSTTrainState& State)
 {
 	const FSTJob Done = State.Job;
@@ -1129,6 +1194,10 @@ void ASTSubsystem::FinishJob(FSTTrainState& State)
 		Now() - Done.StartedAt, Moved, Planned);
 	State.bHasJob = false;
 	State.Phase = ESTTrainPhase::Idle;
+	if (!Done.bPark && Planned > 0 && Done.Legs.Num() > 0)
+	{
+		State.LastWorkJob = Done;
+	}
 	if (Done.bPark)
 	{
 		Park(State, TEXT("arrived"));
@@ -1418,6 +1487,7 @@ void ASTSubsystem::WriteJob(FSTTrainState& State, const TCHAR* Why)
 		TimeTable->SetStops(Stops);
 	}
 	TimeTable->SetCurrentStop(0);
+	State.WrittenFromLeg = State.Job.Leg;
 	if (!Train->IsSelfDrivingEnabled())
 	{
 		Train->SetSelfDrivingEnabled(true);

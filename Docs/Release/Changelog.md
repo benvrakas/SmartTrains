@@ -2,6 +2,30 @@
 
 ## 0.6.3 (beta)
 
+- **Fixed: a train docked at the same platform over and over.** A train that finished at a consumer set to keep 100%
+  still held some cargo, and was sent straight back to dock there again, blocking the trains behind it. A trip no
+  longer starts at the station the train left in the last minute; its leftovers go elsewhere.
+- **Fixed: a trip's first stop was sometimes skipped** ("legs were missed" in the log). A timetable written as the
+  train pulled out could be moved on by the game's departure right after. For 10 s after a write SmartTrains now puts
+  the current stop back (`TIMETABLE ... set back to stop ...`).
+- **Trains leave stations at once** (new setting, on by default). Every stop is load/unload once: a train moves what it
+  can in one transfer and leaves. A train with a trip starts it straight away, instead of holding in the station while
+  its next stop is busy or Auto Trains sees no way yet.
+- **No more parking** (new setting **Repeat the last job instead of parking**, on by default). A train with no new trip
+  runs its last job again, like a timetable loop. It takes a new trip as soon as one is worth it. Only a train that
+  never had a job yet parks.
+- **Fixed: trains stayed docked for minutes after their work was done.** A train that had unloaded what the platform
+  had room for waited out the whole "Delivery: longest wait" and more. Meanwhile it blocked the station for trains
+  behind it, and you couldn't edit it or its platforms.
+  - A stay now ends as soon as every car has moved what was planned for that stop.
+  - Otherwise it ends when nothing has moved for 20 s.
+  - Cargo a car keeps for a later stop no longer holds up "fully load/unload".
+  - Shorter stays also make SmartTrains' trip time estimates realistic again, so fewer trips are turned down as too
+    long.
+- **`/st emptycars`** (admin): deletes all cargo in the train you drive or look at; `/st emptycars all confirm` empties
+  every managed train. Useful for cars left with mixed or unwanted cargo.
+- Detailed log: each free train's best moves and their scores, and why deliveries to High and Critical consumers
+  score nothing by themselves (`PLANNER <train>: best moves alone: ...`).
 - **Migration shares items out between platforms.** Some platforms' belts lead to machines that use several items,
   e.g. Copper Ingot and Caterium Ingot for one cable factory, and nothing they hold decides between them. Those
   platforms now get different items instead of the same one. Platforms count together when their belts reach the same
