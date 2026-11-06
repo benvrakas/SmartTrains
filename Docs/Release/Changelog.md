@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.4 (beta)
+
+- **Repeats run the whole trip:** a train repeats the last trip it was given that picks up and delivers, as planned.
+  It no longer parks because its last job ended early, or was only a delivery of leftovers.
+- **Log:**
+  - When a stop moves none of what was planned (`NOPROGRESS`), the log lists every platform of that station: load or
+    unload, role, slots used and what it holds, so you can see why.
+  - Self-driving errors are logged only once they last 5 s. Short "No Path" blips as trains re-route on leaving a
+    station no longer fill the log.
+- **Monitor:** trains repeating their last job count as free, not busy ("repeating their last job (free for new
+  trips)", tile "Free now"). Arrivals on repeats no longer make stations look hours late.
+
+**Good to know**
+
+- Everyone in a multiplayer session needs SmartTrains 0.6.4.
+
 ## 0.6.3 (beta)
 
 - **Fixed: a train docked at the same platform over and over.** A train that finished at a consumer set to keep 100%

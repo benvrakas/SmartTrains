@@ -147,8 +147,10 @@ settings change (`DispatchRound`):
 - For 10 s after a timetable write, a current stop the game moved on by one (the departure that followed the write)
   is set back to the job's leg (`TIMETABLE` log line).
 8. **Repeat instead of parking** ("Repeat the last job instead of parking", on by default since 0.6.3, `RepeatLastJob`):
-   - A train left with no new trip runs its last job that moved cargo (`LastWorkJob`, saved) again, from the stop after
-     the one it is at. Only a train that never had such a job, or whose job was a single stop where it stands, parks.
+   - A train left with no new trip runs its last trip again (`LastWorkJob`, saved): the whole trip as committed, if it
+     picks up and delivers, from the stop after the one it is at, with planned arrivals from the travel and stay
+     estimates. Only a train that never had such a trip parks.
+   - The monitor counts repeating trains as free; their arrivals don't count towards station lateness.
    - A repeat (`FSTJob::bRepeat`, summary "again: ...") reserves no stock or room.
    - It isn't planned again after each stop.
    - The train counts as free in every dispatch round, so the first trip worth running replaces it.

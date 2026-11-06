@@ -32,6 +32,8 @@ private:
 		int32 Docked = 0;
 		int32 Parking = 0;
 		int32 Idle = 0;
+		// Running their last job again: free for new trips.
+		int32 Repeating = 0;
 	};
 	enum ENodeFlag : uint8
 	{

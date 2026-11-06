@@ -352,6 +352,9 @@ struct SMARTTRAINS_API FSTTrainState
 	double LastCommandAt = 0.0;
 	// Runtime only: the game's self-driving error at the last check, logged when it changes (0 = none).
 	uint8 LastSelfDrivingError = 0;
+	// Runtime only: the self-driving error now, since when, and whether it was logged (only once it lasts a while).
+	uint8 SelfDrivingError = 0;
+	double SelfDrivingErrorSince = 0.0;
 	// Runtime only: the job leg the last written timetable starts with (its stop 0).
 	int32 WrittenFromLeg = 0;
 	// Runtime only, for the current dock: the stay was ended early, the cargo moved so far, and when it last changed.

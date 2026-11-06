@@ -39,6 +39,8 @@ namespace
 	constexpr double NoProgressMinutes = 10.0;
 	// For this long after a timetable is written, a current stop the game moved on by one is set back. [s]
 	constexpr double WriteSettleSeconds = 10.0;
+	// A self-driving error is logged once it has lasted this long; shorter ones are the game re-routing. [s]
+	constexpr double SelfDrivingErrorLogSeconds = 5.0;
 	// A docked train's stay ends once nothing has moved for this long, after at least the first transfer. [s]
 	constexpr double DockIdleSeconds = 20.0;
 	constexpr double DockFirstTransferSeconds = 30.0;
@@ -545,12 +547,19 @@ void ASTSubsystem::MonitorTrains()
 			}
 		}
 		// The game's self-driving error (no path, station unreachable, ...), logged when it changes.
+		// Logged once it has lasted SelfDrivingErrorLogSeconds, and when a logged one clears.
 		const uint8 Error = Train->IsSelfDrivingEnabled() ? static_cast<uint8>(Train->GetSelfDrivingError()) : 0;
-		if (Error != State.LastSelfDrivingError)
+		if (Error != State.SelfDrivingError)
+		{
+			State.SelfDrivingError = Error;
+			State.SelfDrivingErrorSince = Time;
+		}
+		const bool bLasting = Error == 0 || Time - State.SelfDrivingErrorSince >= SelfDrivingErrorLogSeconds;
+		if (Error != State.LastSelfDrivingError && bLasting)
 		{
 			UE_LOG(LogSmartTrains, Log, TEXT("SELFDRIVING %s: %s%s"), *STLayout::Name(Train),
 				*StaticEnum<ESelfDrivingLocomotiveError>()->GetNameStringByValue(static_cast<int64>(Error)),
-				Error != 0 && State.bHasJob ? *FString::Printf(TEXT(" (job %d, leg %d)"), State.Job.Id, State.Job.Leg + 1) : TEXT(""));
+				Error != 0 && State.bHasJob ? *FString::Printf(TEXT(" for %.0f s (job %d, leg %d)"), Time - State.SelfDrivingErrorSince, State.Job.Id, State.Job.Leg + 1) : TEXT(""));
 			State.LastSelfDrivingError = Error;
 		}
 		if (State.Phase == ESTTrainPhase::Parked && Train->IsSelfDrivingEnabled() && !bDocked)
@@ -607,6 +616,46 @@ TArray<AFGTrain*> ASTSubsystem::GetManagedTrains() const
 		}
 	}
 	return Trains;
+}
+
+FString ASTSubsystem::DescribeStationPlatforms(const AFGTrainStationIdentifier* Station) const
+{
+	TArray<FString> Lines;
+	const TArray<AFGBuildableTrainPlatform*> Platforms = STLayout::GetPlatforms(Station ? Station->GetStation() : nullptr);
+	for (int32 Index = 0; Index < Platforms.Num(); ++Index)
+	{
+		const AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Platforms[Index]);
+		if (!Cargo || !STLayout::CanMoveCargo(Cargo))
+		{
+			continue;
+		}
+		const UFGInventoryComponent* Inventory = Cargo->GetInventory();
+		TMap<UClass*, int32> Held;
+		int32 Used = 0;
+		if (Inventory)
+		{
+			TArray<FInventoryStack> Stacks;
+			Inventory->GetInventoryStacks(Stacks);
+			for (const FInventoryStack& Stack : Stacks)
+			{
+				if (Stack.HasItems() && Stack.Item.GetItemClass())
+				{
+					Held.FindOrAdd(Stack.Item.GetItemClass()) += Stack.NumItems;
+					++Used;
+				}
+			}
+		}
+		TArray<FString> Items;
+		for (const TPair<UClass*, int32>& Each : Held)
+		{
+			Items.Add(FString::Printf(TEXT("%d %s"), STNames::IsFluid(Each.Key) ? Each.Value / 1000 : Each.Value, *STNames::Item(Each.Key)));
+		}
+		const FSTPlatformConfig* Config = FindPlatformConfig(Cargo);
+		Lines.Add(FString::Printf(TEXT("P%d %s, %s, %d of %d slots used%s%s"), Index + 1, Cargo->GetIsInLoadMode() ? TEXT("load") : TEXT("unload"),
+			Config ? *STNames::Settings(Config->Role, Config->Items) : TEXT("no role"), Used, Inventory ? Inventory->GetSizeLinear() : 0,
+			Items.Num() > 0 ? TEXT(": ") : TEXT(", empty"), *FString::Join(Items, TEXT(", "))));
+	}
+	return Lines.Num() > 0 ? FString::Join(Lines, TEXT("; ")) : FString(TEXT("none found"));
 }
 
 void ASTSubsystem::ReleaseDockWhenDone(FSTTrainState& State, double Time)
@@ -696,7 +745,7 @@ void ASTSubsystem::OnDocked(FSTTrainState& State, AFGTrainStationIdentifier* Sta
 	}
 	mDockStartAmounts.Add(Train, Amounts);
 	const double Late = Now() - Leg.PlannedArrival;
-	if (mThroughput && !State.Job.bPark)
+	if (mThroughput && !State.Job.bPark && !State.Job.bRepeat)
 	{
 		mThroughput->RecordArrival(Station, Late, Now());
 	}
@@ -770,8 +819,9 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 		{
 			State.NoProgress.RemoveAll([&](const FSTNoProgress& Old) { return Old.Until <= Now() || (Old.Station == Station && Old.Item == Each.Key.Key && Old.bLoad == Each.Key.Value); });
 			State.NoProgress.Add({Station, Each.Key.Key, Each.Key.Value, Now() + NoProgressMinutes * 60.0});
-			UE_LOG(LogSmartTrains, Log, TEXT("NOPROGRESS %s %s no %s at %s (%d planned); not planned again for %.0f minutes"), *STLayout::Name(Train),
-				Each.Key.Value ? TEXT("loaded") : TEXT("unloaded"), *STNames::Item(Each.Key.Key), *STLayout::Name(Station), Each.Value.Key, NoProgressMinutes);
+			UE_LOG(LogSmartTrains, Log, TEXT("NOPROGRESS %s %s no %s at %s (%d planned) in %.0f s; not planned again for %.0f minutes. Platforms there: %s"), *STLayout::Name(Train),
+				Each.Key.Value ? TEXT("loaded") : TEXT("unloaded"), *STNames::Item(Each.Key.Key), *STLayout::Name(Station), Each.Value.Key, Stay, NoProgressMinutes,
+				*DescribeStationPlatforms(Station));
 		}
 	}
 	const FString Line = FString::Printf(TEXT("JOB %d %s: left %s after %.0f s: %s"), State.Job.Id, *STLayout::Name(Train), *STLayout::Name(Station), Stay,

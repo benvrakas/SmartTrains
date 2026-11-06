@@ -1076,6 +1076,21 @@ void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& 
 	State.bChainedWhileDocked = State.Train->IsDocked();
 	State.Job = MoveTemp(Job);
 	State.bHasJob = true;
+	// A trip that picks up and delivers is the one to run again when nothing new is worth it, whole, as planned.
+	if (!State.Job.bPark && !State.Job.bRepeat)
+	{
+		bool bLoads = false;
+		bool bUnloads = false;
+		for (const FSTJobLeg& Leg : State.Job.Legs)
+		{
+			bLoads |= Leg.GetItems(true).Num() > 0;
+			bUnloads |= Leg.GetItems(false).Num() > 0;
+		}
+		if (bLoads && bUnloads)
+		{
+			State.LastWorkJob = State.Job;
+		}
+	}
 	UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s"), State.Job.Id, *Line);
 	if (State.bChainedWhileDocked)
 	{
@@ -1162,12 +1177,21 @@ bool ASTSubsystem::RepeatLastJob(FSTTrainState& State, const TCHAR* Why)
 		{
 			Work.MovedAmount = 0;
 		}
-		Leg.PlannedArrival = 0.0;
 		Job.Legs.Add(MoveTemp(Leg));
 	}
 	if (Job.Legs.Num() == 1 && Job.Legs[0].Station == Here)
 	{
 		return false;
+	}
+	double Clock = Now();
+	const AFGTrainStationIdentifier* Previous = Here;
+	for (FSTJobLeg& Leg : Job.Legs)
+	{
+		const float Travel = Previous && Previous != Leg.Station ? EstimateTravelSeconds(Previous, Leg.Station, IsPushPull(State.Train)) : 0.f;
+		Clock += FMath::Max(0.f, Travel);
+		Leg.PlannedArrival = Clock;
+		Clock += EstimateStaySeconds(Leg.Station);
+		Previous = Leg.Station;
 	}
 	Job.Summary = TEXT("again: ") + (Last.Summary.StartsWith(TEXT("again: ")) ? Last.Summary.RightChop(7) : Last.Summary);
 	TArray<FString> Stations;
@@ -1194,10 +1218,6 @@ void ASTSubsystem::FinishJob(FSTTrainState& State)
 		Now() - Done.StartedAt, Moved, Planned);
 	State.bHasJob = false;
 	State.Phase = ESTTrainPhase::Idle;
-	if (!Done.bPark && Planned > 0 && Done.Legs.Num() > 0)
-	{
-		State.LastWorkJob = Done;
-	}
 	if (Done.bPark)
 	{
 		Park(State, TEXT("arrived"));

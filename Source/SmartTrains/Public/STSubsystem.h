@@ -238,6 +238,8 @@ private:
 	// Ends a docked train's stay once its planned transfer here is done, or when nothing has moved for a while, so it
 	// doesn't wait out the stop's time while blocking the station and locking its platforms.
 	void ReleaseDockWhenDone(FSTTrainState& State, double Time);
+	// One line per cargo platform of Station: position, load or unload, role, slots used and what it holds. For logs.
+	FString DescribeStationPlatforms(const AFGTrainStationIdentifier* Station) const;
 	// Gives the train its last job again (RepeatLastJob). Returns false if it has none to repeat from where it is.
 	bool RepeatLastJob(FSTTrainState& State, const TCHAR* Why);
 	// Records which vehicle is beside each platform of Station now.

@@ -82,6 +82,10 @@ void FSTThroughput::Sample(const ASTSubsystem& Subsystem)
 		{
 			++Fleet.Idle;
 		}
+		else if (State.Job.bRepeat)
+		{
+			++Fleet.Repeating;
+		}
 		else if (State.Job.bPark)
 		{
 			++Fleet.Parking;
@@ -251,12 +255,13 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		Managed += Each.Managed;
 	}
 	const double BusyShareNow = Managed > 0.0 ? Busy / Managed : 0.0;
-	const double IdleShareNow = mFleet.Num() > 0 && mFleet.Last().Managed > 0 ? static_cast<double>(mFleet.Last().Idle) / mFleet.Last().Managed : 0.0;
+	const double IdleShareNow = mFleet.Num() > 0 && mFleet.Last().Managed > 0
+		? static_cast<double>(mFleet.Last().Idle + mFleet.Last().Repeating) / mFleet.Last().Managed : 0.0;
 	if (mFleet.Num() > 0)
 	{
 		const FFleetSample& Last = mFleet.Last();
-		View.Summary.Add(FString::Printf(TEXT("%d managed trains: %d driving a trip, %d at a stop, %d going to park, %d idle."), Last.Managed, Last.Driving,
-			Last.Docked, Last.Parking, Last.Idle));
+		View.Summary.Add(FString::Printf(TEXT("%d managed trains: %d driving a trip, %d at a stop, %d repeating their last job (free for new trips), %d going to park, %d idle."),
+			Last.Managed, Last.Driving, Last.Docked, Last.Repeating, Last.Parking, Last.Idle));
 		View.Summary.Add(FString::Printf(TEXT("Busy on trips %s of the time over the last %d min."), *Percent(BusyShareNow), FMath::Max(1, View.WindowMinutes)));
 	}
 	else
@@ -307,7 +312,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		}
 		else
 		{
-			Row.Verdict = State.Job.bPark ? TEXT("Going to park") : (bDocked ? TEXT("At a stop") : TEXT("Driving"));
+			Row.Verdict = State.Job.bRepeat ? TEXT("Repeating last job") : (State.Job.bPark ? TEXT("Going to park") : (bDocked ? TEXT("At a stop") : TEXT("Driving")));
 			if (!Subsystem.mSettings.bJobNames)
 			{
 				Row.Details.Add(State.Job.Summary);
@@ -590,10 +595,10 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		Limited += Row.Severity >= 2 ? 1 : 0;
 	}
 	const int32 ManagedNow = mFleet.Num() > 0 ? mFleet.Last().Managed : 0;
-	const int32 IdleNow = mFleet.Num() > 0 ? mFleet.Last().Idle : 0;
+	const int32 IdleNow = mFleet.Num() > 0 ? mFleet.Last().Idle + mFleet.Last().Repeating : 0;
 	AddTile(TEXT("Managed trains"), FString::FromInt(ManagedNow), 0);
 	AddTile(TEXT("Busy on trips"), mFleet.Num() > 0 ? Percent(BusyShareNow) : FString(TEXT("-")), BusyShareNow >= BusyShare ? 1 : 0);
-	AddTile(TEXT("Idle now"), FString::FromInt(IdleNow), 0);
+	AddTile(TEXT("Free now (idle or repeating)"), FString::FromInt(IdleNow), 0);
 	AddTile(TEXT("Items limited"), FString::FromInt(Limited), Limited > 0 ? 2 : 0);
 	AddTile(TEXT("Congested stations"), FString::FromInt(Congested.Num()), Congested.Num() > 0 ? 2 : 0);
 	return View;
