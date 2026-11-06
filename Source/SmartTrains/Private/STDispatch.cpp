@@ -50,6 +50,8 @@ namespace
 	constexpr int32 QueuedTrains = 2;
 	// A train that left a station this recently doesn't start a trip with that station again. [s]
 	constexpr double JustLeftAnchorSeconds = 60.0;
+	// How often a waiting train with a trip to repeat tries it again. [s]
+	constexpr double RepeatRetrySeconds = 30.0;
 	// A parked train in a dead-end station books it this far ahead, i.e. until it leaves (booked again every round). [s]
 	constexpr double DeadEndHoldSeconds = 3600.0;
 	// Auto Trains travel-time questions per dispatch round. [calls]
@@ -629,29 +631,25 @@ void ASTSubsystem::Dispatch()
 	{
 		for (FSTTrainState& State : mTrains)
 		{
-			if (State.bManaged && !State.bHasJob && State.Phase == ESTTrainPhase::Parked && State.LastWorkJob.Legs.Num() > 0 && IsValid(State.Train))
+			if (State.bManaged && !State.bHasJob && State.Phase == ESTTrainPhase::Parked && State.LastWorkJob.Legs.Num() > 0 && IsValid(State.Train)
+				&& Now() - State.LastRepeatTry >= RepeatRetrySeconds)
 			{
-				RepeatLastJob(State, TEXT("parked, and one of its stations is free now"));
+				State.LastRepeatTry = Now();
+				RepeatLastJob(State, TEXT("waiting, and its last trip has work again"));
 			}
 		}
 	}
 }
 
-void ASTSubsystem::DispatchRound()
+void ASTSubsystem::BuildBookings(const TArray<FSTNode>& Nodes, double Time, TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& Out)
 {
-	TArray<FSTNode> Nodes;
-	BuildNodes(Nodes);
-	const double Time = Now();
-
-	mAtTravelCallsLeft = AtTravelCallsPerRound;
-	mHeldFor.Reset();
 	// Station bookings of the trips already running, from arrival to the end of the stay. A train docked for its current
 	// stop holds the station from when it docked; one running late from now.
-	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
 	for (int32 TrainIndex = 0; TrainIndex < mTrains.Num(); ++TrainIndex)
 	{
 		const FSTTrainState& State = mTrains[TrainIndex];
-		if (!State.bManaged || !State.bHasJob)
+		// A repeat books nothing: new trips go ahead of it.
+		if (!State.bManaged || !State.bHasJob || State.Job.bRepeat)
 		{
 			continue;
 		}
@@ -674,7 +672,7 @@ void ASTSubsystem::DispatchRound()
 					From = Time + Eta;
 				}
 			}
-			Bookings.FindOrAdd(Each.Station.Get()).Add({TrainIndex, From, FMath::Max(Each.PlannedArrival, From) + Stay});
+			Out.FindOrAdd(Each.Station.Get()).Add({TrainIndex, From, FMath::Max(Each.PlannedArrival, From) + Stay});
 		}
 	}
 	// A parked train holds its station until it is moved out, which takes about ParkedLeaveSeconds once a trip needs it.
@@ -685,7 +683,7 @@ void ASTSubsystem::DispatchRound()
 		{
 			// In a dead end it holds the station until it leaves: a train arriving there could neither get in nor let it out.
 			const double Hold = IsDeadEnd(State.LastStation.Get()) ? DeadEndHoldSeconds : ParkedLeaveSeconds;
-			Bookings.FindOrAdd(State.LastStation.Get()).Add({TrainIndex, Time, Time + Hold});
+			Out.FindOrAdd(State.LastStation.Get()).Add({TrainIndex, Time, Time + Hold});
 		}
 	}
 	if (STAt::IsAvailable(GetWorld()))
@@ -706,10 +704,22 @@ void ASTSubsystem::DispatchRound()
 			const double Left = Cached.Key - (Time - Cached.Value);
 			if (Cached.Key > 0.f && Left > 0.0)
 			{
-				Bookings.FindOrAdd(Station).Add({INDEX_NONE, Time, Time + Left});
+				Out.FindOrAdd(Station).Add({INDEX_NONE, Time, Time + Left});
 			}
 		}
 	}
+}
+
+void ASTSubsystem::DispatchRound()
+{
+	TArray<FSTNode> Nodes;
+	BuildNodes(Nodes);
+	const double Time = Now();
+
+	mAtTravelCallsLeft = AtTravelCallsPerRound;
+	mHeldFor.Reset();
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	BuildBookings(Nodes, Time, Bookings);
 	FSTTripPlanner Planner(*this, Nodes, Bookings);
 
 	// A platform with settings that was dismantled: its trips are re-planned.
@@ -1146,7 +1156,9 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 	{
 		return;
 	}
-	AFGTrainStationIdentifier* Depot = FindDepot(State, State.LastStation.Get());
+	// A train with a trip to repeat waits where it is, ready for it; only one that never had a trip goes to a depot.
+	const bool bHasTrip = mSettings.bRepeatLastJob && State.LastWorkJob.Legs.Num() > 0;
+	AFGTrainStationIdentifier* Depot = bHasTrip ? nullptr : FindDepot(State, State.LastStation.Get());
 	if (Depot && Depot != State.LastStation)
 	{
 		SendToStation(State, Depot, Why);
@@ -1195,13 +1207,23 @@ bool ASTSubsystem::IsStationQueued(const AFGTrainStationIdentifier* Station, con
 bool ASTSubsystem::RepeatLastJob(FSTTrainState& State, const TCHAR* Why)
 {
 	const FSTJob& Last = State.LastWorkJob;
-	if (Last.Legs.Num() == 0 || !IsValid(State.Train))
+	const int32 TrainIndex = static_cast<int32>(&State - mTrains.GetData());
+	if (Last.Legs.Num() == 0 || !IsValid(State.Train) || !mTrains.IsValidIndex(TrainIndex))
 	{
 		return false;
 	}
+	const double Time = Now();
+	auto Refuse = [&State](const FString& Reason)
+	{
+		if (State.LastRepeatRefusal != Reason)
+		{
+			State.LastRepeatRefusal = Reason;
+			UE_LOG(LogSmartTrains, Log, TEXT("REPEAT %s: not repeating its last trip: %s"), *STLayout::Name(State.Train), *Reason);
+		}
+		return false;
+	};
 	// Start from the stop after the one it is at, so it doesn't stop where it already stands; and, where it can, not
-	// towards a station other trains are already heading or queued for. Trains never park: when every station is busy
-	// it repeats from the stop after this one anyway.
+	// towards a station other trains are already heading or queued for.
 	const AFGTrainStationIdentifier* Here = State.Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation.Get() : State.LastStation.Get();
 	int32 First = 0;
 	if (Here)
@@ -1211,61 +1233,129 @@ bool ASTSubsystem::RepeatLastJob(FSTTrainState& State, const TCHAR* Why)
 	}
 	if (mSettings.bLeaveAtOnce)
 	{
-		int32 Free = INDEX_NONE;
-		for (int32 Offset = 0; Offset < Last.Legs.Num() && Free == INDEX_NONE; ++Offset)
+		for (int32 Offset = 0; Offset < Last.Legs.Num(); ++Offset)
 		{
 			const int32 Start = (First + Offset) % Last.Legs.Num();
 			const AFGTrainStationIdentifier* Station = Last.Legs[Start].Station.Get();
 			if (Station != Here && !IsStationQueued(Station, State.Train))
 			{
-				Free = Start;
+				First = Start;
+				break;
 			}
 		}
-		if (Free == INDEX_NONE)
-		{
-			UE_LOG(LogSmartTrains, Verbose, TEXT("%s: repeats its last job although trains are heading or queued for each of its stations"), *STLayout::Name(State.Train));
-		}
-		else
-		{
-			First = Free;
-		}
 	}
-	FSTJob Job;
-	Job.Id = mNextJobId++;
-	Job.bRepeat = true;
-	Job.StartedAt = Now();
-	Job.LegStartedAt = Job.StartedAt;
+	TArray<FSTPlanStop> Stops;
 	for (int32 Offset = 0; Offset < Last.Legs.Num(); ++Offset)
 	{
-		FSTJobLeg Leg = Last.Legs[(First + Offset) % Last.Legs.Num()];
-		for (FSTCarWork& Work : Leg.Work)
+		const FSTJobLeg& Leg = Last.Legs[(First + Offset) % Last.Legs.Num()];
+		if (!IsValid(Leg.Station))
 		{
-			Work.MovedAmount = 0;
+			continue;
 		}
-		Job.Legs.Add(MoveTemp(Leg));
+		FSTPlanStop& Stop = Stops.AddDefaulted_GetRef();
+		Stop.Station = Leg.Station.Get();
+		for (const FSTCarWork& Work : Leg.Work)
+		{
+			(Work.bLoad ? Stop.LoadItems : Stop.UnloadItems).AddUnique(Work.Item.Get());
+		}
 	}
-	if (Job.Legs.Num() == 1 && Job.Legs[0].Station == Here)
+
+	// Simulated from the cargo on board and the stations now; stops that would move nothing are left out.
+	TArray<FSTNode> Nodes;
+	BuildNodes(Nodes);
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	BuildBookings(Nodes, Time, Bookings);
+	FSTTripPlanner Planner(*this, Nodes, Bookings);
+	AFGTrainStationIdentifier* Anchor = nullptr;
+	double FreeAt = 0.0;
+	if (!GetFreeAt(State, Anchor, FreeAt))
 	{
 		return false;
 	}
-	double Clock = Now();
-	const AFGTrainStationIdentifier* Previous = Here;
-	for (FSTJobLeg& Leg : Job.Legs)
+	const bool bDocked = (State.Train->IsDocked() && State.DockedStation.Get() == Anchor)
+		|| (State.LastStation.Get() == Anchor && Time - State.LastDepartureAt < JustLeftAnchorSeconds);
+	if (!Planner.BeginTrain(TrainIndex, Anchor, FreeAt, bDocked))
 	{
-		const float Travel = Previous && Previous != Leg.Station ? EstimateTravelSeconds(Previous, Leg.Station, IsPushPull(State.Train)) : 0.f;
-		Clock += FMath::Max(0.f, Travel);
-		Leg.PlannedArrival = Clock;
-		Clock += EstimateStaySeconds(Leg.Station);
-		Previous = Leg.Station;
+		return false;
 	}
-	Job.Summary = TEXT("again: ") + (Last.Summary.StartsWith(TEXT("again: ")) ? Last.Summary.RightChop(7) : Last.Summary);
-	TArray<FString> Stations;
+	FSTPlanResult Result;
+	for (int32 Pass = 0; Pass <= Last.Legs.Num() && Stops.Num() > 0; ++Pass)
+	{
+		Result = Planner.Simulate(Stops);
+		if (!Result.bValid)
+		{
+			break;
+		}
+		const int32 Before = Stops.Num();
+		for (int32 Index = Stops.Num() - 1; Index >= 0; --Index)
+		{
+			bool bMoves = false;
+			for (const FSTPlanCarStep& Step : Result.Steps[Index])
+			{
+				bMoves |= Step.Loaded.Num() > 0 || Step.Unloaded.Num() > 0;
+			}
+			if (!bMoves)
+			{
+				Stops.RemoveAt(Index);
+			}
+		}
+		if (Stops.Num() == Before)
+		{
+			break;
+		}
+		Result = FSTPlanResult();
+	}
+	if (Stops.Num() == 0 || !Result.bValid || Result.Moved <= 0)
+	{
+		return Refuse(Result.Problem.IsEmpty() ? FString(TEXT("none of its stops would move anything now")) : Result.Problem);
+	}
+	// Another train already runs the same stations: this one waits instead of running the trip twice.
+	TSet<const AFGTrainStationIdentifier*> Mine;
+	for (const FSTPlanStop& Stop : Stops)
+	{
+		Mine.Add(Stop.Station);
+	}
+	for (const FSTTrainState& Other : mTrains)
+	{
+		if (&Other == &State || !Other.bManaged || !Other.bHasJob || Other.Job.bPark || !IsValid(Other.Train))
+		{
+			continue;
+		}
+		TSet<const AFGTrainStationIdentifier*> Theirs;
+		for (int32 Leg = Other.Job.Leg; Leg < Other.Job.Legs.Num(); ++Leg)
+		{
+			Theirs.Add(Other.Job.Legs[Leg].Station.Get());
+		}
+		if (Theirs.Num() == Mine.Num() && Mine.Includes(Theirs))
+		{
+			return Refuse(FString::Printf(TEXT("%s runs the same stations already"), *STLayout::Name(Other.Train)));
+		}
+	}
+	State.LastRepeatRefusal.Reset();
+
+	FSTJob Job;
+	Job.Id = mNextJobId++;
+	Job.bRepeat = true;
+	Job.StartedAt = Time;
+	Job.LegStartedAt = Time;
+	Planner.MakeLegs(Stops, Result, Job.Legs);
+	TArray<FString> Items;
 	for (const FSTJobLeg& Leg : Job.Legs)
 	{
-		Stations.Add(STLayout::Name(Leg.Station.Get()));
+		for (const FSTCarWork& Work : Leg.Work)
+		{
+			Items.AddUnique(STNames::Item(Work.Item));
+		}
 	}
+	TArray<FString> Stations;
+	for (const FSTPlanStop& Stop : Stops)
+	{
+		Stations.Add(STLayout::Name(Stop.Station));
+	}
+	Job.Summary = FString::Printf(TEXT("again: %s: %s"), *FString::Join(Items, TEXT(", ")), *FString::Join(Stations, TEXT(" -> ")));
 	State.Phase = ESTTrainPhase::Working;
-	CommitJob(State, MoveTemp(Job), FString::Printf(TEXT("%s: repeats its last job (%s): %s"), *STLayout::Name(State.Train), Why, *FString::Join(Stations, TEXT(" -> "))));
+	CommitJob(State, MoveTemp(Job), FString::Printf(TEXT("%s: repeats its last trip (%s) [%s], %d moved"), *STLayout::Name(State.Train), Why,
+		*Planner.Describe(Stops, Result), Result.Moved));
 	return true;
 }
 

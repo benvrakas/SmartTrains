@@ -347,6 +347,10 @@ struct SMARTTRAINS_API FSTTrainState
 	bool bReplanFresh = false;
 	// Runtime only: when the trip was last planned again because a parked train couldn't leave a station it needs.
 	double LastRerouted = -1000.0;
+	// Runtime only: when a waiting train last tried to repeat its last trip, and why the last try was refused (logged
+	// when it changes).
+	double LastRepeatTry = -1000.0;
+	FString LastRepeatRefusal;
 
 	// Runtime only: docking state at the last check, when the current dock began, and where.
 	bool bWasDocked = false;

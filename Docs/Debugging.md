@@ -65,6 +65,9 @@ the console.
   `SDLE_StationUnreachable`) once it has lasted 5 s, and `SDLE_NoError` when a logged one clears. A train that stands
   without moving usually shows one. Shorter errors aren't logged: a train re-routing as it leaves a station shows
   `SDLE_NoPath` for 1-4 s.
+- `REPEAT <train>: not repeating its last trip: <why>`: a train with no new trip didn't run its last trip again, for
+  example none of its stops would move anything, another train runs the same stations, or it would queue. It waits
+  where it is and tries again every 30 s; the line is logged when the reason changes.
 - `PLAYER <train>: ...`: a player got into or out of a train's driver seat. With autopilot on the train keeps getting
   trips; a player driving by hand (autopilot off) holds it, and it gets no new trip until autopilot is on.
 - `NOPROGRESS ... Platforms there: P1 unload, Demand [...], 12 of 48 slots used: ...`: a stop moved none of a planned

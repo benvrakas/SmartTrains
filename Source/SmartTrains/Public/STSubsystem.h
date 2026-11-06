@@ -17,6 +17,7 @@ class AFGTrainStationIdentifier;
 class FSTThroughput;
 class FSTTravel;
 class FSTTripPlanner;
+struct FSTBooking;
 class UFGItemDescriptor;
 
 // One station's supply or demand of one item, gathered from its platforms (Docs/Architecture.md, "Dispatching").
@@ -245,7 +246,11 @@ private:
 	void ReleaseDockWhenDone(FSTTrainState& State, double Time);
 	// One line per cargo platform of Station: position, load or unload, role, slots used and what it holds. For logs.
 	FString DescribeStationPlatforms(const AFGTrainStationIdentifier* Station) const;
-	// Gives the train its last job again (RepeatLastJob). Returns false if it has none to repeat from where it is.
+	// Station bookings of the trips under way (repeats book nothing), parked trains and Auto Trains' station queues.
+	void BuildBookings(const TArray<FSTNode>& Nodes, double Time, TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& Out);
+	// Gives the train its last trip again, simulated from what it holds and what the stations have now, without the
+	// stops that would move nothing (RepeatLastJob). Returns false if nothing of it is worth driving, or another train
+	// already runs it.
 	bool RepeatLastJob(FSTTrainState& State, const TCHAR* Why);
 	// True if other managed trains (2 or more, Except not counted) are on their way to Station, or Auto Trains reports a
 	// queue there.

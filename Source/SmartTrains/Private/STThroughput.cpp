@@ -1,4 +1,5 @@
 #include "STThroughput.h"
+#include "FGFreightWagon.h"
 #include "FGTrain.h"
 #include "FGTrainStationIdentifier.h"
 #include "SmartTrains.h"
@@ -25,6 +26,8 @@ namespace
 	// short of trains.
 	constexpr int32 ServeChecksPerSample = 6;
 	constexpr double IdleShareForShort = 0.2;
+	// Supply that takes longer than this to fill one freight car is low: a trip for it carries a nearly empty car. [min]
+	constexpr double LowSupplyMinutes = 30.0;
 
 	FString NodeKey(const AFGTrainStationIdentifier* Station, const UClass* Item, ESTRole Role)
 	{
@@ -41,6 +44,7 @@ namespace
 	{
 		return FString::Printf(TEXT("%.0f%%"), Share * 100.0);
 	}
+
 }
 
 double FSTThroughput::FNodeHistory::Share(uint8 Flag) const
@@ -342,7 +346,9 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		}
 		else
 		{
-			Row.Verdict = State.Job.bRepeat ? TEXT("Repeating last job") : (State.Job.bPark ? TEXT("Going to park") : (bDocked ? TEXT("At a stop") : TEXT("Driving")));
+			const bool bWaiting = State.Job.bPark && State.LastWorkJob.Legs.Num() > 0 && Subsystem.mSettings.bRepeatLastJob;
+			Row.Verdict = State.Job.bRepeat ? TEXT("Repeating last job")
+				: (bWaiting ? TEXT("Going to wait") : (State.Job.bPark ? TEXT("Going to park") : (bDocked ? TEXT("At a stop") : TEXT("Driving"))));
 			if (!Subsystem.mSettings.bJobNames)
 			{
 				Row.Details.Add(State.Job.Summary);
@@ -439,6 +445,25 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		{
 			FItemGroup& Group = Groups.FindOrAdd(Item);
 			(Pair.Value.Role == ESTRole::Supply ? Group.Suppliers : Group.Consumers).Add(&Pair.Value);
+		}
+	}
+	// Average share of the window its consumers were empty.
+	auto StarvedShareOf = [](const TArray<const FNodeHistory*>& Consumers)
+	{
+		double Share = 0.0;
+		for (const FNodeHistory* Each : Consumers)
+		{
+			Share += Each->Share(ENodeFlag::Starved) / FMath::Max(1, Consumers.Num());
+		}
+		return Share;
+	};
+	// A freight car of the fleet, for how long supply takes to fill one.
+	const AFGFreightWagon* AnyWagon = nullptr;
+	for (const FSTTrainState& State : Subsystem.mTrains)
+	{
+		for (AFGRailroadVehicle* Vehicle : IsValid(State.Train) && !AnyWagon ? STLayout::GetVehicles(State.Train) : TArray<AFGRailroadVehicle*>())
+		{
+			AnyWagon = AnyWagon ? AnyWagon : Cast<AFGFreightWagon>(Vehicle);
 		}
 	}
 	for (const TPair<UClass*, FItemGroup>& Pair : Groups)
@@ -576,6 +601,18 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 				: FString(TEXT("Its supply platforms are mostly empty: trains take all that is made.")));
 			Row.Advice = TEXT("Build more production, or add supply platforms where it is made.");
 		}
+		else if (StarvedShareOf(Group.Consumers) >= EmptyShare && !bSuppliersFull
+			&& (SupplyRate <= 0.0 || STLayout::GetCarCapacity(AnyWagon, Item) / SupplyRate > LowSupplyMinutes))
+		{
+			// Starved consumers use nothing, so their demand can't be measured; the supply alone shows the limit.
+			Row.Verdict = TEXT("Low supply");
+			Row.Severity = 2;
+			Row.Details.Add(SupplyRate > 0.0
+				? FString::Printf(TEXT("Its supply makes %s/min; one freight car of it takes %.0f minutes to fill, so a trip for it carries a nearly empty car and is rarely worth a train."),
+					*STNames::Amount(Item, SupplyRate), STLayout::GetCarCapacity(AnyWagon, Item) / SupplyRate)
+				: FString(TEXT("Its supply platforms get none of it.")));
+			Row.Advice = TEXT("Build more production, or set its demand platforms to a higher priority so smaller loads go.");
+		}
 		else if (Advice && Advice->TrainsNeeded > Advice->TrainsFitting + 0.5 && BusyShareNow >= BusyShare && IdleShareNow < IdleShareForShort)
 		{
 			// The flow plan needs more trains than fit these routes, and the fleet has none to spare.
@@ -640,7 +677,9 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 					// No delivery is coming most of the time: no trip is planned for it.
 					Platform.Verdict = TEXT("Starved: no trips");
 					Platform.Details.Add(FString::Printf(TEXT("No delivery was on its way %s of the time it was empty, so no train was sent."), *Percent(1.0 - Waiting)));
-					Platform.Advice = FString::Printf(TEXT("Starvation: see %s in the Items tab (%s)."), *Row.Title, *Row.Verdict);
+					Platform.Advice = Row.Severity > 0
+						? FString::Printf(TEXT("Starvation: see %s in the Items tab (%s)."), *Row.Title, *Row.Verdict)
+						: FString::Printf(TEXT("Other demand platforms for %s are fine; this one gets too few trips. Raise its priority, or check that trains' cars line up with it (/st fit)."), *Row.Title);
 				}
 			}
 		}

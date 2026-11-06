@@ -168,9 +168,13 @@ settings change (`DispatchRound`):
 for X") when any stop's arrival, pushed back by other trains' bookings and Auto Trains' station queue
 (`FirstFreeArrival`), is more than the limit after the train could get there. Leaving at once, such a train would wait
 on the line before the station. Repeats skip stations `IsStationQueued` (2 or more managed trains on their way, or an
-Auto Trains queue), starting at another stop of the trip. When every stop is queued it repeats from the stop after
-the one it is at anyway: trains never park while they have a trip to repeat. A parked train with a trip to repeat
-tries again after every dispatch round.
+Auto Trains queue), starting at another stop of the trip, or from the stop after the one it is at when all are queued.
+A repeat is simulated like a new trip (`RepeatLastJob`: `BuildNodes`, `BuildBookings`, `BeginTrain`, `Simulate`) from
+the cargo on board and the stations now; stops whose cars move nothing are dropped and it is simulated again. It isn't
+run when nothing is left, the simulation fails (queue limit, batch), or another managed train's remaining stops are
+the same stations. Repeats book nothing (`BuildBookings`) and reserve nothing, and a repeat ends at every stop it
+leaves, so the train is planned again from there. A train whose repeat isn't run waits where it is (no depot) and
+tries again every 30 s (`RepeatRetrySeconds`).
 
 **Delivery reservations per platform:** like pickups, a planned delivery records its platform. `GetPlatformRoom` is
 the platform's free room plus what its machines use before the train arrives, less the deliveries promised to it and
@@ -454,7 +458,9 @@ Verdict per item, first match:
 2. less than a minute of samples: "Measuring";
 3. consumers below target less than 25 % of the time: "OK";
 4. no planned route, or no managed train fits one: "No train fits";
-5. suppliers nearly empty half the time, or supply rate under 90 % of demand: "Supply short";
+5. suppliers nearly empty half the time, or supply rate under 90 % of demand: "Supply short"; consumers starved half
+   the time while suppliers aren't full and one freight car of the item takes over 30 minutes of supply to fill: "Low
+   supply" (starved consumers use nothing, so their demand can't be measured);
 6. suppliers full 30 % of the time (or the flow plan needs more trains than fit) while the fleet is busy 80 % of the
    time: "Trains short";
 7. one of its stations congested (a train docked 85 % of the time, or arrivals 120 s late on average): "Congested";

@@ -848,7 +848,12 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 	{
 		FinishJob(State);
 	}
-	else if (!State.Job.bPark && !State.Job.bRepeat)
+	else if (State.Job.bRepeat)
+	{
+		// A repeat is looked at again at every stop: a new trip, or the rest of it again if it still has work.
+		FinishJob(State);
+	}
+	else if (!State.Job.bPark)
 	{
 		// The rest of the trip is planned again from what the cars really hold now.
 		State.bReplan = true;

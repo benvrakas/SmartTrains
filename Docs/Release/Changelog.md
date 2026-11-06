@@ -2,10 +2,24 @@
 
 ## 0.6.6 (beta)
 
-- **Fixed: trains still parked.** A train with a trip to repeat no longer parks when other trains are already
-  heading for every station of that trip. It repeats anyway, from its next stop. Parking it
-  filled stations, and other trains were sent away to park elsewhere to make room. Only a train that never had a
-  trip that picks up and delivers still parks.
+- **Repeats are planned, not copied.** A train with no new trip still runs its last trip again instead of parking,
+  but the repeat is now simulated like a new trip, from what its cars hold and what the stations have now:
+  - stops that would move nothing are left out (an empty supply, a full consumer), and amounts are real, not copied
+    from the old plan. Repeats used to run with empty cars: one delivered 213 of 7.2 million litres planned;
+  - a repeat isn't run if another train already runs the same stations. Several trains looped on the nitrogen
+    route at once and filled its stations;
+  - repeats don't book stations, so new trips are no longer turned away because of them;
+  - a repeat is looked at again at every stop it leaves, so the train takes a new trip as soon as there is one.
+  A train whose repeat has nothing to do waits where it is (the monitor says "Going to wait"), and tries again every
+  30 s. It no longer drives to a depot, and it no longer parks because other trains head for its stations. Only a
+  train that never had a trip that picks up and delivers still goes to a depot. `REPEAT` log lines say why a repeat
+  isn't run.
+- **Monitor: "Low supply".** An item whose demand platforms are starved and whose supply takes over 30 minutes to fill
+  one freight car is "Low supply", with how long a car takes. A trip for it carries a nearly empty car, so trains
+  rarely go. It used to show "No trips planned", since starved platforms use nothing and their demand can't be
+  measured.
+- **Monitor:** a starved platform whose item is fine elsewhere now says so ("other demand platforms for it are fine;
+  this one gets too few trips") instead of pointing at the item's "OK".
 - **Log:** `PLAYER` lines show when a player sits in a managed train's driver seat: with autopilot on it keeps getting
   trips; driving it by hand (autopilot off) holds it until autopilot is on again.
 
