@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0 (beta)
+
+- **Set platforms by hand in the migration window:** in the Stations tab, click a station to open its platforms.
+  Click a platform's role to change it, or `[items]` to pick its items from a searchable list. Applying the station
+  uses your setting, and a new Preview keeps it.
+
+**Good to know**
+
+- Everyone in a multiplayer session needs SmartTrains 0.6.0.
+
 ## 0.5.0 (beta)
 
 - **Admin-gated controls** for multiplayer and dedicated servers:
@@ -10,9 +20,6 @@
   - Refused changes are answered in chat or under the menu, and logged with the player's name.
 - **Server settings in game:** `/st settings` lists the server's settings, and `/st set <setting> <value>` changes one
   (admins). On a dedicated server your own Mods menu doesn't reach the server's settings.
-- **Set platforms by hand in the migration window:** in the Stations tab, click a station to open its platforms.
-  Click a platform's role to change it, or `[items]` to pick its items from a searchable list. Applying the station
-  uses your setting, and a new Preview keeps it.
 - **Fixed: the migration window's Preview did nothing on a dedicated server.** The preview of a large network was too
   big for one network message, so the server's answer never arrived. It now comes in parts. The monitor window is
   kept under the same limit on very large networks.
