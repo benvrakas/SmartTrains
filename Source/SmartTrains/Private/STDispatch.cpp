@@ -221,6 +221,10 @@ void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 				if (Index != INDEX_NONE)
 				{
 					OutNodes[Index].Reserved += Work.PlannedAmount;
+					if (Work.bLoad && Work.Platform)
+					{
+						OutNodes[Index].PlatformReserved.FindOrAdd(Work.Platform.Get()) += Work.PlannedAmount;
+					}
 				}
 			}
 		}

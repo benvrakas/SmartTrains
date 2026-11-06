@@ -31,6 +31,8 @@ struct FSTPlanStop
 struct FSTPlanCarStep
 {
 	bool bSkip = false;
+	// The platform the car loads from (the first way the train may dock), if it loads.
+	const AFGBuildableTrainPlatformCargo* LoadPlatform = nullptr;
 	TArray<TPair<UClass*, int32>> Loaded;
 	TArray<TPair<UClass*, int32>> Unloaded;
 };
@@ -155,6 +157,9 @@ private:
 	// of Stay seconds.
 	double FirstFreeArrival(const AFGTrainStationIdentifier* Station, double Arrive, double Stay) const;
 	double GetAvailable(int32 Node, double Arrive) const;
+	// What platform info index Info of supply node Node can give until Until seconds from now: its stock, its share of
+	// the node's rate, less the pickups promised at it and its share of promises made at no known platform.
+	double GetPlatformAvailable(int32 Node, int32 Info, double Until) const;
 	// Room below capacity at Arrive, and whether the consumer wants more (below target).
 	double GetRoom(int32 Node, double Arrive, bool& bOutWants) const;
 	double GetUrgency(int32 Node, double Arrive) const;

@@ -5,6 +5,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "FGTrainStationIdentifier.h"
 #include "Misc/AutomationTest.h"
 #include "STMinCostFlow.h"
@@ -58,6 +59,14 @@ struct FSTTestAccess
 		Planner.mPlatforms = Platforms;
 		Planner.mCarPlatforms = CarPlatforms;
 		Planner.mProblems.Reset();
+		Planner.mPlatformIndex.Reset();
+		for (int32 Index = 0; Index < Platforms.Num(); ++Index)
+		{
+			if (Platforms[Index].Platform)
+			{
+				Planner.mPlatformIndex.Add(Platforms[Index].Platform, Index);
+			}
+		}
 	}
 
 	static double FirstFreeArrival(const FSTTripPlanner& Planner, const AFGTrainStationIdentifier* Station, double Arrive, double Stay)
@@ -297,6 +306,68 @@ bool FSTNoMixedCarsTest::RunTest(const FString& Parameters)
 		FSTTestAccess::SetTrain(Planner, Start, false, false, {Empty, Holding}, Platforms, CarPlatforms);
 		const FSTPlanResult Result = Planner.Simulate({Load, Unload});
 		TestFalse(TEXT("without Freight Car Control the car holding ingots makes the trip invalid"), Result.bValid);
+	}
+	return true;
+}
+
+// Pickups promised at one platform don't use up another platform's stock: a train whose car stops beside a full
+// platform loads from it though other trains have promised the station's stock at its other platform (the sulfur
+// stations of 2026-11-06, where most trains' 4th car was a fluid car).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTPlatformReservationsTest, "SmartTrains.Planner.PlatformReservations", TestFlags)
+bool FSTPlatformReservationsTest::RunTest(const FString& Parameters)
+{
+	UClass* Sulfur = USTTestSolid::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Source = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
+	FSTTestAccess::SetTrip(*Subsystem, Start, Source, 60.f);
+	FSTTestAccess::SetTrip(*Subsystem, Source, Sink, 60.f);
+	AFGBuildableTrainPlatformCargo* Near = NewObject<AFGBuildableTrainPlatformCargo>(GetTransientPackage());
+	AFGBuildableTrainPlatformCargo* Far = NewObject<AFGBuildableTrainPlatformCargo>(GetTransientPackage());
+	// The station holds 1000 in all, all of it at the far platform; another train has promised 1000 at the near one.
+	TArray<FSTNode> Nodes = {FSTTestAccess::Node(Source, Sulfur, ESTRole::Supply, 1000, 2000, 0), FSTTestAccess::Node(Sink, Sulfur, ESTRole::Demand, 0, 2000, 1)};
+	Nodes[0].Platforms = {Near, Far};
+	Nodes[0].Reserved = 1000;
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Sulfur, true, 0.0, 0), FSTTestAccess::Platform(Sulfur, true, 1000.0, 10),
+		FSTTestAccess::Platform(Sulfur, false, 0.0, 0)};
+	Platforms[0].Platform = Near;
+	Platforms[1].Platform = Far;
+	for (FSTTestAccess::FPlatformInfo& Platform : Platforms)
+	{
+		Platform.Slots = 10;
+	}
+	FSTTestAccess::FCarPlatforms CarPlatforms;
+	CarPlatforms.Add(Source, {{1}});
+	CarPlatforms.Add(Sink, {{2}});
+	FSTPlanStop Load;
+	Load.Station = Source;
+	Load.LoadItems.Add(Sulfur);
+	FSTPlanStop Unload;
+	Unload.Station = Sink;
+	Unload.UnloadItems.Add(Sulfur);
+	FSTTestAccess::FCarInfo Car = FSTTestAccess::Car();
+	Car.Slots = 10;
+
+	// The promise made at the near platform: the car beside the far one still loads its stock.
+	Nodes[0].PlatformReserved.Add(Near, 1000);
+	{
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, Platforms, CarPlatforms);
+		const FSTPlanResult Result = Planner.Simulate({Load, Unload});
+		if (TestTrue(FString::Printf(TEXT("the trip works (%s)"), *Result.Problem), Result.bValid))
+		{
+			TestEqual(TEXT("the car loads the far platform's stock"), Result.Steps[0][0].Loaded.Num() > 0 ? Result.Steps[0][0].Loaded[0].Value : 0, 1000);
+		}
+	}
+	// A promise at no known platform (older saves) is shared out as before: the station's 1000 are all promised.
+	Nodes[0].PlatformReserved.Reset();
+	{
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, Platforms, CarPlatforms);
+		const FSTPlanResult Result = Planner.Simulate({Load, Unload});
+		TestTrue(TEXT("without a platform the promise still counts"), !Result.bValid || Result.Steps[0][0].Loaded.Num() == 0 || Result.Steps[0][0].Loaded[0].Value == 0);
 	}
 	return true;
 }

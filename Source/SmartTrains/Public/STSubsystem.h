@@ -41,6 +41,8 @@ struct FSTNode
 	int32 TrackGraph = INDEX_NONE;
 	// Amounts already promised: to be picked up (supply) or on the way (demand).
 	int32 Reserved = 0;
+	// Supply: the part of Reserved planned at a known platform. The rest is shared out over the platforms by stock.
+	TMap<const AFGBuildableTrainPlatformCargo*, int32> PlatformReserved;
 	// Planned flow from the flow plan, items per second: out of a supplier, into a consumer.
 	double PlannedFlow = 0.0;
 };

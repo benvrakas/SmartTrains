@@ -164,6 +164,14 @@ settings change (`DispatchRound`):
 
 ### Trip planning (`STTripPlanner.*`)
 
+**Supply reservations per platform:** a planned pickup records the platform the car loads from (`FSTCarWork::Platform`,
+saved; `FSTPlanCarStep::LoadPlatform`). The supply node keeps those amounts per platform (`FSTNode::PlatformReserved`)
+besides the station total (`Reserved`). `GetPlatformAvailable` gives a platform its stock and its share of the rate,
+less the pickups promised there and its share of the promises with no known platform (jobs from older saves).
+`GetAvailable` is the sum over the station's platforms. Before, every promise was shared out over all platforms, so
+trains that could only reach platforms 1-3 used up platform 4's stock as well. Test:
+`SmartTrains.Planner.PlatformReservations`.
+
 A trip is a list of stops (at most **Most stops per trip**, each station once, and with more than two stops no longer
 than **Longest trip**: the limit only stops SmartTrains combining stops, a direct trip is never too long),
 each with the items loaded and unloaded there. These become the stop's load and unload filters.

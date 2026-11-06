@@ -173,7 +173,40 @@ double FSTTripPlanner::GetAvailable(int32 Node, double Arrive) const
 {
 	const FSTNode& Supplier = mNodes[Node];
 	const double Until = Arrive + mSubsystem.EstimateStaySeconds(Supplier.Station.Get()) - mTime;
-	return FMath::Min<double>(Supplier.Capacity, Supplier.Stock + Supplier.Rate * Until) - Supplier.Reserved;
+	const double Whole = FMath::Min<double>(Supplier.Capacity, Supplier.Stock + Supplier.Rate * Until) - Supplier.Reserved;
+	if (Supplier.PlatformReserved.Num() == 0)
+	{
+		return Whole;
+	}
+	// Pickups promised at one platform don't use up another's stock: a train whose cars can't reach a platform
+	// leaves it for trains whose cars can.
+	double Sum = 0.0;
+	bool bAny = false;
+	for (const TWeakObjectPtr<AFGBuildableTrainPlatformCargo>& Each : Supplier.Platforms)
+	{
+		const int32 Info = GetPlatformInfo(Each.Get());
+		if (Info != INDEX_NONE)
+		{
+			bAny = true;
+			Sum += GetPlatformAvailable(Node, Info, Until);
+		}
+	}
+	return bAny ? FMath::Min(Sum, static_cast<double>(Supplier.Capacity)) : Whole;
+}
+
+double FSTTripPlanner::GetPlatformAvailable(int32 Node, int32 Info, double Until) const
+{
+	const FSTNode& Supplier = mNodes[Node];
+	const FPlatformInfo& Platform = mPlatforms[Info];
+	const double Stock = Platform.Stock.FindRef(Supplier.Item.Get());
+	const double Share = Supplier.Stock > 0 ? Stock / Supplier.Stock : 1.0 / FMath::Max(1, Supplier.Platforms.Num());
+	int32 Assigned = 0;
+	for (const TPair<const AFGBuildableTrainPlatformCargo*, int32>& Each : Supplier.PlatformReserved)
+	{
+		Assigned += Each.Value;
+	}
+	const double Unassigned = FMath::Max(0, Supplier.Reserved - Assigned);
+	return FMath::Max(0.0, Stock + Share * (Supplier.Rate * Until - Unassigned) - Supplier.PlatformReserved.FindRef(Platform.Platform));
 }
 
 double FSTTripPlanner::GetRoom(int32 Node, double Arrive, bool& bOutWants) const
@@ -853,17 +886,13 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					double& NodeLeft = FindOrAddValue<int32>(NodeSupply, Node, [&]() { return Node != INDEX_NONE ? GetAvailable(Node, Arrive) : 0.0; });
 					auto InitialPool = [&](int32 PlatformIndex)
 					{
-						const FPlatformInfo& Platform = mPlatforms[PlatformIndex];
-						const double Stock = Platform.Stock.FindRef(Item);
 						if (Node == INDEX_NONE)
 						{
-							return Stock;
+							return static_cast<double>(mPlatforms[PlatformIndex].Stock.FindRef(Item));
 						}
-						const FSTNode& Supplier = mNodes[Node];
-						const double Share = Supplier.Stock > 0 ? Stock / Supplier.Stock : 1.0 / FMath::Max(1, Supplier.Platforms.Num());
 						// What arrives up to the end of the stay, since the platform keeps filling while the train loads.
 						const double Until = Arrive + mSubsystem.EstimateStaySeconds(Stop.Station) - mTime;
-						return FMath::Max(0.0, Stock + Share * (Supplier.Rate * Until - Supplier.Reserved));
+						return GetPlatformAvailable(Node, PlatformIndex, Until);
 					};
 					// Each way the train may dock has its own platform pools; the car plans the smallest of its amounts.
 					for (int32 MapIndex = 0; MapIndex < Beside.Num(); ++MapIndex)
@@ -898,6 +927,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 						continue;
 					}
 					AddCargo(Cargo[CarIndex], Item, Amount);
+					Step.LoadPlatform = Beside.Num() > 0 ? mPlatforms[Beside[0]].Platform : nullptr;
 					for (double* Each : Pools)
 					{
 						*Each -= Amount;
@@ -1207,6 +1237,7 @@ void FSTTripPlanner::MakeLegs(const TArray<FSTPlanStop>& Stops, const FSTPlanRes
 						Work.Item = Each.Key;
 						Work.bLoad = Pass == 0;
 						Work.PlannedAmount = Each.Value;
+						Work.Platform = Pass == 0 ? const_cast<AFGBuildableTrainPlatformCargo*>(Step->LoadPlatform) : nullptr;
 						bWorks = true;
 					}
 				}
@@ -1248,6 +1279,10 @@ void FSTTripPlanner::Reserve(const TArray<FSTPlanStop>& Stops, const FSTPlanResu
 				if (Node != INDEX_NONE)
 				{
 					mNodes[Node].Reserved += Each.Value;
+					if (Step.LoadPlatform)
+					{
+						mNodes[Node].PlatformReserved.FindOrAdd(Step.LoadPlatform) += Each.Value;
+					}
 				}
 			}
 			for (const TPair<UClass*, int32>& Each : Step.Unloaded)
@@ -1276,6 +1311,10 @@ void FSTTripPlanner::Release(const TArray<FSTJobLeg>& Legs, int32 From)
 			if (Node != INDEX_NONE)
 			{
 				mNodes[Node].Reserved = FMath::Max(0, mNodes[Node].Reserved - Work.PlannedAmount);
+				if (int32* AtPlatform = Work.bLoad && Work.Platform ? mNodes[Node].PlatformReserved.Find(Work.Platform.Get()) : nullptr)
+				{
+					*AtPlatform = FMath::Max(0, *AtPlatform - Work.PlannedAmount);
+				}
 			}
 		}
 	}

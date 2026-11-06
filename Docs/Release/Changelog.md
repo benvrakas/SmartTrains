@@ -2,6 +2,10 @@
 
 ## 0.6.4 (beta)
 
+- **Fixed: a supply platform only some trains can reach was left full.** Pickups promised to trains counted against
+  the whole station, so trains loading from platforms 1-3 also used up platform 4's share. A train whose car beside
+  platform 4 could load then found nothing left, and that car skipped the stop. Seen at the sulfur stations, where most
+  trains' 4th car is a fluid car. Promised pickups now count against the platform they're planned at.
 - **Repeats run the whole trip:** a train repeats the last trip it was given that picks up and delivers, as planned.
   It no longer parks because its last job ended early, or was only a delivery of leftovers.
 - **Log:**
