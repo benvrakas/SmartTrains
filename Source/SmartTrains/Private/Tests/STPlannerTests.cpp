@@ -832,8 +832,8 @@ bool FSTForecastTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// The roster shares the flow plan's routes out over trains that fit them, no train above one train's worth, and keeps
-// the same duties while the routes hardly change.
+// The roster shares the flow plan's routes out over trains that fit them, no train above one train's worth, once a route
+// has been in three flow plans; duties stay while the routes hardly change, and a new route doesn't move the others.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTRosterTest, "SmartTrains.Planner.Roster", TestFlags)
 bool FSTRosterTest::RunTest(const FString& Parameters)
 {
@@ -857,8 +857,11 @@ bool FSTRosterTest::RunTest(const FString& Parameters)
 		return Each;
 	};
 	TArray<FSTRosterRoute> Routes = {Route(1.4, {0, 1, 2}), Route(0.6, {1, 2}), Route(0.3, {2})};
-	FSTTestAccess::BuildRoster(*Subsystem, Routes);
 	const TMap<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Roster = FSTTestAccess::GetRoster(*Subsystem);
+	FSTTestAccess::BuildRoster(*Subsystem, Routes);
+	TestEqual(TEXT("a route seen once isn't on the roster yet"), Roster.Num(), 0);
+	FSTTestAccess::BuildRoster(*Subsystem, Routes);
+	FSTTestAccess::BuildRoster(*Subsystem, Routes);
 	double Assigned = 0.0;
 	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : Roster)
 	{
@@ -883,6 +886,23 @@ bool FSTRosterTest::RunTest(const FString& Parameters)
 		bSame &= Old && *Old == Pair.Value.Routes;
 	}
 	TestTrue(TEXT("a small change keeps every duty"), bSame);
+
+	// A small new route that only the first train fits: the others keep their duties.
+	TArray<FSTRosterRoute> More = Routes;
+	More.Add(Route(0.05, {0}));
+	TMap<TWeakObjectPtr<AFGTrain>, double> Loads;
+	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : Roster)
+	{
+		Loads.Add(Pair.Key, Pair.Value.Load);
+	}
+	for (int32 Plan = 0; Plan < 3; ++Plan)
+	{
+		FSTTestAccess::BuildRoster(*Subsystem, More);
+	}
+	const FSTRosterDuty* Second = Roster.Find(Trains[1]);
+	const FSTRosterDuty* Last = Roster.Find(Trains[2]);
+	TestTrue(TEXT("a new route leaves the other trains' duties as they were"), Second && Last && FMath::IsNearlyEqual(Second->Load, Loads.FindRef(Trains[1]))
+		&& FMath::IsNearlyEqual(Last->Load, Loads.FindRef(Trains[2])));
 	return true;
 }
 

@@ -24,6 +24,9 @@ public:
 	static TArray<FString> Describe(const FSTMonitorView& View);
 
 private:
+	// Adds a Platforms row for every supply platform holding stock, and demand platform that has run out, that no
+	// managed train has a car of its kind beside (Docs/Architecture.md, "Throughput monitor").
+	void AddUnreachable(const ASTSubsystem& Subsystem, FSTMonitorView& View) const;
 	struct FFleetSample
 	{
 		double Time = 0.0;

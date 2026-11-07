@@ -187,12 +187,14 @@ plans all free trains together against the network's forecast cost (`GetNetworkC
 
 - **Plans**: a train's plan may hold up to `HorizonStops` (6) stops, several trips' worth; it is committed as one job
   and re-planned after each stop (`ReplanTrip`), so only its next stop is ever fixed (rolling horizon).
-- **Building one train's plan** (`Build`, with the other trains' plans reserved): regret insertion of its moves, or a
-  trip that empties its car to serve one of the `HorizonShortTargets` (6) platforms with the highest forecast cost
+- **Building one train's plan** (`Build`, with the other trains' plans reserved): regret insertion of its moves, or (only
+  for a train carrying cargo, 0.7.2) a trip that empties its car to serve one of the `HorizonShortTargets` (6) platforms
+  with the highest forecast cost among those falling below target within 30 minutes (`HorizonEmptyingSeconds`)
   (`PlanRequest`, other cars may load if the serving car stays clean), whichever nets more: value - `TrainSecondCost`
   (0.01 car-load minutes per second) x its time. A plan that nets nothing is left empty.
 - **First plans**: the trains free soonest first.
-- **Search** (large neighbourhood search, within the round's planning time, at most `HorizonMaxTries` (40)): take out
+- **Search** (large neighbourhood search, within the round's planning time, at most `HorizonMaxTries` (40), stopping
+  after `HorizonStaleTries` (6) tries in a row that found nothing better): take out
   one random train's plan, and half the time also the plan that nets least; build them again in reverse order; keep
   the result if the network cost plus train time is lower, else put the old plans back. The random stream is seeded
   from the trains being planned and the node count, and trains free at the same time are taken by index, so the same
@@ -209,12 +211,15 @@ already works out, per item, the minimum-cost flows from suppliers to consumers;
 `FSTRosterRoute` with the share of trains it needs (flow x round trip / average load of the trains that fit) and the
 trains that fit it at both ends (`AddPlannedRoute`; the same route from several priority tiers adds up).
 
-- **Duties**: routes, biggest first, take trains that fit them (their previous trains first, then the least loaded)
-  until they have the share they need; a train's routes add up to one train at most (`FSTRosterDuty::Load`). Routes no
-  fitting train has room for are left to the horizon planner.
-- **Stability**: while the routes stay the same and each one's trains needed change by less than a quarter
-  (`RosterKeepShare`), the duties are kept and only the numbers update; otherwise they are worked out again,
-  preferring the trains each route had. ROSTER lines log every new roster.
+- **Joining**: a route joins once the flow plan has had it `RosterStablePlans` (3) times in a row (`mRouteSeen`); it stays
+  while the flow plan has it. (0.7.1 rebuilt every duty whenever the route list changed: 50 times in 30 minutes on the
+  server while the flow plan's measurements filled in.)
+- **Duties** (`FSTRosterDuty`: routes, each one's share of the train, `Load` their sum, at most one train): first every
+  route keeps the shares it had, all of them while its trains needed changed by less than `RosterKeepShare` (a quarter),
+  else as many as it still needs. Then routes, biggest first, take what they still need from trains that fit them
+  with room: their previous trains first, then the least loaded. Routes no fitting train has room for are left to the
+  horizon planner. A train keeps its place in its routes (`Next`) while they are the same ones. ROSTER lines log the
+  trains whose duties changed.
 - **Running it**: in the horizon round, a free train with a duty runs its routes in turn (`Next`): the first route
   whose trip (pickup, delivery) delivers at least a quarter of a car (`RosterMinCarShare`) is its plan. If none does,
   the horizon planner plans it like any other train (a correction). Roster plans are left out of the search.
@@ -591,6 +596,11 @@ The window has five tabs:
 Tab headings count the rows that need a look. The view (`FSTMonitorView`) goes to `USTMonitorWindow` through `Server_RequestMonitor` / `Client_Monitor` once a second
 while the window is open. `/st monitor text` and the server console print the same report, and it is logged as
 `MONITOR` lines every 5 minutes while trains are managed.
+
+**Monitor additions (0.7.2)**: "Requested" rows only for platforms falling below target within 15 minutes, at most 10,
+soonest first; **Unreachable** rows (`AddUnreachable`) for supply platforms holding stock and demand platforms that ran
+out that no managed train has a car of their kind beside, in any way it docks (learned or predicted dock maps), such as
+Nitric Acid SRC P2/P3 on the server; and a **Fleet saturated** line when trains are on trips 85 % of the time or more.
 
 ## Pool tags (removed in 0.4.0)
 

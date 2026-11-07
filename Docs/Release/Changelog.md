@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.2 (beta)
+
+- **The roster really stays steady.** 0.7.1 worked every duty out again whenever the flow plan's list of routes
+  changed, which on the server was 50 times in 30 minutes while its measurements filled in. Now a route joins the
+  roster once the flow plan has had it three times in a row; routes keep their trains and shares while the trains they
+  need change by less than a quarter, and only what they need more is taken from spare trains. A new route doesn't move
+  the other trains' duties. The log names only the trains whose duty changed.
+- **The horizon planner spends its time better.** It only tries emptying a train's car for trains carrying cargo,
+  and only for platforms that fall below target within 30 minutes, and its search stops after six tries that found
+  nothing better. On the server it used its whole planning time in nearly every round.
+- **Monitor:**
+  - **Unreachable** platforms: a supply platform holding stock, or a demand platform that ran out, that no managed
+    train has a car of its kind beside. Its goods are never picked up or delivered there; the row says which position
+    needs a fluid or freight car.
+  - **Fleet saturated**: shown when trains are on trips 85 % of the time or more; then items waiting for trains need
+    more trains, not better planning.
+  - **Requested** rows only for platforms that fall below target within 15 minutes, at most 10.
+
 ## 0.7.1 (beta)
 
 - **New: steady roster** (Mods menu **Steady roster (beta)**, on, with the horizon planner). When rates hold steady,

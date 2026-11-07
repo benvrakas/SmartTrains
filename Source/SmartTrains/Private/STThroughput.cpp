@@ -12,6 +12,11 @@
 
 namespace
 {
+	// Monitor: requests shown are those due within this, at most this many. [s]
+	constexpr double RequestRowSeconds = 900.0;
+	constexpr int32 MaxRequestRows = 10;
+	// Share of time on trips from which the fleet counts as saturated.
+	constexpr double SaturatedShare = 0.85;
 	// Fewest samples before a verdict (one minute).
 	constexpr int32 MinSamples = 6;
 	// Shares of the window that make a verdict.
@@ -305,6 +310,10 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		View.Summary.Add(FString::Printf(TEXT("%d managed trains: %d driving a trip, %d at a stop, %d repeating their last job (free for new trips), %d going to park, %d idle."),
 			Last.Managed, Last.Driving, Last.Docked, Last.Repeating, Last.Parking, Last.Idle));
 		View.Summary.Add(FString::Printf(TEXT("Busy on trips %s of the time over the last %d min."), *Percent(BusyShareNow), FMath::Max(1, View.WindowMinutes)));
+		if (BusyShareNow >= SaturatedShare)
+		{
+			View.Summary.Add(TEXT("Fleet saturated: nearly every train is on a trip all the time. Items waiting for trains (Trains busy elsewhere) need more trains; better planning can't make up for it."));
+		}
 	}
 	else
 	{
@@ -766,13 +775,19 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			Row.Details.Add(FString::Printf(TEXT("%s."), *Subsystem.DescribeRequest(State, Claim)));
 		}
 	}
+	TArray<const FSTRequestNote*> Notes;
 	for (const TPair<const AFGBuildableTrainPlatformCargo*, FSTRequestNote>& Pair : Subsystem.mRequestNotes)
 	{
-		const FSTRequestNote& Note = Pair.Value;
-		if (!Note.Platform.IsValid() || Note.Kind == TEXT("covered"))
+		if (Pair.Value.Platform.IsValid() && Pair.Value.Kind != TEXT("covered") && Pair.Value.BelowAt <= Time + RequestRowSeconds)
 		{
-			continue;
+			Notes.Add(&Pair.Value);
 		}
+	}
+	Notes.Sort([](const FSTRequestNote& A, const FSTRequestNote& B) { return A.BelowAt < B.BelowAt; });
+	Notes.SetNum(FMath::Min(Notes.Num(), MaxRequestRows));
+	for (const FSTRequestNote* Each : Notes)
+	{
+		const FSTRequestNote& Note = *Each;
 		FSTMonitorRow& Row = View.Platforms.AddDefaulted_GetRef();
 		Row.Title = STLayout::DescribePlatform(Note.Platform.Get());
 		Row.Item = Note.Item.Get();
@@ -786,6 +801,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			Row.Advice = TEXT("No free train has a car that lines up with this platform and can be emptied: give it a train whose cars line up, or a sink or consumer for what they hold.");
 		}
 	}
+	AddUnreachable(Subsystem, View);
 	auto BySeverity = [](const FSTMonitorRow& A, const FSTMonitorRow& B)
 	{
 		return A.Severity != B.Severity ? A.Severity > B.Severity : A.Title < B.Title;
@@ -853,4 +869,74 @@ TArray<FString> FSTThroughput::Describe(const FSTMonitorView& View)
 		Lines.Add(TEXT("  Idle: ") + Line);
 	}
 	return Lines;
+}
+
+void FSTThroughput::AddUnreachable(const ASTSubsystem& Subsystem, FSTMonitorView& View) const
+{
+	// Per train and station, the vehicle beside each platform for every way it docks (computed once per pair).
+	TMap<TPair<const AFGTrain*, const AFGTrainStationIdentifier*>, TArray<TArray<AFGRailroadVehicle*>>> Maps;
+	for (const FSTPlatformConfig& Config : Subsystem.mPlatforms)
+	{
+		const AFGBuildableTrainPlatformCargo* Platform = Config.Platform;
+		const UFGInventoryComponent* Inventory = IsValid(Platform) ? Platform->GetInventory() : nullptr;
+		if (!Inventory || (Config.Role != ESTRole::Supply && Config.Role != ESTRole::Demand) || Config.Items.Num() == 0)
+		{
+			continue;
+		}
+		// Only where it matters: a supplier holding its items, a consumer that has run out.
+		int32 Stock = 0;
+		UClass* First = nullptr;
+		for (const FSTItemRule& Rule : Config.Items)
+		{
+			if (Rule.Item)
+			{
+				Stock += Inventory->GetNumItems(Rule.Item);
+				First = First ? First : Rule.Item.Get();
+			}
+		}
+		if (!First || (Config.Role == ESTRole::Supply ? Stock <= 0 : Stock > 0))
+		{
+			continue;
+		}
+		int32 Index = INDEX_NONE;
+		const AFGTrainStationIdentifier* Station = STLayout::GetIdentifier(STLayout::FindStation(Platform, &Index));
+		if (!Station || Index == INDEX_NONE)
+		{
+			continue;
+		}
+		const EFreightCargoType Type = STLayout::GetPlatformCargoType(Platform);
+		bool bReached = false;
+		for (const FSTTrainState& State : Subsystem.mTrains)
+		{
+			if (bReached || !State.bManaged || !IsValid(State.Train) || !Subsystem.CanServe(State, Station))
+			{
+				continue;
+			}
+			const TPair<const AFGTrain*, const AFGTrainStationIdentifier*> Key(State.Train.Get(), Station);
+			if (!Maps.Contains(Key))
+			{
+				Maps.Add(Key, Subsystem.GetDockMaps(State.Train, Station));
+			}
+			for (const TArray<AFGRailroadVehicle*>& Map : Maps[Key])
+			{
+				const AFGFreightWagon* Car = Map.IsValidIndex(Index) ? Cast<AFGFreightWagon>(Map[Index]) : nullptr;
+				bReached |= Car && STLayout::GetCargoType(Car) == Type;
+			}
+		}
+		if (bReached)
+		{
+			continue;
+		}
+		const bool bFluid = Type == EFreightCargoType::FCT_Liquid;
+		FSTMonitorRow& Row = View.Platforms.AddDefaulted_GetRef();
+		Row.Title = STLayout::DescribePlatform(Platform);
+		Row.Item = First;
+		Row.Verdict = TEXT("Unreachable");
+		Row.Severity = 2;
+		Row.Columns = {STNames::Item(First), TEXT("-")};
+		Row.Details.Add(FString::Printf(TEXT("No managed train has a %s car that stops beside P%d, so %s %s never %s here."), bFluid ? TEXT("fluid") : TEXT("freight"), Index + 1,
+			*STNames::Item(First), Config.Role == ESTRole::Supply ? TEXT("is") : TEXT("is"), Config.Role == ESTRole::Supply ? TEXT("picked up") : TEXT("delivered")));
+		Row.Advice = FString::Printf(TEXT("Give a train a %s car in the position that stops at P%d, or move the %s to a platform the trains reach."), bFluid ? TEXT("fluid") : TEXT("freight"),
+			Index + 1, bFluid ? TEXT("pipes") : TEXT("belts"));
+	}
 }
