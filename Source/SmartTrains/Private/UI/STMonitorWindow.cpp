@@ -593,7 +593,7 @@ void USTMonitorWindow::ShowStations(const FSTMonitorView& View)
 
 void USTMonitorWindow::ShowPlatforms(const FSTMonitorView& View)
 {
-	AddCell(AddLine(FMargin(0.f, 0.f, 0.f, 8.f)), MakeCell(TEXT("Each row is one station's platforms for one item, judged together. Starved: all of them empty most of the time; partly starved: some of them empty half the time or more while others hold stock; backing up: supply platforms full half the time or more. Under the station: its platforms for that item by position (P1 is the first from the station building) and how full each is now."),
+	AddCell(AddLine(FMargin(0.f, 0.f, 0.f, 8.f)), MakeCell(TEXT("Each row is one station's platforms for one item, judged together. Starved: all of them empty most of the time; partly starved: some of them empty half the time or more while others hold stock; backing up: supply platforms full half the time or more. Under the station: its platforms for that item by position (P1 is the first from the station building) and how full each is now. Requested: a single platform asking for a train to be emptied for it (Request a train), with the train on it, or why there is none yet."),
 		10, MonitorDim, true), 0.f);
 	const TArray<float> Widths = {220.f, 100.f};
 	AddHeader({{FText::GetEmpty(), MonitorIconSize}, {LOCTEXT("ColStationPlatforms", "Station and its platforms"), 0.f}, {LOCTEXT("ColStatus", "Status"), 150.f},

@@ -15,10 +15,10 @@ them (see below).
 - **Platforms:** open a freight or fluid platform and click **Open SmartTrains settings**.
   - **Supply:** managed trains pick items up here.
   - **Demand:** managed trains keep it stocked to a target. **Request a train** (Automatic by default): when the
-    platform would fall below its target within 10 minutes (Mods menu) even with the deliveries on the way, and no
-    train has an empty car that lines up with it, a train whose car holds something else is emptied first and sent
-    for it. **On** asks until it and its deliveries on the
-    way are 90 % full; **Off** never asks.
+    platform will fall below its target, even with the deliveries on the way, before any train that can carry the
+    item could bring it, a train whose car lines up with it is emptied of what it holds (at consumers or sinks,
+    whatever is soonest) and sent for it, in time to arrive **Request a train this early** (5 minutes) before. **On**
+    asks until it and its deliveries are 90 % full; **Off** never asks.
   - **Sink:** managed trains unload cargo here that no consumer takes, any item.
   - **Off:** vanilla.
   - Each item gets a target and a priority (demand), or a minimum batch (supply: **Send at % of a load**, 50 % by

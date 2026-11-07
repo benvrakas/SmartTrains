@@ -113,22 +113,21 @@ FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCa
 			}
 		}
 	}
-	if (Config->Role == ESTRole::Demand && Identifier)
+	if (Config->Role == ESTRole::Demand)
 	{
 		for (const FSTTrainState& State : mTrains)
 		{
-			if (State.RequestStation.Get() == Identifier && Config->FindRule(State.RequestItem.Get()))
+			for (const FSTRequestClaim& Claim : State.Requests)
 			{
-				View.Lines.Add(FString::Printf(TEXT("Request: %s is emptying a car to bring %s"), *STLayout::Name(State.Train), *STNames::Item(State.RequestItem.Get())));
+				if (Claim.Platform == Platform)
+				{
+					View.Lines.Add(FString::Printf(TEXT("Request: %s"), *DescribeRequest(State, Claim)));
+				}
 			}
 		}
-		for (const FSTItemRule& Rule : Config->Items)
+		if (const FSTRequestNote* Note = mRequestNotes.Find(Platform))
 		{
-			const FString* Note = Rule.Item ? mRequestNotes.Find(FString::Printf(TEXT("%s|%s"), *STLayout::Name(Identifier), *STNames::Item(Rule.Item))) : nullptr;
-			if (Note)
-			{
-				View.Lines.Add(TEXT("Request: ") + *Note);
-			}
+			View.Lines.Add(FString::Printf(TEXT("Request (%s): %s"), *STNames::Item(Note->Item.Get()), *Note->Text));
 		}
 	}
 	if (const TArray<FString>* History = Identifier ? mHistory.Find(const_cast<AFGTrainStationIdentifier*>(Identifier)) : nullptr)
@@ -140,6 +139,14 @@ FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCa
 	}
 	View.Lines.Append(ExplainPlatform(Platform));
 	return View;
+}
+
+FString ASTSubsystem::DescribeRequest(const FSTTrainState& State, const FSTRequestClaim& Claim) const
+{
+	const bool bBringing = State.bHasJob && State.Job.bRequest && JobDelivers(State.Job, Claim, State.Job.Leg);
+	const TCHAR* Doing = bBringing ? TEXT("is bringing")
+		: (State.bHasJob && State.Job.bRequest ? TEXT("is emptying a car to bring") : TEXT("waits for its next trip to bring"));
+	return FString::Printf(TEXT("%s %s %s into %s"), *STLayout::Name(State.Train), Doing, *STNames::Item(Claim.Item), *STLayout::DescribePlatform(Claim.Platform));
 }
 
 TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCargo* Platform) const

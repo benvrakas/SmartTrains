@@ -321,6 +321,13 @@ FString STLayout::Name(const AFGBuildableRailroadStation* Station)
 	return Name(GetIdentifier(Station));
 }
 
+FString STLayout::DescribePlatform(const AFGBuildableTrainPlatform* Platform)
+{
+	int32 Index = INDEX_NONE;
+	const AFGBuildableRailroadStation* Station = Platform ? FindStation(Platform, &Index) : nullptr;
+	return Station ? FString::Printf(TEXT("P%d of %s"), Index + 1, *Name(Station)) : GetNameSafe(Platform);
+}
+
 FString STLayout::Name(const AFGTrain* Train)
 {
 	return Train ? Train->GetTrainName().ToString() : FString(TEXT("?"));

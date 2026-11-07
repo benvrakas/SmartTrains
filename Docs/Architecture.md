@@ -260,27 +260,39 @@ Items that would move nothing and empty stops are trimmed, then regret insertion
 leftovers on the way. If the rest no longer works at all, it is planned again from the cargo on board. If nothing
 is left to do, the trip ends and the train is settled when the round ends (next trip, depot or park).
 
-**Requests** (`ServeRequests`, `FSTTripPlanner::PlanRequest`; platform setting `ESTRequest`, node `FSTNode::Request`).
-Regret insertion adds one move at a time and keeps it only if the trip's score rises. A car that fits a consumer's
-platform but holds another item is blocked: the pickup scores nothing alone, and emptying the car is added only if
-that delivery is worth something itself. So a consumer whose only trains hold other cargo got none. After the round's
-normal trips (whose reservations are in the nodes by then), a demand node asks (`GetRequestNeed`): **Automatic**
-when stock + reserved − use rate × `RequestLookaheadMinutes` (10) is below its target, **On** while stock + reserved
-is below 90 % of its capacity (repeats reserve nothing, so they don't count). Until 0.6.10 it asked only when
-starved (empty 30 s) with no delivery planned at all. It also doesn't ask while `HasFittingTrain` finds a managed
-train on its network (busy or not) with a car that `ComputeFit`, counting cargo, fits from one of its suppliers:
-that train serves it by a normal trip. Unclaimed asking nodes, by
-priority then fill, take the free train (no job, a repeat, or a no-work depot run) whose request trip delivers
-first. `PlanRequest` takes up to 3 suppliers (nearest first) with cars that fit the supplier's loader and the
-consumer's platform; their cargo of other items is unloaded at the 3 nearest consumers of those items and the 2
-nearest sinks. It simulates none, one or two of them (both orders) before the pickup and the delivery. The trip that
-empties the cars and delivers soonest wins, consumers and sinks alike; if none fits in `MaxStops`, the emptying alone
-that leaves the cars empty soonest does (or, if none empties them, the one that unloads the most), and the train holds a claim (`FSTTrainState::RequestStation`/`RequestItem`, runtime only): it gets
-no other trips (it is left out of the round's free trains) and `ServeRequests` plans its next part once it is free,
-or drops the claim when the node no longer asks. Request trips (`FSTJob::bRequest`) run with a 60-minute trip limit,
-are not re-planned after each stop (their emptying stops are worth nothing to a re-plan), and may get moves for
-other cars by regret insertion as long as the delivery and the amount moved don't shrink. REQUEST log lines say who
-serves which request, and why no free train can.
+**Requests** (`ServeRequests`, `FSTTripPlanner::PlanRequest` / `AddRequest`; platform setting `ESTRequest`).
+Why: regret insertion adds one move at a time and keeps it only if the trip's score rises. A car that lines up with a
+consumer's platform but holds another item is blocked: the pickup scores nothing alone, and emptying the car is added
+only if that delivery is worth something itself. So a platform whose only trains hold other cargo got none.
+
+- **What asks** (`GetRequestNeed`): a single demand platform. Its stock plus its deliveries on the way (promised to
+  it, plus its share of those promised to the station without a platform) falls below its target (On: 90 % of its
+  capacity) within the horizon (60 min) at its use rate (manual rate, or measured). `OutBelowAt` is when.
+- **When it's covered** (`GetFittingDelivery`): the soonest managed train, busy or not, with a car that `ComputeFit`
+  (counting cargo) fits from a supplier and that stops beside that platform in every dock map, delivering at its free
+  time + travel to the supplier + stay + travel to the platform. If that is no later than `BelowAt`, a normal trip
+  brings it.
+- **Which train**: among free trains (`IsFreeNow`: no job, a repeat, or a no-work depot run) without requests, the one
+  whose request trip delivers first. If a fitting train would still come no later, nothing is done; if the request
+  trip would deliver more than `RequestMarginMinutes` (5) before `BelowAt`, it waits ("later"). Otherwise it is
+  committed, and other asking platforms the same trip can deliver are added (`AddRequest`, with cars not taken).
+  Why a platform has no trip yet is kept in `mRequestNotes` (readout, monitor; logged when its kind changes).
+- **The trip** (`PlanRequest`): up to 3 suppliers (nearest first) with cars that line up with the supplier's loader
+  and the requesting platform (`FindRequestSources`). Those cars' other items are unloaded at the 3 nearest consumers
+  of them and the 2 nearest sinks: none, one or two of these (both orders) before the pickup and the delivery. The
+  trip that empties the cars and delivers into that platform soonest wins, consumers and sinks alike; if none fits in
+  `MaxStops`, the emptying alone that leaves the cars empty soonest (or unloads the most). The pickup's
+  `FSTPlanStop::NoBatchItems` skips the minimum batch.
+- **The claim** (`FSTTrainState::Requests`, saved): platform, item, and the cars the request uses. The train is left
+  out of the round's free trains and of `SettleIdle` (no repeats), and `ServeRequests` plans its next part when it is
+  free. A claim ends when its delivery moved something (`FinishJob`), or when the platform no longer asks while the
+  train isn't bringing it.
+- **Clean cars**: regret insertion may add moves for other cars (`AddOtherCars`) only if every request keeps its
+  delivery and its cars load nothing but its item at its pickup (`KeepsRequestCars`; emptying-only trips: nothing).
+  Request trips (`FSTJob::bRequest`) are not re-planned after each stop (their emptying stops are worth nothing to a
+  re-plan), but after a stop with the pickup next (`bRequestRecheck`) the request cars' real cargo is checked
+  (`RequestCarsHoldOther`): transfers are only known afterwards, so if other items are left, the rest is planned
+  again from that stop, and if that fails the job ends rather than load onto them.
 
 **Sinks** (`ESTRole::Sink`, 0.6.9): a sink platform's config has one rule without an item. `BuildNodes` makes it a
 Demand node with `bAnyItem`, as "Any item" demand platforms were before; `PostLoadGame` turns those into Sink.

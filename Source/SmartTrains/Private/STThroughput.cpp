@@ -362,6 +362,18 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 				Row.Details.Add(State.Job.Summary);
 			}
 		}
+		if (State.Requests.Num() > 0)
+		{
+			const bool bBringing = State.Requests.ContainsByPredicate([&](const FSTRequestClaim& Claim)
+			{
+				return State.bHasJob && State.Job.bRequest && ASTSubsystem::JobDelivers(State.Job, Claim, State.Job.Leg);
+			});
+			Row.Verdict = bBringing ? TEXT("Bringing a request") : TEXT("Emptying for a request");
+			for (const FSTRequestClaim& Claim : State.Requests)
+			{
+				Row.Details.Add(FString::Printf(TEXT("Request: %s."), *Subsystem.DescribeRequest(State, Claim)));
+			}
+		}
 		Row.Columns.Add(State.LastStation ? STLayout::Name(State.LastStation.Get()) : FString(TEXT("-")));
 		if (const FString* Problem = Trouble.Find(State.Train.Get()))
 		{
@@ -734,6 +746,40 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 				Platform.Columns = {Row.Title, Percent(Each->Share(ENodeFlag::Full))};
 				Platform.Details.Add(FString::Printf(TEXT("Supplies %s and was full %s of the time, so its belts or pipes back up."), *Row.Title, *Percent(Each->Share(ENodeFlag::Full))));
 			}
+		}
+	}
+	// Requests: platforms a train is emptied for, and platforms that ask without a train yet.
+	for (const FSTTrainState& State : Subsystem.mTrains)
+	{
+		for (const FSTRequestClaim& Claim : State.Requests)
+		{
+			FSTMonitorRow& Row = View.Platforms.AddDefaulted_GetRef();
+			Row.Title = STLayout::DescribePlatform(Claim.Platform);
+			Row.Item = Claim.Item;
+			Row.Verdict = TEXT("Requested: train on it");
+			Row.Severity = 1;
+			Row.Columns = {STNames::Item(Claim.Item), TEXT("-")};
+			Row.Details.Add(FString::Printf(TEXT("%s."), *Subsystem.DescribeRequest(State, Claim)));
+		}
+	}
+	for (const TPair<const AFGBuildableTrainPlatformCargo*, FSTRequestNote>& Pair : Subsystem.mRequestNotes)
+	{
+		const FSTRequestNote& Note = Pair.Value;
+		if (!Note.Platform.IsValid())
+		{
+			continue;
+		}
+		FSTMonitorRow& Row = View.Platforms.AddDefaulted_GetRef();
+		Row.Title = STLayout::DescribePlatform(Note.Platform.Get());
+		Row.Item = Note.Item.Get();
+		const bool bNoTrain = Note.Kind == TEXT("no train");
+		Row.Verdict = bNoTrain ? TEXT("Requested: no train") : (Note.Kind == TEXT("later") ? TEXT("Requested: train later") : TEXT("Requested: covered"));
+		Row.Severity = bNoTrain ? 2 : 0;
+		Row.Columns = {STNames::Item(Note.Item.Get()), TEXT("-")};
+		Row.Details.Add(Note.Text + TEXT("."));
+		if (bNoTrain)
+		{
+			Row.Advice = TEXT("No free train has a car that lines up with this platform and can be emptied: give it a train whose cars line up, or a sink or consumer for what they hold.");
 		}
 	}
 	auto BySeverity = [](const FSTMonitorRow& A, const FSTMonitorRow& B)

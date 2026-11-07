@@ -81,8 +81,8 @@ namespace
 				LOCTEXT("LeftoverTip", "Cargo that no consumer below its target wants for this long may go to any consumer with room, or to an any-item sink, 5 to 240 minutes.")},
 			{TEXT("QueueTrains"), &FSTSettings::QueueTrains, 0.f, 10.f, LOCTEXT("QueueTrains", "Most trains waiting before a station"),
 				LOCTEXT("QueueTrainsTip", "While trains leave stations at once, no trip is planned that would make more than this many trains wait on the line before a station at the same time, the new one included. Long queues before busy stations block junctions and cause deadlocks; a shorter wait only makes a trip score lower. 0 to 10 trains; 0 means no limit.")},
-			{TEXT("RequestLookaheadMinutes"), &FSTSettings::RequestLookaheadMinutes, 0.f, 60.f, LOCTEXT("RequestLookahead", "Request a train this early (minutes)"),
-				LOCTEXT("RequestLookaheadTip", "A demand platform with Request a train on Automatic asks for a train when its stock and the deliveries on the way would fall below its target within this many minutes at its use rate. A train holding other cargo is then emptied first and sent for it. 0 to 60 minutes; 0 means only once it is below its target.")},
+			{TEXT("RequestMarginMinutes"), &FSTSettings::RequestMarginMinutes, 0.f, 60.f, LOCTEXT("RequestMargin", "Request a train this early (minutes)"),
+				LOCTEXT("RequestMarginTip", "A demand platform asks for a train when it would fall below its target (Request a train: Automatic) before any train that can carry its item now could bring it. A train holding other cargo is then emptied and sent, early enough that the goods arrive this many minutes before the platform would fall below its target. 0 to 60 minutes.")},
 			{TEXT("ArrivalGapSeconds"), &FSTSettings::ArrivalGapSeconds, 0.f, 300.f, LOCTEXT("ArrivalGap", "Gap between trains at a station (seconds)"),
 				LOCTEXT("ArrivalGapTip", "Trips are timed so the next train arrives at a station at least this long after the last one left, 0 to 300 seconds. A train whose first stop is busy waits where it is instead of queueing on the line.")},
 		};

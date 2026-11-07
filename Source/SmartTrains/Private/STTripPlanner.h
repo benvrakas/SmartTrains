@@ -25,6 +25,15 @@ struct FSTPlanStop
 	AFGTrainStationIdentifier* Station = nullptr;
 	TArray<UClass*> LoadItems;
 	TArray<UClass*> UnloadItems;
+	// Items loaded here for a request: no minimum batch.
+	TArray<UClass*> NoBatchItems;
+};
+
+// A demand platform asking for a train: its demand node and the platform.
+struct FSTRequestTarget
+{
+	int32 Node = INDEX_NONE;
+	const AFGBuildableTrainPlatformCargo* Platform = nullptr;
 };
 
 // What one car does at one stop of a simulated trip.
@@ -95,13 +104,25 @@ public:
 	// Adds moves by regret insertion while the trip's score rises; returns the final result.
 	FSTPlanResult Improve(TArray<FSTPlanStop>& InOutStops, int32 FirstMovable) const;
 
-	// A trip for the request of demand node Consumer (Docs/Architecture.md, "Requests"): stops that empty the cars
-	// holding another item, at consumers of that item first and then at sinks, then a pickup and the delivery if they
-	// fit in one trip. bOutDelivers: the trip delivers; otherwise it only empties cars. Returns false with OutWhy if the
-	// current train can't serve the request.
-	bool PlanRequest(int32 Consumer, TArray<FSTPlanStop>& OutStops, FSTPlanResult& OutResult, bool& bOutDelivers, FString& OutWhy) const;
+	// A trip for Target's request (Docs/Architecture.md, "Requests"): stops that empty the cars that line up with its
+	// platform of other items, whatever empties them soonest, then a pickup (no minimum batch) and the delivery if they
+	// fit in one trip. bOutDelivers: the trip delivers; otherwise it only empties cars. OutCars: the cars it uses.
+	// Returns false with OutWhy if the current train can't serve it.
+	bool PlanRequest(const FSTRequestTarget& Target, TArray<FSTPlanStop>& OutStops, FSTPlanResult& OutResult, bool& bOutDelivers, TArray<int32>& OutCars,
+		FString& OutWhy) const;
+	// Adds Target's pickup and delivery to a request trip, with cars not in Taken, where KeepsOthers still holds; the
+	// soonest ending way. Returns false if none works.
+	bool AddRequest(TArray<FSTPlanStop>& InOutStops, FSTPlanResult& InOutResult, const FSTRequestTarget& Target, const TArray<int32>& Taken, TArray<int32>& OutCars,
+		TFunctionRef<bool(const TArray<FSTPlanStop>&, const FSTPlanResult&)> KeepsOthers) const;
+	// True if Cars load nothing in Stops but Item at stops where Item is loaded for a request (Item null: nothing).
+	bool KeepsRequestCars(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, const TArray<int32>& Cars, UClass* Item) const;
 	// What a simulated trip unloads of Item at the stops at Station (any station if null).
 	static int32 CountUnloaded(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, UClass* Item, const AFGTrainStationIdentifier* Station);
+	// What a simulated trip unloads of Item into Platform; OutStop: the first stop that does.
+	static int32 CountUnloadedInto(const FSTPlanResult& Result, UClass* Item, const AFGBuildableTrainPlatformCargo* Platform, int32* OutStop = nullptr);
+	// The current train's car index of Car (INDEX_NONE if not one of its freight cars), and the car at Index.
+	int32 FindCar(const AFGRailroadVehicle* Car) const;
+	AFGFreightWagon* GetCar(int32 Index) const;
 
 	// Drops items that move nothing and stops left with nothing to do, from FirstMovable on.
 	static void Trim(TArray<FSTPlanStop>& InOutStops, const FSTPlanResult& Result, int32 FirstMovable);
@@ -158,6 +179,15 @@ private:
 	};
 
 	int32 GetPlatformInfo(const AFGBuildableTrainPlatformCargo* Platform) const;
+	// A supplier for a request, with the current train's cars that line up with its loader and the requesting platform.
+	struct FRequestSource
+	{
+		AFGTrainStationIdentifier* Station = nullptr;
+		float Seconds = 0.f;
+		TArray<int32> Cars;
+	};
+	// The nearest suppliers for Target with such cars, leaving out cars in Taken; empty with OutWhy if none.
+	TArray<FRequestSource> FindRequestSources(const FSTRequestTarget& Target, const TArray<int32>& Taken, FString& OutWhy) const;
 	// True if car Index of the current train stops beside a platform passing Test at Station, whichever way it docks.
 	bool CarFitsAt(int32 Index, const AFGTrainStationIdentifier* Station, TFunctionRef<bool(const FPlatformInfo&)> Test) const;
 	// True if the current train can serve Station (same track network); always true in the automation tests.

@@ -7,6 +7,7 @@
 
 class AFGBuildableTrainPlatformCargo;
 class AFGRailroadVehicle;
+class AFGFreightWagon;
 class AFGTrain;
 class AFGTrainStationIdentifier;
 class AFGLocomotive;
@@ -30,7 +31,8 @@ enum class ESTRole : uint8
 UENUM()
 enum class ESTRequest : uint8
 {
-	// When the platform's stock and deliveries on the way would fall below its target soon (RequestLookaheadMinutes).
+	// When the platform's stock and deliveries on the way would fall below its target before a train that can carry the
+	// item now could bring it.
 	Auto,
 	// Until the platform's stock and deliveries on the way reach 90 % of its capacity.
 	On,
@@ -285,6 +287,26 @@ struct SMARTTRAINS_API FSTJob
 	FString Summary;
 };
 
+// A demand platform's request a train is serving (Docs/Architecture.md, "Requests").
+USTRUCT()
+struct SMARTTRAINS_API FSTRequestClaim
+{
+	GENERATED_BODY()
+
+	UPROPERTY(SaveGame)
+	TObjectPtr<AFGTrainStationIdentifier> Station = nullptr;
+
+	UPROPERTY(SaveGame)
+	TObjectPtr<AFGBuildableTrainPlatformCargo> Platform = nullptr;
+
+	UPROPERTY(SaveGame)
+	TSubclassOf<UFGItemDescriptor> Item;
+
+	// The cars that bring it: they unload other items and then load only Item.
+	UPROPERTY(SaveGame)
+	TArray<TObjectPtr<AFGRailroadVehicle>> Cars;
+};
+
 // SmartTrains' state for one train.
 // A move that moved nothing: not planned again for the train until Until (runtime only).
 struct FSTNoProgress
@@ -362,6 +384,10 @@ struct SMARTTRAINS_API FSTTrainState
 	UPROPERTY(SaveGame)
 	double UnwantedCargoSince = 0.0;
 
+	// Requests this train serves until it has delivered them; it gets no other trips meanwhile.
+	UPROPERTY(SaveGame)
+	TArray<FSTRequestClaim> Requests;
+
 	// Runtime only: moves that moved nothing at their station lately.
 	TArray<FSTNoProgress> NoProgress;
 
@@ -379,10 +405,8 @@ struct SMARTTRAINS_API FSTTrainState
 	// when it changes).
 	double LastRepeatTry = -1000.0;
 	FString LastRepeatRefusal;
-	// Runtime only: the station and item of the request this train is emptying a car for; it gets no other trips until
-	// the request trip with the delivery is planned or the request ends.
-	TWeakObjectPtr<AFGTrainStationIdentifier> RequestStation;
-	TWeakObjectPtr<UClass> RequestItem;
+	// Runtime only: it left a stop of a request trip, so its request cars are checked before the pickup.
+	bool bRequestRecheck = false;
 
 	// Runtime only: docking state at the last check, when the current dock began, and where.
 	bool bWasDocked = false;

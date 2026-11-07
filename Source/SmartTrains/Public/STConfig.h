@@ -50,9 +50,9 @@ struct FSTSettings
 	// With bLeaveAtOnce: no trip makes more than this many trains wait on the line before a stop, itself included. 0:
 	// no limit. [trains]
 	float QueueTrains = 2.f;
-	// Request a train setting Automatic: a demand platform asks when its stock and the deliveries on the way would fall
-	// below its target within this long at its use rate. [min]
-	float RequestLookaheadMinutes = 10.f;
+	// Requests: a train is emptied for a platform early enough that the goods arrive this long before it would fall
+	// below its target. [min]
+	float RequestMarginMinutes = 5.f;
 };
 
 // SmartTrains' mod configuration: switches and numbers shown in the Mods menu and Satisfactory Mod Manager.

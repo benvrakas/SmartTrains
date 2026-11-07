@@ -82,6 +82,8 @@ namespace STLayout
 	FString Name(const AFGTrainStationIdentifier* Station);
 	FString Name(const AFGBuildableRailroadStation* Station);
 	FString Name(const AFGTrain* Train);
+	// "P2 of Name" for a station's second platform, or the platform's object name.
+	FString DescribePlatform(const AFGBuildableTrainPlatform* Platform);
 
 	// "car 3" for the third freight car counted from the front of Train, or the vehicle's object name.
 	FString DescribeVehicle(const AFGTrain* Train, const AFGRailroadVehicle* Vehicle);

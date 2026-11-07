@@ -51,6 +51,16 @@ struct FSTNode
 	double PlannedFlow = 0.0;
 };
 
+// Why an asking platform has no request trip yet.
+struct FSTRequestNote
+{
+	TWeakObjectPtr<AFGBuildableTrainPlatformCargo> Platform;
+	TWeakObjectPtr<UClass> Item;
+	// "no train", "sooner" (a train that can carry it now comes first) or "later" (a train is emptied for it later).
+	FString Kind;
+	FString Text;
+};
+
 // What fits when one train does one pickup and delivery (Docs/Architecture.md, "Fit model").
 struct FSTFit
 {
@@ -208,13 +218,21 @@ private:
 	// Plans trips for demand platforms that ask for a train (ESTRequest): emptying a car that holds another item first
 	// (Docs/Architecture.md, "Requests"). Runs after the round's normal trips.
 	void ServeRequests(FSTTripPlanner& Planner, const TArray<FSTNode>& Nodes);
-	// Why Node asks for a train now ("below target, too little on the way"), or empty if it doesn't: Automatic when its
-	// stock and deliveries on the way fall below its target within RequestLookaheadMinutes at its use rate, On while
-	// they are below 90 % of its capacity.
-	FString GetRequestNeed(const FSTNode& Node) const;
-	// True if a managed train on Consumer's network has a car that lines up with a supplier's loader and Consumer's
-	// platform and is empty or holds only its item (ComputeFit counting cargo), so no request is needed.
-	bool HasFittingTrain(const FSTNode& Consumer, const TArray<FSTNode>& Nodes) const;
+	// True if Platform (of demand node Node) asks for a train: its stock and its deliveries on the way fall below its
+	// target (On: 90 %) within the request horizon at its use rate. OutBelowAt: when (game seconds); OutWhy: for logs.
+	bool GetRequestNeed(const FSTNode& Node, const AFGBuildableTrainPlatformCargo* Platform, double& OutBelowAt, FString& OutWhy) const;
+	// When the soonest managed train with a car that fits from a supplier of Node's item and stops beside Platform, empty
+	// or holding the item (ComputeFit counting cargo), could deliver there, busy or not (game seconds; max if none).
+	// OutTrain: that train's name.
+	double GetFittingDelivery(const FSTNode& Node, const AFGBuildableTrainPlatformCargo* Platform, const TArray<FSTNode>& Nodes, FString* OutTrain) const;
+	// True if State's train has no job, runs a repeat, or heads for a depot without work: it may take a new trip now.
+	static bool IsFreeNow(const FSTTrainState& State);
+	// True if Job delivers Claim's item into Claim's platform at leg FromLeg or later.
+	static bool JobDelivers(const FSTJob& Job, const FSTRequestClaim& Claim, int32 FromLeg);
+	// True if a car of State's requests holds an item other than its request's.
+	static bool RequestCarsHoldOther(const FSTTrainState& State);
+	// "Train is emptying a car to bring Item into P2 of Station" (or bringing it, or waiting for its next trip).
+	FString DescribeRequest(const FSTTrainState& State, const FSTRequestClaim& Claim) const;
 	// Works out planned flows between suppliers and consumers.
 	void PlanFlows();
 	// One step of the travel distance search.
@@ -356,8 +374,8 @@ private:
 	bool bSettingsRead = false;
 	// Per free train: why it got no trip in the last round, logged when it changes and shown in its menu.
 	TMap<TWeakObjectPtr<AFGTrain>, FString> mIdleReasons;
-	// Last "REQUEST" line per station and item that no train could serve, logged when it changes.
-	TMap<FString, FString> mRequestNotes;
+	// Per asking platform not served yet: why (shown in its readout and the monitor; logged when the kind changes).
+	TMap<const AFGBuildableTrainPlatformCargo*, FSTRequestNote> mRequestNotes;
 	// When the planning time last ran out (for a throttled warning). [game s]
 	double mLastBudgetWarning = -1000.0;
 	// A dispatch round is running; trains that become idle in it are settled when it ends (mToSettle).

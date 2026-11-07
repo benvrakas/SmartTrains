@@ -164,6 +164,11 @@ void ASTSubsystem::PostLoadGame_Implementation(int32 SaveVersion, int32 GameVers
 			UE_LOG(LogSmartTrains, Log, TEXT("PLATFORM %s: demand for any item is now the Sink role"), IsValid(Config.Platform) ? *Config.Platform->GetName() : TEXT("?"));
 		}
 	}
+	// Requests whose platform, station or item is gone are dropped.
+	for (FSTTrainState& State : mTrains)
+	{
+		State.Requests.RemoveAll([](const FSTRequestClaim& Claim) { return !IsValid(Claim.Station) || !IsValid(Claim.Platform) || !Claim.Item; });
+	}
 	int32 Converted = 0;
 	for (FSTTrainState& State : mTrains)
 	{
@@ -804,6 +809,7 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 {
 	AFGTrain* Train = State.Train;
 	mPendingDockMaps.Remove(Train);
+	State.bRequestRecheck = State.bHasJob && State.Job.bRequest && State.Requests.Num() > 0;
 	State.LastStation = Station;
 	State.LastDepartureAt = Now();
 	if (!State.bHasJob)

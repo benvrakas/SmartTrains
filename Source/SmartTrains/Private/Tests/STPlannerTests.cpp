@@ -541,7 +541,8 @@ bool FSTMinCostFlowTest::RunTest(const FString& Parameters)
 }
 
 // A request: the car that fits the requesting platform holds another item, so the trip empties it first (at a consumer
-// of that item, or at a sink when none takes it), then picks up and delivers.
+// of that item, or at a sink when none takes it), then picks up and delivers, even less than a batch; its car loads
+// nothing else.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTRequestEmptiesCarTest, "SmartTrains.Planner.RequestEmptiesCar", TestFlags)
 bool FSTRequestEmptiesCarTest::RunTest(const FString& Parameters)
 {
@@ -574,13 +575,15 @@ bool FSTRequestEmptiesCarTest::RunTest(const FString& Parameters)
 		FSTNode DumpNode = FSTTestAccess::Node(Dump, bSinkOnly ? nullptr : Other, ESTRole::Demand, 0, 5000, 0);
 		DumpNode.bAnyItem = bSinkOnly;
 		DumpNode.Platforms = {Objects[0]};
-		FSTNode SourceNode = FSTTestAccess::Node(Source, Wanted, ESTRole::Supply, 1000, 1000, 0);
+		// A fifth of a load at a supplier that wants a full one.
+		FSTNode SourceNode = FSTTestAccess::Node(Source, Wanted, ESTRole::Supply, 200, 1000, 0);
+		SourceNode.SendAtPercent = 100.f;
 		SourceNode.Platforms = {Objects[1]};
 		FSTNode DropNode = FSTTestAccess::Node(Drop, Wanted, ESTRole::Demand, 0, 1000, 0);
 		DropNode.Platforms = {Objects[2]};
 		TArray<FSTNode> Nodes = {DumpNode, SourceNode, DropNode};
 		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
-		TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Other, false, 0.0, 0), FSTTestAccess::Platform(Wanted, true, 1000.0, 10),
+		TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Other, false, 0.0, 0), FSTTestAccess::Platform(Wanted, true, 200.0, 2),
 			FSTTestAccess::Platform(Wanted, false, 0.0, 0)};
 		if (bSinkOnly)
 		{
@@ -607,7 +610,8 @@ bool FSTRequestEmptiesCarTest::RunTest(const FString& Parameters)
 		FSTPlanResult Result;
 		bool bDelivers = false;
 		FString Why;
-		const bool bPlanned = Planner.PlanRequest(2, Stops, Result, bDelivers, Why);
+		TArray<int32> Cars;
+		const bool bPlanned = Planner.PlanRequest({2, Objects[2]}, Stops, Result, bDelivers, Cars, Why);
 		TestTrue(FString::Printf(TEXT("%s: a request trip is found (%s)"), Where, *Why), bPlanned);
 		TestTrue(FString::Printf(TEXT("%s: it delivers"), Where), bDelivers);
 		if (bPlanned && Stops.Num() == 3)
@@ -615,7 +619,10 @@ bool FSTRequestEmptiesCarTest::RunTest(const FString& Parameters)
 			TestTrue(FString::Printf(TEXT("%s: the car is emptied first"), Where), Stops[0].Station == Dump);
 			TestTrue(FString::Printf(TEXT("%s: then the pickup"), Where), Stops[1].Station == Source);
 			TestEqual(FString::Printf(TEXT("%s: all of the other item is unloaded"), Where), FSTTripPlanner::CountUnloaded(Stops, Result, Other, Dump), 1000);
-			TestTrue(FString::Printf(TEXT("%s: the wanted item reaches the platform"), Where), FSTTripPlanner::CountUnloaded(Stops, Result, Wanted, Drop) > 0);
+			TestTrue(FString::Printf(TEXT("%s: the wanted item reaches the platform, less than a batch"), Where),
+				FSTTripPlanner::CountUnloadedInto(Result, Wanted, Objects[2]) > 0);
+			TestTrue(FString::Printf(TEXT("%s: the request car loads only the wanted item"), Where), Planner.KeepsRequestCars(Stops, Result, Cars, Wanted));
+			TestFalse(FString::Printf(TEXT("%s: an emptying-only check rejects its pickup"), Where), Planner.KeepsRequestCars(Stops, Result, Cars, nullptr));
 		}
 		else
 		{
@@ -694,11 +701,12 @@ bool FSTRequestSoonestEmptyingTest::RunTest(const FString& Parameters)
 		FSTTestAccess::ServeAll(Planner);
 
 		const TCHAR* Where = bSinkNear ? TEXT("near sink") : TEXT("near consumers");
+		TArray<int32> Cars;
 		TArray<FSTPlanStop> Stops;
 		FSTPlanResult Result;
 		bool bDelivers = false;
 		FString Why;
-		TestTrue(FString::Printf(TEXT("%s: a request trip is found (%s)"), Where, *Why), Planner.PlanRequest(4, Stops, Result, bDelivers, Why) && bDelivers);
+		TestTrue(FString::Printf(TEXT("%s: a request trip is found (%s)"), Where, *Why), Planner.PlanRequest({4, Objects[4]}, Stops, Result, bDelivers, Cars, Why) && bDelivers);
 		const bool bUsesSink = Stops.ContainsByPredicate([Sink](const FSTPlanStop& Stop) { return Stop.Station == Sink; });
 		if (bSinkNear)
 		{
@@ -712,6 +720,70 @@ bool FSTRequestSoonestEmptyingTest::RunTest(const FString& Parameters)
 		}
 		TestTrue(FString::Printf(TEXT("%s: the wanted item reaches the platform"), Where), FSTTripPlanner::CountUnloaded(Stops, Result, Wanted, Drop) > 0);
 	}
+	return true;
+}
+
+// Two platforms of one station ask: one trip serves both, each with the car that stops beside it.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTRequestMergeTest, "SmartTrains.Planner.RequestMerge", TestFlags)
+bool FSTRequestMergeTest::RunTest(const FString& Parameters)
+{
+	UClass* Wanted = USTTestSolid::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Source = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Drop = FSTTestAccess::MakeStation();
+	for (AFGTrainStationIdentifier* From : {Start, Source, Drop})
+	{
+		for (AFGTrainStationIdentifier* To : {Start, Source, Drop})
+		{
+			if (From != To)
+			{
+				FSTTestAccess::SetTrip(*Subsystem, From, To, 60.f);
+			}
+		}
+	}
+	TArray<AFGBuildableTrainPlatformCargo*> Objects;
+	for (int32 Index = 0; Index < 4; ++Index)
+	{
+		Objects.Add(NewObject<AFGBuildableTrainPlatformCargo>(GetTransientPackage()));
+	}
+	FSTNode SourceNode = FSTTestAccess::Node(Source, Wanted, ESTRole::Supply, 2000, 2000, 0);
+	SourceNode.Platforms = {Objects[0], Objects[1]};
+	FSTNode DropNode = FSTTestAccess::Node(Drop, Wanted, ESTRole::Demand, 0, 2000, 0);
+	DropNode.Platforms = {Objects[2], Objects[3]};
+	TArray<FSTNode> Nodes = {SourceNode, DropNode};
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Wanted, true, 1000.0, 10), FSTTestAccess::Platform(Wanted, true, 1000.0, 10),
+		FSTTestAccess::Platform(Wanted, false, 0.0, 0), FSTTestAccess::Platform(Wanted, false, 0.0, 0)};
+	for (int32 Index = 0; Index < Platforms.Num(); ++Index)
+	{
+		Platforms[Index].Platform = Objects[Index];
+		Platforms[Index].Slots = 10;
+	}
+	FSTTestAccess::FCarInfo First = FSTTestAccess::Car();
+	First.Slots = 10;
+	FSTTestAccess::FCarInfo Second = FSTTestAccess::Car();
+	Second.Slots = 10;
+	FSTTestAccess::FCarPlatforms CarPlatforms;
+	CarPlatforms.Add(Source, {{0, 1}});
+	CarPlatforms.Add(Drop, {{2, 3}});
+	FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+	FSTTestAccess::SetTrain(Planner, Start, true, false, {First, Second}, Platforms, CarPlatforms);
+	FSTTestAccess::ServeAll(Planner);
+
+	TArray<FSTPlanStop> Stops;
+	FSTPlanResult Result;
+	bool bDelivers = false;
+	TArray<int32> Cars;
+	FString Why;
+	TestTrue(FString::Printf(TEXT("the first request is planned (%s)"), *Why), Planner.PlanRequest({1, Objects[2]}, Stops, Result, bDelivers, Cars, Why) && bDelivers);
+	TestTrue(TEXT("the first request uses the car beside its platform"), Cars == TArray<int32>{0});
+	TArray<int32> More;
+	const bool bAdded = Planner.AddRequest(Stops, Result, {1, Objects[3]}, Cars, More, [](const TArray<FSTPlanStop>&, const FSTPlanResult&) { return true; });
+	TestTrue(TEXT("the second request joins the trip"), bAdded);
+	TestEqual(TEXT("in the same two stops"), Stops.Num(), 2);
+	TestTrue(TEXT("with the other car"), More == TArray<int32>{1});
+	TestTrue(TEXT("both platforms get the item"), FSTTripPlanner::CountUnloadedInto(Result, Wanted, Objects[2]) > 0 && FSTTripPlanner::CountUnloadedInto(Result, Wanted, Objects[3]) > 0);
 	return true;
 }
 

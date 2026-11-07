@@ -2,18 +2,27 @@
 
 ## 0.6.10 (beta)
 
-- **Requests start earlier.** **Request a train** on Automatic now asks as soon as the platform's stock, with the
-  deliveries already on the way, would fall below its target within **Request a train this early** (Mods menu,
-  10 minutes) at its use rate. It asked only once the platform had been empty for 30 s and nothing at all was
-  coming, so a small delivery on the way kept it from asking. **On** now asks until the platform and its deliveries
-  on the way reach 90 % of its capacity.
-- **Requests only take a train when no other fits.** A platform asks only if no managed train on its network has a
-  car that lines up with a supplier and with it and is empty or already holds its item. Such a train brings it by a
-  normal trip, so no train is emptied for nothing.
-- **Emptying a car: whatever empties it soonest.** A request trip picked consumers before sinks. It now picks the
-  stops that empty the car and bring the delivery soonest, consumers and sinks alike: two nearby consumers that take
-  it all beat a far sink, and a near sink beats two far consumers. The nearest sinks are always among the places
-  tried.
+- **Requests, reworked.** A demand platform (**Request a train**, Automatic by default) now gets a train emptied
+  for it when it needs one, not once it has run dry:
+  - **Each platform asks on its own.** A station with several platforms for one item was judged as a whole, so one
+    empty platform beside full ones never asked.
+  - **It asks ahead.** It works out when its stock, with the deliveries already on the way to it, falls below its
+    target at its use rate (On: below 90 %).
+  - **Only if no other train makes it.** If a train with a car that lines up with it, empty or already holding the
+    item, can bring it before then, busy or not, a normal trip does that and no train is emptied.
+  - **Started in time, not too early.** A train is emptied for it once its request trip would otherwise deliver
+    less than **Request a train this early** (Mods menu, 5 minutes) before the platform falls below its target;
+    until then the train keeps working.
+  - **Whatever empties the car soonest**, consumers and sinks alike: two nearby consumers that take it all beat a
+    far sink, and a near sink beats two far consumers.
+  - **The request's cars stay clean.** The cars a request uses only unload other items and then load the requested
+    one, without a minimum batch. Before the pickup their contents are checked: transfers are only measured
+    afterwards, so if some of the old item is left, the rest of the trip is planned again from what they hold, and
+    the pickup is cancelled rather than mixing cargo. Other cars of the train may still load on the way.
+  - **One trip can serve several requests** that the same train can deliver.
+  - **A train serving a request** keeps it through saves, waits for its next request trip between them instead of
+    repeating its last job, and shows in the monitor: Trains tab "Emptying for a request" or "Bringing a request",
+    Platforms tab "Requested" rows with the train on it, or why there is none yet.
 - **The platform settings window keeps its size.** It grew and shrank with what it showed, so it jumped when the
   role changed; it is now always the same height and its content scrolls.
 - **Pickups wait for half a load by default.** **Send at % of a load** on supply platforms now defaults to 50 %
