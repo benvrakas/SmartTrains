@@ -14,6 +14,8 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 |---|---|---|
 | Inventory routing problem (IRP), maritime inventory routing flavour | whole planner | Platforms are inventories with rates and capacities. Trains are vehicles with compartments (cars). The planner decides when, where and how much to move, not just routes. |
 | Order-up-to level with minimum batch, like an (s, S) inventory policy | node targets, send-at | Demand platforms are served while below **target**. A pickup only goes when it fills the **send-at** share of the loading cars. |
+| Inventory forecast with a shortfall cost (stock-out integral) over a one-hour horizon | `STForecast` (0.7.0) | Each delivery or pickup is worth the drop in its node's forecast cost: the shortfall below target over the next hour, in car-load minutes, weighted by priority. Replaces urgency and fairness weights. |
+| Large neighbourhood search over all free trains (destroy one or two plans, rebuild in another order, keep if the network costs less) | Shaw (1998); Ropke and Pisinger (2006) | `HorizonRound` (0.7.0, setting Horizon planner). |
 | Rolling horizon (plan, act one step, plan again), as in model predictive control | `ReplanTrip` | Only the current trip is fixed. It is planned again after every stop and after any settings change, from the cargo really on board. |
 | Anytime planning with a time budget | `IsOverBudget`, 25 ms per round | Planning stops when the round's budget is used. Work left over waits for the next round. |
 

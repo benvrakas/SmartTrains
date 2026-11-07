@@ -1,4 +1,5 @@
 #include "STTripPlanner.h"
+#include "STForecast.h"
 #include "Buildables/FGBuildableRailroadStation.h"
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "FGFreightWagon.h"
@@ -94,6 +95,10 @@ FSTTripPlanner::FSTTripPlanner(const ASTSubsystem& InSubsystem, TArray<FSTNode>&
 	mDeadline = mStarted + FMath::Clamp(mSubsystem.mSettings.PlanBudgetMs, 5.f, 200.f) / 1000.0;
 	bFcc = mSubsystem.IsFccAvailable();
 	mMaxStops = FMath::Clamp(FMath::RoundToInt(mSubsystem.mSettings.MaxStops), 2, 8);
+	if (mSubsystem.mSettings.bHorizonPlanner)
+	{
+		mMaxStops = FMath::Max(mMaxStops, STForecast::HorizonStops);
+	}
 	mMaxTripSeconds = FMath::Max(60.0, mSubsystem.mSettings.MaxTripMinutes * 60.0);
 	for (int32 Index = 0; Index < mNodes.Num(); ++Index)
 	{
@@ -252,31 +257,6 @@ double FSTTripPlanner::GetPlatformAvailable(int32 Node, int32 Info, double Until
 	}
 	const double Unassigned = FMath::Max(0, Supplier.Reserved - Assigned);
 	return FMath::Max(0.0, Stock + Share * (Supplier.Rate * Until - Unassigned) - Supplier.PlatformReserved.FindRef(Platform.Platform));
-}
-
-double FSTTripPlanner::GetRoom(int32 Node, double Arrive, bool& bOutWants) const
-{
-	const FSTNode& Consumer = mNodes[Node];
-	const double Projected = Consumer.Stock + Consumer.Reserved - Consumer.Rate * (Arrive - mTime);
-	bOutWants = Projected < Consumer.Capacity * Consumer.TargetPercent / 100.0;
-	return Consumer.Capacity - FMath::Max(0.0, Projected);
-}
-
-double FSTTripPlanner::GetUrgency(int32 Node, double Arrive) const
-{
-	const FSTNode& Consumer = mNodes[Node];
-	const double Projected = Consumer.Stock + Consumer.Reserved - Consumer.Rate * (Arrive - mTime);
-	const double Target = Consumer.Capacity * Consumer.TargetPercent / 100.0;
-	double Urgency = 1.0;
-	if (Target > 0.0 && Projected < Target)
-	{
-		Urgency += FMath::Clamp((Target - Projected) / Target, 0.0, 1.0) * 2.0;
-		Urgency += (Consumer.bStarved || Projected <= 0.0) ? 2.0 : 0.0;
-		// Fairness: the longer since the consumer was last served, the more urgent (up to 2 after an hour).
-		const double Since = mSubsystem.GetLastServed(Consumer.Station.Get(), Consumer.Item.Get());
-		Urgency += FMath::Clamp((mTime - Since) / 1800.0, 0.0, 2.0);
-	}
-	return Urgency;
 }
 
 FString FSTTripPlanner::DescribeProblems() const
@@ -608,10 +588,10 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 			}
 			if (!Consumer.bAnyItem && !bFull)
 			{
+				// Only consumers that fall below their target within the forecast horizon.
 				const float Leg = mSubsystem.EstimateTravelSeconds(Supplier.Station.Get(), Consumer.Station.Get(), bPushPull);
-				bool bWants = false;
-				GetRoom(To, mFreeAt + ToSupplier + mSubsystem.EstimateStaySeconds(Supplier.Station.Get()) + FMath::Max(0.f, Leg), bWants);
-				if (!bWants || Leg < 0.f)
+				const double CarCapacity = STLayout::GetCarCapacity(mCars[0].Car, Item);
+				if (Leg < 0.f || STForecast::Deadline(Consumer, Consumer.Planned, mTime, CarCapacity) >= mTime + STForecast::HorizonSeconds)
 				{
 					continue;
 				}
@@ -806,10 +786,23 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 		bool bDelivered;
 	};
 	TArray<FLoaded> Loaded;
+	// What this trip delivers to or picks up from each node, in order: later stops are valued on top of earlier ones.
+	TMap<int32, TArray<FSTNodeEvent>> TripEvents;
+	// The drop in Node's forecast cost when Amount of Item is delivered or picked up at Time (Docs/Architecture.md,
+	// "Forecast cost").
+	auto ForecastGain = [&](int32 Node, UClass* Item, double Time, double Amount)
+	{
+		TArray<FSTNodeEvent>& Mine = TripEvents.FindOrAdd(Node);
+		TArray<FSTNodeEvent> Events = mNodes[Node].Planned;
+		Events.Append(Mine);
+		const FSTNodeEvent Added{Time, Amount};
+		const double Gain = STForecast::Gain(mNodes[Node], Events, Added, mTime, STLayout::GetCarCapacity(mCars.Num() > 0 ? mCars[0].Car : nullptr, Item));
+		Mine.Add(Added);
+		return Gain;
+	};
 	TArray<TPair<TPair<int32, UClass*>, double>> PlatformPool;
 	TArray<TPair<TPair<int32, UClass*>, double>> PlatformRoom;
 	TArray<TPair<int32, double>> NodeSupply;
-	TArray<TPair<int32, double>> NodeRoom;
 	// Per item: total loaded, the room of the cars loading it, the strictest send-at share, full supplier, critical consumer.
 	struct FItemTotals
 	{
@@ -1021,6 +1014,10 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					Total.LoadedAmount += Amount;
 					Step.Loaded.Emplace(Item, static_cast<int32>(Amount));
 					Result.Moved += static_cast<int32>(Amount);
+					if (Node != INDEX_NONE)
+					{
+						Result.Value += ForecastGain(Node, Item, Arrive, Amount);
+					}
 				}
 			}
 			else if (Effect == EEffect::Unload)
@@ -1076,20 +1073,13 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 						Result.Value += (Total.bFromFull || bRelaxed) ? SinkWeight * CarShare(Item, Amount) : 0.0;
 						continue;
 					}
-					bool bWants = false;
-					double& RoomLeft = FindOrAddValue<int32>(NodeRoom, Node, [&]() { return GetRoom(Node, Arrive, bWants); });
-					GetRoom(Node, Arrive, bWants);
-					const double Valued = CarShare(Item, FMath::Clamp(RoomLeft, 0.0, Amount));
-					RoomLeft -= Amount;
 					Total.bCritical |= mNodes[Node].Priority == ESTPriority::Critical;
-					const double Weight = STNames::PriorityWeight(mNodes[Node].Priority);
-					if (bWants)
+					const double Gain = ForecastGain(Node, Item, Arrive, Amount);
+					Result.Value += Gain;
+					// Cargo nobody needs within the horizon: a little for clearing a full supplier or leftovers.
+					if (Gain <= 0.0 && (bRelaxed || Total.bFromFull))
 					{
-						Result.Value += Weight * GetUrgency(Node, Arrive) * Valued;
-					}
-					else if (bRelaxed || Total.bFromFull)
-					{
-						Result.Value += OverTargetWeight * Weight * Valued;
+						Result.Value += OverTargetWeight * STNames::PriorityWeight(mNodes[Node].Priority) * CarShare(Item, Amount);
 					}
 				}
 			}
@@ -1851,6 +1841,7 @@ void FSTTripPlanner::Reserve(const TArray<FSTPlanStop>& Stops, const FSTPlanResu
 				const int32 Node = FindNode(Station, Each.Key, true);
 				if (Node != INDEX_NONE)
 				{
+					mNodes[Node].Planned.Add({Result.Arrive.IsValidIndex(StopIndex) ? Result.Arrive[StopIndex] : mTime, static_cast<double>(Each.Value)});
 					mNodes[Node].Reserved += Each.Value;
 					if (Step.Platform)
 					{
@@ -1863,6 +1854,7 @@ void FSTTripPlanner::Reserve(const TArray<FSTPlanStop>& Stops, const FSTPlanResu
 				const int32 Node = FindNode(Station, Each.Key, false);
 				if (Node != INDEX_NONE)
 				{
+					mNodes[Node].Planned.Add({Result.Arrive.IsValidIndex(StopIndex) ? Result.Arrive[StopIndex] : mTime, static_cast<double>(Each.Value)});
 					mNodes[Node].Reserved += Each.Value;
 					if (Step.Platform)
 					{
@@ -1878,6 +1870,51 @@ void FSTTripPlanner::Reserve(const TArray<FSTPlanStop>& Stops, const FSTPlanResu
 	}
 }
 
+void FSTTripPlanner::Unreserve(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result)
+{
+	for (int32 StopIndex = 0; StopIndex < Stops.Num() && Result.Steps.IsValidIndex(StopIndex); ++StopIndex)
+	{
+		const AFGTrainStationIdentifier* Station = Stops[StopIndex].Station;
+		const double Arrive = Result.Arrive.IsValidIndex(StopIndex) ? Result.Arrive[StopIndex] : mTime;
+		for (const FSTPlanCarStep& Step : Result.Steps[StopIndex])
+		{
+			for (int32 Pass = 0; Pass < 2; ++Pass)
+			{
+				for (const TPair<UClass*, int32>& Each : Pass == 0 ? Step.Loaded : Step.Unloaded)
+				{
+					const int32 Node = FindNode(Station, Each.Key, Pass == 0);
+					if (Node == INDEX_NONE)
+					{
+						continue;
+					}
+					FSTNode& Target = mNodes[Node];
+					Target.Reserved = FMath::Max(0, Target.Reserved - Each.Value);
+					if (int32* AtPlatform = Step.Platform ? Target.PlatformReserved.Find(Step.Platform) : nullptr)
+					{
+						*AtPlatform = FMath::Max(0, *AtPlatform - Each.Value);
+					}
+					const int32 Event = Target.Planned.IndexOfByPredicate([&](const FSTNodeEvent& Planned)
+					{
+						return FMath::IsNearlyEqual(Planned.Time, Arrive, 0.01) && FMath::IsNearlyEqual(Planned.Amount, static_cast<double>(Each.Value), 0.01);
+					});
+					if (Event != INDEX_NONE)
+					{
+						Target.Planned.RemoveAtSwap(Event);
+					}
+				}
+			}
+		}
+		if (TArray<FSTBooking>* Booked = mBookings.Find(Station))
+		{
+			const int32 Booking = Booked->IndexOfByPredicate([&](const FSTBooking& Each) { return Each.Train == mTrainIndex && FMath::IsNearlyEqual(Each.From, Arrive, 0.01); });
+			if (Booking != INDEX_NONE)
+			{
+				Booked->RemoveAt(Booking);
+			}
+		}
+	}
+}
+
 void FSTTripPlanner::Release(const TArray<FSTJobLeg>& Legs, int32 From)
 {
 	for (int32 Index = FMath::Max(0, From); Index < Legs.Num(); ++Index)
@@ -1887,6 +1924,14 @@ void FSTTripPlanner::Release(const TArray<FSTJobLeg>& Legs, int32 From)
 			const int32 Node = FindNode(Legs[Index].Station, Work.Item.Get(), Work.bLoad);
 			if (Node != INDEX_NONE)
 			{
+				const int32 Event = mNodes[Node].Planned.IndexOfByPredicate([&](const FSTNodeEvent& Each)
+				{
+					return FMath::IsNearlyEqual(Each.Time, Legs[Index].PlannedArrival, 1.0) && FMath::IsNearlyEqual(Each.Amount, static_cast<double>(Work.PlannedAmount), 0.5);
+				});
+				if (Event != INDEX_NONE)
+				{
+					mNodes[Node].Planned.RemoveAtSwap(Event);
+				}
 				mNodes[Node].Reserved = FMath::Max(0, mNodes[Node].Reserved - Work.PlannedAmount);
 				if (int32* AtPlatform = Work.Platform ? mNodes[Node].PlatformReserved.Find(Work.Platform.Get()) : nullptr)
 				{

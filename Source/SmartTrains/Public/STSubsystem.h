@@ -18,7 +18,16 @@ class FSTThroughput;
 class FSTTravel;
 class FSTTripPlanner;
 struct FSTBooking;
+struct FSTPlanStop;
+struct FSTPlanResult;
 class UFGItemDescriptor;
+
+// A planned change to a node's stock: a delivery (demand) or a pickup (supply) of Amount at Time (game seconds).
+struct FSTNodeEvent
+{
+	double Time = 0.0;
+	double Amount = 0.0;
+};
 
 // One station's supply or demand of one item, gathered from its platforms (Docs/Architecture.md, "Dispatching").
 struct FSTNode
@@ -49,6 +58,8 @@ struct FSTNode
 	TMap<const AFGBuildableTrainPlatformCargo*, int32> PlatformReserved;
 	// Planned flow from the flow plan, items per second: out of a supplier, into a consumer.
 	double PlannedFlow = 0.0;
+	// Deliveries (demand) or pickups (supply) planned by jobs under way, with their arrival times; repeats excluded.
+	TArray<FSTNodeEvent> Planned;
 };
 
 // Why an asking platform has no request trip yet.
@@ -59,6 +70,9 @@ struct FSTRequestNote
 	// "no train", "sooner" (a train that can carry it now comes first) or "later" (a train is emptied for it later).
 	FString Kind;
 	FString Text;
+	// The kind last logged and when, so a note flipping back and forth isn't logged every round.
+	FString LoggedKind;
+	double LoggedAt = -1.0e9;
 };
 
 // What fits when one train does one pickup and delivery (Docs/Architecture.md, "Fit model").
@@ -215,6 +229,15 @@ private:
 	void UpdateUnwantedCargo(FSTTrainState& State);
 	// Re-plans the rest of State's trip from where it is and what its cars hold; keeps stops already passed.
 	void ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner);
+	// Horizon planner (Docs/Architecture.md, "Horizon planner"): plans every free train together, then searches for
+	// lower network forecast cost by planning one or two trains again, and commits the plans.
+	void HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes);
+	// Sum of every node's forecast cost with the events planned for it. [car-load minutes]
+	double GetNetworkCost(const TArray<FSTNode>& Nodes) const;
+	// Turns a planned trip into State's job (and, if bReserve, reserves it for the trains planned after it).
+	void CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve);
+	// Records why a free train got no trip; logged when the reason changes.
+	void NoteNoTrip(const FSTTrainState& State, const FString& Reason);
 	// Plans trips for demand platforms that ask for a train (ESTRequest): emptying a car that holds another item first
 	// (Docs/Architecture.md, "Requests"). Runs after the round's normal trips.
 	void ServeRequests(FSTTripPlanner& Planner, const TArray<FSTNode>& Nodes);
@@ -376,6 +399,8 @@ private:
 	TMap<TWeakObjectPtr<AFGTrain>, FString> mIdleReasons;
 	// Per asking platform not served yet: why (shown in its readout and the monitor; logged when the kind changes).
 	TMap<const AFGBuildableTrainPlatformCargo*, FSTRequestNote> mRequestNotes;
+	// Fit checks of this round's requests (train, supplier, consumer, item), so each is worked out once.
+	mutable TMap<FString, FSTFit> mFitCache;
 	// When the planning time last ran out (for a throttled warning). [game s]
 	double mLastBudgetWarning = -1000.0;
 	// A dispatch round is running; trains that become idle in it are settled when it ends (mToSettle).

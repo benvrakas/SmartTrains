@@ -765,7 +765,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 	for (const TPair<const AFGBuildableTrainPlatformCargo*, FSTRequestNote>& Pair : Subsystem.mRequestNotes)
 	{
 		const FSTRequestNote& Note = Pair.Value;
-		if (!Note.Platform.IsValid())
+		if (!Note.Platform.IsValid() || Note.Kind == TEXT("covered"))
 		{
 			continue;
 		}

@@ -26,6 +26,10 @@ them (see below).
   - **Copy**, **Paste** and **Copy to the station's other platforms** carry every setting of the platform.
 - **Trains:** in the locomotive menu, switch **Managed by SmartTrains** on. SmartTrains writes the train's timetable
   for each trip. The game, or Auto Trains, drives it.
+- **Planning (horizon planner, beta, on by default):** SmartTrains forecasts every platform's stock over the next
+  hour and plans all free trains together, so the platforms that would run short soonest are served first. A train
+  holding the wrong cargo can be emptied first when a platform needs it. Switch **Horizon planner** off in the Mods
+  menu for the classic planner, which gives each free train its best next trip.
 - **Trips:** one trip can visit up to 4 stations and serve several platforms and items. It plans car by car: which
   car loads what where, and which car unloads where. After every stop the rest of the trip is planned again from what
   the cars really hold.

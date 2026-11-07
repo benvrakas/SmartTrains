@@ -8,6 +8,7 @@
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "FGTrainStationIdentifier.h"
 #include "Misc/AutomationTest.h"
+#include "STForecast.h"
 #include "STMinCostFlow.h"
 #include "STSubsystem.h"
 #include "STTripPlanner.h"
@@ -784,6 +785,39 @@ bool FSTRequestMergeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("in the same two stops"), Stops.Num(), 2);
 	TestTrue(TEXT("with the other car"), More == TArray<int32>{1});
 	TestTrue(TEXT("both platforms get the item"), FSTTripPlanner::CountUnloadedInto(Result, Wanted, Objects[2]) > 0 && FSTTripPlanner::CountUnloadedInto(Result, Wanted, Objects[3]) > 0);
+	return true;
+}
+
+// The forecast cost: a delivery is worth more the sooner it ends a shortfall, a pickup only where the supplier would be
+// full, and the deadline is when the stock first falls below target.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTForecastTest, "SmartTrains.Planner.Forecast", TestFlags)
+bool FSTForecastTest::RunTest(const FString& Parameters)
+{
+	UClass* Item = USTTestSolid::StaticClass();
+	AFGTrainStationIdentifier* Station = FSTTestAccess::MakeStation();
+	const double Now = 1000.0;
+	const double Car = 1000.0;
+	FSTNode Short = FSTTestAccess::Node(Station, Item, ESTRole::Demand, 0, 1000, 1);
+	const double Soon = STForecast::Gain(Short, {}, {Now, 500.0}, Now, Car);
+	const double Late = STForecast::Gain(Short, {}, {Now + 1800.0, 500.0}, Now, Car);
+	TestTrue(TEXT("a delivery that ends a shortfall is worth something"), Late > 0.0);
+	TestTrue(TEXT("sooner is worth more"), Soon > Late * 1.5);
+	TestEqual(TEXT("an hour short of half a car load is 30 car-load minutes"), STForecast::Cost(Short, {}, Now, Car), 30.0, 0.01);
+	const double Twice = STForecast::Gain(Short, {{Now, 500.0}}, {Now, 500.0}, Now, Car);
+	TestEqual(TEXT("a second delivery to a platform already at target is worth nothing"), Twice, 0.0, 0.01);
+
+	FSTNode Full = FSTTestAccess::Node(Station, Item, ESTRole::Supply, 1000, 1000, 1);
+	Full.Rate = 1.0;
+	FSTNode Empty = Full;
+	Empty.Stock = 0;
+	TestTrue(TEXT("a pickup at a full supplier is worth something"), STForecast::Gain(Full, {}, {Now, 500.0}, Now, Car) > 0.0);
+	TestTrue(TEXT("more than at an empty one"),
+		STForecast::Gain(Full, {}, {Now, 500.0}, Now, Car) > STForecast::Gain(Empty, {}, {Now, 500.0}, Now, Car));
+
+	FSTNode Using = FSTTestAccess::Node(Station, Item, ESTRole::Demand, 800, 1000, 1);
+	Using.Rate = 1.0;
+	TestEqual(TEXT("falls below its target of 500 after 300 s"), STForecast::Deadline(Using, {}, Now, Car), Now + 300.0, 0.01);
+	TestEqual(TEXT("a delivery of 200 then puts it off by 200 s"), STForecast::Deadline(Using, {{Now + 100.0, 200.0}}, Now, Car), Now + 500.0, 0.01);
 	return true;
 }
 

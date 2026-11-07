@@ -21,6 +21,10 @@ struct FSTSettings
 	bool bLeaveAtOnce = true;
 	// A train with no new trip runs its last job again instead of parking.
 	bool bRepeatLastJob = true;
+	// Plans every free train together against the network's forecast cost instead of each its best next trip.
+	bool bHorizonPlanner = true;
+	// A demand platform that would fall below its target before any train could bring it gets a train emptied for it.
+	bool bRequestFallback = true;
 	// How often jobs are handed out. [s]
 	float DispatchSeconds = 3.f;
 	// How often the flow plan is worked out again. [s]

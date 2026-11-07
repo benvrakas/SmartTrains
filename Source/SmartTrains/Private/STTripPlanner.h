@@ -134,6 +134,9 @@ public:
 	// after it.
 	void Reserve(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result);
 
+	// Takes a trip Reserve added back out: amounts, events and bookings.
+	void Unreserve(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result);
+
 	// Takes the planned amounts of Legs (from index From on) out of the node reservations, before they are re-planned.
 	void Release(const TArray<FSTJobLeg>& Legs, int32 From);
 
@@ -209,9 +212,6 @@ private:
 	// stack, plus what its consumers use until then, less the deliveries promised to it and its share of promises made
 	// at no known platform of demand node Node (INDEX_NONE: the free room alone).
 	double GetPlatformRoom(int32 Node, int32 Info, UClass* Item, double Arrive) const;
-	// Room below capacity at Arrive, and whether the consumer wants more (below target).
-	double GetRoom(int32 Node, double Arrive, bool& bOutWants) const;
-	double GetUrgency(int32 Node, double Arrive) const;
 	// Car's room for Item with Cargo on board.
 	double GetCarRoom(const FCarInfo& Car, const TArray<TPair<UClass*, double>>& Cargo, UClass* Item) const;
 	// True if Cargo holds at least one of an item other than Item.

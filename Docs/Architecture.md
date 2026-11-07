@@ -162,6 +162,44 @@ settings change (`DispatchRound`):
    - A parked train books its station for 60 s. In a dead-end station (`IsDeadEnd`: no station reachable past its
      building) it books it until it leaves, since a train sent there could neither get in nor let it out.
 
+### Forecast cost (`STForecast.*`, 0.7.0)
+
+Every node's stock is forecast over the next hour (`HorizonSeconds`): piecewise linear between the events planned for
+it (`FSTNode::Planned`: each job leg's arrival and planned amount, repeats excluded; `Reserve` / `Unreserve` /
+`Release` keep it in step with the reservations), at its use or production rate (`GetRate`; a nearly full supplier
+can't measure production, so at least a car load per half hour), clamped to 0..capacity.
+
+- **Demand cost**: priority weight x the integral of max(0, target - stock) over the hour, in car-load minutes
+  (amount / car capacity for the item, so a car of sulfur counts like a car of concrete).
+- **Supply cost**: production lost while full, x `LostLoadMinutes` (0.25 per car load): a tie-breaker only. The server
+  log of 2026-11-07 had most suppliers full with nobody needing their goods; weighting that like demand would send
+  trains to haul production to sinks instead of serving short platforms.
+- **Value of a stop** (`Simulate`): the drop in the node's cost when the delivery or pickup is added at its arrival
+  (`Gain`), on top of the events planned by other jobs and by earlier stops of the same trip. It replaced the urgency
+  and fairness weights: a delivery that ends a shortfall sooner is worth more, one to a platform that stays above its
+  target within the hour is worth nothing. Moves only go to consumers that fall below target within the hour
+  (`Deadline`). Trips still score value / time; the send-at batch rule stays.
+
+### Horizon planner (`HorizonRound`, 0.7.0; setting **Horizon planner**, on)
+
+The classic round gives each free train its best next trip by score, one train after another. The horizon round
+plans all free trains together against the network's forecast cost (`GetNetworkCost`, the sum over nodes):
+
+- **Plans**: a train's plan may hold up to `HorizonStops` (6) stops, several trips' worth; it is committed as one job
+  and re-planned after each stop (`ReplanTrip`), so only its next stop is ever fixed (rolling horizon).
+- **Building one train's plan** (`Build`, with the other trains' plans reserved): regret insertion of its moves, or a
+  trip that empties its car to serve one of the `HorizonShortTargets` (6) platforms with the highest forecast cost
+  (`PlanRequest`, other cars may load if the serving car stays clean), whichever nets more: value - `TrainSecondCost`
+  (0.01 car-load minutes per second) x its time. A plan that nets nothing is left empty.
+- **First plans**: the trains free soonest first.
+- **Search** (large neighbourhood search, within the round's planning time, at most `HorizonMaxTries` (40)): take out
+  one random train's plan, and half the time also the plan that nets least; build them again in reverse order; keep
+  the result if the network cost plus train time is lower, else put the old plans back.
+- **Commit**: every plan with stops becomes a job; free trains without one get an IDLE reason and are settled (depot
+  or last job) as before.
+- With **Request fallback** on, requests run after the round; a REQUEST that fires is tagged "missed by the horizon
+  planner", which is what to look at when tuning it.
+
 ### Trip planning (`STTripPlanner.*`)
 
 **Queue limit** (`QueueTrains`, 2 trains; only while `LeaveAtOnce` is on): when a stop's arrival is pushed back by

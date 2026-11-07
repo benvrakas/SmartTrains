@@ -46,6 +46,10 @@ namespace
 				LOCTEXT("LeaveAtOnceTip", "Every stop is load/unload once: a train moves what it can in one transfer and leaves. A train with a trip also starts it at once instead of holding in the station while its next stop is busy or Auto Trains sees no way yet. Off: deliveries and pickups wait up to their longest wait, and trains hold in stations.")},
 			{TEXT("RepeatLastJob"), &FSTSettings::bRepeatLastJob, LOCTEXT("RepeatLastJob", "Repeat the last job instead of parking"),
 				LOCTEXT("RepeatLastJobTip", "A train with no new trip runs its last job again, like a timetable loop, instead of parking in a station. It takes a new trip as soon as one is worth it. Off: idle trains park and move out of the way when a station is needed.")},
+			{TEXT("HorizonPlanner"), &FSTSettings::bHorizonPlanner, LOCTEXT("HorizonPlanner", "Horizon planner (beta)"),
+				LOCTEXT("HorizonPlannerTip", "Plans all free trains together against a forecast of every platform for the next hour, so the platforms that will run short soonest are served first and a train may be emptied to serve one. Off: the classic planner, which gives each free train its best next trip.")},
+			{TEXT("RequestFallback"), &FSTSettings::bRequestFallback, LOCTEXT("RequestFallback", "Request fallback"),
+				LOCTEXT("RequestFallbackTip", "A demand platform (Request a train) that would fall below its target before any train could bring it gets a train emptied for it. Works with either planner; with the horizon planner each request it makes shows something the planner missed.")},
 			{TEXT("AdminsOnly"), &FSTSettings::bAdminsOnly, LOCTEXT("AdminsOnly", "Only admins change SmartTrains"),
 				LOCTEXT("AdminsOnlyTip", "In multiplayer, only the host (or, on a dedicated server, its admins) can change platform, station and train settings. Server settings, migration, test copies and backups are always admin only. On a dedicated server, change settings in game with /st set.")},
 		};

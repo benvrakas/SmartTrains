@@ -13,6 +13,7 @@
 #include "STLayout.h"
 #include "STMinCostFlow.h"
 #include "STTripPlanner.h"
+#include "STForecast.h"
 #include "STSubsystem.h"
 
 namespace
@@ -52,6 +53,15 @@ namespace
 	constexpr double JustLeftAnchorSeconds = 60.0;
 	// Request setting On: a platform asks until it and its deliveries on the way reach this share of its capacity.
 	constexpr double RequestFullShare = 0.9;
+	// Horizon planner: cost of a train's time against the forecast cost it removes, the shortest platforms tried for
+	// trips that empty a car, and most re-plans per round. [car-load minutes per second]
+	constexpr double TrainSecondCost = 0.01;
+	// Requests: only platforms that fall below target within this (plus the margin) are planned for; the same note is
+	// logged again after this long. [s]
+	constexpr double RequestLookSeconds = 1800.0;
+	constexpr double RequestNoteRepeatSeconds = 600.0;
+	constexpr int32 HorizonShortTargets = 6;
+	constexpr int32 HorizonMaxTries = 40;
 	// Trip limit for request trips, which may stop to empty cars first. [s]
 	constexpr double RequestTripSeconds = 3600.0;
 	// How often a waiting train with a trip to repeat tries it again. [s]
@@ -236,6 +246,7 @@ void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 				}
 				if (Index != INDEX_NONE)
 				{
+					OutNodes[Index].Planned.Add({Each.PlannedArrival, static_cast<double>(Work.PlannedAmount)});
 					OutNodes[Index].Reserved += Work.PlannedAmount;
 					if (Work.Platform)
 					{
@@ -773,6 +784,20 @@ void ASTSubsystem::DispatchRound()
 	{
 		return;
 	}
+	// Horizon planner: every free train planned together against the network's forecast cost.
+	if (mSettings.bHorizonPlanner)
+	{
+		HorizonRound(Planner, Nodes);
+		if (!mSettings.bObserveOnly && mSettings.bRequestFallback)
+		{
+			ServeRequests(Planner, Nodes);
+		}
+		if (!mSettings.bObserveOnly)
+		{
+			ClearNeededBays();
+		}
+		return;
+	}
 
 	// Free trains and the moves each could make.
 	struct FFree
@@ -850,16 +875,7 @@ void ASTSubsystem::DispatchRound()
 		return ValueA > ValueB;
 	});
 
-	// Records why a free train got no trip; logged when the reason changes.
-	auto NoTrip = [this](const FSTTrainState& State, const FString& Reason)
-	{
-		FString& Last = mIdleReasons.FindOrAdd(State.Train.Get());
-		if (Last != Reason)
-		{
-			Last = Reason;
-			UE_LOG(LogSmartTrains, Log, TEXT("IDLE %s: no trip: %s"), *STLayout::Name(State.Train), *Reason);
-		}
-	};
+	auto NoTrip = [this](const FSTTrainState& State, const FString& Reason) { NoteNoTrip(State, Reason); };
 	int32 Planned = 0;
 	int32 Trips = 0;
 	bool bOutOfTime = false;
@@ -948,37 +964,11 @@ void ASTSubsystem::DispatchRound()
 				: FString(TEXT("nothing worth running now (consumers at target, or no batch ready)")));
 			continue;
 		}
-		mIdleReasons.Remove(State.Train.Get());
 		++Trips;
-		FSTJob Job;
-		Job.Id = mNextJobId++;
-		Job.StartedAt = Time;
-		Job.LegStartedAt = Time;
-		Planner.MakeLegs(Stops, Result, Job.Legs);
-		TArray<FString> Items;
-		bool bDelivers = false;
-		for (const FSTJobLeg& Leg : Job.Legs)
-		{
-			for (const FSTCarWork& Work : Leg.Work)
-			{
-				Items.AddUnique(STNames::Item(Work.Item));
-				bDelivers |= !Work.bLoad;
-			}
-		}
-		TArray<FString> Stations;
-		for (const FSTPlanStop& Stop : Stops)
-		{
-			Stations.Add(STLayout::Name(Stop.Station));
-		}
-		Job.Summary = FString::Printf(TEXT("%s: %s"), *FString::Join(Items, TEXT(", ")), *FString::Join(Stations, TEXT(" -> ")));
-		const FString Line = FString::Printf(TEXT("%s: %s [%s], %d moved, score %.3f"), *STLayout::Name(State.Train), *Job.Summary,
-			*Planner.Describe(Stops, Result), Result.Moved, Result.Score);
-		Planner.Reserve(Stops, Result);
-		CommitJob(State, MoveTemp(Job), Line);
-		UpdateUnwantedCargo(State);
+		CommitTrip(State, Planner, Stops, Result, true);
 	}
 
-	if (!mSettings.bObserveOnly)
+	if (!mSettings.bObserveOnly && mSettings.bRequestFallback)
 	{
 		ServeRequests(Planner, Nodes);
 	}
@@ -1112,7 +1102,9 @@ double ASTSubsystem::GetFittingDelivery(const FSTNode& Node, const AFGBuildableT
 			{
 				continue;
 			}
-			const FSTFit Fit = ComputeFit(State.Train, Pick, Drop, Node.Item, false);
+			const FString Key = FString::Printf(TEXT("%p|%p|%p|%p"), State.Train.Get(), Pick, Drop, Node.Item.Get());
+			const FSTFit* Cached = mFitCache.Find(Key);
+			const FSTFit Fit = Cached ? *Cached : mFitCache.Add(Key, ComputeFit(State.Train, Pick, Drop, Node.Item, false));
 			// A car that fits, empty or holding the item, and stops beside this platform whichever way the train docks.
 			const bool bBeside = Fit.Problem.IsEmpty() && Fit.Cars.ContainsByPredicate([&](const AFGFreightWagon* Car)
 			{
@@ -1178,6 +1170,7 @@ bool ASTSubsystem::RequestCarsHoldOther(const FSTTrainState& State)
 void ASTSubsystem::ServeRequests(FSTTripPlanner& Planner, const TArray<FSTNode>& Nodes)
 {
 	const double Time = Now();
+	mFitCache.Reset();
 	const double Margin = FMath::Max(0.f, mSettings.RequestMarginMinutes) * 60.0;
 	auto FindNodeOf = [&Nodes](const FSTRequestClaim& Claim)
 	{
@@ -1341,23 +1334,26 @@ void ASTSubsystem::ServeRequests(FSTTripPlanner& Planner, const TArray<FSTNode>&
 				Claim.Cars.Add(Planner.GetCar(CarIndex));
 			}
 			mRequestNotes.Remove(Claim.Platform.Get());
-			UE_LOG(LogSmartTrains, Log, TEXT("REQUEST %s into %s (%s): %s %s"), *STNames::Item(Claim.Item), *STLayout::DescribePlatform(Claim.Platform), *Plan.Needs[Index],
-				*STLayout::Name(State.Train), Plan.bDelivers ? TEXT("empties its car on the way and brings it") : TEXT("empties its car first; the delivery is planned when it is empty"));
+			UE_LOG(LogSmartTrains, Log, TEXT("REQUEST %s into %s (%s): %s %s%s"), *STNames::Item(Claim.Item), *STLayout::DescribePlatform(Claim.Platform), *Plan.Needs[Index],
+				*STLayout::Name(State.Train), Plan.bDelivers ? TEXT("empties its car on the way and brings it") : TEXT("empties its car first; the delivery is planned when it is empty"),
+				mSettings.bHorizonPlanner ? TEXT(" [missed by the horizon planner]") : TEXT(""));
 		}
 		Planner.Reserve(Plan.Stops, Plan.Result);
 		CommitJob(State, MoveTemp(Job), Line);
 		mIdleReasons.Remove(State.Train.Get());
 	};
-	auto Note = [this](const AFGBuildableTrainPlatformCargo* Platform, UClass* Item, const TCHAR* Kind, const FString& Text)
+	auto Note = [this, Time](const AFGBuildableTrainPlatformCargo* Platform, UClass* Item, const TCHAR* Kind, const FString& Text)
 	{
 		FSTRequestNote& Last = mRequestNotes.FindOrAdd(Platform);
-		const bool bChanged = Last.Kind != Kind;
 		Last.Platform = const_cast<AFGBuildableTrainPlatformCargo*>(Platform);
 		Last.Item = Item;
 		Last.Kind = Kind;
 		Last.Text = Text;
-		if (bChanged)
+		const bool bCovered = FCString::Strcmp(Kind, TEXT("covered")) == 0;
+		if (!bCovered && (Last.LoggedKind != Kind || Time - Last.LoggedAt > RequestNoteRepeatSeconds))
 		{
+			Last.LoggedKind = Kind;
+			Last.LoggedAt = Time;
 			UE_LOG(LogSmartTrains, Log, TEXT("REQUEST %s into %s: %s"), *STNames::Item(Item), *STLayout::DescribePlatform(Platform), *Text);
 		}
 	};
@@ -1507,11 +1503,16 @@ void ASTSubsystem::ServeRequests(FSTTripPlanner& Planner, const TArray<FSTNode>&
 		}
 		const FSTNode& Node = Nodes[Need.Target.Node];
 		UClass* Item = Node.Item.Get();
+		if (Need.BelowAt > Time + Margin + RequestLookSeconds)
+		{
+			mRequestNotes.Remove(Need.Target.Platform);
+			continue;
+		}
 		FString Fitter;
 		const double Fitting = CoveredBy(Need, Fitter);
 		if (Fitting <= Need.BelowAt)
 		{
-			mRequestNotes.Remove(Need.Target.Platform);
+			Note(Need.Target.Platform, Item, TEXT("covered"), FString::Printf(TEXT("%s; %s brings it in time"), *Need.Why, *Fitter));
 			continue;
 		}
 		int32 BestTrain = INDEX_NONE;
@@ -1550,7 +1551,7 @@ void ASTSubsystem::ServeRequests(FSTTripPlanner& Planner, const TArray<FSTNode>&
 				*FString::Join(Reasons, TEXT("; "))));
 			continue;
 		}
-		if (Fitting <= Best.Arrive)
+		if (Fitting < TNumericLimits<double>::Max() && Fitting <= Best.Arrive)
 		{
 			// A train that can carry it now would bring it no later than emptying one.
 			Note(Need.Target.Platform, Item, TEXT("sooner"), FString::Printf(TEXT("%s; %s can bring it sooner than emptying a train"), *Need.Why, *Fitter));
@@ -1581,6 +1582,314 @@ void ASTSubsystem::ServeRequests(FSTTripPlanner& Planner, const TArray<FSTNode>&
 		Need.bDone = true;
 		Planner.ResetTripLimit(0.0);
 	}
+}
+
+void ASTSubsystem::NoteNoTrip(const FSTTrainState& State, const FString& Reason)
+{
+	FString& Last = mIdleReasons.FindOrAdd(State.Train.Get());
+	if (Last != Reason)
+	{
+		Last = Reason;
+		UE_LOG(LogSmartTrains, Log, TEXT("IDLE %s: no trip: %s"), *STLayout::Name(State.Train), *Reason);
+	}
+}
+
+void ASTSubsystem::CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve)
+{
+	const double Time = Now();
+	mIdleReasons.Remove(State.Train.Get());
+	FSTJob Job;
+	Job.Id = mNextJobId++;
+	Job.StartedAt = Time;
+	Job.LegStartedAt = Time;
+	Planner.MakeLegs(Stops, Result, Job.Legs);
+	TArray<FString> Items;
+	for (const FSTJobLeg& Leg : Job.Legs)
+	{
+		for (const FSTCarWork& Work : Leg.Work)
+		{
+			Items.AddUnique(STNames::Item(Work.Item));
+		}
+	}
+	TArray<FString> Stations;
+	for (const FSTPlanStop& Stop : Stops)
+	{
+		Stations.Add(STLayout::Name(Stop.Station));
+	}
+	Job.Summary = FString::Printf(TEXT("%s: %s"), *FString::Join(Items, TEXT(", ")), *FString::Join(Stations, TEXT(" -> ")));
+	const FString Line = FString::Printf(TEXT("%s: %s [%s], %d moved, value %.2f, score %.4f"), *STLayout::Name(State.Train), *Job.Summary,
+		*Planner.Describe(Stops, Result), Result.Moved, Result.Value, Result.Score);
+	if (bReserve)
+	{
+		Planner.Reserve(Stops, Result);
+	}
+	CommitJob(State, MoveTemp(Job), Line);
+	UpdateUnwantedCargo(State);
+}
+
+double ASTSubsystem::GetNetworkCost(const TArray<FSTNode>& Nodes) const
+{
+	const double Time = Now();
+	double Cost = 0.0;
+	for (const FSTNode& Node : Nodes)
+	{
+		if (!Node.bAnyItem && Node.Item)
+		{
+			Cost += STForecast::Cost(Node, Node.Planned, Time, STLayout::GetCarCapacity(nullptr, Node.Item));
+		}
+	}
+	return Cost;
+}
+
+void ASTSubsystem::HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
+{
+	const double Time = Now();
+	// A free train's plan, its net value (forecast gain less train time) and where it starts.
+	struct FPlan
+	{
+		int32 TrainIndex = INDEX_NONE;
+		AFGTrainStationIdentifier* Anchor = nullptr;
+		double FreeAt = 0.0;
+		bool bDocked = false;
+		TArray<FSTPlanStop> Stops;
+		FSTPlanResult Result;
+		double Net = 0.0;
+	};
+	TArray<FPlan> Plans;
+	for (int32 TrainIndex = 0; TrainIndex < mTrains.Num() && !Planner.IsOverBudget(); ++TrainIndex)
+	{
+		const FSTTrainState& State = mTrains[TrainIndex];
+		FPlan Plan;
+		Plan.TrainIndex = TrainIndex;
+		if (State.Requests.Num() > 0 || !GetFreeAt(State, Plan.Anchor, Plan.FreeAt))
+		{
+			continue;
+		}
+		const bool bJustLeftAnchor = State.LastStation.Get() == Plan.Anchor && Time - State.LastDepartureAt < JustLeftAnchorSeconds
+			&& !(State.Phase == ESTTrainPhase::Parked && !State.Train->IsSelfDrivingEnabled());
+		Plan.bDocked = (State.Train->IsDocked() && State.DockedStation.Get() == Plan.Anchor) || bJustLeftAnchor;
+		if (Planner.BeginTrain(TrainIndex, Plan.Anchor, Plan.FreeAt, Plan.bDocked))
+		{
+			Plans.Add(MoveTemp(Plan));
+		}
+	}
+	if (Plans.Num() == 0)
+	{
+		return;
+	}
+	auto Resume = [&](const FPlan& Plan)
+	{
+		return Planner.ResumeTrain(Plan.TrainIndex, Plan.Anchor, Plan.FreeAt, Plan.bDocked) || Planner.BeginTrain(Plan.TrainIndex, Plan.Anchor, Plan.FreeAt, Plan.bDocked);
+	};
+	auto NetOf = [&](const FPlan& Plan, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result)
+	{
+		return Result.bValid && Stops.Num() > 0 && Result.Value > 0.0 ? Result.Value - TrainSecondCost * FMath::Max(0.0, Result.EndTime - Plan.FreeAt) : 0.0;
+	};
+	// The demand platforms the network is shortest of (forecast cost), for trips that empty a car to serve them.
+	TArray<FSTRequestTarget> Short;
+	{
+		TArray<TPair<double, FSTRequestTarget>> Ranked;
+		for (int32 Index = 0; Index < Nodes.Num(); ++Index)
+		{
+			const FSTNode& Node = Nodes[Index];
+			if (Node.Role != ESTRole::Demand || Node.bAnyItem || !Node.Item)
+			{
+				continue;
+			}
+			const double Cost = STForecast::Cost(Node, Node.Planned, Time, STLayout::GetCarCapacity(nullptr, Node.Item));
+			for (const TWeakObjectPtr<AFGBuildableTrainPlatformCargo>& Platform : Node.Platforms)
+			{
+				if (Cost > 0.0 && Platform.IsValid())
+				{
+					Ranked.Add({Cost, FSTRequestTarget{Index, Platform.Get()}});
+				}
+			}
+		}
+		Ranked.Sort([](const TPair<double, FSTRequestTarget>& A, const TPair<double, FSTRequestTarget>& B) { return A.Key > B.Key; });
+		for (int32 Index = 0; Index < Ranked.Num() && Index < HorizonShortTargets; ++Index)
+		{
+			Short.Add(Ranked[Index].Value);
+		}
+	}
+	// The plan for one train given the others' reservations: regret insertion of moves, or a trip that empties its car
+	// to serve one of the shortest platforms, whichever nets more.
+	auto Build = [&](FPlan& Plan)
+	{
+		Plan.Stops.Reset();
+		Plan.Result = FSTPlanResult();
+		Plan.Net = 0.0;
+		if (!Resume(Plan))
+		{
+			return;
+		}
+		TArray<FSTPlanStop> Stops;
+		Planner.Improve(Stops, 0);
+		FSTTripPlanner::Trim(Stops, Planner.Simulate(Stops), 0);
+		FSTPlanResult Result = Planner.Simulate(Stops);
+		double Net = NetOf(Plan, Stops, Result);
+		for (const FSTRequestTarget& Target : Short)
+		{
+			if (Planner.IsOverBudget())
+			{
+				break;
+			}
+			TArray<FSTPlanStop> Emptying;
+			FSTPlanResult EmptyingResult;
+			bool bDelivers = false;
+			TArray<int32> Cars;
+			FString Why;
+			if (!Planner.PlanRequest(Target, Emptying, EmptyingResult, bDelivers, Cars, Why) || !bDelivers)
+			{
+				continue;
+			}
+			// Other cars may load on the way if the car serving the platform stays clean.
+			TArray<FSTPlanStop> More = Emptying;
+			const FSTPlanResult MoreResult = Planner.Improve(More, 0);
+			UClass* Item = Nodes[Target.Node].Item.Get();
+			if (MoreResult.bValid && Planner.KeepsRequestCars(More, MoreResult, Cars, Item)
+				&& FSTTripPlanner::CountUnloadedInto(MoreResult, Item, Target.Platform) >= FSTTripPlanner::CountUnloadedInto(EmptyingResult, Item, Target.Platform))
+			{
+				Emptying = MoveTemp(More);
+				EmptyingResult = MoreResult;
+			}
+			const double EmptyingNet = NetOf(Plan, Emptying, EmptyingResult);
+			if (EmptyingNet > Net)
+			{
+				Net = EmptyingNet;
+				Stops = MoveTemp(Emptying);
+				Result = MoveTemp(EmptyingResult);
+			}
+		}
+		if (Net <= 0.0)
+		{
+			return;
+		}
+		Plan.Stops = MoveTemp(Stops);
+		Plan.Result = MoveTemp(Result);
+		Plan.Net = Net;
+		Planner.Reserve(Plan.Stops, Plan.Result);
+	};
+	auto Unbuild = [&](FPlan& Plan)
+	{
+		if (Plan.Stops.Num() > 0 && Resume(Plan))
+		{
+			Planner.Unreserve(Plan.Stops, Plan.Result);
+		}
+		Plan.Stops.Reset();
+		Plan.Result = FSTPlanResult();
+		Plan.Net = 0.0;
+	};
+	auto TotalCost = [&]()
+	{
+		double Cost = GetNetworkCost(Nodes);
+		for (const FPlan& Plan : Plans)
+		{
+			Cost += Plan.Stops.Num() > 0 ? TrainSecondCost * FMath::Max(0.0, Plan.Result.EndTime - Plan.FreeAt) : 0.0;
+		}
+		return Cost;
+	};
+
+	// First plans, the trains free soonest first.
+	Plans.Sort([](const FPlan& A, const FPlan& B) { return A.FreeAt < B.FreeAt; });
+	for (FPlan& Plan : Plans)
+	{
+		if (Planner.IsOverBudget())
+		{
+			break;
+		}
+		Build(Plan);
+	}
+	const double Start = TotalCost();
+	double Best = Start;
+	// Large neighbourhood search: plan one or two trains again in another order, keep it if the network costs less.
+	FRandomStream Random(static_cast<int32>(FMath::Fmod(Time * 1000.0, 2147483647.0)));
+	int32 Tries = 0;
+	int32 Kept = 0;
+	while (Plans.Num() > 1 && !Planner.IsOverBudget() && Tries < HorizonMaxTries)
+	{
+		++Tries;
+		TArray<int32> Picked;
+		// One train at random, and sometimes the one whose plan nets least, so a poor plan gets another chance.
+		Picked.Add(Random.RandRange(0, Plans.Num() - 1));
+		if (Random.FRand() < 0.5)
+		{
+			int32 Worst = INDEX_NONE;
+			for (int32 Index = 0; Index < Plans.Num(); ++Index)
+			{
+				if (!Picked.Contains(Index) && (Worst == INDEX_NONE || Plans[Index].Net < Plans[Worst].Net))
+				{
+					Worst = Index;
+				}
+			}
+			if (Worst != INDEX_NONE)
+			{
+				Picked.Add(Worst);
+			}
+		}
+		TArray<FPlan> Saved;
+		for (const int32 Index : Picked)
+		{
+			Saved.Add(Plans[Index]);
+			Unbuild(Plans[Index]);
+		}
+		// Rebuilt in reverse order, so each gets first pick this time.
+		for (int32 Pick = Picked.Num() - 1; Pick >= 0; --Pick)
+		{
+			Build(Plans[Picked[Pick]]);
+		}
+		const double Cost = TotalCost();
+		if (Cost < Best - 1e-6)
+		{
+			Best = Cost;
+			++Kept;
+			continue;
+		}
+		for (const int32 Index : Picked)
+		{
+			Unbuild(Plans[Index]);
+		}
+		for (int32 Pick = 0; Pick < Picked.Num(); ++Pick)
+		{
+			FPlan& Plan = Plans[Picked[Pick]];
+			Plan = Saved[Pick];
+			if (Plan.Stops.Num() > 0 && Resume(Plan))
+			{
+				Planner.Reserve(Plan.Stops, Plan.Result);
+			}
+		}
+	}
+
+	// Commit: reservations are already in place.
+	int32 Trips = 0;
+	for (const FPlan& Plan : Plans)
+	{
+		FSTTrainState& State = mTrains[Plan.TrainIndex];
+		if (Plan.Stops.Num() == 0)
+		{
+			if (!State.bHasJob || State.Job.bRepeat)
+			{
+				const bool bCarrying = GetCargo(State.Train).Num() > 0;
+				if (bCarrying && State.UnwantedCargoSince <= 0.0)
+				{
+					State.UnwantedCargoSince = Time;
+					UE_LOG(LogSmartTrains, Log, TEXT("%s carries cargo no trip wants now"), *STLayout::Name(State.Train));
+				}
+				Resume(Plan);
+				const FString Problems = Planner.DescribeProblems();
+				NoteNoTrip(State, !Problems.IsEmpty() ? FString::Printf(TEXT("nothing worth running now; trips tried were rejected: %s"), *Problems)
+					: FString(TEXT("nothing worth running now (nothing short within the next hour that it can serve)")));
+			}
+			continue;
+		}
+		if (!Resume(Plan))
+		{
+			continue;
+		}
+		++Trips;
+		CommitTrip(State, Planner, Plan.Stops, Plan.Result, false);
+	}
+	UE_LOG(LogSmartTrains, Verbose, TEXT("HORIZON: %d trains planned, %d trips, network cost %.1f -> %.1f car-load minutes, %d searches (%d kept), %.1f ms"), Plans.Num(), Trips,
+		Start, Best, Tries, Kept, Planner.GetElapsedMs());
 }
 
 void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)

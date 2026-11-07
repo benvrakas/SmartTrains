@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.0 (beta)
+
+- **New: horizon planner** (Mods menu **Horizon planner (beta)**, on). The classic planner gave each free train its
+  best next trip, one train after another, so anything that paid off later needed a rule of its own. The horizon
+  planner looks at every platform's stock over the next hour and plans all free trains together:
+  - **What a delivery is worth** is how much it shortens the time platforms spend below their target over the next
+    hour, weighted by priority and counted in car loads (a car of sulfur counts like a car of concrete). The sooner a
+    delivery ends a shortfall, the more it is worth; one to a platform that stays above target is worth nothing. This
+    replaces the old urgency and fairness weights, for both planners.
+  - **Plans may hold several trips** (up to 6 stops), re-planned after every stop.
+  - **A train can be emptied** to serve one of the platforms that will be shortest, when that does more good than
+    its other trips.
+  - **It searches**: each round it plans one or two trains again in another order and keeps the result if the
+    network as a whole ends up less short.
+  - **Classic planner**: switch Horizon planner off.
+- **Requests stay as a fallback** (Mods menu **Request fallback**, on). With the horizon planner on, a request that
+  fires is logged "missed by the horizon planner".
+- **Requests: fixed a platform being skipped as "covered" when no train could reach it at all**, and requests are
+  only planned for platforms that fall below target within the next half hour, which also saves planning time.
+- **Production lost at a full supplier counts very little.** On a network where most suppliers are full and nobody
+  needs their goods, hauling them away isn't worth a train.
+
 ## 0.6.10 (beta)
 
 - **Requests, reworked.** A demand platform (**Request a train**, Automatic by default) now gets a train emptied

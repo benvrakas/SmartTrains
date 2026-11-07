@@ -7,7 +7,7 @@ stock, rate and distance from where items pile up to where they're needed. You d
 length, car positions and platform positions are checked for every job. Everything is opt-in: unmanaged trains and
 platforms without a role work as in vanilla.
 
-Status: 0.6.10 beta ([changelog](Docs/Release/Changelog.md)). Settings are in the platform, locomotive and station menus, and in chat (`/st help`).
+Status: 0.7.0 beta ([changelog](Docs/Release/Changelog.md)). Settings are in the platform, locomotive and station menus, and in chat (`/st help`).
 
 - Commands: [Docs/Commands.md](Docs/Commands.md)
 - Moving an existing network over: [Docs/Migration.md](Docs/Migration.md)
