@@ -23,10 +23,11 @@ protected:
 	virtual FMargin GetOuterPadding() const override { return FMargin(10.f, 8.f, 10.f, 10.f); }
 	virtual FName GetStyleSource() const override { return TEXT("TextBlock_0"); }
 
-private:
 	AFGTrainStationIdentifier* GetStation() const;
 
 	void SendStation(bool bNewDepot);
+	// The depot button's text.
+	virtual FText GetDepotText(bool bOn) const;
 
 	UPROPERTY()
 	TObjectPtr<USTButton> mDepot;
@@ -38,4 +39,17 @@ private:
 	TObjectPtr<UTextBlock> mNetwork;
 
 	bool bDepot = false;
+};
+
+// Depot switch added under the station name on the station menu's first tab (Widget_TrainStationNew, VerticalBox_0).
+UCLASS()
+class USTStationDepotBar : public USTStationPanel
+{
+	GENERATED_BODY()
+
+protected:
+	virtual void BuildContent(UVerticalBox* Root) override;
+	virtual bool OnShown() override;
+	virtual FMargin GetOuterPadding() const override { return FMargin(0.f, 6.f, 0.f, 0.f); }
+	virtual FText GetDepotText(bool bOn) const override;
 };

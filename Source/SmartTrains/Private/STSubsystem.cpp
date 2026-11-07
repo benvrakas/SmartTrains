@@ -155,6 +155,15 @@ void ASTSubsystem::PostLoadGame_Implementation(int32 SaveVersion, int32 GameVers
 			Config.Pool.Reset();
 		}
 	}
+	// Before 0.6.9 a sink was a demand platform whose only item was "any item".
+	for (FSTPlatformConfig& Config : mPlatforms)
+	{
+		if (Config.Role == ESTRole::Demand && Config.Items.Num() == 1 && !Config.Items[0].Item)
+		{
+			Config.Role = ESTRole::Sink;
+			UE_LOG(LogSmartTrains, Log, TEXT("PLATFORM %s: demand for any item is now the Sink role"), IsValid(Config.Platform) ? *Config.Platform->GetName() : TEXT("?"));
+		}
+	}
 	int32 Converted = 0;
 	for (FSTTrainState& State : mTrains)
 	{
@@ -303,12 +312,17 @@ void ASTSubsystem::SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, E
 	}
 	Config->Role = NewRole;
 	Config->Items = Items;
+	if (NewRole == ESTRole::Sink)
+	{
+		// A sink takes any item; its one rule has no item.
+		Config->Items = {FSTItemRule()};
+	}
 	Config->EditedBy = Cause;
 	if (NewRole == ESTRole::Supply && !Platform->GetIsInLoadMode())
 	{
 		Platform->SetIsInLoadMode(true);
 	}
-	else if (NewRole == ESTRole::Demand && Platform->GetIsInLoadMode())
+	else if (STNames::Unloads(NewRole) && Platform->GetIsInLoadMode())
 	{
 		Platform->SetIsInLoadMode(false);
 	}
@@ -333,6 +347,21 @@ void ASTSubsystem::SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, E
 	}
 	bDispatchSoon = true;
 	bReplanAll = true;
+}
+
+bool ASTSubsystem::SetPlatformRequest(AFGBuildableTrainPlatformCargo* Platform, ESTRequest Request, const FString& Cause, FString& OutError)
+{
+	FSTPlatformConfig* Config = Platform ? FindPlatformConfig(Platform) : nullptr;
+	if (!Config || Config->Role != ESTRole::Demand)
+	{
+		OutError = TEXT("Only a demand platform asks for a train to be emptied for it.");
+		return false;
+	}
+	const ESTRequest Old = Config->Request;
+	Config->Request = Request;
+	Config->EditedBy = Cause;
+	UE_LOG(LogSmartTrains, Log, TEXT("PLATFORM %s: request %s -> %s by %s"), *Platform->GetName(), STNames::Request(Old), STNames::Request(Request), *Cause);
+	return true;
 }
 
 void ASTSubsystem::SetStationDepot(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Cause)
@@ -459,6 +488,7 @@ void ASTSubsystem::MonitorTrains()
 		}
 		AFGRailroadTimeTable* TimeTable = Train->GetTimeTable();
 		const bool bDocked = Train->IsDocked();
+		// Docks are normally begun by the dock hook (NoteDockStarted); this catches any it missed.
 		if (bDocked && !State.bWasDocked)
 		{
 			AFGTrainStationIdentifier* Station = nullptr;
@@ -467,12 +497,8 @@ void ASTSubsystem::MonitorTrains()
 				const int32 Current = TimeTable->GetCurrentStop();
 				Station = TimeTable->GetStop((Current == 0 ? TimeTable->GetNumStops() : Current) - 1).Station;
 			}
-			State.DockedAt = Time;
-			State.DockedStation = Station;
-			State.bDockReleased = false;
-			State.DockMoved = 0;
-			State.DockProgressAt = Time;
-			OnDocked(State, Station);
+			UE_LOG(LogSmartTrains, Verbose, TEXT("%s docked at %s without the dock hook"), *STLayout::Name(Train), *STLayout::Name(Station));
+			BeginDock(State, Station);
 		}
 		else if (!bDocked && State.bWasDocked)
 		{
@@ -698,6 +724,28 @@ void ASTSubsystem::ReleaseDockWhenDone(FSTTrainState& State, double Time)
 		bAllDone ? TEXT("planned transfer done") : *FString::Printf(TEXT("nothing moved for %.0f s"), Time - State.DockProgressAt), Time - State.DockedAt, Moved);
 }
 
+void ASTSubsystem::NoteDockStarted(AFGTrain* Train, AFGTrainStationIdentifier* Station)
+{
+	FSTTrainState* State = Train ? FindTrainState(Train) : nullptr;
+	if (!State || !State->bManaged || State->bWasDocked)
+	{
+		return;
+	}
+	BeginDock(*State, Station);
+}
+
+void ASTSubsystem::BeginDock(FSTTrainState& State, AFGTrainStationIdentifier* Station)
+{
+	const double Time = Now();
+	State.bWasDocked = true;
+	State.DockedAt = Time;
+	State.DockedStation = Station;
+	State.bDockReleased = false;
+	State.DockMoved = 0;
+	State.DockProgressAt = Time;
+	OnDocked(State, Station);
+}
+
 void ASTSubsystem::OnDocked(FSTTrainState& State, AFGTrainStationIdentifier* Station)
 {
 	AFGTrain* Train = State.Train;
@@ -814,9 +862,18 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 		{
 			State.NoProgress.RemoveAll([&](const FSTNoProgress& Old) { return Old.Until <= Now() || (Old.Station == Station && Old.Item == Each.Key.Key && Old.bLoad == Each.Key.Value); });
 			State.NoProgress.Add({Station, Each.Key.Key, Each.Key.Value, Now() + NoProgressMinutes * 60.0});
-			UE_LOG(LogSmartTrains, Log, TEXT("NOPROGRESS %s %s no %s at %s (%d planned) in %.0f s; not planned again for %.0f minutes. Platforms there: %s"), *STLayout::Name(Train),
+			const FString Text = FString::Printf(TEXT("NOPROGRESS %s %s no %s at %s (%d planned) in %.0f s; not planned again for %.0f minutes. Platforms there: %s"), *STLayout::Name(Train),
 				Each.Key.Value ? TEXT("loaded") : TEXT("unloaded"), *STNames::Item(Each.Key.Key), *STLayout::Name(Station), Each.Value.Key, Stay, NoProgressMinutes,
 				*DescribeStationPlatforms(Station));
+			// A repeat run moving nothing is expected (nothing was worth a new trip); only the detailed log shows it.
+			if (State.Job.bRepeat)
+			{
+				UE_LOG(LogSmartTrains, Verbose, TEXT("%s"), *Text);
+			}
+			else
+			{
+				UE_LOG(LogSmartTrains, Log, TEXT("%s"), *Text);
+			}
 		}
 	}
 	const FString Line = FString::Printf(TEXT("JOB %d %s: left %s after %.0f s: %s"), State.Job.Id, *STLayout::Name(Train), *STLayout::Name(Station), Stay,
@@ -1186,7 +1243,7 @@ TArray<FString> ASTSubsystem::DescribePlatform(const AFGBuildableTrainPlatformCa
 	Lines.Add(FString::Printf(TEXT("%s: %s, %s mode"), *View.Title, STNames::Role(View.Role), Platform && Platform->GetIsInLoadMode() ? TEXT("load") : TEXT("unload")));
 	if (View.Role == ESTRole::Off)
 	{
-		Lines.Add(TEXT("  Vanilla. Set a role with /st platform supply|demand <item>."));
+		Lines.Add(TEXT("  Vanilla. Set a role with /st platform supply|demand <item>, or /st platform sink."));
 		return Lines;
 	}
 	for (int32 Index = 0; Index < View.Items.Num() && Index < View.ItemLines.Num(); ++Index)
@@ -1219,7 +1276,7 @@ TArray<FString> ASTSubsystem::DescribeStation(const AFGTrainStationIdentifier* S
 			{
 				Items += (Items.IsEmpty() ? TEXT("") : TEXT("+")) + STNames::Item(Rule.Item);
 			}
-			Piece += FString::Printf(TEXT("-%s[%s]"), PlatformConfig->Role == ESTRole::Supply ? TEXT("Supply") : TEXT("Demand"), *Items);
+			Piece += FString::Printf(TEXT("-%s[%s]"), STNames::Role(PlatformConfig->Role), *Items);
 		}
 		Layout += (Layout.IsEmpty() ? TEXT("") : TEXT(" ")) + Piece;
 	}
@@ -1291,13 +1348,15 @@ TArray<FString> ASTSubsystem::DescribeStatus() const
 	}
 	int32 Supply = 0;
 	int32 Demand = 0;
+	int32 Sinks = 0;
 	for (const FSTPlatformConfig& Config : mPlatforms)
 	{
 		Supply += Config.Role == ESTRole::Supply ? 1 : 0;
 		Demand += Config.Role == ESTRole::Demand ? 1 : 0;
+		Sinks += Config.Role == ESTRole::Sink ? 1 : 0;
 	}
-	Lines.Add(FString::Printf(TEXT("SmartTrains%s: %d managed trains (%d working), %d supply and %d demand platforms, %d stations searched for distances, Freight Car Control %s"),
-		mSettings.bObserveOnly ? TEXT(" (observe only)") : TEXT(""), Managed, Working, Supply, Demand, mTravel ? mTravel->GetSearchedCount() : 0,
+	Lines.Add(FString::Printf(TEXT("SmartTrains%s: %d managed trains (%d working), %d supply, %d demand and %d sink platforms, %d stations searched for distances, Freight Car Control %s"),
+		mSettings.bObserveOnly ? TEXT(" (observe only)") : TEXT(""), Managed, Working, Supply, Demand, Sinks, mTravel ? mTravel->GetSearchedCount() : 0,
 		IsFccAvailable() ? TEXT("on") : TEXT("off")));
 	for (const TPair<UClass*, FAdvice>& Pair : mAdvice)
 	{

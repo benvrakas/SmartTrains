@@ -227,12 +227,16 @@ void USTPlatformLauncher::Refresh(USTRemoteCallObject* RCO)
 	{
 		mSummary->SetText(LOCTEXT("LauncherOff", "Off"));
 	}
+	else if (View->Role == ESTRole::Sink)
+	{
+		mSummary->SetText(LOCTEXT("LauncherSink", "Sink: any item"));
+	}
 	else
 	{
 		mSummary->SetText(FText::FromString(View->Items.Num() > 0 ? FString::Printf(TEXT("%s:"), STNames::Role(View->Role))
 			: FString::Printf(TEXT("%s: no items"), STNames::Role(View->Role))));
 	}
-	ShowItems(View->Role == ESTRole::Off ? TArray<FSTItemRule>() : View->Items);
+	ShowItems(View->Role == ESTRole::Off || View->Role == ESTRole::Sink ? TArray<FSTItemRule>() : View->Items);
 	// The readout's last line is the first reason or the inbound trains; one line is enough here.
 	mStatus->SetText(View->Lines.Num() > 0 ? FText::FromString(View->Lines.Last()) : FText::GetEmpty());
 	mStatus->SetVisibility(View->Lines.Num() > 0 ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);

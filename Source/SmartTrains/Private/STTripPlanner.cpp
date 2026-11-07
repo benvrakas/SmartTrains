@@ -16,6 +16,9 @@ namespace
 {
 	// Moves kept per train, best solo score first (cargo already on board is always kept).
 	constexpr int32 MaxMovesPerTrain = 24;
+	// Requests: suppliers and places to empty cars tried per train (nearest first).
+	constexpr int32 MaxRequestSources = 3;
+	constexpr int32 MaxRequestDumps = 4;
 	// Shortest trip time the score divides by, so very short trips don't get huge scores. [s]
 	constexpr double MinScoreSeconds = 30.0;
 	// Value weight of cargo delivered to a consumer above its target (unwanted cargo after the time limit).
@@ -390,7 +393,7 @@ int32 FSTTripPlanner::GetPlatformInfo(const AFGBuildableTrainPlatformCargo* Plat
 	{
 		Info.bConfigured = true;
 		Info.bSupply = Config->Role == ESTRole::Supply;
-		Info.bDemand = Config->Role == ESTRole::Demand;
+		Info.bDemand = STNames::Unloads(Config->Role);
 		for (const FSTItemRule& Rule : Config->Items)
 		{
 			if (Rule.Item)
@@ -449,6 +452,23 @@ const TArray<TArray<int32>>& FSTTripPlanner::GetCarPlatforms(const AFGTrainStati
 	return mCarPlatforms.Add(Station, MoveTemp(Out));
 }
 
+bool FSTTripPlanner::CarFitsAt(int32 Index, const AFGTrainStationIdentifier* Station, TFunctionRef<bool(const FPlatformInfo&)> Test) const
+{
+	const TArray<TArray<int32>>& Maps = GetCarPlatforms(Station);
+	if (Maps.Num() == 0)
+	{
+		return false;
+	}
+	for (const TArray<int32>& Map : Maps)
+	{
+		if (!Map.IsValidIndex(Index) || Map[Index] == INDEX_NONE || !Test(mPlatforms[Map[Index]]))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bInAnchorDocked)
 {
 	mTrainIndex = TrainIndex;
@@ -497,22 +517,9 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 	}
 	bRelaxed = bCarrying && State.UnwantedCargoSince > 0.0 && mTime - State.UnwantedCargoSince > mSubsystem.mSettings.LeftoverMinutes * 60.0;
 
-	// Does car Index stop beside a platform matching Test at Station, whichever way the train docks?
 	auto CarFits = [this](int32 Index, const AFGTrainStationIdentifier* Station, TFunctionRef<bool(const FPlatformInfo&)> Test)
 	{
-		const TArray<TArray<int32>>& Maps = GetCarPlatforms(Station);
-		if (Maps.Num() == 0)
-		{
-			return false;
-		}
-		for (const TArray<int32>& Map : Maps)
-		{
-			if (!Map.IsValidIndex(Index) || Map[Index] == INDEX_NONE || !Test(mPlatforms[Map[Index]]))
-			{
-				return false;
-			}
-		}
-		return true;
+		return CarFitsAt(Index, Station, Test);
 	};
 	auto Demands = [](UClass* Item)
 	{
@@ -1286,6 +1293,313 @@ void FSTTripPlanner::Trim(TArray<FSTPlanStop>& InOutStops, const FSTPlanResult& 
 		Kept.Add(MoveTemp(Stop));
 	}
 	InOutStops = MoveTemp(Kept);
+}
+
+int32 FSTTripPlanner::CountUnloaded(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, UClass* Item, const AFGTrainStationIdentifier* Station)
+{
+	int32 Total = 0;
+	for (int32 StopIndex = 0; StopIndex < Stops.Num() && StopIndex < Result.Steps.Num(); ++StopIndex)
+	{
+		if (Station && Stops[StopIndex].Station != Station)
+		{
+			continue;
+		}
+		for (const FSTPlanCarStep& Step : Result.Steps[StopIndex])
+		{
+			for (const TPair<UClass*, int32>& Each : Step.Unloaded)
+			{
+				Total += Each.Key == Item ? Each.Value : 0;
+			}
+		}
+	}
+	return Total;
+}
+
+bool FSTTripPlanner::CanServeHere(const AFGTrainStationIdentifier* Station) const
+{
+	return bServeAll || (mSubsystem.mTrains.IsValidIndex(mTrainIndex) && mSubsystem.CanServe(mSubsystem.mTrains[mTrainIndex], Station));
+}
+
+bool FSTTripPlanner::PlanRequest(int32 Consumer, TArray<FSTPlanStop>& OutStops, FSTPlanResult& OutResult, bool& bOutDelivers, FString& OutWhy) const
+{
+	OutStops.Reset();
+	OutResult = FSTPlanResult();
+	bOutDelivers = false;
+	if (!mNodes.IsValidIndex(Consumer) || !mSubsystem.mTrains.IsValidIndex(mTrainIndex))
+	{
+		OutWhy = TEXT("no train set up");
+		return false;
+	}
+	const FSTNode& Target = mNodes[Consumer];
+	UClass* Item = Target.Item.Get();
+	AFGTrainStationIdentifier* Drop = Target.Station.Get();
+	if (!Item || !Drop || !CanServeHere(Drop))
+	{
+		OutWhy = TEXT("it can't serve the platform's station");
+		return false;
+	}
+	if (IsNoProgressHere(Drop, Item, false))
+	{
+		OutWhy = TEXT("it unloaded none there lately");
+		return false;
+	}
+	auto DemandsItem = [](UClass* Wanted)
+	{
+		return [Wanted](const FPlatformInfo& Platform) { return Platform.bDemand && !Platform.bLoadMode && (Platform.bAnyItem || Platform.Items.Contains(Wanted)); };
+	};
+	auto Travel = [this](const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To)
+	{
+		return From == To ? 0.f : mSubsystem.EstimateTravelSeconds(From, To, bPushPull);
+	};
+
+	// Suppliers of the item with cars that stop beside its loader there and beside the requesting platform, nearest first.
+	struct FSource
+	{
+		AFGTrainStationIdentifier* Station = nullptr;
+		float Seconds = 0.f;
+		TArray<int32> Cars;
+	};
+	TArray<FSource> Sources;
+	for (int32 From = 0; From < mNodes.Num(); ++From)
+	{
+		const FSTNode& Supplier = mNodes[From];
+		AFGTrainStationIdentifier* Pick = Supplier.Station.Get();
+		if (Supplier.Role != ESTRole::Supply || Supplier.Item.Get() != Item || !Pick || Pick == Drop || !CanServeHere(Pick) || IsNoProgressHere(Pick, Item, true))
+		{
+			continue;
+		}
+		const float ToPick = Travel(mAnchor, Pick);
+		const float ToDrop = Travel(Pick, Drop);
+		if (ToPick < 0.f || ToDrop < 0.f || GetAvailable(From, mFreeAt + ToPick) <= 0.0)
+		{
+			continue;
+		}
+		FSource Source;
+		Source.Station = Pick;
+		Source.Seconds = ToPick + ToDrop;
+		for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
+		{
+			if (CarFitsAt(CarIndex, Pick, [Item](const FPlatformInfo& Platform) { return Platform.bSupply && Platform.bLoadMode && Platform.Items.Contains(Item); })
+				&& CarFitsAt(CarIndex, Drop, DemandsItem(Item)))
+			{
+				Source.Cars.Add(CarIndex);
+			}
+		}
+		if (Source.Cars.Num() > 0)
+		{
+			Sources.Add(MoveTemp(Source));
+		}
+	}
+	if (Sources.Num() == 0)
+	{
+		OutWhy = FString::Printf(TEXT("no supplier of %s with stock that its cars stop beside at both ends"), *STNames::Item(Item));
+		return false;
+	}
+	Sources.Sort([](const FSource& A, const FSource& B) { return A.Seconds < B.Seconds; });
+	Sources.SetNum(FMath::Min(Sources.Num(), MaxRequestSources));
+
+	// A place to empty cars at: the items it takes from them, and whether it is a sink.
+	struct FDump
+	{
+		AFGTrainStationIdentifier* Station = nullptr;
+		TArray<UClass*> Items;
+		bool bSink = false;
+		float Seconds = 0.f;
+	};
+	struct FBest
+	{
+		TArray<FSTPlanStop> Stops;
+		FSTPlanResult Result;
+		bool bSink = true;
+		double Key = TNumericLimits<double>::Max();
+		int32 Cleared = 0;
+	};
+	FBest Full;
+	FBest Partial;
+	// Consumers before sinks, then the higher Cleared, then the lower Key.
+	auto IsBetter = [](const FBest& Best, bool bSink, int32 Cleared, double Key)
+	{
+		if (Best.Stops.Num() == 0 || Best.bSink != bSink)
+		{
+			return Best.Stops.Num() == 0 || !bSink;
+		}
+		return Cleared != Best.Cleared ? Cleared > Best.Cleared : Key < Best.Key;
+	};
+	TMap<FString, int32> Rejected;
+	for (const FSource& Source : Sources)
+	{
+		// What the cars that fit both ends hold of other items.
+		TArray<UClass*> Blocking;
+		TArray<int32> Blocked;
+		for (const int32 CarIndex : Source.Cars)
+		{
+			for (const TPair<UClass*, double>& Carried : mCars[CarIndex].Cargo)
+			{
+				if (Carried.Key != Item && Carried.Value >= 1.0)
+				{
+					Blocking.AddUnique(Carried.Key);
+					Blocked.AddUnique(CarIndex);
+				}
+			}
+		}
+		TArray<FDump> Dumps;
+		if (Blocking.Num() > 0)
+		{
+			// Consumers of what the cars hold first, then sinks; each nearest first.
+			for (int32 To = 0; To < mNodes.Num(); ++To)
+			{
+				const FSTNode& Node = mNodes[To];
+				AFGTrainStationIdentifier* Station = Node.Station.Get();
+				if (Node.Role != ESTRole::Demand || !Station || Station == Drop || Station == Source.Station || !CanServeHere(Station))
+				{
+					continue;
+				}
+				const float Seconds = Travel(mAnchor, Station);
+				if (Seconds < 0.f)
+				{
+					continue;
+				}
+				TArray<UClass*> Takes;
+				for (UClass* Other : Blocking)
+				{
+					if ((Node.bAnyItem || Node.Item.Get() == Other) && !IsNoProgressHere(Station, Other, false)
+						&& Blocked.ContainsByPredicate([&](int32 CarIndex) { return CarFitsAt(CarIndex, Station, DemandsItem(Other)); }))
+					{
+						Takes.Add(Other);
+					}
+				}
+				if (Takes.Num() == 0)
+				{
+					continue;
+				}
+				FDump* Same = Dumps.FindByPredicate([&](const FDump& Each) { return Each.Station == Station; });
+				if (!Same)
+				{
+					Same = &Dumps.AddDefaulted_GetRef();
+					Same->Station = Station;
+					Same->Seconds = Seconds;
+				}
+				for (UClass* Each : Takes)
+				{
+					Same->Items.AddUnique(Each);
+				}
+				Same->bSink |= Node.bAnyItem;
+			}
+			Dumps.Sort([](const FDump& A, const FDump& B) { return A.bSink != B.bSink ? !A.bSink : A.Seconds < B.Seconds; });
+			Dumps.SetNum(FMath::Min(Dumps.Num(), MaxRequestDumps));
+			if (Dumps.Num() == 0)
+			{
+				Rejected.FindOrAdd(FString::Printf(TEXT("nowhere to unload the %s its cars hold"), *STNames::Item(Blocking[0])))++;
+				continue;
+			}
+		}
+		// Places to empty cars at, in order: none, one, or two (both orders).
+		TArray<TArray<int32>> Sequences;
+		if (Blocking.Num() == 0)
+		{
+			Sequences.Add({});
+		}
+		for (int32 First = 0; First < Dumps.Num(); ++First)
+		{
+			Sequences.Add({First});
+		}
+		for (int32 First = 0; First < Dumps.Num(); ++First)
+		{
+			for (int32 Second = 0; Second < Dumps.Num(); ++Second)
+			{
+				if (First != Second)
+				{
+					Sequences.Add({First, Second});
+				}
+			}
+		}
+		for (const TArray<int32>& Sequence : Sequences)
+		{
+			if (IsOverBudget())
+			{
+				break;
+			}
+			TArray<FSTPlanStop> Emptying;
+			bool bSink = false;
+			for (const int32 Index : Sequence)
+			{
+				FSTPlanStop& Stop = Emptying.AddDefaulted_GetRef();
+				Stop.Station = Dumps[Index].Station;
+				Stop.UnloadItems = Dumps[Index].Items;
+				bSink |= Dumps[Index].bSink;
+			}
+			// Emptying, then the pickup and the delivery.
+			if (Emptying.Num() + 2 <= mMaxStops)
+			{
+				TArray<FSTPlanStop> Stops = Emptying;
+				FSTPlanStop& Pick = Stops.AddDefaulted_GetRef();
+				Pick.Station = Source.Station;
+				Pick.LoadItems.Add(Item);
+				FSTPlanStop& Deliver = Stops.AddDefaulted_GetRef();
+				Deliver.Station = Drop;
+				Deliver.UnloadItems.Add(Item);
+				FSTPlanResult Result = Simulate(Stops);
+				if (!Result.bValid)
+				{
+					Rejected.FindOrAdd(Result.Problem)++;
+				}
+				else if (CountUnloaded(Stops, Result, Item, Drop) <= 0)
+				{
+					Rejected.FindOrAdd(FString::Printf(TEXT("its cars would still hold other cargo at %s"), *STLayout::Name(Source.Station)))++;
+				}
+				else if (IsBetter(Full, bSink, 0, Result.Arrive.Last()))
+				{
+					const double Key = Result.Arrive.Last();
+					Full.Stops = MoveTemp(Stops);
+					Full.Result = MoveTemp(Result);
+					Full.bSink = bSink;
+					Full.Key = Key;
+				}
+			}
+			// Emptying alone, for when the delivery doesn't fit in this trip.
+			if (Emptying.Num() > 0)
+			{
+				FSTPlanResult Result = Simulate(Emptying);
+				int32 Cleared = 0;
+				for (UClass* Other : Blocking)
+				{
+					Cleared += CountUnloaded(Emptying, Result, Other, nullptr);
+				}
+				if (!Result.bValid)
+				{
+					Rejected.FindOrAdd(Result.Problem)++;
+				}
+				else if (Cleared > 0 && IsBetter(Partial, bSink, Cleared, Result.EndTime))
+				{
+					Partial.Stops = MoveTemp(Emptying);
+					Partial.Key = Result.EndTime;
+					Partial.Result = MoveTemp(Result);
+					Partial.bSink = bSink;
+					Partial.Cleared = Cleared;
+				}
+			}
+		}
+	}
+	if (Full.Stops.Num() > 0)
+	{
+		OutStops = MoveTemp(Full.Stops);
+		OutResult = MoveTemp(Full.Result);
+		bOutDelivers = true;
+		return true;
+	}
+	if (Partial.Stops.Num() > 0)
+	{
+		OutStops = MoveTemp(Partial.Stops);
+		OutResult = MoveTemp(Partial.Result);
+		return true;
+	}
+	TArray<FString> Reasons;
+	for (const TPair<FString, int32>& Each : Rejected)
+	{
+		Reasons.Add(Each.Value > 1 ? FString::Printf(TEXT("%s (%d times)"), *Each.Key, Each.Value) : Each.Key);
+	}
+	OutWhy = Reasons.Num() > 0 ? FString::Join(Reasons, TEXT("; ")) : FString(TEXT("no trip found"));
+	return false;
 }
 
 void FSTTripPlanner::MakeLegs(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, TArray<FSTJobLeg>& OutLegs) const

@@ -37,6 +37,8 @@ struct FSTNode
 	// Demand ran dry a while ago, so its measured rate is only a lower bound.
 	bool bStarved = false;
 	ESTPriority Priority = ESTPriority::Normal;
+	// Demand: when a train is emptied for it (see ESTRequest).
+	ESTRequest Request = ESTRequest::Off;
 	float TargetPercent = 50.f;
 	float SendAtPercent = 0.f;
 	int32 TrackGraph = INDEX_NONE;
@@ -74,6 +76,9 @@ public:
 
 	static ASTSubsystem* Get(const UObject* WorldContext);
 
+	// Called by the dock hook when Train starts docking at Station (server), so even docks of a few frames are seen.
+	void NoteDockStarted(AFGTrain* Train, AFGTrainStationIdentifier* Station);
+
 	//~ Settings, server only. Cause names the player or tool for the log.
 	FSTPlatformConfig* FindPlatformConfig(const AFGBuildableTrainPlatformCargo* Platform);
 	const FSTPlatformConfig* FindPlatformConfig(const AFGBuildableTrainPlatformCargo* Platform) const;
@@ -84,6 +89,8 @@ public:
 	// Sets Platform's role and items, switching its load/unload setting to match; Off puts its own setting back.
 	void SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, ESTRole NewRole, const TArray<FSTItemRule>& Items, const FString& Cause);
 	void SetStationDepot(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Cause);
+	// Sets when a train is emptied for Platform (a demand platform); false with OutError if it isn't one.
+	bool SetPlatformRequest(AFGBuildableTrainPlatformCargo* Platform, ESTRequest Request, const FString& Cause, FString& OutError);
 
 	// Starts or ends management of Train. Starting saves its timetable; ending puts it back and lets it drive on.
 	// Returns false with OutWhy set if it can't be managed (kept vanilla, no locomotive).
@@ -198,6 +205,13 @@ private:
 	void UpdateUnwantedCargo(FSTTrainState& State);
 	// Re-plans the rest of State's trip from where it is and what its cars hold; keeps stops already passed.
 	void ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner);
+	// Plans trips for demand platforms that ask for a train (ESTRequest): emptying a car that holds another item first
+	// (Docs/Architecture.md, "Requests"). Runs after the round's normal trips.
+	void ServeRequests(FSTTripPlanner& Planner, const TArray<FSTNode>& Nodes);
+	// Why Node asks for a train now ("empty, nothing on the way"), or empty if it doesn't.
+	FString GetRequestNeed(const FSTNode& Node) const;
+	// True if a job (not a repeat) still delivers Item to Station.
+	bool IsDeliveryPlanned(const AFGTrainStationIdentifier* Station, const UClass* Item) const;
 	// Works out planned flows between suppliers and consumers.
 	void PlanFlows();
 	// One step of the travel distance search.
@@ -240,6 +254,8 @@ private:
 
 	// Called when State's train docks at Station / leaves it.
 	void OnDocked(FSTTrainState& State, AFGTrainStationIdentifier* Station);
+	// Starts State's dock at Station: dock time, transfer tracking, OnDocked.
+	void BeginDock(FSTTrainState& State, AFGTrainStationIdentifier* Station);
 	void OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* Station, double Stay);
 	// Ends a docked train's stay once its planned transfer here is done, or when nothing has moved for a while, so it
 	// doesn't wait out the stop's time while blocking the station and locking its platforms.
@@ -337,6 +353,8 @@ private:
 	bool bSettingsRead = false;
 	// Per free train: why it got no trip in the last round, logged when it changes and shown in its menu.
 	TMap<TWeakObjectPtr<AFGTrain>, FString> mIdleReasons;
+	// Last "REQUEST" line per station and item that no train could serve, logged when it changes.
+	TMap<FString, FString> mRequestNotes;
 	// When the planning time last ran out (for a throttled warning). [game s]
 	double mLastBudgetWarning = -1000.0;
 	// A dispatch round is running; trains that become idle in it are settled when it ends (mToSettle).

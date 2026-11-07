@@ -16,8 +16,8 @@
 void USTStationPanel::BuildContent(UVerticalBox* Root)
 {
 	MakeHeading(Root, LOCTEXT("StationHeading", "SmartTrains"));
-	mDepot = MakeButton(Root, LOCTEXT("DepotOff", "Depot: off"), [this]() { SendStation(!bDepot); });
-	MakeText(Root, LOCTEXT("DepotHint", "Idle managed trains park at the nearest depot."), 10);
+	mDepot = MakeButton(Root, GetDepotText(false), [this]() { SendStation(!bDepot); });
+	MakeText(Root, LOCTEXT("DepotHint", "Managed trains with nothing to do wait at the nearest depot. With no depot they keep running their last trip."), 10);
 	mLines = MakeText(Root, LOCTEXT("Loading", "Asking the server..."), 10, true, FMargin(0.f, 6.f, 0.f, 0.f));
 	mNetwork = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 6.f, 0.f, 0.f));
 
@@ -58,7 +58,12 @@ void USTStationPanel::SendStation(bool bNewDepot)
 	bDepot = bNewDepot;
 	UE_LOG(LogSmartTrains, Log, TEXT("Station menu: %s depot %s"), *STLayout::Name(Station), bDepot ? TEXT("on") : TEXT("off"));
 	RCO->Server_SetStation(Station, bDepot, RCO->NextEdit());
-	mDepot->SetText(bDepot ? LOCTEXT("DepotOn", "Depot: on") : LOCTEXT("DepotOff", "Depot: off"));
+	mDepot->SetText(GetDepotText(bDepot));
+}
+
+FText USTStationPanel::GetDepotText(bool bOn) const
+{
+	return bOn ? LOCTEXT("DepotOn", "Depot: on") : LOCTEXT("DepotOff", "Depot: off");
 }
 
 void USTStationPanel::Refresh(USTRemoteCallObject* RCO)
@@ -66,10 +71,33 @@ void USTStationPanel::Refresh(USTRemoteCallObject* RCO)
 	if (const FSTStationView* View = RCO->GetStationView(GetStation()))
 	{
 		bDepot = View->bDepot;
-		mDepot->SetText(bDepot ? LOCTEXT("DepotOn", "Depot: on") : LOCTEXT("DepotOff", "Depot: off"));
-		SetLines(mLines, View->Lines);
-		SetLines(mNetwork, View->NetworkLines);
+		mDepot->SetText(GetDepotText(bDepot));
+		if (mLines)
+		{
+			SetLines(mLines, View->Lines);
+		}
+		if (mNetwork)
+		{
+			SetLines(mNetwork, View->NetworkLines);
+		}
 	}
+}
+
+void USTStationDepotBar::BuildContent(UVerticalBox* Root)
+{
+	mDepot = MakeButton(Root, GetDepotText(false), [this]() { SendStation(!bDepot); });
+}
+
+bool USTStationDepotBar::OnShown()
+{
+	UE_LOG(LogSmartTrains, Log, TEXT("Station depot bar for %s"), *STLayout::Name(GetStation()));
+	return GetStation() != nullptr;
+}
+
+FText USTStationDepotBar::GetDepotText(bool bOn) const
+{
+	return bOn ? LOCTEXT("DepotBarOn", "SmartTrains depot (rail yard for waiting trains): On")
+		: LOCTEXT("DepotBarOff", "SmartTrains depot (rail yard for waiting trains): Off");
 }
 
 #undef LOCTEXT_NAMESPACE

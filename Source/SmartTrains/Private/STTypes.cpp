@@ -7,8 +7,24 @@ const TCHAR* STNames::Role(ESTRole Role)
 	{
 	case ESTRole::Supply: return TEXT("Supply");
 	case ESTRole::Demand: return TEXT("Demand");
+	case ESTRole::Sink: return TEXT("Sink");
 	default: return TEXT("Off");
 	}
+}
+
+const TCHAR* STNames::Request(ESTRequest Request)
+{
+	switch (Request)
+	{
+	case ESTRequest::On: return TEXT("On");
+	case ESTRequest::Off: return TEXT("Off");
+	default: return TEXT("Automatic");
+	}
+}
+
+bool STNames::Unloads(ESTRole Role)
+{
+	return Role == ESTRole::Demand || Role == ESTRole::Sink;
 }
 
 const TCHAR* STNames::Priority(ESTPriority Priority)
@@ -38,9 +54,13 @@ TOptional<ESTRole> STNames::ParseRole(const FString& Text)
 	{
 		return ESTRole::Supply;
 	}
-	if (Text.Equals(TEXT("demand"), ESearchCase::IgnoreCase) || Text.Equals(TEXT("sink"), ESearchCase::IgnoreCase) || Text.Equals(TEXT("out"), ESearchCase::IgnoreCase))
+	if (Text.Equals(TEXT("demand"), ESearchCase::IgnoreCase) || Text.Equals(TEXT("out"), ESearchCase::IgnoreCase))
 	{
 		return ESTRole::Demand;
+	}
+	if (Text.Equals(TEXT("sink"), ESearchCase::IgnoreCase))
+	{
+		return ESTRole::Sink;
 	}
 	if (Text.Equals(TEXT("off"), ESearchCase::IgnoreCase))
 	{
@@ -105,7 +125,7 @@ const FSTItemRule* FSTPlatformConfig::FindRule(TSubclassOf<UFGItemDescriptor> It
 		{
 			return &Rule;
 		}
-		if (!Rule.Item && Role == ESTRole::Demand)
+		if (!Rule.Item && STNames::Unloads(Role))
 		{
 			Any = &Rule;
 		}

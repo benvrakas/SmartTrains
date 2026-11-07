@@ -14,9 +14,13 @@ them (see below).
 
 - **Platforms:** open a freight or fluid platform and click **Open SmartTrains settings**.
   - **Supply:** managed trains pick items up here.
-  - **Demand:** managed trains keep it stocked to a target.
+  - **Demand:** managed trains keep it stocked to a target. **Request a train** (Automatic by default): when the
+    platform runs empty and no train is coming, a train whose car holds something else is emptied first and sent
+    for it. **On** asks whenever it is below its target; **Off** never asks.
+  - **Sink:** managed trains unload cargo here that no consumer takes, any item.
   - **Off:** vanilla.
   - Each item gets a priority, a target and a minimum batch.
+  - **Copy**, **Paste** and **Copy to the station's other platforms** carry every setting of the platform.
 - **Trains:** in the locomotive menu, switch **Managed by SmartTrains** on. SmartTrains writes the train's timetable
   for each trip. The game, or Auto Trains, drives it.
 - **Trips:** one trip can visit up to 4 stations and serve several platforms and items. It plans car by car: which
@@ -34,7 +38,7 @@ them (see below).
   busy station at once, so trains don't queue across junctions. Switch **Trains leave stations at once** off for the old behaviour: deliveries and pickups wait up
   to their longest wait, and a train whose next station is busy waits in its station.
 - **No parking** (default): a train with no new trip runs its last job again, like a timetable loop, until a new trip
-  is worth it. With **Repeat the last job instead of parking** off, idle trains park at a depot (a station setting)
+  is worth it, or waits at a **depot** (a rail yard: switch it on under the station's name in the station menu). With **Repeat the last job instead of parking** off, idle trains park at a depot
   or where they finished, and move to a depot or a free station when a trip needs their station.
 - **Dead ends:** a train parked in a dead-end station keeps it until it leaves, so no second train is sent into a
   bay it couldn't enter.

@@ -52,6 +52,9 @@ private:
 	void SendEdit(const TCHAR* What);
 
 	void SetRole(ESTRole NewRole);
+	// Steps the role (Off, Supply, Demand, Sink) or the request setting (Automatic, On, Off) by Step, wrapping round.
+	void StepRole(int32 Step);
+	void StepRequest(int32 Step);
 	void AddItem(TSubclassOf<UFGItemDescriptor> Item);
 	void RemoveItem(int32 Index);
 	void CyclePriority(int32 Index, int32 Step);
@@ -68,6 +71,7 @@ private:
 
 	// Settings as the player last set them (or as the server last reported them).
 	ESTRole mRole = ESTRole::Off;
+	ESTRequest mRequest = ESTRequest::Auto;
 	TArray<FSTItemRule> mItems;
 	bool bHasSettings = false;
 	bool bFluid = false;
@@ -82,7 +86,17 @@ private:
 	TObjectPtr<UTextBlock> mTitle;
 
 	UPROPERTY()
-	TArray<TObjectPtr<USTButton>> mRoleButtons;
+	TObjectPtr<USTButton> mRoleButton;
+
+	UPROPERTY()
+	TObjectPtr<USTButton> mRequestButton;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> mRequestHint;
+
+	// The "Items" heading, hidden with the item list where a role has no items (Off, Sink).
+	UPROPERTY()
+	TObjectPtr<UTextBlock> mItemsLabel;
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mRoleHint;

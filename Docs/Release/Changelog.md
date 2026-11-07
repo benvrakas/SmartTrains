@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.9 (beta)
+
+- **Demand platforms can ask for a train to be emptied for them** (new platform setting **Request a train**:
+  Automatic, On, Off; click steps forward, right click back). A train whose car for that platform held another item
+  was never sent: the pickup scored nothing until the car was empty, and emptying it was only planned when that
+  delivery was worth something by itself. Now a platform that asks gets a free train: the trip first unloads the
+  other item at its consumers, then at sinks if they can't take it all, then picks up and delivers. If that doesn't
+  fit in one trip (4 stops), the train only empties its car first and is kept for the platform until it can bring
+  it. The train's other cars may still load on the way. **Automatic** (default) asks when the platform has been
+  empty for 30 s and nothing is on the way; **On** asks whenever it is below its target and nothing is on the way;
+  **Off** never asks. The log has REQUEST lines, and the platform's readout says which train is emptying a car for
+  it, or why none can.
+- **Sink is a role of its own.** A sink platform takes any cargo no consumer wants; it was a demand platform with
+  "Any item" picked. Existing ones become Sink when the save loads. "Any item" is no longer in the item picker.
+- **Platform menu: one Role button** that steps through Off, Supply, Demand and Sink (right click goes back), and
+  **Copy to the station's other platforms** moved down beside Copy and Paste. Copy, Paste and Copy to the station
+  carry every setting of the platform, the request setting included.
+- **Station menu: the depot switch is on the first tab**, under the station's name ("SmartTrains depot (rail yard
+  for waiting trains)"). It was only at the bottom of the train and station lists.
+- **Fixed: trains skipping a stop after a very short dock.** A dock with nothing to move lasts about 0.3 s, a few
+  frames on a busy server, and SmartTrains checked docking every 0.25 s, so it sometimes missed one. It then wrote
+  the next timetable a stop behind, and the train drove past a stop ("legs were missed" in the log). Docks are now
+  seen when they start.
+- **Quieter log for trains running their last trip again.** A repeat that moves nothing at a full platform is
+  expected, so its "moved nothing" line is only in the detailed log.
+
 ## 0.6.8 (beta)
 
 - **Queue limit counts trains, not seconds** (new setting **Most trains waiting before a station**, 2; it replaces

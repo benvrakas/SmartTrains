@@ -363,12 +363,30 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			Sender->SendChatMessage(Result, Copied < 0 ? FLinearColor::Red : FLinearColor::White);
 			return Copied < 0 ? EExecutionStatus::UNCOMPLETED : EExecutionStatus::COMPLETED;
 		}
+		if (Arguments.Num() >= 2 && Arguments[1].Equals(TEXT("request"), ESearchCase::IgnoreCase))
+		{
+			const FString Mode = Arguments.Num() >= 3 ? Arguments[2].ToLower() : FString();
+			const ESTRequest Wanted = Mode == TEXT("on") ? ESTRequest::On : (Mode == TEXT("off") ? ESTRequest::Off : ESTRequest::Auto);
+			if (Mode != TEXT("on") && Mode != TEXT("off") && Mode != TEXT("auto"))
+			{
+				Sender->SendChatMessage(TEXT("Use /st platform request auto|on|off"), FLinearColor::Red);
+				return EExecutionStatus::BAD_ARGUMENTS;
+			}
+			FString Error;
+			if (!Subsystem->SetPlatformRequest(Platform, Wanted, Who, Error))
+			{
+				Sender->SendChatMessage(Error, FLinearColor::Red);
+				return EExecutionStatus::UNCOMPLETED;
+			}
+			Send(Sender, Subsystem->DescribePlatform(Platform));
+			return EExecutionStatus::COMPLETED;
+		}
 		if (Arguments.Num() >= 2)
 		{
 			const TOptional<ESTRole> WantedRole = STNames::ParseRole(Arguments[1]);
 			if (!WantedRole.IsSet())
 			{
-				Sender->SendChatMessage(TEXT("Role must be supply, demand or off."), FLinearColor::Red);
+				Sender->SendChatMessage(TEXT("Role must be supply, demand, sink or off."), FLinearColor::Red);
 				return EExecutionStatus::BAD_ARGUMENTS;
 			}
 			if (WantedRole.GetValue() != ESTRole::Off && !STLayout::CanMoveCargo(Platform))
@@ -422,9 +440,9 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 						Sender->SendChatMessage(Error, FLinearColor::Red);
 						return EExecutionStatus::BAD_ARGUMENTS;
 					}
-					if (!Item && WantedRole.GetValue() != ESTRole::Demand)
+					if (!Item && !STNames::Unloads(WantedRole.GetValue()))
 					{
-						Sender->SendChatMessage(TEXT("'any' only works on a demand platform (a sink)."), FLinearColor::Red);
+						Sender->SendChatMessage(TEXT("'any' only works on a demand or sink platform."), FLinearColor::Red);
 						return EExecutionStatus::BAD_ARGUMENTS;
 					}
 					if (Item && !STLayout::ItemFitsCargoType(Item, STLayout::GetPlatformCargoType(Platform)))
@@ -437,7 +455,7 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 					Rule.Priority = Item ? ESTPriority::Normal : ESTPriority::Low;
 				}
 			}
-			if (WantedRole.GetValue() != ESTRole::Off && Rules.Num() == 0)
+			if (WantedRole.GetValue() != ESTRole::Off && WantedRole.GetValue() != ESTRole::Sink && Rules.Num() == 0)
 			{
 				Sender->SendChatMessage(TEXT("Name at least one item, e.g. /st platform supply Iron Plate"), FLinearColor::Red);
 				return EExecutionStatus::BAD_ARGUMENTS;

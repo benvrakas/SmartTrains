@@ -80,6 +80,11 @@ struct FSTTestAccess
 		return Planner.FirstFreeArrival(Station, Arrive, Stay);
 	}
 
+	static void ServeAll(FSTTripPlanner& Planner)
+	{
+		Planner.bServeAll = true;
+	}
+
 	static FPlatformInfo Platform(UClass* Item, bool bSupply, double Stock, int32 Occupied)
 	{
 		FPlatformInfo Info;
@@ -532,6 +537,91 @@ bool FSTMinCostFlowTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("sends all the consumer takes"), Flow.Solve(0, 1), 8.0);
 	TestEqual(TEXT("the cheap route is full"), Flow.GetFlow(Cheap), 5.0);
 	TestEqual(TEXT("the dear route takes the rest"), Flow.GetFlow(Dear), 3.0);
+	return true;
+}
+
+// A request: the car that fits the requesting platform holds another item, so the trip empties it first (at a consumer
+// of that item, or at a sink when none takes it), then picks up and delivers.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTRequestEmptiesCarTest, "SmartTrains.Planner.RequestEmptiesCar", TestFlags)
+bool FSTRequestEmptiesCarTest::RunTest(const FString& Parameters)
+{
+	UClass* Wanted = USTTestSolid::StaticClass();
+	UClass* Other = USTTestSolidB::StaticClass();
+	for (int32 Case = 0; Case < 2; ++Case)
+	{
+		const bool bSinkOnly = Case == 1;
+		ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+		AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+		AFGTrainStationIdentifier* Dump = FSTTestAccess::MakeStation();
+		AFGTrainStationIdentifier* Source = FSTTestAccess::MakeStation();
+		AFGTrainStationIdentifier* Drop = FSTTestAccess::MakeStation();
+		const TArray<AFGTrainStationIdentifier*> Stations = {Start, Dump, Source, Drop};
+		for (AFGTrainStationIdentifier* From : Stations)
+		{
+			for (AFGTrainStationIdentifier* To : Stations)
+			{
+				if (From != To)
+				{
+					FSTTestAccess::SetTrip(*Subsystem, From, To, 60.f);
+				}
+			}
+		}
+		TArray<AFGBuildableTrainPlatformCargo*> Objects;
+		for (int32 Index = 0; Index < 3; ++Index)
+		{
+			Objects.Add(NewObject<AFGBuildableTrainPlatformCargo>(GetTransientPackage()));
+		}
+		FSTNode DumpNode = FSTTestAccess::Node(Dump, bSinkOnly ? nullptr : Other, ESTRole::Demand, 0, 5000, 0);
+		DumpNode.bAnyItem = bSinkOnly;
+		DumpNode.Platforms = {Objects[0]};
+		FSTNode SourceNode = FSTTestAccess::Node(Source, Wanted, ESTRole::Supply, 1000, 1000, 0);
+		SourceNode.Platforms = {Objects[1]};
+		FSTNode DropNode = FSTTestAccess::Node(Drop, Wanted, ESTRole::Demand, 0, 1000, 0);
+		DropNode.Platforms = {Objects[2]};
+		TArray<FSTNode> Nodes = {DumpNode, SourceNode, DropNode};
+		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+		TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Other, false, 0.0, 0), FSTTestAccess::Platform(Wanted, true, 1000.0, 10),
+			FSTTestAccess::Platform(Wanted, false, 0.0, 0)};
+		if (bSinkOnly)
+		{
+			Platforms[0].Items.Reset();
+			Platforms[0].bAnyItem = true;
+		}
+		for (int32 Index = 0; Index < Platforms.Num(); ++Index)
+		{
+			Platforms[Index].Platform = Objects[Index];
+			Platforms[Index].Slots = 10;
+		}
+		FSTTestAccess::FCarInfo Car = FSTTestAccess::Car(Other, 1000.0);
+		Car.Slots = 10;
+		FSTTestAccess::FCarPlatforms CarPlatforms;
+		CarPlatforms.Add(Dump, {{0}});
+		CarPlatforms.Add(Source, {{1}});
+		CarPlatforms.Add(Drop, {{2}});
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, Platforms, CarPlatforms);
+		FSTTestAccess::ServeAll(Planner);
+
+		const TCHAR* Where = bSinkOnly ? TEXT("sink") : TEXT("consumer");
+		TArray<FSTPlanStop> Stops;
+		FSTPlanResult Result;
+		bool bDelivers = false;
+		FString Why;
+		const bool bPlanned = Planner.PlanRequest(2, Stops, Result, bDelivers, Why);
+		TestTrue(FString::Printf(TEXT("%s: a request trip is found (%s)"), Where, *Why), bPlanned);
+		TestTrue(FString::Printf(TEXT("%s: it delivers"), Where), bDelivers);
+		if (bPlanned && Stops.Num() == 3)
+		{
+			TestTrue(FString::Printf(TEXT("%s: the car is emptied first"), Where), Stops[0].Station == Dump);
+			TestTrue(FString::Printf(TEXT("%s: then the pickup"), Where), Stops[1].Station == Source);
+			TestEqual(FString::Printf(TEXT("%s: all of the other item is unloaded"), Where), FSTTripPlanner::CountUnloaded(Stops, Result, Other, Dump), 1000);
+			TestTrue(FString::Printf(TEXT("%s: the wanted item reaches the platform"), Where), FSTTripPlanner::CountUnloaded(Stops, Result, Wanted, Drop) > 0);
+		}
+		else
+		{
+			AddError(FString::Printf(TEXT("%s: expected 3 stops, got %d"), Where, Stops.Num()));
+		}
+	}
 	return true;
 }
 

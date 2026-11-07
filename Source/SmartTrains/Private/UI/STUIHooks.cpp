@@ -92,6 +92,8 @@ void STUIHooks::Register(UObject* Outer, TArray<UWidgetBlueprintHookData*>& OutH
 		USTTrainPanel::StaticClass(), TEXT("ST_TrainPanel"), nullptr, LocomotiveTimetableSlot));
 	Keep(AddHook(Outer, Manager, STWidgetUtils::StationMenuClass, TEXT("VerticalBox_2"),
 		USTStationPanel::StaticClass(), TEXT("ST_StationPanel")));
-	UE_LOG(LogSmartTrains, Log, TEXT("%d of 4 UI hooks registered"), OutHooks.Num());
+	Keep(AddHook(Outer, Manager, STWidgetUtils::StationMenuClass, TEXT("VerticalBox_0"),
+		USTStationDepotBar::StaticClass(), TEXT("ST_StationDepotBar")));
+	UE_LOG(LogSmartTrains, Log, TEXT("%d of 5 UI hooks registered"), OutHooks.Num());
 #endif
 }

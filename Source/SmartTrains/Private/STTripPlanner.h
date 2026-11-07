@@ -95,6 +95,14 @@ public:
 	// Adds moves by regret insertion while the trip's score rises; returns the final result.
 	FSTPlanResult Improve(TArray<FSTPlanStop>& InOutStops, int32 FirstMovable) const;
 
+	// A trip for the request of demand node Consumer (Docs/Architecture.md, "Requests"): stops that empty the cars
+	// holding another item, at consumers of that item first and then at sinks, then a pickup and the delivery if they
+	// fit in one trip. bOutDelivers: the trip delivers; otherwise it only empties cars. Returns false with OutWhy if the
+	// current train can't serve the request.
+	bool PlanRequest(int32 Consumer, TArray<FSTPlanStop>& OutStops, FSTPlanResult& OutResult, bool& bOutDelivers, FString& OutWhy) const;
+	// What a simulated trip unloads of Item at the stops at Station (any station if null).
+	static int32 CountUnloaded(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, UClass* Item, const AFGTrainStationIdentifier* Station);
+
 	// Drops items that move nothing and stops left with nothing to do, from FirstMovable on.
 	static void Trim(TArray<FSTPlanStop>& InOutStops, const FSTPlanResult& Result, int32 FirstMovable);
 
@@ -150,6 +158,10 @@ private:
 	};
 
 	int32 GetPlatformInfo(const AFGBuildableTrainPlatformCargo* Platform) const;
+	// True if car Index of the current train stops beside a platform passing Test at Station, whichever way it docks.
+	bool CarFitsAt(int32 Index, const AFGTrainStationIdentifier* Station, TFunctionRef<bool(const FPlatformInfo&)> Test) const;
+	// True if the current train can serve Station (same track network); always true in the automation tests.
+	bool CanServeHere(const AFGTrainStationIdentifier* Station) const;
 	// [map][car] platform info index (INDEX_NONE where no cargo platform is beside the car) at Station.
 	const TArray<TArray<int32>>& GetCarPlatforms(const AFGTrainStationIdentifier* Station) const;
 	int32 FindNode(const AFGTrainStationIdentifier* Station, UClass* Item, bool bSupply) const;
@@ -192,6 +204,8 @@ private:
 	// Rejection reason -> how often it came up for the current train.
 	mutable TMap<FString, int32> mProblems;
 	bool bFcc = false;
+	// Automation tests: every station counts as on the train's track network (they have no world).
+	bool bServeAll = false;
 	int32 mMaxStops = 4;
 	double mMaxTripSeconds = 1200.0;
 

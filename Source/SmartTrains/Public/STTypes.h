@@ -22,6 +22,19 @@ enum class ESTRole : uint8
 	Supply,
 	// Managed trains deliver the platform's items.
 	Demand,
+	// Managed trains unload cargo here that no consumer takes; any item.
+	Sink,
+};
+
+// Whether a demand platform has a train emptied for it when no trip serves it.
+UENUM()
+enum class ESTRequest : uint8
+{
+	// When the platform runs empty and nothing is on the way.
+	Auto,
+	// Whenever the platform is below its target and nothing is on the way.
+	On,
+	Off,
 };
 
 // How urgent a platform item is.
@@ -50,6 +63,9 @@ enum class ESTTrainPhase : uint8
 namespace STNames
 {
 	SMARTTRAINS_API const TCHAR* Role(ESTRole Role);
+	SMARTTRAINS_API const TCHAR* Request(ESTRequest Request);
+	// True for roles whose platforms managed trains unload at (Demand, Sink).
+	SMARTTRAINS_API bool Unloads(ESTRole Role);
 	SMARTTRAINS_API const TCHAR* Priority(ESTPriority Priority);
 	SMARTTRAINS_API const TCHAR* Phase(ESTTrainPhase Phase);
 	SMARTTRAINS_API TOptional<ESTRole> ParseRole(const FString& Text);
@@ -109,6 +125,10 @@ struct SMARTTRAINS_API FSTPlatformConfig
 
 	UPROPERTY(SaveGame)
 	TArray<FSTItemRule> Items;
+
+	// Demand: when a train is emptied for this platform.
+	UPROPERTY(SaveGame)
+	ESTRequest Request = ESTRequest::Auto;
 
 	// Load/unload setting the platform had before it got a role, put back when the role is removed.
 	UPROPERTY(SaveGame)
@@ -252,6 +272,10 @@ struct SMARTTRAINS_API FSTJob
 	UPROPERTY(SaveGame)
 	bool bRepeat = false;
 
+	// Planned for a platform's request: empties a car (and picks up and delivers when it can).
+	UPROPERTY(SaveGame)
+	bool bRequest = false;
+
 	// One line for logs and readouts.
 	UPROPERTY(SaveGame)
 	FString Summary;
@@ -351,6 +375,10 @@ struct SMARTTRAINS_API FSTTrainState
 	// when it changes).
 	double LastRepeatTry = -1000.0;
 	FString LastRepeatRefusal;
+	// Runtime only: the station and item of the request this train is emptying a car for; it gets no other trips until
+	// the request trip with the delivery is planned or the request ends.
+	TWeakObjectPtr<AFGTrainStationIdentifier> RequestStation;
+	TWeakObjectPtr<UClass> RequestItem;
 
 	// Runtime only: docking state at the last check, when the current dock began, and where.
 	bool bWasDocked = false;

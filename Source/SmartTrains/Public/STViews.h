@@ -33,6 +33,9 @@ struct SMARTTRAINS_API FSTPlatformView
 	UPROPERTY()
 	TArray<FSTItemRule> Items;
 
+	UPROPERTY()
+	ESTRequest Request = ESTRequest::Auto;
+
 	// One readout per entry of Items: stock, rate, batch or target.
 	UPROPERTY()
 	TArray<FString> ItemLines;
@@ -67,6 +70,9 @@ struct SMARTTRAINS_API FSTPlatformSettings
 
 	UPROPERTY()
 	TArray<FSTItemRule> Items;
+
+	UPROPERTY()
+	ESTRequest Request = ESTRequest::Auto;
 };
 
 USTRUCT()

@@ -26,6 +26,10 @@ int32 ASTSubsystem::CopyPlatformToStation(AFGBuildableTrainPlatformCargo* Platfo
 		if (Other && Other != Platform && STLayout::GetPlatformCargoType(Other) == Type && STLayout::CanMoveCargo(Other))
 		{
 			SetPlatformConfig(Other, Copy.Role, Copy.Items, Cause);
+			if (FSTPlatformConfig* Config = FindPlatformConfig(Other))
+			{
+				Config->Request = Copy.Request;
+			}
 			++Copied;
 		}
 	}
@@ -37,7 +41,7 @@ FString ASTSubsystem::DescribeItemRule(const AFGBuildableTrainPlatformCargo* Pla
 {
 	if (!Rule.Item)
 	{
-		return FString::Printf(TEXT("takes any surplus, %s priority"), STNames::Priority(Rule.Priority));
+		return Config.Role == ESTRole::Sink ? FString(TEXT("takes any cargo no consumer wants")) : FString::Printf(TEXT("takes any surplus, %s priority"), STNames::Priority(Rule.Priority));
 	}
 	const UFGInventoryComponent* Inventory = Platform ? Platform->GetInventory() : nullptr;
 	const bool bManual = Rule.ManualRatePerMinute > 0.f;
@@ -73,6 +77,7 @@ FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCa
 	}
 	View.Role = Config->Role;
 	View.Items = Config->Items;
+	View.Request = Config->Request;
 	View.EditedBy = Config->EditedBy;
 	for (const FSTItemRule& Rule : Config->Items)
 	{
@@ -104,6 +109,24 @@ FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCa
 						Work.bLoad ? TEXT("loads") : TEXT("unloads"), *STNames::Amount(Work.Item, Work.PlannedAmount), *STNames::Item(Work.Item),
 						FMath::Max(0.0, Each.PlannedArrival - Now())));
 				}
+			}
+		}
+	}
+	if (Config->Role == ESTRole::Demand && Identifier)
+	{
+		for (const FSTTrainState& State : mTrains)
+		{
+			if (State.RequestStation.Get() == Identifier && Config->FindRule(State.RequestItem.Get()))
+			{
+				View.Lines.Add(FString::Printf(TEXT("Request: %s is emptying a car to bring %s"), *STLayout::Name(State.Train), *STNames::Item(State.RequestItem.Get())));
+			}
+		}
+		for (const FSTItemRule& Rule : Config->Items)
+		{
+			const FString* Note = Rule.Item ? mRequestNotes.Find(FString::Printf(TEXT("%s|%s"), *STLayout::Name(Identifier), *STNames::Item(Rule.Item))) : nullptr;
+			if (Note)
+			{
+				View.Lines.Add(TEXT("Request: ") + *Note);
 			}
 		}
 	}

@@ -36,8 +36,25 @@ namespace
 		{
 		case ESTRole::Supply: return LOCTEXT("HintSupply", "Managed trains pick up these items here. The platform is set to load.");
 		case ESTRole::Demand: return LOCTEXT("HintDemand", "Managed trains deliver these items here. The platform is set to unload.");
+		case ESTRole::Sink: return LOCTEXT("HintSink", "Managed trains unload cargo here that no consumer takes, any item. The platform is set to unload.");
 		default: return LOCTEXT("HintOff", "Off: the platform keeps its own load/unload setting and SmartTrains leaves it alone.");
 		}
+	}
+
+	FText RequestHint(ESTRequest Request)
+	{
+		switch (Request)
+		{
+		case ESTRequest::On: return LOCTEXT("HintRequestOn", "On: whenever it is below its target and nothing is on the way, a train that holds other cargo is emptied first and sent for it.");
+		case ESTRequest::Off: return LOCTEXT("HintRequestOff", "Off: it only gets trains with room for its items.");
+		default: return LOCTEXT("HintRequestAuto", "Automatic: when it runs empty and nothing is on the way, a train that holds other cargo is emptied first and sent for it.");
+		}
+	}
+
+	template <typename EnumType>
+	EnumType StepEnum(EnumType Value, int32 Step, int32 Count)
+	{
+		return static_cast<EnumType>(((static_cast<int32>(Value) + Step) % Count + Count) % Count);
 	}
 
 	ESTPriority StepPriority(ESTPriority Priority, int32 Step)
@@ -101,29 +118,15 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 	}
 	mTitle = MakeText(mMain, LOCTEXT("Loading", "Asking the server..."));
 
-	UHorizontalBox* Roles = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
-	mMain->AddChildToVerticalBox(Roles)->SetPadding(FMargin(0.f, 6.f, 0.f, 2.f));
-	for (const ESTRole Each : {ESTRole::Off, ESTRole::Supply, ESTRole::Demand})
-	{
-		USTButton* Button = MakeButton(nullptr, FText::FromString(STNames::Role(Each)), [this, Each]() { SetRole(Each); });
-		AddToLine(Roles, Button, true);
-		mRoleButtons.Add(Button);
-	}
+	// Click steps forward, right click back.
+	mRoleButton = MakeButton(mMain, FText::GetEmpty(), [this]() { StepRole(1); }, FMargin(0.f, 6.f, 0.f, 2.f));
+	mRoleButton->OnRightClick = [this]() { StepRole(-1); };
 	mRoleHint = MakeText(mMain, RoleHint(ESTRole::Off), 10);
+	mRequestButton = MakeButton(mMain, FText::GetEmpty(), [this]() { StepRequest(1); }, FMargin(0.f, 6.f, 0.f, 2.f));
+	mRequestButton->OnRightClick = [this]() { StepRequest(-1); };
+	mRequestHint = MakeText(mMain, RequestHint(ESTRequest::Auto), 10);
 
-	mCopyToStation = MakeButton(mMain, LOCTEXT("CopyToStation", "Copy to the station's other platforms"), [this]()
-	{
-		USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
-		if (RCO && GetPlatform())
-		{
-			mLastEdit = RCO->NextEdit();
-			UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: copy %s to its station (edit %d)"), *GetPlatform()->GetName(), mLastEdit);
-			RCO->Server_CopyPlatformToStation(GetPlatform(), mLastEdit);
-		}
-	}, FMargin(0.f, 6.f, 0.f, 2.f));
-	mCopyHint = MakeText(mMain, LOCTEXT("CopyHint", "Gives every platform of this kind in the station these settings, once. Each platform keeps its own settings after that."), 9);
-
-	MakeText(mMain, LOCTEXT("ItemsLabel", "Items"), 13, false, FMargin(0.f, 8.f, 0.f, 2.f));
+	mItemsLabel = MakeText(mMain, LOCTEXT("ItemsLabel", "Items"), 13, false, FMargin(0.f, 8.f, 0.f, 2.f));
 	mNoItems = MakeText(mMain, LOCTEXT("NoItems", "No items yet. Add the item this platform supplies or demands."), 10);
 	mNoItems->SetVisibility(ESlateVisibility::Collapsed);
 	mItemBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
@@ -152,6 +155,17 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 		}
 	});
 	AddToLine(Tools, mPaste, true, FMargin(0.f));
+	mCopyToStation = MakeButton(mMain, LOCTEXT("CopyToStation", "Copy to the station's other platforms"), [this]()
+	{
+		USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
+		if (RCO && GetPlatform())
+		{
+			mLastEdit = RCO->NextEdit();
+			UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: copy %s to its station (edit %d)"), *GetPlatform()->GetName(), mLastEdit);
+			RCO->Server_CopyPlatformToStation(GetPlatform(), mLastEdit);
+		}
+	}, FMargin(0.f, 4.f, 0.f, 2.f));
+	mCopyHint = MakeText(mMain, LOCTEXT("CopyHint", "Copy and Paste carry every setting of the platform. This gives every platform of this kind in the station all of them, once; each keeps its own settings after that."), 9);
 
 	mLines = MakeText(mMain, FText::GetEmpty(), 10, true, FMargin(0.f, 8.f, 0.f, 0.f));
 	mEditedBy = MakeText(mMain, FText::GetEmpty(), 9, true, FMargin(0.f, 4.f, 0.f, 0.f));
@@ -183,6 +197,7 @@ bool USTPlatformPanel::OnShown()
 	bHasSettings = false;
 	mLastEdit = 0;
 	mRole = ESTRole::Off;
+	mRequest = ESTRequest::Auto;
 	mItems.Reset();
 	mItemLines.Reset();
 	mRowItems.Reset();
@@ -228,6 +243,7 @@ void USTPlatformPanel::Refresh(USTRemoteCallObject* RCO)
 	if (View->AppliedEdit >= mLastEdit)
 	{
 		mRole = View->Role;
+		mRequest = View->Request;
 		mItems = View->Items;
 		mItemLines = View->ItemLines;
 		bHasSettings = true;
@@ -247,13 +263,34 @@ void USTPlatformPanel::SendEdit(const TCHAR* What)
 	{
 		return;
 	}
-	if (mRole == ESTRole::Supply)
+	// "Any item" is the Sink role's own rule.
+	if (mRole != ESTRole::Sink)
 	{
 		mItems.RemoveAll([](const FSTItemRule& Rule) { return !Rule.Item; });
 	}
 	mLastEdit = RCO->NextEdit();
 	UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: %s on %s -> %s, %d items (edit %d)"), What, *Platform->GetName(), STNames::Role(mRole), mItems.Num(), mLastEdit);
 	RCO->Server_SetPlatform(Platform, mRole, mItems, mLastEdit);
+	RefreshEditor();
+}
+
+void USTPlatformPanel::StepRole(int32 Step)
+{
+	SetRole(StepEnum(mRole, Step, static_cast<int32>(ESTRole::Sink) + 1));
+}
+
+void USTPlatformPanel::StepRequest(int32 Step)
+{
+	USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
+	AFGBuildableTrainPlatformCargo* Platform = GetPlatform();
+	if (!bHasSettings || mRole != ESTRole::Demand || !RCO || !Platform)
+	{
+		return;
+	}
+	mRequest = StepEnum(mRequest, Step, static_cast<int32>(ESTRequest::Off) + 1);
+	mLastEdit = RCO->NextEdit();
+	UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: request on %s -> %s (edit %d)"), *Platform->GetName(), STNames::Request(mRequest), mLastEdit);
+	RCO->Server_SetPlatformRequest(Platform, mRequest, mLastEdit);
 	RefreshEditor();
 }
 
@@ -336,13 +373,19 @@ void USTPlatformPanel::SetRate(int32 Index, const FString& Text)
 
 void USTPlatformPanel::RefreshEditor()
 {
-	for (int32 Index = 0; Index < mRoleButtons.Num(); ++Index)
-	{
-		const ESTRole Each = static_cast<ESTRole>(Index);
-		mRoleButtons[Index]->SetText(FText::FromString(Each == mRole ? FString::Printf(TEXT("[ %s ]"), STNames::Role(Each)) : FString(STNames::Role(Each))));
-		mRoleButtons[Index]->SetIsEnabled(bHasSettings);
-	}
+	mRoleButton->SetText(FText::Format(LOCTEXT("RoleButton", "Role: {0}"), FText::FromString(STNames::Role(mRole))));
+	mRoleButton->SetIsEnabled(bHasSettings);
 	mRoleHint->SetText(RoleHint(mRole));
+	const bool bDemand = mRole == ESTRole::Demand;
+	mRequestButton->SetText(FText::Format(LOCTEXT("RequestButton", "Request a train: {0}"), FText::FromString(STNames::Request(mRequest))));
+	mRequestButton->SetIsEnabled(bHasSettings);
+	mRequestButton->SetVisibility(bDemand ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	mRequestHint->SetText(RequestHint(mRequest));
+	mRequestHint->SetVisibility(bDemand ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	const bool bHasItems = mRole == ESTRole::Supply || mRole == ESTRole::Demand;
+	mItemsLabel->SetVisibility(bHasItems ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	mItemBox->SetVisibility(bHasItems ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	mAddItem->SetVisibility(bHasItems ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	mAddItem->SetIsEnabled(bHasSettings);
 	const USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
 	mPaste->SetIsEnabled(bHasSettings && RCO && RCO->HasClipboard(bFluid));
@@ -385,7 +428,7 @@ void USTPlatformPanel::RefreshEditor()
 			Row.Rate->SetTextIfIdle(Rule.ManualRatePerMinute > 0.f ? FString::SanitizeFloat(Shown, 0) : FString());
 		}
 	}
-	mNoItems->SetVisibility(bHasSettings && mItems.Num() == 0 && mRole != ESTRole::Off ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	mNoItems->SetVisibility(bHasSettings && mItems.Num() == 0 && bHasItems ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 }
 
 void USTPlatformPanel::RebuildItemRows()
@@ -473,10 +516,6 @@ void USTPlatformPanel::OpenPicker()
 		Row->SetIcon(Item ? UFGItemDescriptor::GetSmallIcon(Item) : nullptr);
 		mPickerRows.Add({Row, Item});
 	};
-	if (mRole == ESTRole::Demand && !Shown.Contains(nullptr))
-	{
-		AddRow(nullptr, LOCTEXT("PickAny", "Any item (sink for surplus)"));
-	}
 	// Items on the platform now come first.
 	if (const UFGInventoryComponent* Inventory = Platform ? Platform->GetInventory() : nullptr)
 	{

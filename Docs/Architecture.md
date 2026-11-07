@@ -260,6 +260,27 @@ Items that would move nothing and empty stops are trimmed, then regret insertion
 leftovers on the way. If the rest no longer works at all, it is planned again from the cargo on board. If nothing
 is left to do, the trip ends and the train is settled when the round ends (next trip, depot or park).
 
+**Requests** (`ServeRequests`, `FSTTripPlanner::PlanRequest`; platform setting `ESTRequest`, node `FSTNode::Request`).
+Regret insertion adds one move at a time and keeps it only if the trip's score rises. A car that fits a consumer's
+platform but holds another item is blocked: the pickup scores nothing alone, and emptying the car is added only if
+that delivery is worth something itself. So a consumer whose only trains hold other cargo got none. After the round's
+normal trips, a demand node asks (`GetRequestNeed`) when it is below target with no delivery planned
+(`IsDeliveryPlanned`, repeats excluded), and for **Automatic** also starved (empty 30 s). Unclaimed asking nodes, by
+priority then fill, take the free train (no job, a repeat, or a no-work depot run) whose request trip delivers
+first. `PlanRequest` takes up to 3 suppliers (nearest first) with cars that fit the supplier's loader and the
+consumer's platform; their cargo of other items is unloaded at up to 4 places: consumers of those items first, then
+sinks. It simulates none, one or two of them (both orders) before the pickup and the delivery, and keeps the trip
+that delivers (fewest sinks, then earliest arrival). If none fits in `MaxStops`, it keeps the emptying alone that
+unloads the most, and the train holds a claim (`FSTTrainState::RequestStation`/`RequestItem`, runtime only): it gets
+no other trips (it is left out of the round's free trains) and `ServeRequests` plans its next part once it is free,
+or drops the claim when the node no longer asks. Request trips (`FSTJob::bRequest`) run with a 60-minute trip limit,
+are not re-planned after each stop (their emptying stops are worth nothing to a re-plan), and may get moves for
+other cars by regret insertion as long as the delivery and the amount moved don't shrink. REQUEST log lines say who
+serves which request, and why no free train can.
+
+**Sinks** (`ESTRole::Sink`, 0.6.9): a sink platform's config has one rule without an item. `BuildNodes` makes it a
+Demand node with `bAnyItem`, as "Any item" demand platforms were before; `PostLoadGame` turns those into Sink.
+
 **Unwanted cargo:** a free train carrying cargo that no trip delivers is marked (`UnwantedCargoSince`). After
 **Unwanted cargo after** minutes, its cargo may go to consumers above target or to sinks. `/st status` warns when
 more than half the managed trains carry unwanted cargo.
@@ -392,6 +413,7 @@ widget blueprint hooks at `POST_INITIALIZATION`, and not on dedicated servers:
 | `BPW_Train_DockingStation_Fluid` | `CanvasPanel_0` at x 765 | `USTPlatformLauncher` |
 | `Widget_Locomotive_Menu` | `VerticalBox_1` (Timetable column), slot 3: under the stop list | `USTTrainPanel` |
 | `Widget_TrainStationNew` | `VerticalBox_2` (under the train and station lists) | `USTStationPanel` |
+| `Widget_TrainStationNew` | `VerticalBox_0` (first tab, under the name plate) | `USTStationDepotBar` (depot switch only) |
 
 Panel names and positions come from the starter project's widget assets, dumped with Telescreen's `TSDumpWidgets`
 commandlet. It now also lists named-slot content, canvas slot layout and size box overrides
@@ -400,11 +422,13 @@ auto-sized canvas slot, so the canvas, and with it the window, grows wider. The 
 second after it opens, to check that.
 
 - **Platform window** (`USTPlatformWindow`, the `USTPlatformPanel` content in a window on the viewport). The launcher beside the platform menu shows the role, items and one readout line, and opens it. The window keeps the input mode as the platform menu set it, so the menu behind it works; Close, Escape, or closing the platform menu close it. Its panel reads the platform and the font from the menu (`USTPanel::SetMenu`).
-- **Platform panel.** Role buttons (Off / Supply / Demand); per item: priority (click cycles, right click goes back),
-  send-at or target in 10 % steps, and a manual rate (m³/min for fluids). The item picker lists the items on the
-  platform first, then every item that available recipes make plus raw resources, of the platform's form; "Any item"
-  only on demand platforms. Copy / Paste use the player's SmartTrains clipboard (below). "Copy to the station's other
-  platforms" gives every platform of its kind in the station these settings once.
+- **Platform panel.** One role button (Off / Supply / Demand / Sink; click steps forward, right click back); on
+  demand platforms a request button (Automatic / On / Off, the same way); per item: priority (click cycles, right
+  click goes back), send-at or target in 10 % steps, and a manual rate (m³/min for fluids). Sinks have no item list.
+  The item picker lists the items on the platform first, then every item that available recipes make plus raw
+  resources, of the platform's form. Copy / Paste use the player's SmartTrains clipboard (below), and under them
+  "Copy to the station's other platforms" gives every platform of its kind in the station these settings once; all
+  three carry role, items and request setting.
 - **Clipboard** (`STClipboardHooks.cpp`). Each player has two slots on the server, freight and fluid
   (`USTRemoteCallObject::mFreightClipboard` / `mFluidClipboard`), as the game keeps one clipboard entry per building
   kind. The panel's Copy / Paste and the game's copy/paste-settings both use them: SML hooks after
@@ -507,3 +531,11 @@ fields stay so older saves load. On load, each tag is logged and cleared.
 - A car is planned at a stop only if it meets a suitable platform in every map. Otherwise FCC skips it, or the trip
   is invalid without FCC. The game reads a stop's rules when the train docks, so a wrong guess can't be fixed
   during that dock; the mismatch is logged and learned, and the next re-plan works from it.
+
+## Docking
+
+A train's dock begins in `NoteDockStarted`, called by an SML hook after `AFGBuildableRailroadStation::StartDocking`
+(`STDockHooks.cpp`, server; it returns a bool, so it is safe on Linux servers). `MonitorTrains` checks `IsDocked`
+every 0.25 s for the end of the dock, and as a fallback for a start the hook missed (logged at Verbose). Until 0.6.8
+the check alone found docks: one with nothing to move lasts about 0.3 s, a few frames on a busy server, so some were
+missed, the job's leg stayed a stop behind, and the next timetable sent the train past a stop ("legs were missed").
