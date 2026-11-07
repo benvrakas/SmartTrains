@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.1 (beta)
+
+- **New: steady roster** (Mods menu **Steady roster (beta)**, on, with the horizon planner). When rates hold steady,
+  the best routing repeats like a timetable, so trains shouldn't keep switching what they do. The flow plan's routes
+  are now shared out over the trains whose cars fit them, and each train runs its routes in turn, sharing a train
+  between small routes. The roster stays the same while the routes and how many trains they need hardly change, and
+  is logged (ROSTER) and shown per train in the monitor. The horizon planner only plans trains without a roster trip
+  worth running (it delivers less than a quarter of a car) and those without a roster, to correct for what the
+  roster doesn't cover.
+- **The same situation gives the same plans.** The horizon planner's search no longer depends on the clock, and
+  trains free at the same moment are taken in a fixed order.
+- **Trips change less after a stop.** The rest of a trip is only replaced if the new plan is also worth clearly more
+  (5 car-load minutes), so small changes in measured rates or travel times don't switch trips.
+
 ## 0.7.0 (beta)
 
 - **New: horizon planner** (Mods menu **Horizon planner (beta)**, on). The classic planner gave each free train its

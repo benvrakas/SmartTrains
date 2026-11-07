@@ -62,6 +62,33 @@ struct FSTNode
 	TArray<FSTNodeEvent> Planned;
 };
 
+// A route of the steady roster (Docs/Architecture.md, "Roster"): Item from From to To, from the flow plan.
+struct FSTRosterRoute
+{
+	TWeakObjectPtr<AFGTrainStationIdentifier> From;
+	TWeakObjectPtr<AFGTrainStationIdentifier> To;
+	TWeakObjectPtr<UClass> Item;
+	// Planned flow. [/s]
+	double Flow = 0.0;
+	// Round trip with stays. [s]
+	double RoundTrip = 0.0;
+	// Share of trains it needs: flow x round trip / average load of the trains that fit.
+	double Trains = 0.0;
+	// Managed trains whose cars fit it at both ends.
+	TArray<TWeakObjectPtr<AFGTrain>> Fitting;
+
+	FString GetKey() const { return FString::Printf(TEXT("%p|%p|%p"), From.Get(), To.Get(), Item.Get()); }
+};
+
+// A train's part of the roster: routes (indices into the roster) it runs in turn, the next one, and how much of the
+// train they need together.
+struct FSTRosterDuty
+{
+	TArray<int32> Routes;
+	int32 Next = 0;
+	double Load = 0.0;
+};
+
 // Why an asking platform has no request trip yet.
 struct FSTRequestNote
 {
@@ -376,6 +403,16 @@ private:
 	};
 	// Records Flow (items per second) on the planned route From -> To and adds its trains to Advice.
 	void AddPlannedRoute(const TArray<FSTNode>& Nodes, int32 From, int32 To, double Flow, float Time, FAdvice& Advice);
+	// Assigns the flow plan's routes to trains (Docs/Architecture.md, "Roster"), keeping duties while the routes and
+	// their trains needed hardly change.
+	void BuildRoster(TArray<FSTRosterRoute>&& Routes);
+	// "Iron Plate A -> B, then Coal C -> D".
+	FString DescribeDuty(const FSTRosterDuty& Duty) const;
+	// The roster: routes from the last flow plan, and each rostered train's duty.
+	TArray<FSTRosterRoute> mRosterRoutes;
+	TMap<TWeakObjectPtr<AFGTrain>, FSTRosterDuty> mRoster;
+	// Routes of the flow plan being worked out.
+	TArray<FSTRosterRoute> mPendingRoster;
 
 	FSTSettings mSettings;
 	// Planned flow per (supplier node key, consumer node key), items per second, from the last flow plan.

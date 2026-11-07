@@ -48,6 +48,8 @@ namespace
 				LOCTEXT("RepeatLastJobTip", "A train with no new trip runs its last job again, like a timetable loop, instead of parking in a station. It takes a new trip as soon as one is worth it. Off: idle trains park and move out of the way when a station is needed.")},
 			{TEXT("HorizonPlanner"), &FSTSettings::bHorizonPlanner, LOCTEXT("HorizonPlanner", "Horizon planner (beta)"),
 				LOCTEXT("HorizonPlannerTip", "Plans all free trains together against a forecast of every platform for the next hour, so the platforms that will run short soonest are served first and a train may be emptied to serve one. Off: the classic planner, which gives each free train its best next trip.")},
+			{TEXT("Roster"), &FSTSettings::bRoster, LOCTEXT("Roster", "Steady roster (beta)"),
+				LOCTEXT("RosterTip", "With the horizon planner: the flow plan's routes are shared out over the trains that fit them, and each runs its routes in turn like a timetable, so trains keep doing the same thing while rates stay the same. The horizon planner only plans trains without a roster trip worth running. Off: the horizon planner plans every free train.")},
 			{TEXT("RequestFallback"), &FSTSettings::bRequestFallback, LOCTEXT("RequestFallback", "Request fallback"),
 				LOCTEXT("RequestFallbackTip", "A demand platform (Request a train) that would fall below its target before any train could bring it gets a train emptied for it. Works with either planner; with the horizon planner each request it makes shows something the planner missed.")},
 			{TEXT("AdminsOnly"), &FSTSettings::bAdminsOnly, LOCTEXT("AdminsOnly", "Only admins change SmartTrains"),

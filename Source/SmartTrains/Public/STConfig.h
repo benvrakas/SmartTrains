@@ -25,6 +25,8 @@ struct FSTSettings
 	bool bHorizonPlanner = true;
 	// A demand platform that would fall below its target before any train could bring it gets a train emptied for it.
 	bool bRequestFallback = true;
+	// With the horizon planner: trains run fixed rotations from the flow plan; the planner only corrects.
+	bool bRoster = true;
 	// How often jobs are handed out. [s]
 	float DispatchSeconds = 3.f;
 	// How often the flow plan is worked out again. [s]

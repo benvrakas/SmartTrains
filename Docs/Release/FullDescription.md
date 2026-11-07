@@ -30,6 +30,9 @@ them (see below).
   hour and plans all free trains together, so the platforms that would run short soonest are served first. A train
   holding the wrong cargo can be emptied first when a platform needs it. Switch **Horizon planner** off in the Mods
   menu for the classic planner, which gives each free train its best next trip.
+- **Steady roster (beta, on):** with the horizon planner, the routes of the flow plan are shared out over the trains
+  that fit them and each train runs its routes in turn, like a timetable, while rates stay the same. The planner only
+  corrects for what the roster doesn't cover.
 - **Trips:** one trip can visit up to 4 stations and serve several platforms and items. It plans car by car: which
   car loads what where, and which car unloads where. After every stop the rest of the trip is planned again from what
   the cars really hold.

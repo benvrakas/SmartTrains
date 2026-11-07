@@ -6,6 +6,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
+#include "FGTrain.h"
 #include "FGTrainStationIdentifier.h"
 #include "Misc/AutomationTest.h"
 #include "STForecast.h"
@@ -79,6 +80,16 @@ struct FSTTestAccess
 	static double FirstFreeArrival(const FSTTripPlanner& Planner, const AFGTrainStationIdentifier* Station, double Arrive, double Stay)
 	{
 		return Planner.FirstFreeArrival(Station, Arrive, Stay);
+	}
+
+	static void BuildRoster(ASTSubsystem& Subsystem, TArray<FSTRosterRoute> Routes)
+	{
+		Subsystem.BuildRoster(MoveTemp(Routes));
+	}
+
+	static const TMap<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& GetRoster(const ASTSubsystem& Subsystem)
+	{
+		return Subsystem.mRoster;
 	}
 
 	static void ServeAll(FSTTripPlanner& Planner)
@@ -818,6 +829,60 @@ bool FSTForecastTest::RunTest(const FString& Parameters)
 	Using.Rate = 1.0;
 	TestEqual(TEXT("falls below its target of 500 after 300 s"), STForecast::Deadline(Using, {}, Now, Car), Now + 300.0, 0.01);
 	TestEqual(TEXT("a delivery of 200 then puts it off by 200 s"), STForecast::Deadline(Using, {{Now + 100.0, 200.0}}, Now, Car), Now + 500.0, 0.01);
+	return true;
+}
+
+// The roster shares the flow plan's routes out over trains that fit them, no train above one train's worth, and keeps
+// the same duties while the routes hardly change.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTRosterTest, "SmartTrains.Planner.Roster", TestFlags)
+bool FSTRosterTest::RunTest(const FString& Parameters)
+{
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	TArray<AFGTrain*> Trains;
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		Trains.Add(NewObject<AFGTrain>(GetTransientPackage()));
+	}
+	auto Route = [&](double Needed, const TArray<int32>& Fitting)
+	{
+		FSTRosterRoute Each;
+		Each.From = FSTTestAccess::MakeStation();
+		Each.To = FSTTestAccess::MakeStation();
+		Each.Item = USTTestSolid::StaticClass();
+		Each.Trains = Needed;
+		for (const int32 Index : Fitting)
+		{
+			Each.Fitting.Add(Trains[Index]);
+		}
+		return Each;
+	};
+	TArray<FSTRosterRoute> Routes = {Route(1.4, {0, 1, 2}), Route(0.6, {1, 2}), Route(0.3, {2})};
+	FSTTestAccess::BuildRoster(*Subsystem, Routes);
+	const TMap<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Roster = FSTTestAccess::GetRoster(*Subsystem);
+	double Assigned = 0.0;
+	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : Roster)
+	{
+		TestTrue(TEXT("no train is given more than one train's worth"), Pair.Value.Load <= 1.0 + 1e-6);
+		Assigned += Pair.Value.Load;
+	}
+	TestEqual(TEXT("all 2.3 trains' worth of routes fit on 3 trains"), Assigned, 2.3, 1e-6);
+	const FSTRosterDuty* Third = Roster.Find(Trains[2]);
+	TestTrue(TEXT("the route only the third train fits is on it"), Third && Third->Routes.Contains(2));
+
+	TMap<TWeakObjectPtr<AFGTrain>, TArray<int32>> Before;
+	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : Roster)
+	{
+		Before.Add(Pair.Key, Pair.Value.Routes);
+	}
+	Routes[0].Trains = 1.5;
+	FSTTestAccess::BuildRoster(*Subsystem, Routes);
+	bool bSame = Roster.Num() == Before.Num();
+	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : Roster)
+	{
+		const TArray<int32>* Old = Before.Find(Pair.Key);
+		bSame &= Old && *Old == Pair.Value.Routes;
+	}
+	TestTrue(TEXT("a small change keeps every duty"), bSame);
 	return true;
 }
 

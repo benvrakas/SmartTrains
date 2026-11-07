@@ -362,6 +362,10 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 				Row.Details.Add(State.Job.Summary);
 			}
 		}
+		if (const FSTRosterDuty* Duty = Subsystem.mRoster.Find(State.Train.Get()))
+		{
+			Row.Details.Add(FString::Printf(TEXT("Roster: %s (%.0f%% of the train)."), *Subsystem.DescribeDuty(*Duty), Duty->Load * 100.0));
+		}
 		if (State.Requests.Num() > 0)
 		{
 			const bool bBringing = State.Requests.ContainsByPredicate([&](const FSTRequestClaim& Claim)

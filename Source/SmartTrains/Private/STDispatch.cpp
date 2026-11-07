@@ -56,6 +56,13 @@ namespace
 	// Horizon planner: cost of a train's time against the forecast cost it removes, the shortest platforms tried for
 	// trips that empty a car, and most re-plans per round. [car-load minutes per second]
 	constexpr double TrainSecondCost = 0.01;
+	// A re-plan after a stop replaces the rest of the trip only if it is worth this much more as well. [car-load minutes]
+	constexpr double ReplanMarginValue = 5.0;
+	// Roster: least share of a train worth giving a route; routes keep their trains while trains needed change by less
+	// than this share; a roster trip runs if it delivers at least this share of a car.
+	constexpr double RosterMinShare = 0.05;
+	constexpr double RosterKeepShare = 0.25;
+	constexpr double RosterMinCarShare = 0.25;
 	// Requests: only platforms that fall below target within this (plus the margin) are planned for; the same note is
 	// logged again after this long. [s]
 	constexpr double RequestLookSeconds = 1800.0;
@@ -1654,6 +1661,8 @@ void ASTSubsystem::HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		TArray<FSTPlanStop> Stops;
 		FSTPlanResult Result;
 		double Net = 0.0;
+		// Position in the train's duty of the roster route this plan runs, or INDEX_NONE.
+		int32 RosterStep = INDEX_NONE;
 	};
 	TArray<FPlan> Plans;
 	for (int32 TrainIndex = 0; TrainIndex < mTrains.Num() && !Planner.IsOverBudget(); ++TrainIndex)
@@ -1718,9 +1727,45 @@ void ASTSubsystem::HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		Plan.Stops.Reset();
 		Plan.Result = FSTPlanResult();
 		Plan.Net = 0.0;
+		Plan.RosterStep = INDEX_NONE;
 		if (!Resume(Plan))
 		{
 			return;
+		}
+		// A rostered train runs its routes in turn, the first that delivers at least a quarter of a car.
+		if (const FSTRosterDuty* Duty = mRoster.Find(mTrains[Plan.TrainIndex].Train.Get()))
+		{
+			for (int32 Step = 0; Step < Duty->Routes.Num(); ++Step)
+			{
+				const int32 RouteIndex = Duty->Routes[(Duty->Next + Step) % Duty->Routes.Num()];
+				if (!mRosterRoutes.IsValidIndex(RouteIndex))
+				{
+					continue;
+				}
+				const FSTRosterRoute& Route = mRosterRoutes[RouteIndex];
+				UClass* Item = Route.Item.Get();
+				if (!Item || !Route.From.IsValid() || !Route.To.IsValid())
+				{
+					continue;
+				}
+				TArray<FSTPlanStop> Trip;
+				FSTPlanStop& Pick = Trip.AddDefaulted_GetRef();
+				Pick.Station = Route.From.Get();
+				Pick.LoadItems.Add(Item);
+				FSTPlanStop& Drop = Trip.AddDefaulted_GetRef();
+				Drop.Station = Route.To.Get();
+				Drop.UnloadItems.Add(Item);
+				const FSTPlanResult TripResult = Planner.Simulate(Trip);
+				if (TripResult.bValid && FSTTripPlanner::CountUnloaded(Trip, TripResult, Item, Route.To.Get()) >= RosterMinCarShare * STLayout::GetCarCapacity(nullptr, Item))
+				{
+					Plan.Stops = MoveTemp(Trip);
+					Plan.Result = TripResult;
+					Plan.Net = FMath::Max(NetOf(Plan, Plan.Stops, Plan.Result), 0.0);
+					Plan.RosterStep = Step;
+					Planner.Reserve(Plan.Stops, Plan.Result);
+					return;
+				}
+			}
 		}
 		TArray<FSTPlanStop> Stops;
 		Planner.Improve(Stops, 0);
@@ -1790,7 +1835,7 @@ void ASTSubsystem::HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 	};
 
 	// First plans, the trains free soonest first.
-	Plans.Sort([](const FPlan& A, const FPlan& B) { return A.FreeAt < B.FreeAt; });
+	Plans.Sort([](const FPlan& A, const FPlan& B) { return A.FreeAt != B.FreeAt ? A.FreeAt < B.FreeAt : A.TrainIndex < B.TrainIndex; });
 	for (FPlan& Plan : Plans)
 	{
 		if (Planner.IsOverBudget())
@@ -1802,19 +1847,30 @@ void ASTSubsystem::HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 	const double Start = TotalCost();
 	double Best = Start;
 	// Large neighbourhood search: plan one or two trains again in another order, keep it if the network costs less.
-	FRandomStream Random(static_cast<int32>(FMath::Fmod(Time * 1000.0, 2147483647.0)));
+	// Seeded from the trains being planned, so the same situation gives the same plans. Roster trips stay as they are.
+	uint32 Seed = GetTypeHash(Nodes.Num());
+	TArray<int32> Searchable;
+	for (int32 Index = 0; Index < Plans.Num(); ++Index)
+	{
+		Seed = HashCombine(Seed, GetTypeHash(Plans[Index].TrainIndex));
+		if (Plans[Index].RosterStep == INDEX_NONE)
+		{
+			Searchable.Add(Index);
+		}
+	}
+	FRandomStream Random(static_cast<int32>(Seed & 0x7fffffff));
 	int32 Tries = 0;
 	int32 Kept = 0;
-	while (Plans.Num() > 1 && !Planner.IsOverBudget() && Tries < HorizonMaxTries)
+	while (Searchable.Num() > 1 && !Planner.IsOverBudget() && Tries < HorizonMaxTries)
 	{
 		++Tries;
 		TArray<int32> Picked;
 		// One train at random, and sometimes the one whose plan nets least, so a poor plan gets another chance.
-		Picked.Add(Random.RandRange(0, Plans.Num() - 1));
+		Picked.Add(Searchable[Random.RandRange(0, Searchable.Num() - 1)]);
 		if (Random.FRand() < 0.5)
 		{
 			int32 Worst = INDEX_NONE;
-			for (int32 Index = 0; Index < Plans.Num(); ++Index)
+			for (const int32 Index : Searchable)
 			{
 				if (!Picked.Contains(Index) && (Worst == INDEX_NONE || Plans[Index].Net < Plans[Worst].Net))
 				{
@@ -1861,6 +1917,7 @@ void ASTSubsystem::HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 
 	// Commit: reservations are already in place.
 	int32 Trips = 0;
+	int32 Rostered = 0;
 	for (const FPlan& Plan : Plans)
 	{
 		FSTTrainState& State = mTrains[Plan.TrainIndex];
@@ -1887,9 +1944,14 @@ void ASTSubsystem::HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		}
 		++Trips;
 		CommitTrip(State, Planner, Plan.Stops, Plan.Result, false);
+		if (FSTRosterDuty* Duty = Plan.RosterStep != INDEX_NONE ? mRoster.Find(State.Train.Get()) : nullptr)
+		{
+			Duty->Next = (Duty->Next + Plan.RosterStep + 1) % FMath::Max(1, Duty->Routes.Num());
+			++Rostered;
+		}
 	}
-	UE_LOG(LogSmartTrains, Verbose, TEXT("HORIZON: %d trains planned, %d trips, network cost %.1f -> %.1f car-load minutes, %d searches (%d kept), %.1f ms"), Plans.Num(), Trips,
-		Start, Best, Tries, Kept, Planner.GetElapsedMs());
+	UE_LOG(LogSmartTrains, Verbose, TEXT("HORIZON: %d trains planned, %d trips (%d from the roster), network cost %.1f -> %.1f car-load minutes, %d searches (%d kept), %.1f ms"),
+		Plans.Num(), Trips, Rostered, Start, Best, Tries, Kept, Planner.GetElapsedMs());
 }
 
 void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
@@ -1936,7 +1998,8 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	FSTTripPlanner::Trim(Stops, Result, 0);
 	Result = Planner.Simulate(Stops);
 	// Stability: additions to a trip that still works must beat it by the re-plan threshold.
-	if (bKeptWorks && KeptResult.bValid && Result.bValid && Result.Score < KeptResult.Score * FMath::Max(1.f, mSettings.ReplanThreshold))
+	if (bKeptWorks && KeptResult.bValid && Result.bValid
+		&& (Result.Score < KeptResult.Score * FMath::Max(1.f, mSettings.ReplanThreshold) || Result.Value - KeptResult.Value < ReplanMarginValue))
 	{
 		Stops = Kept;
 		Result = KeptResult;
@@ -2745,6 +2808,7 @@ void ASTSubsystem::PlanFlows()
 	BuildNodes(Nodes);
 	mPlannedPairs.Reset();
 	mAdvice.Reset();
+	mPendingRoster.Reset();
 	TSet<UClass*> Items;
 	for (const FSTNode& Node : Nodes)
 	{
@@ -2844,6 +2908,125 @@ void ASTSubsystem::PlanFlows()
 		}
 	}
 	mPlannedNodes = Nodes;
+	if (mSettings.bHorizonPlanner && mSettings.bRoster)
+	{
+		mPendingRoster.Sort([](const FSTRosterRoute& A, const FSTRosterRoute& B) { return A.GetKey() < B.GetKey(); });
+		BuildRoster(MoveTemp(mPendingRoster));
+	}
+	else if (mRosterRoutes.Num() > 0)
+	{
+		mRosterRoutes.Reset();
+		mRoster.Reset();
+		UE_LOG(LogSmartTrains, Log, TEXT("ROSTER: off"));
+	}
+	mPendingRoster.Reset();
+}
+
+void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Routes)
+{
+	// Same routes with about the same trains needed: keep the duties, only update the numbers.
+	bool bSame = Routes.Num() == mRosterRoutes.Num();
+	for (int32 Index = 0; bSame && Index < Routes.Num(); ++Index)
+	{
+		const FSTRosterRoute& New = Routes[Index];
+		const FSTRosterRoute& Old = mRosterRoutes[Index];
+		bSame = New.From == Old.From && New.To == Old.To && New.Item == Old.Item
+			&& FMath::Abs(New.Trains - Old.Trains) <= RosterKeepShare * FMath::Max(Old.Trains, RosterMinShare);
+	}
+	if (bSame)
+	{
+		for (int32 Index = 0; Index < Routes.Num(); ++Index)
+		{
+			mRosterRoutes[Index].Flow = Routes[Index].Flow;
+			mRosterRoutes[Index].RoundTrip = Routes[Index].RoundTrip;
+		}
+		return;
+	}
+	// Previous duties, by route key, so trains keep their routes where they can.
+	TMap<FString, TArray<TWeakObjectPtr<AFGTrain>>> Before;
+	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : mRoster)
+	{
+		for (const int32 Route : Pair.Value.Routes)
+		{
+			if (mRosterRoutes.IsValidIndex(Route))
+			{
+				Before.FindOrAdd(mRosterRoutes[Route].GetKey()).Add(Pair.Key);
+			}
+		}
+	}
+	mRosterRoutes = MoveTemp(Routes);
+	mRoster.Reset();
+	// Biggest routes first; each takes trains that fit it, its previous trains first, then the least loaded, until it
+	// has the share of trains it needs. A train's duties add up to one train at most.
+	TArray<int32> Order;
+	for (int32 Index = 0; Index < mRosterRoutes.Num(); ++Index)
+	{
+		Order.Add(Index);
+	}
+	Order.Sort([this](int32 A, int32 B)
+	{
+		return mRosterRoutes[A].Trains != mRosterRoutes[B].Trains ? mRosterRoutes[A].Trains > mRosterRoutes[B].Trains : mRosterRoutes[A].GetKey() < mRosterRoutes[B].GetKey();
+	});
+	int32 Unrostered = 0;
+	for (const int32 Route : Order)
+	{
+		FSTRosterRoute& Each = mRosterRoutes[Route];
+		double Needed = Each.Trains;
+		const TArray<TWeakObjectPtr<AFGTrain>>* Previous = Before.Find(Each.GetKey());
+		while (Needed >= RosterMinShare)
+		{
+			AFGTrain* Best = nullptr;
+			double BestLoad = TNumericLimits<double>::Max();
+			bool bBestPrevious = false;
+			for (const TWeakObjectPtr<AFGTrain>& Candidate : Each.Fitting)
+			{
+				AFGTrain* Train = Candidate.Get();
+				const FSTRosterDuty* Duty = mRoster.Find(Train);
+				const double Load = Duty ? Duty->Load : 0.0;
+				if (!Train || 1.0 - Load < RosterMinShare || (Duty && Duty->Routes.Contains(Route)))
+				{
+					continue;
+				}
+				const bool bPrevious = Previous && Previous->Contains(Candidate);
+				if (!Best || (bPrevious && !bBestPrevious) || (bPrevious == bBestPrevious && Load < BestLoad))
+				{
+					Best = Train;
+					BestLoad = Load;
+					bBestPrevious = bPrevious;
+				}
+			}
+			if (!Best)
+			{
+				++Unrostered;
+				break;
+			}
+			FSTRosterDuty& Duty = mRoster.FindOrAdd(Best);
+			const double Share = FMath::Min(Needed, 1.0 - Duty.Load);
+			Duty.Routes.Add(Route);
+			Duty.Load += Share;
+			Needed -= Share;
+		}
+	}
+	UE_LOG(LogSmartTrains, Log, TEXT("ROSTER: %d routes on %d trains%s"), mRosterRoutes.Num(), mRoster.Num(),
+		Unrostered > 0 ? *FString::Printf(TEXT(", %d routes short of fitting trains (the horizon planner covers them)"), Unrostered) : TEXT(""));
+	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : mRoster)
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("ROSTER %s: %s (%.2f of a train)"), *STLayout::Name(Pair.Key.Get()), *DescribeDuty(Pair.Value), Pair.Value.Load);
+	}
+}
+
+FString ASTSubsystem::DescribeDuty(const FSTRosterDuty& Duty) const
+{
+	TArray<FString> Parts;
+	for (const int32 Route : Duty.Routes)
+	{
+		if (mRosterRoutes.IsValidIndex(Route))
+		{
+			const FSTRosterRoute& Each = mRosterRoutes[Route];
+			Parts.Add(FString::Printf(TEXT("%s %s -> %s"), *STNames::Item(Each.Item.Get()), *STLayout::Name(Each.From.Get()), *STLayout::Name(Each.To.Get())));
+		}
+	}
+	return FString::Join(Parts, TEXT(", then "));
 }
 
 void ASTSubsystem::AddPlannedRoute(const TArray<FSTNode>& Nodes, int32 From, int32 To, double Flow, float Time, FAdvice& Advice)
@@ -2861,6 +3044,12 @@ void ASTSubsystem::AddPlannedRoute(const TArray<FSTNode>& Nodes, int32 From, int
 	const double RoundTrip = Time + FMath::Max(0.f, Back) + EstimateStaySeconds(Supplier.Station.Get()) + EstimateStaySeconds(Consumer.Station.Get());
 	int32 Fitting = 0;
 	double Load = 0.0;
+	FSTRosterRoute Route;
+	Route.From = Supplier.Station;
+	Route.To = Consumer.Station;
+	Route.Item = Supplier.Item.Get();
+	Route.Flow = Flow;
+	Route.RoundTrip = RoundTrip;
 	for (const FSTTrainState& State : mTrains)
 	{
 		if (!State.bManaged || !IsValid(State.Train))
@@ -2872,6 +3061,21 @@ void ASTSubsystem::AddPlannedRoute(const TArray<FSTNode>& Nodes, int32 From, int
 		{
 			++Fitting;
 			Load += Fit.Capacity;
+			Route.Fitting.Add(State.Train.Get());
+		}
+	}
+	if (Fitting > 0)
+	{
+		// The same route from another priority tier adds to it.
+		Route.Trains = Flow * RoundTrip / (Load / Fitting);
+		if (FSTRosterRoute* Same = mPendingRoster.FindByPredicate([&](const FSTRosterRoute& Each) { return Each.GetKey() == Route.GetKey(); }))
+		{
+			Same->Flow += Route.Flow;
+			Same->Trains += Route.Trains;
+		}
+		else
+		{
+			mPendingRoster.Add(MoveTemp(Route));
 		}
 	}
 	Advice.TrainsFitting = FMath::Max(Advice.TrainsFitting, Fitting);

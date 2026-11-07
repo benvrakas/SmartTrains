@@ -194,11 +194,35 @@ plans all free trains together against the network's forecast cost (`GetNetworkC
 - **First plans**: the trains free soonest first.
 - **Search** (large neighbourhood search, within the round's planning time, at most `HorizonMaxTries` (40)): take out
   one random train's plan, and half the time also the plan that nets least; build them again in reverse order; keep
-  the result if the network cost plus train time is lower, else put the old plans back.
+  the result if the network cost plus train time is lower, else put the old plans back. The random stream is seeded
+  from the trains being planned and the node count, and trains free at the same time are taken by index, so the same
+  situation gives the same plans (0.7.1). Roster trips are not searched.
 - **Commit**: every plan with stops becomes a job; free trains without one get an IDLE reason and are settled (depot
   or last job) as before.
 - With **Request fallback** on, requests run after the round; a REQUEST that fires is tagged "missed by the horizon
   planner", which is what to look at when tuning it.
+
+### Roster (`BuildRoster`, 0.7.1; setting **Steady roster**, on, with the horizon planner)
+
+With rates that hold steady the best routing repeats, like a timetable. The flow plan (every **Flow plan interval**)
+already works out, per item, the minimum-cost flows from suppliers to consumers; each of its routes becomes an
+`FSTRosterRoute` with the share of trains it needs (flow x round trip / average load of the trains that fit) and the
+trains that fit it at both ends (`AddPlannedRoute`; the same route from several priority tiers adds up).
+
+- **Duties**: routes, biggest first, take trains that fit them (their previous trains first, then the least loaded)
+  until they have the share they need; a train's routes add up to one train at most (`FSTRosterDuty::Load`). Routes no
+  fitting train has room for are left to the horizon planner.
+- **Stability**: while the routes stay the same and each one's trains needed change by less than a quarter
+  (`RosterKeepShare`), the duties are kept and only the numbers update; otherwise they are worked out again,
+  preferring the trains each route had. ROSTER lines log every new roster.
+- **Running it**: in the horizon round, a free train with a duty runs its routes in turn (`Next`): the first route
+  whose trip (pickup, delivery) delivers at least a quarter of a car (`RosterMinCarShare`) is its plan. If none does,
+  the horizon planner plans it like any other train (a correction). Roster plans are left out of the search.
+- **Monitor**: a train's duty is in its Trains tab details.
+
+**Commitment** (0.7.1): a re-plan after a stop replaces the rest of the trip only if it scores `ReplanThreshold` (1.1)
+times as much and is also worth `ReplanMarginValue` (5 car-load minutes) more, so small changes in the estimates don't
+switch trips.
 
 ### Trip planning (`STTripPlanner.*`)
 
