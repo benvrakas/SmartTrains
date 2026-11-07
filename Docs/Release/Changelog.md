@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.10 (beta)
+
+- **Requests start earlier.** **Request a train** on Automatic now asks as soon as the platform's stock, with the
+  deliveries already on the way, would fall below its target within **Request a train this early** (Mods menu,
+  10 minutes) at its use rate. It asked only once the platform had been empty for 30 s and nothing at all was
+  coming, so a small delivery on the way kept it from asking. **On** now asks until the platform and its deliveries
+  on the way reach 90 % of its capacity.
+- **Requests only take a train when no other fits.** A platform asks only if no managed train on its network has a
+  car that lines up with a supplier and with it and is empty or already holds its item. Such a train brings it by a
+  normal trip, so no train is emptied for nothing.
+- **Emptying a car: whatever empties it soonest.** A request trip picked consumers before sinks. It now picks the
+  stops that empty the car and bring the delivery soonest, consumers and sinks alike: two nearby consumers that take
+  it all beat a far sink, and a near sink beats two far consumers. The nearest sinks are always among the places
+  tried.
+- **The platform settings window keeps its size.** It grew and shrank with what it showed, so it jumped when the
+  role changed; it is now always the same height and its content scrolls.
+- **Pickups wait for half a load by default.** **Send at % of a load** on supply platforms now defaults to 50 %
+  instead of a full load. Platforms where you chose a value keep it. As before, a station 90 % full ships what it has,
+  and a Critical consumer gets even a partial load.
+- **No priority on supply platforms.** Priority only ever counted where cargo is delivered, so the button is gone
+  from supply platforms and their readout no longer shows one.
+
 ## 0.6.9 (beta)
 
 - **Demand platforms can ask for a train to be emptied for them** (new platform setting **Request a train**:

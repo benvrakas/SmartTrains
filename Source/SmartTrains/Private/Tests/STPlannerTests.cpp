@@ -625,4 +625,94 @@ bool FSTRequestEmptiesCarTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// A request empties the car by whatever is soonest: two near consumers that take it all beat a far sink, and a near
+// sink beats two far consumers.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTRequestSoonestEmptyingTest, "SmartTrains.Planner.RequestSoonestEmptying", TestFlags)
+bool FSTRequestSoonestEmptyingTest::RunTest(const FString& Parameters)
+{
+	UClass* Wanted = USTTestSolid::StaticClass();
+	UClass* Other = USTTestSolidB::StaticClass();
+	for (int32 Case = 0; Case < 2; ++Case)
+	{
+		const bool bSinkNear = Case == 1;
+		ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+		AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+		AFGTrainStationIdentifier* First = FSTTestAccess::MakeStation();
+		AFGTrainStationIdentifier* Second = FSTTestAccess::MakeStation();
+		AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
+		AFGTrainStationIdentifier* Source = FSTTestAccess::MakeStation();
+		AFGTrainStationIdentifier* Drop = FSTTestAccess::MakeStation();
+		const TArray<AFGTrainStationIdentifier*> Stations = {Start, First, Second, Sink, Source, Drop};
+		auto IsFar = [&](const AFGTrainStationIdentifier* Station) { return bSinkNear ? (Station == First || Station == Second) : Station == Sink; };
+		for (AFGTrainStationIdentifier* From : Stations)
+		{
+			for (AFGTrainStationIdentifier* To : Stations)
+			{
+				if (From != To)
+				{
+					FSTTestAccess::SetTrip(*Subsystem, From, To, IsFar(From) || IsFar(To) ? 600.f : 60.f);
+				}
+			}
+		}
+		TArray<AFGBuildableTrainPlatformCargo*> Objects;
+		for (int32 Index = 0; Index < 5; ++Index)
+		{
+			Objects.Add(NewObject<AFGBuildableTrainPlatformCargo>(GetTransientPackage()));
+		}
+		FSTNode FirstNode = FSTTestAccess::Node(First, Other, ESTRole::Demand, 0, 100000, 0);
+		FirstNode.Platforms = {Objects[0]};
+		FSTNode SecondNode = FSTTestAccess::Node(Second, Other, ESTRole::Demand, 0, 100000, 0);
+		SecondNode.Platforms = {Objects[1]};
+		FSTNode SinkNode = FSTTestAccess::Node(Sink, nullptr, ESTRole::Demand, 0, 100000, 0);
+		SinkNode.bAnyItem = true;
+		SinkNode.Platforms = {Objects[2]};
+		FSTNode SourceNode = FSTTestAccess::Node(Source, Wanted, ESTRole::Supply, 1000, 1000, 0);
+		SourceNode.Platforms = {Objects[3]};
+		FSTNode DropNode = FSTTestAccess::Node(Drop, Wanted, ESTRole::Demand, 0, 1000, 0);
+		DropNode.Platforms = {Objects[4]};
+		TArray<FSTNode> Nodes = {FirstNode, SecondNode, SinkNode, SourceNode, DropNode};
+		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+		TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Other, false, 0.0, 0), FSTTestAccess::Platform(Other, false, 0.0, 0),
+			FSTTestAccess::Platform(Other, false, 0.0, 0), FSTTestAccess::Platform(Wanted, true, 1000.0, 10), FSTTestAccess::Platform(Wanted, false, 0.0, 0)};
+		Platforms[2].Items.Reset();
+		Platforms[2].bAnyItem = true;
+		for (int32 Index = 0; Index < Platforms.Num(); ++Index)
+		{
+			Platforms[Index].Platform = Objects[Index];
+			// The consumers take half the load each (2 slots of 500); the sink and the rest take it all.
+			Platforms[Index].Slots = Index < 2 ? 2 : 10;
+		}
+		FSTTestAccess::FCarInfo Car = FSTTestAccess::Car(Other, 2000.0);
+		Car.Slots = 10;
+		FSTTestAccess::FCarPlatforms CarPlatforms;
+		for (int32 Index = 0; Index < 5; ++Index)
+		{
+			CarPlatforms.Add(Stations[Index + 1], {{Index}});
+		}
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, Platforms, CarPlatforms);
+		FSTTestAccess::ServeAll(Planner);
+
+		const TCHAR* Where = bSinkNear ? TEXT("near sink") : TEXT("near consumers");
+		TArray<FSTPlanStop> Stops;
+		FSTPlanResult Result;
+		bool bDelivers = false;
+		FString Why;
+		TestTrue(FString::Printf(TEXT("%s: a request trip is found (%s)"), Where, *Why), Planner.PlanRequest(4, Stops, Result, bDelivers, Why) && bDelivers);
+		const bool bUsesSink = Stops.ContainsByPredicate([Sink](const FSTPlanStop& Stop) { return Stop.Station == Sink; });
+		if (bSinkNear)
+		{
+			TestEqual(TEXT("near sink: one stop at the sink, then the pickup and the delivery"), Stops.Num(), 3);
+			TestTrue(TEXT("near sink: the sink empties the car"), bUsesSink);
+		}
+		else
+		{
+			TestEqual(TEXT("near consumers: two consumers, then the pickup and the delivery"), Stops.Num(), 4);
+			TestFalse(TEXT("near consumers: the far sink isn't used"), bUsesSink);
+		}
+		TestTrue(FString::Printf(TEXT("%s: the wanted item reaches the platform"), Where), FSTTripPlanner::CountUnloaded(Stops, Result, Wanted, Drop) > 0);
+	}
+	return true;
+}
+
 #endif

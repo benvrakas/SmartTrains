@@ -30,7 +30,7 @@ Who may use which command is in [Admin-only commands](#admin-only-commands) belo
 - `/st platform demand any`: a sink that takes surplus of any item (lowest priority).
 - Options:
   - `target <percent>` (demand);
-  - `sendat <percent of a train load>` (supply; 0 = a full load);
+  - `sendat <percent of a train load>` (supply; 0 = the default, 50 %);
   - `priority low|normal|high|critical`;
   - `rate <per minute>`, which replaces the measured rate (m³ for fluids).
 - `/st platform off`: back to vanilla. The platform gets its own load/unload setting back.

@@ -264,14 +264,18 @@ is left to do, the trip ends and the train is settled when the round ends (next 
 Regret insertion adds one move at a time and keeps it only if the trip's score rises. A car that fits a consumer's
 platform but holds another item is blocked: the pickup scores nothing alone, and emptying the car is added only if
 that delivery is worth something itself. So a consumer whose only trains hold other cargo got none. After the round's
-normal trips, a demand node asks (`GetRequestNeed`) when it is below target with no delivery planned
-(`IsDeliveryPlanned`, repeats excluded), and for **Automatic** also starved (empty 30 s). Unclaimed asking nodes, by
+normal trips (whose reservations are in the nodes by then), a demand node asks (`GetRequestNeed`): **Automatic**
+when stock + reserved − use rate × `RequestLookaheadMinutes` (10) is below its target, **On** while stock + reserved
+is below 90 % of its capacity (repeats reserve nothing, so they don't count). Until 0.6.10 it asked only when
+starved (empty 30 s) with no delivery planned at all. It also doesn't ask while `HasFittingTrain` finds a managed
+train on its network (busy or not) with a car that `ComputeFit`, counting cargo, fits from one of its suppliers:
+that train serves it by a normal trip. Unclaimed asking nodes, by
 priority then fill, take the free train (no job, a repeat, or a no-work depot run) whose request trip delivers
 first. `PlanRequest` takes up to 3 suppliers (nearest first) with cars that fit the supplier's loader and the
-consumer's platform; their cargo of other items is unloaded at up to 4 places: consumers of those items first, then
-sinks. It simulates none, one or two of them (both orders) before the pickup and the delivery, and keeps the trip
-that delivers (fewest sinks, then earliest arrival). If none fits in `MaxStops`, it keeps the emptying alone that
-unloads the most, and the train holds a claim (`FSTTrainState::RequestStation`/`RequestItem`, runtime only): it gets
+consumer's platform; their cargo of other items is unloaded at the 3 nearest consumers of those items and the 2
+nearest sinks. It simulates none, one or two of them (both orders) before the pickup and the delivery. The trip that
+empties the cars and delivers soonest wins, consumers and sinks alike; if none fits in `MaxStops`, the emptying alone
+that leaves the cars empty soonest does (or, if none empties them, the one that unloads the most), and the train holds a claim (`FSTTrainState::RequestStation`/`RequestItem`, runtime only): it gets
 no other trips (it is left out of the round's free trains) and `ServeRequests` plans its next part once it is free,
 or drops the claim when the node no longer asks. Request trips (`FSTJob::bRequest`) run with a 60-minute trip limit,
 are not re-planned after each stop (their emptying stops are worth nothing to a re-plan), and may get moves for

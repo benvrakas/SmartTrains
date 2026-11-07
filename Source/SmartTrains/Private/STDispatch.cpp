@@ -50,6 +50,8 @@ namespace
 	constexpr int32 QueuedTrains = 2;
 	// A train that left a station this recently doesn't start a trip with that station again. [s]
 	constexpr double JustLeftAnchorSeconds = 60.0;
+	// Request setting On: a platform asks until it and its deliveries on the way reach this share of its capacity.
+	constexpr double RequestFullShare = 0.9;
 	// Trip limit for request trips, which may stop to empty cars first. [s]
 	constexpr double RequestTripSeconds = 3600.0;
 	// How often a waiting train with a trip to repeat tries it again. [s]
@@ -1008,44 +1010,53 @@ void ASTSubsystem::DispatchRound()
 	}
 }
 
-bool ASTSubsystem::IsDeliveryPlanned(const AFGTrainStationIdentifier* Station, const UClass* Item) const
-{
-	for (const FSTTrainState& State : mTrains)
-	{
-		if (!State.bManaged || !State.bHasJob || State.Job.bRepeat)
-		{
-			continue;
-		}
-		for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
-		{
-			if (State.Job.Legs[Leg].Station != Station)
-			{
-				continue;
-			}
-			for (const FSTCarWork& Work : State.Job.Legs[Leg].Work)
-			{
-				if (!Work.bLoad && Work.Item == Item)
-				{
-					return true;
-				}
-			}
-		}
-	}
-	return false;
-}
-
 FString ASTSubsystem::GetRequestNeed(const FSTNode& Node) const
 {
 	if (Node.Role != ESTRole::Demand || Node.bAnyItem || !Node.Item || Node.Request == ESTRequest::Off || Node.Capacity <= 0)
 	{
 		return FString();
 	}
-	const bool bBelowTarget = Node.Stock < Node.Capacity * Node.TargetPercent / 100.0;
-	if (!bBelowTarget || (Node.Request == ESTRequest::Auto && !Node.bStarved) || IsDeliveryPlanned(Node.Station.Get(), Node.Item.Get()))
+	// Stock with the deliveries on the way, against what the platform uses until a train could get there.
+	const double Coming = static_cast<double>(Node.Stock) + Node.Reserved;
+	if (Node.Request == ESTRequest::On)
+	{
+		return Coming < Node.Capacity * RequestFullShare ? FString(TEXT("not full, too little on the way")) : FString();
+	}
+	const double Target = Node.Capacity * Node.TargetPercent / 100.0;
+	const double Minutes = FMath::Max(0.f, mSettings.RequestLookaheadMinutes);
+	const double Later = Coming - Node.Rate * Minutes * 60.0;
+	if (Later >= Target)
 	{
 		return FString();
 	}
-	return Node.Request == ESTRequest::Auto ? TEXT("empty, nothing on the way") : TEXT("below target, nothing on the way");
+	return Node.Stock < Target ? FString(TEXT("below target, too little on the way"))
+		: FString::Printf(TEXT("below target within %.0f min at its use, too little on the way"), Minutes);
+}
+
+bool ASTSubsystem::HasFittingTrain(const FSTNode& Consumer, const TArray<FSTNode>& Nodes) const
+{
+	const AFGTrainStationIdentifier* Drop = Consumer.Station.Get();
+	for (const FSTTrainState& State : mTrains)
+	{
+		if (!State.bManaged || State.bKeepVanilla || !IsValid(State.Train) || !CanServe(State, Drop))
+		{
+			continue;
+		}
+		for (const FSTNode& Supplier : Nodes)
+		{
+			const AFGTrainStationIdentifier* Pick = Supplier.Station.Get();
+			if (Supplier.Role != ESTRole::Supply || Supplier.Item != Consumer.Item || !Pick || Pick == Drop || !CanServe(State, Pick))
+			{
+				continue;
+			}
+			const FSTFit Fit = ComputeFit(State.Train, Pick, Drop, Consumer.Item, false);
+			if (Fit.Cars.Num() > 0 && Fit.Problem.IsEmpty())
+			{
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 void ASTSubsystem::ServeRequests(FSTTripPlanner& Planner, const TArray<FSTNode>& Nodes)
@@ -1199,7 +1210,8 @@ void ASTSubsystem::ServeRequests(FSTTripPlanner& Planner, const TArray<FSTNode>&
 	{
 		const FSTNode& Node = Nodes[Index];
 		const bool bClaimed = mTrains.ContainsByPredicate([&](const FSTTrainState& State) { return State.RequestStation == Node.Station && State.RequestItem.Get() == Node.Item.Get(); });
-		if (!bClaimed && !GetRequestNeed(Node).IsEmpty())
+		// A train with a car that lines up empty (or holding the item) will bring it by a normal trip.
+		if (!bClaimed && !GetRequestNeed(Node).IsEmpty() && !HasFittingTrain(Node, Nodes))
 		{
 			Asking.Add(Index);
 		}

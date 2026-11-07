@@ -45,9 +45,9 @@ namespace
 	{
 		switch (Request)
 		{
-		case ESTRequest::On: return LOCTEXT("HintRequestOn", "On: whenever it is below its target and nothing is on the way, a train that holds other cargo is emptied first and sent for it.");
+		case ESTRequest::On: return LOCTEXT("HintRequestOn", "On: until it and the deliveries on the way are 90% full, and no train has an empty car that lines up with it, a train that holds other cargo is emptied first and sent for it.");
 		case ESTRequest::Off: return LOCTEXT("HintRequestOff", "Off: it only gets trains with room for its items.");
-		default: return LOCTEXT("HintRequestAuto", "Automatic: when it runs empty and nothing is on the way, a train that holds other cargo is emptied first and sent for it.");
+		default: return LOCTEXT("HintRequestAuto", "Automatic: when it will fall below its target soon (Mods menu: Request a train this early), too little is on the way and no train has an empty car that lines up with it, a train that holds other cargo is emptied first and sent for it.");
 		}
 	}
 
@@ -66,7 +66,7 @@ namespace
 	// The amount the +/- buttons change: send-at share of a load for supply, target share for demand. [%]
 	float GetPercent(const FSTItemRule& Rule, ESTRole Role)
 	{
-		return Role == ESTRole::Supply ? (Rule.SendAtPercent > 0.f ? Rule.SendAtPercent : 100.f) : Rule.TargetPercent;
+		return Role == ESTRole::Supply ? STNames::SendAtPercent(Rule.SendAtPercent) : Rule.TargetPercent;
 	}
 
 	// Adds Child to Box, filling the rest of the line if bFill.
@@ -407,6 +407,8 @@ void USTPlatformPanel::RefreshEditor()
 		if (Row.Priority.IsValid())
 		{
 			Row.Priority->SetText(FText::Format(LOCTEXT("Priority", "Priority: {0}"), FText::FromString(STNames::Priority(Rule.Priority))));
+			// Priority counts only where cargo is delivered.
+			Row.Priority->SetVisibility(mRole == ESTRole::Supply ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
 		}
 		if (Row.Amount.IsValid())
 		{

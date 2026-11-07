@@ -27,7 +27,8 @@ TWeakObjectPtr<USTPlatformWindow> USTPlatformWindow::sOpen;
 namespace
 {
 	constexpr float PlatformWindowWidth = 620.f;
-	constexpr float PlatformWindowMaxHeight = 860.f;
+	// The window keeps this height whatever it shows, so it doesn't jump when the role changes; content scrolls. [px]
+	constexpr float PlatformWindowHeight = 860.f;
 	constexpr float LauncherWidth = 300.f;
 	// Size of the item icons beside the platform menu. [px]
 	constexpr float LauncherIconSize = 32.f;
@@ -143,7 +144,7 @@ UWidget* USTPlatformWindow::WrapRoot(UVerticalBox* Root)
 
 	USizeBox* Size = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
 	Size->SetWidthOverride(PlatformWindowWidth);
-	Size->SetMaxDesiredHeight(PlatformWindowMaxHeight);
+	Size->SetHeightOverride(PlatformWindowHeight);
 	UScrollBox* Scroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass());
 	Scroll->AddChild(Root);
 	Size->AddChild(Scroll);

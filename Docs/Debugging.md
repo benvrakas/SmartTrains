@@ -73,7 +73,7 @@ the console.
 - `NOPROGRESS ... Platforms there: P1 unload, Demand [...], 12 of 48 slots used: ...`: a stop moved none of a planned
   item. The platform list shows why, e.g. a demand platform full of other items, or set to the wrong mode. For a
   train running its last trip again it is only in the detailed log.
-- `REQUEST <item> at <station> (<why it asks>): <train> empties its car on the way and brings it` (or `empties its car
+- `REQUEST <item> at <station> (<why it asks>, e.g. "below target within 10 min at its use, too little on the way"): <train> empties its car on the way and brings it` (or `empties its car
   first`): a demand platform asked for a train (setting Request a train) and this one serves it. `... no free train
   can serve it (N free; <train>: <why>)`: logged when the reason changes. `... <train> no longer serves it (<why>)`:
   a claim ended, for example because the platform was served or stopped asking.

@@ -208,10 +208,13 @@ private:
 	// Plans trips for demand platforms that ask for a train (ESTRequest): emptying a car that holds another item first
 	// (Docs/Architecture.md, "Requests"). Runs after the round's normal trips.
 	void ServeRequests(FSTTripPlanner& Planner, const TArray<FSTNode>& Nodes);
-	// Why Node asks for a train now ("empty, nothing on the way"), or empty if it doesn't.
+	// Why Node asks for a train now ("below target, too little on the way"), or empty if it doesn't: Automatic when its
+	// stock and deliveries on the way fall below its target within RequestLookaheadMinutes at its use rate, On while
+	// they are below 90 % of its capacity.
 	FString GetRequestNeed(const FSTNode& Node) const;
-	// True if a job (not a repeat) still delivers Item to Station.
-	bool IsDeliveryPlanned(const AFGTrainStationIdentifier* Station, const UClass* Item) const;
+	// True if a managed train on Consumer's network has a car that lines up with a supplier's loader and Consumer's
+	// platform and is empty or holds only its item (ComputeFit counting cargo), so no request is needed.
+	bool HasFittingTrain(const FSTNode& Consumer, const TArray<FSTNode>& Nodes) const;
 	// Works out planned flows between suppliers and consumers.
 	void PlanFlows();
 	// One step of the travel distance search.

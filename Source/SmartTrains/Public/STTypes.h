@@ -30,9 +30,9 @@ enum class ESTRole : uint8
 UENUM()
 enum class ESTRequest : uint8
 {
-	// When the platform runs empty and nothing is on the way.
+	// When the platform's stock and deliveries on the way would fall below its target soon (RequestLookaheadMinutes).
 	Auto,
-	// Whenever the platform is below its target and nothing is on the way.
+	// Until the platform's stock and deliveries on the way reach 90 % of its capacity.
 	On,
 	Off,
 };
@@ -72,6 +72,9 @@ namespace STNames
 	SMARTTRAINS_API TOptional<ESTPriority> ParsePriority(const FString& Text);
 	// Returns the score multiplier of Priority.
 	SMARTTRAINS_API float PriorityWeight(ESTPriority Priority);
+	// Send-at share of a load for a rule's SendAtPercent (0: the default). [%]
+	constexpr float DefaultSendAtPercent = 50.f;
+	inline float SendAtPercent(float Percent) { return Percent > 0.f ? Percent : DefaultSendAtPercent; }
 	// Returns the item's display name, or "any item" for null.
 	SMARTTRAINS_API FString Item(TSubclassOf<UFGItemDescriptor> Item);
 	// Returns true for liquids and gases.
@@ -89,7 +92,8 @@ struct SMARTTRAINS_API FSTItemRule
 	UPROPERTY(SaveGame)
 	TSubclassOf<UFGItemDescriptor> Item;
 
-	// Supply: a train is sent once the station holds this share of the train's load; 0 means a full load. [%]
+	// Supply: a train is sent once the station holds this share of the train's load; 0 means the default
+	// (STNames::DefaultSendAtPercent). [%]
 	UPROPERTY(SaveGame)
 	float SendAtPercent = 0.f;
 

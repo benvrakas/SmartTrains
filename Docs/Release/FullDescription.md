@@ -15,11 +15,14 @@ them (see below).
 - **Platforms:** open a freight or fluid platform and click **Open SmartTrains settings**.
   - **Supply:** managed trains pick items up here.
   - **Demand:** managed trains keep it stocked to a target. **Request a train** (Automatic by default): when the
-    platform runs empty and no train is coming, a train whose car holds something else is emptied first and sent
-    for it. **On** asks whenever it is below its target; **Off** never asks.
+    platform would fall below its target within 10 minutes (Mods menu) even with the deliveries on the way, and no
+    train has an empty car that lines up with it, a train whose car holds something else is emptied first and sent
+    for it. **On** asks until it and its deliveries on the
+    way are 90 % full; **Off** never asks.
   - **Sink:** managed trains unload cargo here that no consumer takes, any item.
   - **Off:** vanilla.
-  - Each item gets a priority, a target and a minimum batch.
+  - Each item gets a target and a priority (demand), or a minimum batch (supply: **Send at % of a load**, 50 % by
+    default; a station 90 % full or a Critical consumer ships less).
   - **Copy**, **Paste** and **Copy to the station's other platforms** carry every setting of the platform.
 - **Trains:** in the locomotive menu, switch **Managed by SmartTrains** on. SmartTrains writes the train's timetable
   for each trip. The game, or Auto Trains, drives it.

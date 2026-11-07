@@ -18,7 +18,8 @@ namespace
 	constexpr int32 MaxMovesPerTrain = 24;
 	// Requests: suppliers and places to empty cars tried per train (nearest first).
 	constexpr int32 MaxRequestSources = 3;
-	constexpr int32 MaxRequestDumps = 4;
+	constexpr int32 MaxRequestConsumers = 3;
+	constexpr int32 MaxRequestSinks = 2;
 	// Shortest trip time the score divides by, so very short trips don't get huge scores. [s]
 	constexpr double MinScoreSeconds = 30.0;
 	// Value weight of cargo delivered to a consumer above its target (unwanted cargo after the time limit).
@@ -1000,7 +1001,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					}
 					if (Node != INDEX_NONE)
 					{
-						Total.Share = FMath::Max(Total.Share, mNodes[Node].SendAtPercent > 0.f ? mNodes[Node].SendAtPercent / 100.0 : 1.0);
+						Total.Share = FMath::Max(Total.Share, STNames::SendAtPercent(mNodes[Node].SendAtPercent) / 100.0);
 						Total.bFromFull |= IsSupplyFull(Node);
 					}
 					if (Amount <= 0.0)
@@ -1406,24 +1407,35 @@ bool FSTTripPlanner::PlanRequest(int32 Consumer, TArray<FSTPlanStop>& OutStops, 
 		bool bSink = false;
 		float Seconds = 0.f;
 	};
+	// A trip and how it empties the cars: whether they end up empty and how much is unloaded (Key: delivery arrival,
+	// or the end of a trip that only empties).
 	struct FBest
 	{
 		TArray<FSTPlanStop> Stops;
 		FSTPlanResult Result;
-		bool bSink = true;
-		double Key = TNumericLimits<double>::Max();
+		bool bDrained = false;
 		int32 Cleared = 0;
+		double Key = TNumericLimits<double>::Max();
 	};
 	FBest Full;
 	FBest Partial;
-	// Consumers before sinks, then the higher Cleared, then the lower Key.
-	auto IsBetter = [](const FBest& Best, bool bSink, int32 Cleared, double Key)
+	// Whatever empties the cars soonest: emptied before partly emptied, then the earlier Key (a partly emptied one by
+	// more unloaded first). Consumers and sinks count the same; only the time does.
+	auto IsBetter = [](const FBest& Best, const FBest& New)
 	{
-		if (Best.Stops.Num() == 0 || Best.bSink != bSink)
+		if (Best.Stops.Num() == 0)
 		{
-			return Best.Stops.Num() == 0 || !bSink;
+			return true;
 		}
-		return Cleared != Best.Cleared ? Cleared > Best.Cleared : Key < Best.Key;
+		if (New.bDrained != Best.bDrained)
+		{
+			return New.bDrained;
+		}
+		if (!New.bDrained && New.Cleared != Best.Cleared)
+		{
+			return New.Cleared > Best.Cleared;
+		}
+		return New.Key < Best.Key;
 	};
 	TMap<FString, int32> Rejected;
 	for (const FSource& Source : Sources)
@@ -1431,6 +1443,7 @@ bool FSTTripPlanner::PlanRequest(int32 Consumer, TArray<FSTPlanStop>& OutStops, 
 		// What the cars that fit both ends hold of other items.
 		TArray<UClass*> Blocking;
 		TArray<int32> Blocked;
+		int32 BlockingAmount = 0;
 		for (const int32 CarIndex : Source.Cars)
 		{
 			for (const TPair<UClass*, double>& Carried : mCars[CarIndex].Cargo)
@@ -1439,6 +1452,7 @@ bool FSTTripPlanner::PlanRequest(int32 Consumer, TArray<FSTPlanStop>& OutStops, 
 				{
 					Blocking.AddUnique(Carried.Key);
 					Blocked.AddUnique(CarIndex);
+					BlockingAmount += FMath::FloorToInt(Carried.Value);
 				}
 			}
 		}
@@ -1485,8 +1499,19 @@ bool FSTTripPlanner::PlanRequest(int32 Consumer, TArray<FSTPlanStop>& OutStops, 
 				}
 				Same->bSink |= Node.bAnyItem;
 			}
+			// The nearest consumers and the nearest sinks, so a sink that takes it all is always among them.
 			Dumps.Sort([](const FDump& A, const FDump& B) { return A.bSink != B.bSink ? !A.bSink : A.Seconds < B.Seconds; });
-			Dumps.SetNum(FMath::Min(Dumps.Num(), MaxRequestDumps));
+			const int32 Consumers = Dumps.IndexOfByPredicate([](const FDump& Each) { return Each.bSink; });
+			const int32 FirstSink = Consumers == INDEX_NONE ? Dumps.Num() : Consumers;
+			TArray<FDump> Kept;
+			for (int32 Index = 0; Index < Dumps.Num(); ++Index)
+			{
+				if (Index < FirstSink ? Index < MaxRequestConsumers : Index - FirstSink < MaxRequestSinks)
+				{
+					Kept.Add(Dumps[Index]);
+				}
+			}
+			Dumps = MoveTemp(Kept);
 			if (Dumps.Num() == 0)
 			{
 				Rejected.FindOrAdd(FString::Printf(TEXT("nowhere to unload the %s its cars hold"), *STNames::Item(Blocking[0])))++;
@@ -1520,13 +1545,11 @@ bool FSTTripPlanner::PlanRequest(int32 Consumer, TArray<FSTPlanStop>& OutStops, 
 				break;
 			}
 			TArray<FSTPlanStop> Emptying;
-			bool bSink = false;
 			for (const int32 Index : Sequence)
 			{
 				FSTPlanStop& Stop = Emptying.AddDefaulted_GetRef();
 				Stop.Station = Dumps[Index].Station;
 				Stop.UnloadItems = Dumps[Index].Items;
-				bSink |= Dumps[Index].bSink;
 			}
 			// Emptying, then the pickup and the delivery.
 			if (Emptying.Num() + 2 <= mMaxStops)
@@ -1547,13 +1570,17 @@ bool FSTTripPlanner::PlanRequest(int32 Consumer, TArray<FSTPlanStop>& OutStops, 
 				{
 					Rejected.FindOrAdd(FString::Printf(TEXT("its cars would still hold other cargo at %s"), *STLayout::Name(Source.Station)))++;
 				}
-				else if (IsBetter(Full, bSink, 0, Result.Arrive.Last()))
+				else
 				{
-					const double Key = Result.Arrive.Last();
-					Full.Stops = MoveTemp(Stops);
-					Full.Result = MoveTemp(Result);
-					Full.bSink = bSink;
-					Full.Key = Key;
+					FBest New;
+					New.bDrained = true;
+					New.Key = Result.Arrive.Last();
+					if (IsBetter(Full, New))
+					{
+						New.Stops = MoveTemp(Stops);
+						New.Result = MoveTemp(Result);
+						Full = MoveTemp(New);
+					}
 				}
 			}
 			// Emptying alone, for when the delivery doesn't fit in this trip.
@@ -1569,13 +1596,18 @@ bool FSTTripPlanner::PlanRequest(int32 Consumer, TArray<FSTPlanStop>& OutStops, 
 				{
 					Rejected.FindOrAdd(Result.Problem)++;
 				}
-				else if (Cleared > 0 && IsBetter(Partial, bSink, Cleared, Result.EndTime))
+				else if (Cleared > 0)
 				{
-					Partial.Stops = MoveTemp(Emptying);
-					Partial.Key = Result.EndTime;
-					Partial.Result = MoveTemp(Result);
-					Partial.bSink = bSink;
-					Partial.Cleared = Cleared;
+					FBest New;
+					New.bDrained = Cleared >= BlockingAmount;
+					New.Cleared = Cleared;
+					New.Key = Result.EndTime;
+					if (IsBetter(Partial, New))
+					{
+						New.Stops = MoveTemp(Emptying);
+						New.Result = MoveTemp(Result);
+						Partial = MoveTemp(New);
+					}
 				}
 			}
 		}

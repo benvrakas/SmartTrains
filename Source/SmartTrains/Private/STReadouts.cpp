@@ -50,11 +50,12 @@ FString ASTSubsystem::DescribeItemRule(const AFGBuildableTrainPlatformCargo* Pla
 	const int32 Stock = Inventory ? Inventory->GetNumItems(Rule.Item) : 0;
 	const int32 Capacity = STLayout::GetCapacity(Inventory, Rule.Item);
 	const FString Goal = Config.Role == ESTRole::Supply
-		? FString::Printf(TEXT("send at %.0f%% of a load"), Rule.SendAtPercent > 0.f ? Rule.SendAtPercent : 100.f)
+		? FString::Printf(TEXT("send at %.0f%% of a load"), STNames::SendAtPercent(Rule.SendAtPercent))
 		: FString::Printf(TEXT("target %.0f%%"), Rule.TargetPercent);
-	return FString::Printf(TEXT("%s / %s, %s%s/min%s, %s, %s priority"), *STNames::Amount(Rule.Item, Stock), *STNames::Amount(Rule.Item, Capacity),
-		bManual ? TEXT("manual ") : TEXT(""), *STNames::Amount(Rule.Item, Rate * 60.0), bKnown || bManual ? TEXT("") : TEXT(" (still measuring)"), *Goal,
-		STNames::Priority(Rule.Priority));
+	// Priority counts only where cargo is delivered.
+	const FString Priority = Config.Role == ESTRole::Supply ? FString() : FString::Printf(TEXT(", %s priority"), STNames::Priority(Rule.Priority));
+	return FString::Printf(TEXT("%s / %s, %s%s/min%s, %s%s"), *STNames::Amount(Rule.Item, Stock), *STNames::Amount(Rule.Item, Capacity),
+		bManual ? TEXT("manual ") : TEXT(""), *STNames::Amount(Rule.Item, Rate * 60.0), bKnown || bManual ? TEXT("") : TEXT(" (still measuring)"), *Goal, *Priority);
 }
 
 FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCargo* Platform, int32 AppliedEdit) const
@@ -264,7 +265,7 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 
 		if (bSupply)
 		{
-			const double Batch = Rule.Priority == ESTPriority::Critical ? 1.0 : BestCapacity * (Rule.SendAtPercent > 0.f ? Rule.SendAtPercent / 100.0 : 1.0);
+			const double Batch = BestCapacity * STNames::SendAtPercent(Rule.SendAtPercent) / 100.0;
 			if (Node.Stock - Node.Reserved < Batch * 0.5)
 			{
 				Lines.Add(FString::Printf(TEXT("%s: waiting for a batch, %s of %s at this station."), *Name, *STNames::Amount(Rule.Item, Node.Stock),
