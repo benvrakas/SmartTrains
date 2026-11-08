@@ -29,6 +29,14 @@ namespace
 	constexpr double SinkWeight = 0.1;
 	// Least a car unloads at a stop, in car slots (or all it holds when that is less). [slots]
 	constexpr double MinUnloadSlots = 2.0;
+	// Value a stop costs, once plus once per other train booked at that station near the visit. [car-load minutes]
+	constexpr double StopCostValue = 1.0;
+	// How far before and after a visit other trains' bookings count towards its stop cost. [s]
+	constexpr double StopNearSeconds = 120.0;
+	// Value of a car left holding cargo after a trip (a car emptied is worth the same). [car-load minutes]
+	constexpr double TiedCarValue = 2.0;
+	// Share of TiedCarValue for a car holding only items a demand platform needs within the horizon.
+	constexpr double NeededSoonShare = 0.25;
 
 	template <typename KeyType>
 	double& FindOrAddValue(TArray<TPair<KeyType, double>>& Pairs, const KeyType& Key, TFunctionRef<double()> Initial)
@@ -111,6 +119,11 @@ FSTTripPlanner::FSTTripPlanner(const ASTSubsystem& InSubsystem, TArray<FSTNode>&
 		{
 			mNodeIndex.Add(MakeTuple(static_cast<const AFGTrainStationIdentifier*>(Node.Station.Get()), Node.Item.Get(), Node.Role == ESTRole::Supply), Index);
 		}
+		if (Node.Role == ESTRole::Demand && !Node.bAnyItem && Node.Item && !mNeededSoon.Contains(Node.Item.Get())
+			&& STForecast::Deadline(Node, Node.Planned, mTime, STLayout::GetCarCapacity(nullptr, Node.Item)) < mTime + STForecast::HorizonSeconds)
+		{
+			mNeededSoon.Add(Node.Item.Get());
+		}
 	}
 }
 
@@ -191,6 +204,36 @@ int32 FSTTripPlanner::CountAhead(const AFGTrainStationIdentifier* Station, doubl
 		}
 	}
 	return Ahead;
+}
+
+int32 FSTTripPlanner::CountNear(const AFGTrainStationIdentifier* Station, double From, double Until) const
+{
+	int32 Near = 0;
+	if (const TArray<FSTBooking>* Bookings = mBookings.Find(Station))
+	{
+		for (const FSTBooking& Each : *Bookings)
+		{
+			Near += Each.Train != mTrainIndex && Each.Until > From && Each.From < Until ? 1 : 0;
+		}
+	}
+	return Near;
+}
+
+double FSTTripPlanner::GetTiedShare(const TArray<TPair<UClass*, double>>& Cargo) const
+{
+	bool bAny = false;
+	for (const TPair<UClass*, double>& Each : Cargo)
+	{
+		if (Each.Value >= 1.0)
+		{
+			if (!mNeededSoon.Contains(Each.Key))
+			{
+				return 1.0;
+			}
+			bAny = true;
+		}
+	}
+	return bAny ? NeededSoonShare : 0.0;
 }
 
 double FSTTripPlanner::GetAvailable(int32 Node, double Arrive) const
@@ -596,6 +639,11 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 					continue;
 				}
 			}
+			// A shuttle's route is its own, but for a full supplier.
+			if (!bFull && mSubsystem.IsShuttleRoute(Train, Supplier.Station.Get(), Consumer.Station.Get(), Item))
+			{
+				continue;
+			}
 			const bool bAnyCar = SupplyCars.ContainsByPredicate([&](int32 CarIndex) { return CarFits(CarIndex, Consumer.Station.Get(), Demands(Item)); });
 			if (bAnyCar)
 			{
@@ -728,7 +776,8 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 		return Fail(TEXT("first stop is the station the train is docked at"));
 	}
 
-	// Times.
+	// Times, and what the stops cost: each one holds its station from other trains.
+	double StopCost = 0.0;
 	Result.Arrive.SetNum(Stops.Num());
 	const AFGTrainStationIdentifier* Previous = mAnchor;
 	double Clock = mFreeAt;
@@ -763,6 +812,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 			}
 		}
 		Clock = Result.Arrive[Index] + mSubsystem.EstimateStaySeconds(Station);
+		StopCost += StopCostValue * (1 + CountNear(Station, Result.Arrive[Index] - StopNearSeconds, Clock + StopNearSeconds));
 		Previous = Station;
 	}
 	Result.EndTime = Clock;
@@ -1110,6 +1160,12 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 			return Fail(FString::Printf(TEXT("less than a batch of %s"), *STNames::Item(Total.Item)));
 		}
 	}
+	// Cars left holding cargo can only take that item next; cars emptied can take any.
+	for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
+	{
+		Result.Value += TiedCarValue * (GetTiedShare(mCars[CarIndex].Cargo) - GetTiedShare(Cargo[CarIndex]));
+	}
+	Result.Value -= StopCost;
 	Result.bValid = true;
 	Result.Score = Result.Value / FMath::Max(MinScoreSeconds, Result.EndTime - mTime);
 	return Result;

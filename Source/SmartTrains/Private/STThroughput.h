@@ -32,6 +32,8 @@ private:
 		double Time = 0.0;
 		int32 Managed = 0;
 		int32 Driving = 0;
+		// Of Driving: standing still (queueing for a station or held at signals).
+		int32 Standing = 0;
 		int32 Docked = 0;
 		int32 Parking = 0;
 		int32 Idle = 0;

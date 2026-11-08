@@ -92,6 +92,28 @@ struct FSTTestAccess
 		return Subsystem.mRoster;
 	}
 
+	static void AddManaged(ASTSubsystem& Subsystem, AFGTrain* Train)
+	{
+		FSTTrainState& State = Subsystem.mTrains.AddDefaulted_GetRef();
+		State.Train = Train;
+		State.bManaged = true;
+	}
+
+	static bool IsShuttleRoute(const ASTSubsystem& Subsystem, const AFGTrain* Train, const FSTRosterRoute& Route)
+	{
+		return Subsystem.IsShuttleRoute(Train, Route.From.Get(), Route.To.Get(), Route.Item.Get());
+	}
+
+	static double GetTiedShare(const FSTTripPlanner& Planner, const TArray<TPair<UClass*, double>>& Cargo)
+	{
+		return Planner.GetTiedShare(Cargo);
+	}
+
+	static int32 CountNear(const FSTTripPlanner& Planner, const AFGTrainStationIdentifier* Station, double From, double Until)
+	{
+		return Planner.CountNear(Station, From, Until);
+	}
+
 	static void ServeAll(FSTTripPlanner& Planner)
 	{
 		Planner.bServeAll = true;
@@ -903,6 +925,105 @@ bool FSTRosterTest::RunTest(const FString& Parameters)
 	const FSTRosterDuty* Last = Roster.Find(Trains[2]);
 	TestTrue(TEXT("a new route leaves the other trains' duties as they were"), Second && Last && FMath::IsNearlyEqual(Second->Load, Loads.FindRef(Trains[1]))
 		&& FMath::IsNearlyEqual(Last->Load, Loads.FindRef(Trains[2])));
+	return true;
+}
+
+// A route that keeps a whole train busy gets a shuttle (a whole train running only it) that other trains leave its route
+// to; a small route shares a train. The shuttle stays while the route needs half a train, and goes below that.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTRosterShuttleTest, "SmartTrains.Planner.RosterShuttle", TestFlags)
+bool FSTRosterShuttleTest::RunTest(const FString& Parameters)
+{
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	TArray<AFGTrain*> Trains;
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		Trains.Add(NewObject<AFGTrain>(GetTransientPackage()));
+		FSTTestAccess::AddManaged(*Subsystem, Trains.Last());
+	}
+	// Each train carries 9600 per trip; the second carries only 3200 because one car fits.
+	TArray<AFGTrainStationIdentifier*> Stations;
+	for (int32 Index = 0; Index < 4; ++Index)
+	{
+		Stations.Add(FSTTestAccess::MakeStation());
+	}
+	auto Route = [&](int32 Which, double PerTrip)
+	{
+		FSTRosterRoute Each;
+		Each.From = Stations[2 * Which];
+		Each.To = Stations[2 * Which + 1];
+		Each.Item = USTTestSolid::StaticClass();
+		Each.RoundTrip = 600.0;
+		Each.Flow = PerTrip / Each.RoundTrip;
+		for (int32 Index = 0; Index < Trains.Num(); ++Index)
+		{
+			Each.Fitting.Add(Trains[Index]);
+			Each.Capacity.Add(Index == 1 ? 3200 : 9600);
+			Each.Whole.Add(Index != 1);
+		}
+		Each.Trains = PerTrip / ((9600.0 + 3200.0 + 9600.0) / 3.0);
+		return Each;
+	};
+	TArray<FSTRosterRoute> Routes = {Route(0, 9600.0), Route(1, 2000.0)};
+	const TMap<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Roster = FSTTestAccess::GetRoster(*Subsystem);
+	for (int32 Plan = 0; Plan < 3; ++Plan)
+	{
+		FSTTestAccess::BuildRoster(*Subsystem, Routes);
+	}
+	TWeakObjectPtr<AFGTrain> Shuttle;
+	int32 Shuttles = 0;
+	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : Roster)
+	{
+		if (Pair.Value.bShuttle)
+		{
+			Shuttle = Pair.Key;
+			++Shuttles;
+			TestEqual(TEXT("a shuttle runs one route"), Pair.Value.Routes.Num(), 1);
+		}
+	}
+	TestEqual(TEXT("the big route gets one shuttle"), Shuttles, 1);
+	TestTrue(TEXT("the shuttle is a train whose cars all fit"), Shuttle.IsValid() && Shuttle.Get() != Trains[1]);
+	TestFalse(TEXT("the shuttle plans its route"), FSTTestAccess::IsShuttleRoute(*Subsystem, Shuttle.Get(), Routes[0]));
+	TestTrue(TEXT("other trains leave the shuttle's route to it"), FSTTestAccess::IsShuttleRoute(*Subsystem, Trains[1], Routes[0]));
+	TestFalse(TEXT("the small route has no shuttle"), FSTTestAccess::IsShuttleRoute(*Subsystem, Trains[1], Routes[1]));
+	const bool bSmallShared = Roster.FilterByPredicate([](const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair) { return !Pair.Value.bShuttle && Pair.Value.Load > 0.0; }).Num() > 0;
+	TestTrue(TEXT("the small route shares a train"), bSmallShared);
+
+	auto ShuttleOf = [&]()
+	{
+		const FSTRosterDuty* Duty = Roster.Find(Shuttle);
+		return Duty && Duty->bShuttle;
+	};
+	Routes[0] = Route(0, 5760.0);
+	FSTTestAccess::BuildRoster(*Subsystem, Routes);
+	TestTrue(TEXT("the shuttle stays while its route needs more than half of it"), ShuttleOf());
+	Routes[0] = Route(0, 3840.0);
+	FSTTestAccess::BuildRoster(*Subsystem, Routes);
+	TestFalse(TEXT("the shuttle goes when its route needs less than half of it"), ShuttleOf());
+	TestFalse(TEXT("then any train may plan the route"), FSTTestAccess::IsShuttleRoute(*Subsystem, Trains[1], Routes[0]));
+	return true;
+}
+
+// Cars holding cargo tie the train down; less so when every item they hold is wanted soon. Busy stations: bookings of
+// other trains near a visit count, the train's own don't.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTTiedCarsTest, "SmartTrains.Planner.TiedCarsAndBusyStations", TestFlags)
+bool FSTTiedCarsTest::RunTest(const FString& Parameters)
+{
+	UClass* Water = USTTestFluid::StaticClass();
+	UClass* Solid = USTTestSolid::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
+	TArray<FSTNode> Nodes = {FSTTestAccess::Node(Sink, Water, ESTRole::Demand, 0, 2 * FluidSlot, 2)};
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	Bookings.Add(Sink, {{0, 100.0, 150.0}, {5, 100.0, 150.0}, {6, 400.0, 450.0}});
+	FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+	FSTTestAccess::SetTrain(Planner, Sink, true, false, {FSTTestAccess::Car()}, {}, {});
+
+	TestEqual(TEXT("an empty car is free"), FSTTestAccess::GetTiedShare(Planner, {}), 0.0);
+	TestEqual(TEXT("a car of an item nobody needs soon is tied down"), FSTTestAccess::GetTiedShare(Planner, {{Solid, 500.0}}), 1.0);
+	TestTrue(TEXT("a car of an item a platform needs soon is tied down less"), FSTTestAccess::GetTiedShare(Planner, {{Water, 500.0}}) < 0.5);
+	TestEqual(TEXT("one item nobody needs soon ties the car down"), FSTTestAccess::GetTiedShare(Planner, {{Water, 500.0}, {Solid, 10.0}}), 1.0);
+	TestEqual(TEXT("other trains booked near the visit count, not this one"), FSTTestAccess::CountNear(Planner, Sink, 50.0, 200.0), 1);
+	TestEqual(TEXT("bookings outside the window don't count"), FSTTestAccess::CountNear(Planner, Sink, 160.0, 390.0), 0);
 	return true;
 }
 

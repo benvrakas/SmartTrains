@@ -3,6 +3,8 @@
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "FGFreightWagon.h"
 #include "FGInventoryComponent.h"
+#include "FGLocomotive.h"
+#include "FGLocomotiveMovementComponent.h"
 #include "FGTrain.h"
 #include "FGTrainStationIdentifier.h"
 #include "SmartTrains.h"
@@ -15,8 +17,12 @@ namespace
 	// Monitor: requests shown are those due within this, at most this many. [s]
 	constexpr double RequestRowSeconds = 900.0;
 	constexpr int32 MaxRequestRows = 10;
-	// Share of time on trips from which the fleet counts as saturated.
+	// Share of time moving on trips or at stops from which the fleet counts as saturated.
 	constexpr double SaturatedShare = 0.85;
+	// Share of time trains stand still on trips from which the network counts as congested.
+	constexpr double StandingShare = 0.15;
+	// Below this a driving train counts as standing still. [cm/s]
+	constexpr float StandingSpeed = 100.f;
 	// Fewest samples before a verdict (one minute).
 	constexpr int32 MinSamples = 6;
 	// Shares of the window that make a verdict.
@@ -126,6 +132,9 @@ void FSTThroughput::Sample(const ASTSubsystem& Subsystem)
 		else
 		{
 			++Fleet.Driving;
+			const AFGLocomotive* Master = State.Train->GetMultipleUnitMaster();
+			const UFGLocomotiveMovementComponent* Movement = Master ? Master->GetLocomotiveMovementComponent() : nullptr;
+			Fleet.Standing += Movement && FMath::Abs(Movement->GetForwardSpeed()) < StandingSpeed ? 1 : 0;
 		}
 	}
 	mFleet.Add(Fleet);
@@ -294,25 +303,34 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 	View.WindowMinutes = FMath::RoundToInt(Span / 60.0);
 
 	// Fleet.
+	// Busy: moving on trips or at stops; standing still on a trip (queueing or at signals) is congestion, not work.
 	double Busy = 0.0;
+	double Standing = 0.0;
 	double Managed = 0.0;
 	for (const FFleetSample& Each : mFleet)
 	{
-		Busy += Each.Driving + Each.Docked;
+		Busy += Each.Driving - Each.Standing + Each.Docked;
+		Standing += Each.Standing;
 		Managed += Each.Managed;
 	}
 	const double BusyShareNow = Managed > 0.0 ? Busy / Managed : 0.0;
+	const double StandingShareNow = Managed > 0.0 ? Standing / Managed : 0.0;
 	const double IdleShareNow = mFleet.Num() > 0 && mFleet.Last().Managed > 0
 		? static_cast<double>(mFleet.Last().Idle + mFleet.Last().Repeating) / mFleet.Last().Managed : 0.0;
 	if (mFleet.Num() > 0)
 	{
 		const FFleetSample& Last = mFleet.Last();
-		View.Summary.Add(FString::Printf(TEXT("%d managed trains: %d driving a trip, %d at a stop, %d repeating their last job (free for new trips), %d going to park, %d idle."),
-			Last.Managed, Last.Driving, Last.Docked, Last.Repeating, Last.Parking, Last.Idle));
-		View.Summary.Add(FString::Printf(TEXT("Busy on trips %s of the time over the last %d min."), *Percent(BusyShareNow), FMath::Max(1, View.WindowMinutes)));
-		if (BusyShareNow >= SaturatedShare)
+		View.Summary.Add(FString::Printf(TEXT("%d managed trains: %d driving a trip (%d of them standing still), %d at a stop, %d repeating their last job (free for new trips), %d going to park, %d idle."),
+			Last.Managed, Last.Driving, Last.Standing, Last.Docked, Last.Repeating, Last.Parking, Last.Idle));
+		View.Summary.Add(FString::Printf(TEXT("Busy on trips %s of the time over the last %d min (moving or at a stop); standing still on trips %s."), *Percent(BusyShareNow),
+			FMath::Max(1, View.WindowMinutes), *Percent(StandingShareNow)));
+		if (StandingShareNow >= StandingShare)
 		{
-			View.Summary.Add(TEXT("Fleet saturated: nearly every train is on a trip all the time. Items waiting for trains (Trains busy elsewhere) need more trains; better planning can't make up for it."));
+			View.Summary.Add(TEXT("Congested: trains stand still on their trips much of the time, queueing for stations or held at signals. Fewer, fuller visits help (shuttles, stops that carry more); more trains would only queue too."));
+		}
+		else if (BusyShareNow >= SaturatedShare)
+		{
+			View.Summary.Add(TEXT("Fleet saturated: nearly every train is moving on a trip or at a stop all the time. Items waiting for trains (Trains busy elsewhere) need more trains; better planning can't make up for it."));
 		}
 	}
 	else

@@ -74,10 +74,13 @@ struct FSTRosterRoute
 	double RoundTrip = 0.0;
 	// Share of trains it needs: flow x round trip / average load of the trains that fit.
 	double Trains = 0.0;
-	// Managed trains whose cars fit it at both ends.
+	// Managed trains whose cars fit it at both ends, what each carries per trip, and whether all its freight cars fit.
 	TArray<TWeakObjectPtr<AFGTrain>> Fitting;
+	TArray<int32> Capacity;
+	TArray<bool> Whole;
 
-	FString GetKey() const { return FString::Printf(TEXT("%p|%p|%p"), From.Get(), To.Get(), Item.Get()); }
+	static FString MakeKey(const void* From, const void* To, const void* Item) { return FString::Printf(TEXT("%p|%p|%p"), From, To, Item); }
+	FString GetKey() const { return MakeKey(From.Get(), To.Get(), Item.Get()); }
 };
 
 // A train's part of the roster: routes (indices into the roster) it runs in turn, the next one, and how much of the
@@ -89,6 +92,8 @@ struct FSTRosterDuty
 	TArray<double> Shares;
 	int32 Next = 0;
 	double Load = 0.0;
+	// The whole train runs its one route (a shuttle).
+	bool bShuttle = false;
 };
 
 // Why an asking platform has no request trip yet.
@@ -419,6 +424,10 @@ private:
 	TArray<FSTRosterRoute> mPendingRoster;
 	// Flow plans in a row each route has been in (by route key), for joining the roster.
 	TMap<FString, int32> mRouteSeen;
+	// Shuttles per route key: only they plan that pickup and delivery, unless the supplier is full.
+	TMap<FString, TArray<TWeakObjectPtr<AFGTrain>>> mShuttles;
+	// True if a shuttle other than Train runs Item From -> To.
+	bool IsShuttleRoute(const AFGTrain* Train, const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, const UClass* Item) const;
 
 	FSTSettings mSettings;
 	// Planned flow per (supplier node key, consumer node key), items per second, from the last flow plan.

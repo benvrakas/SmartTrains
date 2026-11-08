@@ -65,6 +65,12 @@ namespace
 	constexpr double RosterMinCarShare = 0.25;
 	// Roster: flow plans in a row a route must be in before it joins.
 	constexpr int32 RosterStablePlans = 3;
+	// A route gets a shuttle (a whole train running only it) while what it still needs is at least this much of that
+	// train; it keeps one while it needs at least ShuttleKeepTrains. [trains]
+	constexpr double ShuttleMinTrains = 0.7;
+	constexpr double ShuttleKeepTrains = 0.5;
+	// Most of the managed trains that may be shuttles.
+	constexpr double ShuttleFleetShare = 0.6;
 	// Horizon search: stops after this many tries in a row that found nothing better.
 	constexpr int32 HorizonStaleTries = 6;
 	// Horizon planner: a train is emptied only for platforms that fall below target within this. [s]
@@ -2935,6 +2941,7 @@ void ASTSubsystem::PlanFlows()
 	{
 		mRosterRoutes.Reset();
 		mRoster.Reset();
+		mShuttles.Reset();
 		UE_LOG(LogSmartTrains, Log, TEXT("ROSTER: off"));
 	}
 	mPendingRoster.Reset();
@@ -2960,10 +2967,11 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 	mRouteSeen = MoveTemp(Seen);
 	Routes.Sort([](const FSTRosterRoute& A, const FSTRosterRoute& B) { return A.Trains != B.Trains ? A.Trains > B.Trains : A.GetKey() < B.GetKey(); });
 
-	// The previous roster per route: its trains needed and each train's share of it.
+	// The previous roster per route: its trains needed, its shuttles and each other train's share of it.
 	struct FOld
 	{
 		double Trains = 0.0;
+		TArray<TWeakObjectPtr<AFGTrain>> Shuttles;
 		TArray<TPair<TWeakObjectPtr<AFGTrain>, double>> Shares;
 	};
 	TMap<FString, FOld> Old;
@@ -2975,9 +2983,18 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 	{
 		for (int32 Index = 0; Index < Pair.Value.Routes.Num(); ++Index)
 		{
-			if (mRosterRoutes.IsValidIndex(Pair.Value.Routes[Index]))
+			if (!mRosterRoutes.IsValidIndex(Pair.Value.Routes[Index]))
 			{
-				Old.FindOrAdd(mRosterRoutes[Pair.Value.Routes[Index]].GetKey()).Shares.Add({Pair.Key, Pair.Value.Shares[Index]});
+				continue;
+			}
+			FOld& Before = Old.FindOrAdd(mRosterRoutes[Pair.Value.Routes[Index]].GetKey());
+			if (Pair.Value.bShuttle)
+			{
+				Before.Shuttles.Add(Pair.Key);
+			}
+			else
+			{
+				Before.Shares.Add({Pair.Key, Pair.Value.Shares[Index]});
 			}
 		}
 	}
@@ -3003,20 +3020,102 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 		}
 		Duty.Load += Share;
 	};
-	// First the shares routes already had: all of them while the trains a route needs changed by less than
-	// RosterKeepShare, else as many as it still needs. Then what routes still need, from trains that fit them with room:
-	// their previous trains first, then the least loaded.
+	auto IsShuttle = [&Duties](const TWeakObjectPtr<AFGTrain>& Train)
+	{
+		const FSTRosterDuty* Duty = Duties.Find(Train);
+		return Duty && Duty->bShuttle;
+	};
+	// Shuttles first: a route that keeps a whole train busy gets whole trains whose freight cars all fit it, each running
+	// only that route. Its shuttles from before stay while it still needs ShuttleKeepTrains of them; then routes, biggest
+	// first, take the trains that carry most while they still need ShuttleMinTrains of one.
+	int32 Managed = 0;
+	for (const FSTTrainState& State : mTrains)
+	{
+		Managed += State.bManaged && IsValid(State.Train) ? 1 : 0;
+	}
+	const int32 MaxShuttles = FMath::FloorToInt(ShuttleFleetShare * Managed);
+	int32 Shuttles = 0;
+	TArray<double> Covered;
+	TArray<int32> RouteShuttles;
+	Covered.SetNumZeroed(Routes.Num());
+	RouteShuttles.SetNumZeroed(Routes.Num());
+	auto IsWhole = [](const FSTRosterRoute& Each, int32 Fit)
+	{
+		return Each.Whole.IsValidIndex(Fit) && Each.Whole[Fit] && Each.Capacity.IsValidIndex(Fit);
+	};
+	auto StillNeeds = [&](int32 Route, int32 Fit)
+	{
+		const FSTRosterRoute& Each = Routes[Route];
+		return (Each.Flow * Each.RoundTrip - Covered[Route]) / FMath::Max(1, Each.Capacity[Fit]);
+	};
+	auto MakeShuttle = [&](int32 Route, int32 Fit)
+	{
+		FSTRosterDuty& Duty = Duties.FindOrAdd(Routes[Route].Fitting[Fit]);
+		Duty.Routes = {Route};
+		Duty.Shares = {1.0};
+		Duty.Load = 1.0;
+		Duty.bShuttle = true;
+		Covered[Route] += Routes[Route].Capacity[Fit];
+		++RouteShuttles[Route];
+		++Shuttles;
+	};
+	for (int32 Route = 0; Route < Routes.Num(); ++Route)
+	{
+		const FOld* Before = Old.Find(Routes[Route].GetKey());
+		for (const TWeakObjectPtr<AFGTrain>& Train : Before ? Before->Shuttles : TArray<TWeakObjectPtr<AFGTrain>>())
+		{
+			const int32 Fit = Routes[Route].Fitting.IndexOfByKey(Train);
+			if (Shuttles < MaxShuttles && Fit != INDEX_NONE && Train.IsValid() && IsWhole(Routes[Route], Fit) && !Duties.Contains(Train)
+				&& StillNeeds(Route, Fit) >= ShuttleKeepTrains)
+			{
+				MakeShuttle(Route, Fit);
+			}
+		}
+	}
+	for (int32 Route = 0; Route < Routes.Num(); ++Route)
+	{
+		const FSTRosterRoute& Each = Routes[Route];
+		const FOld* Before = Old.Find(Each.GetKey());
+		while (Shuttles < MaxShuttles)
+		{
+			int32 Best = INDEX_NONE;
+			bool bBestPrevious = false;
+			for (int32 Fit = 0; Fit < Each.Fitting.Num(); ++Fit)
+			{
+				if (!IsWhole(Each, Fit) || !Each.Fitting[Fit].IsValid() || Duties.Contains(Each.Fitting[Fit]))
+				{
+					continue;
+				}
+				const bool bPrevious = Before && Before->Shares.ContainsByPredicate([&](const TPair<TWeakObjectPtr<AFGTrain>, double>& Share) { return Share.Key == Each.Fitting[Fit]; });
+				if (Best == INDEX_NONE || Each.Capacity[Fit] > Each.Capacity[Best] || (Each.Capacity[Fit] == Each.Capacity[Best] && bPrevious && !bBestPrevious))
+				{
+					Best = Fit;
+					bBestPrevious = bPrevious;
+				}
+			}
+			if (Best == INDEX_NONE || StillNeeds(Route, Best) < ShuttleMinTrains)
+			{
+				break;
+			}
+			MakeShuttle(Route, Best);
+		}
+	}
+	// Then the shares routes already had, for what their shuttles don't carry: all of them while the trains a route
+	// needs changed by less than RosterKeepShare and its shuttles are the same, else as many as it still needs. Then what
+	// routes still need, from trains that fit them with room: their previous trains first, then the least loaded.
 	TArray<double> Needed;
 	for (int32 Route = 0; Route < Routes.Num(); ++Route)
 	{
 		const FSTRosterRoute& Each = Routes[Route];
-		double Need = Each.Trains;
+		const double PerTrip = Each.Flow * Each.RoundTrip;
+		double Need = PerTrip > 0.0 ? Each.Trains * FMath::Max(0.0, 1.0 - Covered[Route] / PerTrip) : Each.Trains;
 		if (const FOld* Before = Old.Find(Each.GetKey()))
 		{
-			const bool bKeep = FMath::Abs(Each.Trains - Before->Trains) <= RosterKeepShare * FMath::Max(Before->Trains, RosterMinShare);
+			const bool bKeep = RouteShuttles[Route] == Before->Shuttles.Num()
+				&& FMath::Abs(Each.Trains - Before->Trains) <= RosterKeepShare * FMath::Max(Before->Trains, RosterMinShare);
 			for (const TPair<TWeakObjectPtr<AFGTrain>, double>& Share : Before->Shares)
 			{
-				if (!Share.Key.IsValid() || !Each.Fitting.Contains(Share.Key) || (!bKeep && Need < RosterMinShare))
+				if (!Share.Key.IsValid() || !Each.Fitting.Contains(Share.Key) || IsShuttle(Share.Key) || (!bKeep && Need < RosterMinShare))
 				{
 					continue;
 				}
@@ -3083,7 +3182,7 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 		{
 			OldKeys.Add(mRosterRoutes.IsValidIndex(Route) ? mRosterRoutes[Route].GetKey() : FString());
 		}
-		if (Previous && Keys == OldKeys)
+		if (Previous && Keys == OldKeys && Previous->bShuttle == Duty.bShuttle)
 		{
 			Duty.Next = Previous->Next;
 		}
@@ -3097,11 +3196,19 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 	const bool bAnyChange = Moved > 0 || Routes.Num() != mRosterRoutes.Num();
 	mRosterRoutes = MoveTemp(Routes);
 	mRoster = MoveTemp(Duties);
+	mShuttles.Reset();
+	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : mRoster)
+	{
+		if (Pair.Value.bShuttle && Pair.Value.Routes.Num() > 0)
+		{
+			mShuttles.FindOrAdd(mRosterRoutes[Pair.Value.Routes[0]].GetKey()).Add(Pair.Key);
+		}
+	}
 	if (!bAnyChange)
 	{
 		return;
 	}
-	UE_LOG(LogSmartTrains, Log, TEXT("ROSTER: %d routes on %d trains, %d trains' duties changed%s"), mRosterRoutes.Num(), mRoster.Num(), Moved,
+	UE_LOG(LogSmartTrains, Log, TEXT("ROSTER: %d routes on %d trains (%d shuttles), %d trains' duties changed%s"), mRosterRoutes.Num(), mRoster.Num(), Shuttles, Moved,
 		Short > 0 ? *FString::Printf(TEXT(", %d routes short of fitting trains (the horizon planner covers them)"), Short) : TEXT(""));
 	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : mRoster)
 	{
@@ -3110,6 +3217,12 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 			UE_LOG(LogSmartTrains, Log, TEXT("ROSTER %s: %s (%.2f of a train)"), *STLayout::Name(Pair.Key.Get()), *DescribeDuty(Pair.Value), Pair.Value.Load);
 		}
 	}
+}
+
+bool ASTSubsystem::IsShuttleRoute(const AFGTrain* Train, const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, const UClass* Item) const
+{
+	const TArray<TWeakObjectPtr<AFGTrain>>* Shuttles = mShuttles.Find(FSTRosterRoute::MakeKey(From, To, Item));
+	return Shuttles && !Shuttles->ContainsByPredicate([Train](const TWeakObjectPtr<AFGTrain>& Each) { return Each.Get() == Train; });
 }
 
 FString ASTSubsystem::DescribeDuty(const FSTRosterDuty& Duty) const
@@ -3123,7 +3236,7 @@ FString ASTSubsystem::DescribeDuty(const FSTRosterDuty& Duty) const
 			Parts.Add(FString::Printf(TEXT("%s %s -> %s"), *STNames::Item(Each.Item.Get()), *STLayout::Name(Each.From.Get()), *STLayout::Name(Each.To.Get())));
 		}
 	}
-	return FString::Join(Parts, TEXT(", then "));
+	return (Duty.bShuttle ? FString(TEXT("shuttle: ")) : FString()) + FString::Join(Parts, TEXT(", then "));
 }
 
 void ASTSubsystem::AddPlannedRoute(const TArray<FSTNode>& Nodes, int32 From, int32 To, double Flow, float Time, FAdvice& Advice)
@@ -3159,6 +3272,13 @@ void ASTSubsystem::AddPlannedRoute(const TArray<FSTNode>& Nodes, int32 From, int
 			++Fitting;
 			Load += Fit.Capacity;
 			Route.Fitting.Add(State.Train.Get());
+			Route.Capacity.Add(Fit.Capacity);
+			int32 Wagons = 0;
+			for (AFGRailroadVehicle* Vehicle : STLayout::GetVehicles(State.Train))
+			{
+				Wagons += Cast<AFGFreightWagon>(Vehicle) ? 1 : 0;
+			}
+			Route.Whole.Add(Fit.Cars.Num() >= Wagons);
 		}
 	}
 	if (Fitting > 0)

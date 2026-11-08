@@ -204,6 +204,10 @@ private:
 	// Other trains booked at Station that are still there at Reach (when this train could get there) or dock before
 	// Dock (when it can dock): the docked one and those waiting with it.
 	int32 CountAhead(const AFGTrainStationIdentifier* Station, double Reach, double Dock) const;
+	// Other trains booked at Station between From and Until.
+	int32 CountNear(const AFGTrainStationIdentifier* Station, double From, double Until) const;
+	// How much Cargo ties its car down: 0 empty, NeededSoonShare if every item is wanted soon, else 1.
+	double GetTiedShare(const TArray<TPair<UClass*, double>>& Cargo) const;
 	double GetAvailable(int32 Node, double Arrive) const;
 	// What platform info index Info of supply node Node can give until Until seconds from now: its stock, its share of
 	// the node's rate, less the pickups promised at it and its share of promises made at no known platform.
@@ -228,6 +232,8 @@ private:
 	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& mBookings;
 	TMap<TTuple<const AFGTrainStationIdentifier*, UClass*, bool>, int32> mNodeIndex;
 	TMap<const AFGTrainStationIdentifier*, int32> mAnyNode;
+	// Items a demand platform falls below target of within the forecast horizon.
+	TSet<UClass*> mNeededSoon;
 	double mTime = 0.0;
 	double mStarted = 0.0;
 	double mDeadline = 0.0;

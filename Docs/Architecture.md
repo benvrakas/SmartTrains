@@ -179,6 +179,15 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   and fairness weights: a delivery that ends a shortfall sooner is worth more, one to a platform that stays above its
   target within the hour is worth nothing. Moves only go to consumers that fall below target within the hour
   (`Deadline`). Trips still score value / time; the send-at batch rule stays.
+- **Stop cost** (0.7.3): each stop costs `StopCostValue` (1 car-load minute), once more for every other train booked
+  at that station within `StopNearSeconds` (2 minutes) of the visit. The server log of 2026-11-08 showed why: value
+  counted only how full each car got, so three trains bringing a car or two of sulfur each scored like one train
+  bringing four, while each visit held the station and the others queued (98 trips rejected for the queue at RockPow
+  Sulfur SNK in 40 minutes). A stop now has to carry enough to be worth holding its station.
+- **Tied cars** (0.7.3): a car still holding cargo after a trip can only take that item next. Each car's change in
+  `GetTiedShare` (0 empty, `NeededSoonShare` 0.25 when every item it holds is wanted by a demand platform within the
+  hour (`mNeededSoon`), else 1) is worth `TiedCarValue` (2 car-load minutes): a trip that empties a car gains it, one
+  that leaves leftovers pays it. It is a cost, not a rule, so no train detours just to dump a few items.
 
 ### Horizon planner (`HorizonRound`, 0.7.0; setting **Horizon planner**, on)
 
@@ -214,9 +223,17 @@ trains that fit it at both ends (`AddPlannedRoute`; the same route from several 
 - **Joining**: a route joins once the flow plan has had it `RosterStablePlans` (3) times in a row (`mRouteSeen`); it stays
   while the flow plan has it. (0.7.1 rebuilt every duty whenever the route list changed: 50 times in 30 minutes on the
   server while the flow plan's measurements filled in.)
-- **Duties** (`FSTRosterDuty`: routes, each one's share of the train, `Load` their sum, at most one train): first every
-  route keeps the shares it had, all of them while its trains needed changed by less than `RosterKeepShare` (a quarter),
-  else as many as it still needs. Then routes, biggest first, take what they still need from trains that fit them
+- **Shuttles** (0.7.3): a route that keeps a whole train busy gets whole trains whose freight cars all fit it
+  (`FSTRosterRoute::Whole`), each running only that route (`FSTRosterDuty::bShuttle`), like a unit train: one dock
+  fills every car instead of several trains each taking a car or two. A route keeps its shuttles while what it still
+  needs is at least `ShuttleKeepTrains` (half) of each; then routes, biggest first, take the trains that carry most
+  (`Capacity`) while they still need `ShuttleMinTrains` (0.7) of one. At most `ShuttleFleetShare` (60 %) of the managed
+  trains are shuttles. Other trains don't plan a shuttle's pickup and delivery (`IsShuttleRoute`) unless the supplier
+  is full; other suppliers and consumers of the item stay open to them. (0.7.2 shared the sulfur route Crater Lake ->
+  RockPow, 0.97 trains, over the trains as slices, and other trains kept taking sulfur from the same station.)
+- **Duties** (`FSTRosterDuty`: routes, each one's share of the train, `Load` their sum, at most one train): for what
+  shuttles don't carry, first every route keeps the shares it had, all of them while its trains needed changed by less than `RosterKeepShare` (a quarter),
+  else as many as it still needs (all only while its shuttles are the same). Then routes, biggest first, take what they still need from trains that fit them
   with room: their previous trains first, then the least loaded. Routes no fitting train has room for are left to the
   horizon planner. A train keeps its place in its routes (`Next`) while they are the same ones. ROSTER lines log the
   trains whose duties changed.
@@ -601,6 +618,12 @@ while the window is open. `/st monitor text` and the server console print the sa
 soonest first; **Unreachable** rows (`AddUnreachable`) for supply platforms holding stock and demand platforms that ran
 out that no managed train has a car of their kind beside, in any way it docks (learned or predicted dock maps), such as
 Nitric Acid SRC P2/P3 on the server; and a **Fleet saturated** line when trains are on trips 85 % of the time or more.
+
+**Congestion (0.7.3)**: a driving train slower than `StandingSpeed` (1 m/s) counts as standing still (queueing for a
+station or held at signals). Busy means moving on a trip or at a stop; standing is shown apart. **Congested** shows
+when trains stand still on trips 15 % of the time or more (`StandingShare`); **Fleet saturated** only when they are not
+congested and busy 85 % of the time or more. 0.7.2 counted standing as busy and said to build more trains while the
+fleet queued at a few stations.
 
 ## Pool tags (removed in 0.4.0)
 

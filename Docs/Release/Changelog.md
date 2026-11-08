@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.3 (beta)
+
+- **Shuttles.** A route big enough to keep a whole train busy, like sulfur from Crater Lake to RockPow on the server,
+  now gets a train whose cars all fit it, running only that route. One dock fills every car, instead of several
+  trains each picking up a car or two and queueing for the station. Other trains leave that pickup and delivery to
+  the shuttle unless the supplier is full. The roster shows shuttles in the log (ROSTER) and in the monitor.
+- **Every stop costs a little**, more at a station other trains are using at the time. Before, a trip's value only
+  counted how full its cars got, so three trains bringing a car each scored like one train bringing three, and each
+  visit blocked the station for the others. Trips now gather more per stop and make fewer stops.
+- **Trips that leave cars empty are preferred.** A car still holding cargo after a trip can only take that item
+  next; a trip that empties a car counts that as a gain, one that leaves leftovers as a cost (less when the leftover
+  is wanted somewhere soon). No train detours just to dump a few items.
+- **Monitor: Congested instead of Fleet saturated.** A train standing still on a trip (queueing for a station or at
+  signals) was counted as busy, so the monitor said to build more trains while the fleet queued at a few stations.
+  Standing still is now shown apart, with a **Congested** line when it is 15 % of the time or more.
+
 ## 0.7.2 (beta)
 
 - **The roster really stays steady.** 0.7.1 worked every duty out again whenever the flow plan's list of routes

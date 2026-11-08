@@ -32,7 +32,11 @@ them (see below).
   menu for the classic planner, which gives each free train its best next trip.
 - **Steady roster (beta, on):** with the horizon planner, the routes of the flow plan are shared out over the trains
   that fit them and each train runs its routes in turn, like a timetable, while rates stay the same. The planner only
-  corrects for what the roster doesn't cover.
+  corrects for what the roster doesn't cover. A route big enough to keep a whole train busy gets a **shuttle**: a train
+  whose cars all fit it runs only that route, like a unit train, and other trains leave that pickup and delivery to it.
+- **Fewer, fuller visits:** every stop costs a little, more at a station other trains are using, so trains don't queue
+  up to fetch a car or two each. Trips that leave cars empty, free for any item next, are preferred over trips that
+  leave leftovers.
 - **Trips:** one trip can visit up to 4 stations and serve several platforms and items. It plans car by car: which
   car loads what where, and which car unloads where. After every stop the rest of the trip is planned again from what
   the cars really hold.
