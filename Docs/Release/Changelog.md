@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.5 (beta)
+
+- **Idle trains stop moving cargo nobody planned.** With no free depot, a train with nothing to do keeps driving its
+  last trip so it doesn't block the line, but its stops no longer load or unload. On the server these loops were
+  almost half of all jobs and nearly all of them delivered nothing, while loading cargo no one asked for.
+- **Depots hold one train each.** An idle train only goes to a depot no other train is at or heading for, and a train
+  moved out of a busy depot goes to another free depot first. The monitor says how many trains loop because no depot
+  is free.
+- **Full suppliers count properly.** A full platform can't take anything from its belts, so its measured supply was
+  only what trains took (coal: 207/min counted while it was backing up, against 685/min of demand). A full supplier
+  now also offers its stock, so the flow plan gives it the trains it needs.
+- **Shuttles per item.** Shuttles are now sized by everything an item needs, not per supplier and consumer pair: sulfur
+  needed two trains over three routes, so no route alone kept its shuttle. A shuttle now runs all of its item's routes.
+- **Shuttles carry full loads.** A shuttle takes the route that delivers most, and only leaves with at least half a
+  train; before, a quarter of one car was enough.
+- **No tiny pickups.** A car doesn't load less than a twentieth of a car of an item.
+
 ## 0.7.4 (beta)
 
 - **Shuttles actually shuttle.** In 0.7.3 a train made a shuttle in the middle of a trip kept getting new stops added

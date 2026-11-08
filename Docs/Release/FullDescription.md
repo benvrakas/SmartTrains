@@ -32,8 +32,9 @@ them (see below).
   menu for the classic planner, which gives each free train its best next trip.
 - **Steady roster (beta, on):** with the horizon planner, the routes of the flow plan are shared out over the trains
   that fit them and each train runs its routes in turn, like a timetable, while rates stay the same. The planner only
-  corrects for what the roster doesn't cover. A route big enough to keep a whole train busy gets a **shuttle**: a train
-  whose cars all fit it runs only that route, like a unit train, and other trains leave that pickup and delivery to it.
+  corrects for what the roster doesn't cover. An item that keeps a whole train busy gets a **shuttle**: a train whose
+  cars all fit it runs only that item's routes with full loads, like a unit train, and other trains leave those
+  pickups and deliveries to it.
 - **Fewer, fuller visits:** every stop costs a little, more at a station other trains are using, so trains don't queue
   up to fetch a car or two each. Trips that leave cars empty, free for any item next, are preferred over trips that
   leave leftovers.
@@ -52,7 +53,10 @@ them (see below).
   busy station at once, so trains don't queue across junctions. Switch **Trains leave stations at once** off for the old behaviour: deliveries and pickups wait up
   to their longest wait, and a train whose next station is busy waits in its station.
 - **No parking** (default): a train with no new trip runs its last job again, like a timetable loop, until a new trip
-  is worth it, or waits at a **depot** (a rail yard: switch it on under the station's name in the station menu). With **Repeat the last job instead of parking** off, idle trains park at a depot
+  is worth it, or waits at a **depot** (a rail yard: switch it on under the station's name in the station menu). A
+  depot holds one train, so set one station as a depot per train you expect to be idle, best ones without supply or
+  demand platforms and off the main line. With no free depot, an idle train drives its last trip's stops without
+  moving anything. With **Repeat the last job instead of parking** off, idle trains park at a depot
   or where they finished, and move to a depot or a free station when a trip needs their station.
 - **Dead ends:** a train parked in a dead-end station keeps it until it leaves, so no second train is sent into a
   bay it couldn't enter.

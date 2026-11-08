@@ -183,6 +183,8 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   `QueueLookSeconds` (5 minutes); later arrivals still wait for bookings but aren't rejected. In the 0.7.3 log trains
   stood still only 3 % of their trip time, while 292 trips were rejected for "would queue at RockPow- Sulfur SNK" in
   35 minutes: bookings of long plans 20 minutes ahead, whose times change anyway.
+- **Least load** (0.7.5): a car loads an item only if it takes at least `MinLoadShare` (a twentieth) of a car of it.
+  112 of 720 planned car transfers in the 0.7.4 log were 200 items or fewer, often top-ups like "loads 0 of 26".
 - **Slow-draining platforms** (0.7.4): an unloading platform that took less than half of what was planned
   (`SlowDrainShare`) counts no drain in its predicted room for 30 minutes (`mSlowDrainUntil`, SLOWDRAIN lines). Room
   assumed the node's use drained each platform in proportion to its stock; RockPow Coal P1 sat full while P2 drained.
@@ -239,6 +241,16 @@ trains that fit it at both ends (`AddPlannedRoute`; the same route from several 
   trains are shuttles. Other trains don't plan a shuttle's pickup and delivery (`IsShuttleRoute`) while a shuttle is
   running it (free, or its job still loads at the route's supplier or unloads at its consumer), unless the supplier
   is full; other suppliers and consumers of the item stay open to them.
+- **Shuttles per item** (0.7.5): shuttles are sized per item, not per route. An item's need is the sum of its
+  routes' flow × round trip (`FItemNeed`); its shuttles are whole trains on its biggest route, and each runs all of
+  the item's routes it fits whole, with shares in proportion to what each carries. What shuttles carry counts against
+  the routes they run in the same proportion (`Covered`). The 0.7.4 log showed why: sulfur needed 1.5 to 2.0 trains,
+  but over three routes of about 0.6 each, so each route's shuttle came and went every few minutes (0 to 2 shuttles,
+  none in 52 of 194 roster builds), and copper shuttles swapped between three consumers.
+- **Full loads for shuttles** (0.7.5): a shuttle's roster trip takes the route whose trip delivers most, and only if
+  that is at least `ShuttleLoadShare` (half) of what the train carries there; other rostered trains keep the quarter
+  of a car rule. Plain sulfur trips carried on average 3,800 of 12,800 in the 0.7.4 log, and 32 of 52 sulfur pickups
+  filled one car.
 - **Getting shuttles going** (0.7.4): a train made a shuttle mid-trip drops the pickups left in its trip (but its
   route's) at the next re-plan, and re-plans and horizon plans only add deliveries of what it carries
   (`SetDeliveriesOnly`), so it is free for its route within a stop or two. The 0.7.3 log showed why: re-plans kept
@@ -274,11 +286,16 @@ the cargo on board and the stations now; stops whose cars move nothing are dropp
 run when nothing is left, the simulation fails (queue limit, batch), or another managed train's remaining stops are
 the same stations. Repeats book nothing (`BuildBookings`) and reserve nothing, and a repeat ends at every stop it
 leaves, so the train is planned again from there. When the repeat isn't run, the train goes to a depot if there is
-one and tries again from there every 30 s (`RepeatRetrySeconds`). With no depot it keeps running its last trip as it
-was until it gets a new one (`KeepRunningLastJob`, no simulation; like any repeat it books nothing, a new trip can
-take the train at any time, and it ends at the next stop it leaves), so it keeps moving: a waiting train has self-driving off, and Auto
-Trains treats it as standing there for good, so on a through line or single track it would block every train
-passing.
+one and tries again from there every 30 s (`RepeatRetrySeconds`). A depot holds one train: `FindDepot` only picks a
+depot no other train is docked or parked at and no managed job still goes to (`IsDepotTaken`, 0.7.5), and a parked
+train moved out of a station a trip needs goes to another free depot first, then to the nearest station no trip needs.
+With no free depot it keeps running its last trip's stops, moving nothing (`KeepRunningLastJob`, `FSTJob::bLoop`, no
+simulation; like any repeat it books nothing, a new trip can take the train at any time, and it ends at the next stop
+it leaves), so it keeps moving: a waiting train has self-driving off, and Auto Trains treats it as standing there for
+good, so on a through line or single track it would block every train passing. Until 0.7.5 these loops moved what the
+last trip had moved: in the 0.7.4 log they were 252 of 575 finished jobs, 226 of them delivered nothing, they loaded
+cargo nobody had planned, and 74 of the 118 SLOWDRAIN lines came from them (a full platform "taking 0 of" a copied
+plan). The monitor shows how many trains loop and suggests more depots.
 
 **Delivery reservations per platform:** like pickups, a planned delivery records its platform. `GetPlatformRoom` is
 the platform's free room plus what its machines use before the train arrives, less the deliveries promised to it and
@@ -403,7 +420,10 @@ more than half the managed trains carry unwanted cargo.
 Each tier is an exact **minimum-cost flow** (`STMinCostFlow`, successive shortest paths with Bellman-Ford). Source
 → supplier edges carry what is left of each supplier's rate, supplier → consumer edges cost the travel time, and
 consumer → sink edges carry the consumer's rate. Starved consumers count at 1.5 × their measured rate, and at least
-1 per minute. Later tiers get what is left. The result gives the fleet advice in `/st status`: trains needed = Σ
+1 per minute. A supplier at least `FullSupplyShare` (90 %) full also offers its stock spread over `FullStockSeconds`
+(30 minutes), 0.7.5: a full platform takes nothing from its belts, so its measured rate is only what trains took. In
+the 0.7.4 log Coal SRC A was full 94 % of the time and counted 207/min against 685/min of demand, so the flow plan
+saw coal as 0.2 trains and coal went a few hundred at a time on other trips. Later tiers get what is left. The result gives the fleet advice in `/st status`: trains needed = Σ
 flow × round trip ÷ average load of the managed trains that fit that route.
 
 ## Clock

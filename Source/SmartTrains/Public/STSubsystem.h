@@ -319,7 +319,10 @@ private:
 	// Switches the train's autopilot off where it stands until it gets a job.
 	void Park(FSTTrainState& State, const TCHAR* Why);
 	// Nearest depot for State's train, or nullptr.
-	AFGTrainStationIdentifier* FindDepot(const FSTTrainState& State, const AFGTrainStationIdentifier* From) const;
+	// The nearest depot (but Except) Train can reach that no other train is at or heading for.
+	AFGTrainStationIdentifier* FindDepot(const FSTTrainState& State, const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* Except = nullptr) const;
+	// Another train is docked or parked at Station, or a managed train's job still goes there.
+	bool IsDepotTaken(const AFGTrainStationIdentifier* Station, const AFGTrain* Except) const;
 	// Moves parked trains off stations a job needs.
 	void ClearNeededBays();
 	// For a train without a job: hands out jobs now, else sends it to a depot or parks it.

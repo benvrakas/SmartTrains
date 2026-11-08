@@ -120,6 +120,7 @@ void FSTThroughput::Sample(const ASTSubsystem& Subsystem)
 		else if (State.Job.bRepeat)
 		{
 			++Fleet.Repeating;
+			Fleet.Looping += State.Job.bLoop ? 1 : 0;
 		}
 		else if (State.Job.bPark)
 		{
@@ -331,6 +332,16 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		else if (BusyShareNow >= SaturatedShare)
 		{
 			View.Summary.Add(TEXT("Fleet saturated: nearly every train is moving on a trip or at a stop all the time. Items waiting for trains (Trains busy elsewhere) need more trains; better planning can't make up for it."));
+		}
+		if (Last.Looping > 0)
+		{
+			int32 Depots = 0;
+			for (const FSTStationConfig& Config : Subsystem.mStations)
+			{
+				Depots += Config.bDepot && IsValid(Config.Station) ? 1 : 0;
+			}
+			View.Summary.Add(FString::Printf(TEXT("%d trains with nothing to do drive their last trip without moving anything, because no depot is free (%d depots). A depot holds one train: set more stations as depots, best ones without supply or demand platforms off the main line, and idle trains wait there."),
+				Last.Looping, Depots));
 		}
 	}
 	else

@@ -1,3 +1,4 @@
+#include "Algo/StableSort.h"
 #include "Buildables/FGBuildableRailroadStation.h"
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "FGFreightWagon.h"
@@ -73,6 +74,12 @@ namespace
 	constexpr double ShuttleFleetShare = 0.6;
 	// Share of its travel time a route of the last flow plan costs in the next one, so near-equal routes don't swap.
 	constexpr double FlowKeepCost = 0.9;
+	// A shuttle's roster trip runs if it delivers at least this share of what the train carries on that route.
+	constexpr double ShuttleLoadShare = 0.5;
+	// Flow plan: a supplier at least this full backs up, so its measured rate (what trains took) is only a lower
+	// bound; it also offers its stock spread over FullStockSeconds. [s]
+	constexpr double FullSupplyShare = 0.9;
+	constexpr double FullStockSeconds = 1800.0;
 	// Horizon search: stops after this many tries in a row that found nothing better.
 	constexpr int32 HorizonStaleTries = 6;
 	// Horizon planner: a train is emptied only for platforms that fall below target within this. [s]
@@ -1755,9 +1762,12 @@ void ASTSubsystem::HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		{
 			return;
 		}
-		// A rostered train runs its routes in turn, the first that delivers at least a quarter of a car.
+		// A rostered train runs its routes in turn, the first that delivers at least a quarter of a car. A shuttle takes
+		// the route whose trip delivers most, if that is at least ShuttleLoadShare of what it carries on that route.
 		if (const FSTRosterDuty* Duty = mRoster.Find(mTrains[Plan.TrainIndex].Train.Get()))
 		{
+			const TWeakObjectPtr<AFGTrain> Train(mTrains[Plan.TrainIndex].Train.Get());
+			int32 BestUnloaded = 0;
 			for (int32 Step = 0; Step < Duty->Routes.Num(); ++Step)
 			{
 				const int32 RouteIndex = Duty->Routes[(Duty->Next + Step) % Duty->Routes.Num()];
@@ -1779,15 +1789,31 @@ void ASTSubsystem::HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				Drop.Station = Route.To.Get();
 				Drop.UnloadItems.Add(Item);
 				const FSTPlanResult TripResult = Planner.Simulate(Trip);
-				if (TripResult.bValid && FSTTripPlanner::CountUnloaded(Trip, TripResult, Item, Route.To.Get()) >= RosterMinCarShare * STLayout::GetCarCapacity(nullptr, Item))
+				const int32 Unloaded = TripResult.bValid ? FSTTripPlanner::CountUnloaded(Trip, TripResult, Item, Route.To.Get()) : 0;
+				double Least = RosterMinCarShare * STLayout::GetCarCapacity(nullptr, Item);
+				const int32 Fit = Route.Fitting.IndexOfByKey(Train);
+				if (Duty->bShuttle && Route.Capacity.IsValidIndex(Fit))
 				{
-					Plan.Stops = MoveTemp(Trip);
-					Plan.Result = TripResult;
-					Plan.Net = FMath::Max(NetOf(Plan, Plan.Stops, Plan.Result), 0.0);
-					Plan.RosterStep = Step;
-					Planner.Reserve(Plan.Stops, Plan.Result);
-					return;
+					Least = FMath::Max(Least, ShuttleLoadShare * Route.Capacity[Fit]);
 				}
+				if (!TripResult.bValid || Unloaded < Least || Unloaded <= BestUnloaded)
+				{
+					continue;
+				}
+				BestUnloaded = Unloaded;
+				Plan.Stops = MoveTemp(Trip);
+				Plan.Result = TripResult;
+				Plan.RosterStep = Step;
+				if (!Duty->bShuttle)
+				{
+					break;
+				}
+			}
+			if (Plan.RosterStep != INDEX_NONE)
+			{
+				Plan.Net = FMath::Max(NetOf(Plan, Plan.Stops, Plan.Result), 0.0);
+				Planner.Reserve(Plan.Stops, Plan.Result);
+				return;
 			}
 		}
 		// A shuttle whose route trip doesn't work now only delivers what it carries, then waits for its route.
@@ -1997,10 +2023,16 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	FString Before;
 	const bool bFresh = State.bReplanFresh;
 	State.bReplanFresh = false;
-	// A shuttle drops the pickups of the rest of its trip but its route's, and only delivers what it carries, so it is
-	// free for its route soon.
+	// A shuttle drops the pickups of the rest of its trip but its routes', and only delivers what it carries, so it is
+	// free for its routes soon.
 	const FSTRosterDuty* Shuttle = GetShuttleDuty(State.Train);
-	const FSTRosterRoute* ShuttleRoute = Shuttle && mRosterRoutes.IsValidIndex(Shuttle->Routes[0]) ? &mRosterRoutes[Shuttle->Routes[0]] : nullptr;
+	auto IsShuttlePickup = [&](const UClass* Item, const AFGTrainStationIdentifier* Station)
+	{
+		return Shuttle->Routes.ContainsByPredicate([&](int32 Route)
+		{
+			return mRosterRoutes.IsValidIndex(Route) && mRosterRoutes[Route].Item.Get() == Item && mRosterRoutes[Route].From.Get() == Station;
+		});
+	};
 	for (int32 Leg = State.Job.Leg; !bFresh && Leg < State.Job.Legs.Num(); ++Leg)
 	{
 		const FSTJobLeg& Each = State.Job.Legs[Leg];
@@ -2010,7 +2042,7 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 		Stop.UnloadItems = Each.GetItems(false);
 		if (Shuttle)
 		{
-			Stop.LoadItems.RemoveAll([&](UClass* Item) { return !ShuttleRoute || Item != ShuttleRoute->Item.Get() || Each.Station != ShuttleRoute->From.Get(); });
+			Stop.LoadItems.RemoveAll([&](UClass* Item) { return !IsShuttlePickup(Item, Each.Station.Get()); });
 		}
 	}
 	// The trip limit is for planning new trips: the rest of a trip under way is checked without it, and additions may
@@ -2175,8 +2207,9 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 	{
 		return;
 	}
-	// Nothing worth repeating: a train goes to a depot if there is one. With no depot, a train with a trip keeps running
-	// its last trip as it was until it gets a new one, so it never stands still on the line.
+	// Nothing worth repeating: a train goes to the nearest depot no other train is at or heading for. With none free, a
+	// train with a trip keeps running its last trip, moving nothing, until it gets a new one, so it never stands still
+	// on the line.
 	AFGTrainStationIdentifier* Depot = FindDepot(State, State.LastStation.Get());
 	if (Depot && Depot != State.LastStation)
 	{
@@ -2407,18 +2440,18 @@ bool ASTSubsystem::KeepRunningLastJob(FSTTrainState& State, const TCHAR* Why)
 			break;
 		}
 	}
+	// Its stops move nothing: what the last trip moved isn't planned now.
 	FSTJob Job;
 	Job.Id = mNextJobId++;
 	Job.bRepeat = true;
+	Job.bLoop = true;
 	Job.StartedAt = Now();
 	Job.LegStartedAt = Job.StartedAt;
 	for (int32 Offset = 0; Offset < Last.Legs.Num(); ++Offset)
 	{
 		FSTJobLeg Leg = Last.Legs[(First + Offset) % Last.Legs.Num()];
-		for (FSTCarWork& Work : Leg.Work)
-		{
-			Work.MovedAmount = 0;
-		}
+		Leg.Work.Reset();
+		Leg.SkipCars.Reset();
 		Job.Legs.Add(MoveTemp(Leg));
 	}
 	if (Job.Legs.Num() == 1 && Job.Legs[0].Station == Here)
@@ -2442,7 +2475,7 @@ bool ASTSubsystem::KeepRunningLastJob(FSTTrainState& State, const TCHAR* Why)
 		Stations.Add(STLayout::Name(Leg.Station.Get()));
 	}
 	State.Phase = ESTTrainPhase::Working;
-	CommitJob(State, MoveTemp(Job), FString::Printf(TEXT("%s: keeps running its last trip until it gets a new one (%s; nothing worth repeating, no depot): %s"), *STLayout::Name(State.Train), Why,
+	CommitJob(State, MoveTemp(Job), FString::Printf(TEXT("%s: keeps running its last trip, moving nothing, until it gets a new one (%s; nothing worth repeating, no free depot): %s"), *STLayout::Name(State.Train), Why,
 		*FString::Join(Stations, TEXT(" -> "))));
 	return true;
 }
@@ -2521,13 +2554,36 @@ void ASTSubsystem::Park(FSTTrainState& State, const TCHAR* Why)
 	UpdateTrainName(State);
 }
 
-AFGTrainStationIdentifier* ASTSubsystem::FindDepot(const FSTTrainState& State, const AFGTrainStationIdentifier* From) const
+bool ASTSubsystem::IsDepotTaken(const AFGTrainStationIdentifier* Station, const AFGTrain* Except) const
+{
+	for (const FSTTrainState& Other : mTrains)
+	{
+		if (Other.Train == Except || !IsValid(Other.Train))
+		{
+			continue;
+		}
+		if ((Other.Train->IsDocked() && Other.DockedStation.Get() == Station) || (Other.bManaged && Other.Phase == ESTTrainPhase::Parked && Other.LastStation.Get() == Station))
+		{
+			return true;
+		}
+		for (int32 Leg = Other.Job.Leg; Other.bManaged && Other.bHasJob && Leg < Other.Job.Legs.Num(); ++Leg)
+		{
+			if (Other.Job.Legs[Leg].Station.Get() == Station)
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+AFGTrainStationIdentifier* ASTSubsystem::FindDepot(const FSTTrainState& State, const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* Except) const
 {
 	AFGTrainStationIdentifier* Best = nullptr;
 	float BestTime = TNumericLimits<float>::Max();
 	for (const FSTStationConfig& Config : mStations)
 	{
-		if (!Config.bDepot || !IsValid(Config.Station) || !CanServe(State, Config.Station))
+		if (!Config.bDepot || !IsValid(Config.Station) || Config.Station == Except || !CanServe(State, Config.Station) || IsDepotTaken(Config.Station, State.Train))
 		{
 			continue;
 		}
@@ -2614,8 +2670,8 @@ void ASTSubsystem::ClearNeededBays()
 		{
 			continue;
 		}
-		AFGTrainStationIdentifier* Target = FindDepot(State, Here);
-		if (!Target || Target == Here)
+		AFGTrainStationIdentifier* Target = FindDepot(State, Here, Here);
+		if (!Target)
 		{
 			float BestTime = TNumericLimits<float>::Max();
 			Target = nullptr;
@@ -2871,7 +2927,11 @@ void ASTSubsystem::PlanFlows()
 			{
 				continue;
 			}
-			const double Rate = Node.Role == ESTRole::Demand && Node.bStarved ? FMath::Max(Node.Rate, 1.0 / 60.0) * 1.5 : Node.Rate;
+			double Rate = Node.Role == ESTRole::Demand && Node.bStarved ? FMath::Max(Node.Rate, 1.0 / 60.0) * 1.5 : Node.Rate;
+			if (Node.Role == ESTRole::Supply && Node.Capacity > 0 && Node.Stock >= FullSupplyShare * Node.Capacity)
+			{
+				Rate += Node.Stock / FullStockSeconds;
+			}
 			if (Rate <= 0.0)
 			{
 				continue;
@@ -2985,13 +3045,13 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 	mRouteSeen = MoveTemp(Seen);
 	Routes.Sort([](const FSTRosterRoute& A, const FSTRosterRoute& B) { return A.Trains != B.Trains ? A.Trains > B.Trains : A.GetKey() < B.GetKey(); });
 
-	// The previous roster per route: its trains needed, its shuttles and each other train's share of it.
+	// The previous roster per route: its trains needed and each other train's share of it; and each item's shuttles.
 	struct FOld
 	{
 		double Trains = 0.0;
-		TArray<TWeakObjectPtr<AFGTrain>> Shuttles;
 		TArray<TPair<TWeakObjectPtr<AFGTrain>, double>> Shares;
 	};
+	TMap<UClass*, TArray<TWeakObjectPtr<AFGTrain>>> OldShuttles;
 	TMap<FString, FOld> Old;
 	for (int32 Index = 0; Index < mRosterRoutes.Num(); ++Index)
 	{
@@ -2999,23 +3059,25 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 	}
 	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : mRoster)
 	{
+		if (Pair.Value.bShuttle && Pair.Value.Routes.Num() > 0 && mRosterRoutes.IsValidIndex(Pair.Value.Routes[0]))
+		{
+			OldShuttles.FindOrAdd(mRosterRoutes[Pair.Value.Routes[0]].Item.Get()).Add(Pair.Key);
+			continue;
+		}
 		for (int32 Index = 0; Index < Pair.Value.Routes.Num(); ++Index)
 		{
-			if (!mRosterRoutes.IsValidIndex(Pair.Value.Routes[Index]))
+			if (mRosterRoutes.IsValidIndex(Pair.Value.Routes[Index]))
 			{
-				continue;
-			}
-			FOld& Before = Old.FindOrAdd(mRosterRoutes[Pair.Value.Routes[Index]].GetKey());
-			if (Pair.Value.bShuttle)
-			{
-				Before.Shuttles.Add(Pair.Key);
-			}
-			else
-			{
-				Before.Shares.Add({Pair.Key, Pair.Value.Shares[Index]});
+				Old.FindOrAdd(mRosterRoutes[Pair.Value.Routes[Index]].GetKey()).Shares.Add({Pair.Key, Pair.Value.Shares[Index]});
 			}
 		}
 	}
+	// Whether Train had a share of any of Item's routes before.
+	auto WasOnItem = [this](const UClass* Item, const TWeakObjectPtr<AFGTrain>& Train)
+	{
+		const FSTRosterDuty* Previous = mRoster.Find(Train);
+		return Previous && Previous->Routes.ContainsByPredicate([&](int32 Route) { return mRosterRoutes.IsValidIndex(Route) && mRosterRoutes[Route].Item.Get() == Item; });
+	};
 
 	TMap<TWeakObjectPtr<AFGTrain>, FSTRosterDuty> Duties;
 	auto LoadOf = [&Duties](const TWeakObjectPtr<AFGTrain>& Train)
@@ -3043,9 +3105,10 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 		const FSTRosterDuty* Duty = Duties.Find(Train);
 		return Duty && Duty->bShuttle;
 	};
-	// Shuttles first: a route that keeps a whole train busy gets whole trains whose freight cars all fit it, each running
-	// only that route. Its shuttles from before stay while it still needs ShuttleKeepTrains of them; then routes, biggest
-	// first, take the trains that carry most while they still need ShuttleMinTrains of one.
+	// Shuttles first, per item: an item whose roster routes together keep a whole train busy gets whole trains, each
+	// running only the item's routes it fits whole (like a unit train for the item). An item keeps its shuttles from
+	// before while it still needs ShuttleKeepTrains of each; then items, biggest first, take the trains that carry most
+	// while they still need ShuttleMinTrains of one.
 	int32 Managed = 0;
 	for (const FSTTrainState& State : mTrains)
 	{
@@ -3054,70 +3117,149 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 	const int32 MaxShuttles = FMath::FloorToInt(ShuttleFleetShare * Managed);
 	int32 Shuttles = 0;
 	TArray<double> Covered;
-	TArray<int32> RouteShuttles;
 	Covered.SetNumZeroed(Routes.Num());
-	RouteShuttles.SetNumZeroed(Routes.Num());
+	// Per item: its routes (biggest first, as Routes is sorted), what they carry per round trip and what its shuttles
+	// carry.
+	struct FItemNeed
+	{
+		TArray<int32> Routes;
+		double PerTrip = 0.0;
+		double Covered = 0.0;
+		int32 Shuttles = 0;
+	};
+	TMap<UClass*, FItemNeed> ItemNeeds;
+	TArray<UClass*> ItemOrder;
+	for (int32 Route = 0; Route < Routes.Num(); ++Route)
+	{
+		UClass* Item = Routes[Route].Item.Get();
+		if (!Item)
+		{
+			continue;
+		}
+		if (!ItemNeeds.Contains(Item))
+		{
+			ItemOrder.Add(Item);
+		}
+		FItemNeed& Need = ItemNeeds.FindOrAdd(Item);
+		Need.Routes.Add(Route);
+		Need.PerTrip += Routes[Route].Flow * Routes[Route].RoundTrip;
+	}
+	Algo::StableSort(ItemOrder, [&](UClass* A, UClass* B) { return ItemNeeds[A].PerTrip > ItemNeeds[B].PerTrip; });
 	auto IsWhole = [](const FSTRosterRoute& Each, int32 Fit)
 	{
 		return Each.Whole.IsValidIndex(Fit) && Each.Whole[Fit] && Each.Capacity.IsValidIndex(Fit);
 	};
-	auto StillNeeds = [&](int32 Route, int32 Fit)
+	// What Train carries as a shuttle of Item: its load on the item's biggest route, which it must fit whole; else 0.
+	auto ShuttleCapacity = [&](UClass* Item, const TWeakObjectPtr<AFGTrain>& Train)
 	{
-		const FSTRosterRoute& Each = Routes[Route];
-		return (Each.Flow * Each.RoundTrip - Covered[Route]) / FMath::Max(1, Each.Capacity[Fit]);
+		const FSTRosterRoute& Biggest = Routes[ItemNeeds[Item].Routes[0]];
+		const int32 Fit = Biggest.Fitting.IndexOfByKey(Train);
+		return Fit != INDEX_NONE && Train.IsValid() && IsWhole(Biggest, Fit) ? FMath::Max(1, Biggest.Capacity[Fit]) : 0;
 	};
-	auto MakeShuttle = [&](int32 Route, int32 Fit)
+	auto StillNeeds = [&](UClass* Item, int32 Capacity)
 	{
-		FSTRosterDuty& Duty = Duties.FindOrAdd(Routes[Route].Fitting[Fit]);
-		Duty.Routes = {Route};
-		Duty.Shares = {1.0};
-		Duty.Load = 1.0;
-		Duty.bShuttle = true;
-		Covered[Route] += Routes[Route].Capacity[Fit];
-		++RouteShuttles[Route];
-		++Shuttles;
+		const FItemNeed& Need = ItemNeeds[Item];
+		return (Need.PerTrip - Need.Covered) / FMath::Max(1, Capacity);
 	};
-	for (int32 Route = 0; Route < Routes.Num(); ++Route)
+	// A shuttle's duty: the item's routes it fits whole, each with its part of what they carry.
+	auto MakeShuttle = [&](UClass* Item, const TWeakObjectPtr<AFGTrain>& Train, int32 Capacity)
 	{
-		const FOld* Before = Old.Find(Routes[Route].GetKey());
-		for (const TWeakObjectPtr<AFGTrain>& Train : Before ? Before->Shuttles : TArray<TWeakObjectPtr<AFGTrain>>())
+		FItemNeed& Need = ItemNeeds[Item];
+		FSTRosterDuty& Duty = Duties.FindOrAdd(Train);
+		Duty = FSTRosterDuty();
+		double Served = 0.0;
+		for (const int32 Route : Need.Routes)
 		{
 			const int32 Fit = Routes[Route].Fitting.IndexOfByKey(Train);
-			if (Shuttles < MaxShuttles && Fit != INDEX_NONE && Train.IsValid() && IsWhole(Routes[Route], Fit) && !Duties.Contains(Train)
-				&& StillNeeds(Route, Fit) >= ShuttleKeepTrains)
+			if (Fit != INDEX_NONE && IsWhole(Routes[Route], Fit))
 			{
-				MakeShuttle(Route, Fit);
+				Duty.Routes.Add(Route);
+				Duty.Shares.Add(Routes[Route].Flow * Routes[Route].RoundTrip);
+				Served += Duty.Shares.Last();
+			}
+		}
+		for (double& Share : Duty.Shares)
+		{
+			Share = Served > 0.0 ? Share / Served : 1.0 / Duty.Shares.Num();
+		}
+		Duty.Load = 1.0;
+		Duty.bShuttle = true;
+		Need.Covered += Capacity;
+		++Need.Shuttles;
+		++Shuttles;
+	};
+	for (UClass* Item : ItemOrder)
+	{
+		for (const TWeakObjectPtr<AFGTrain>& Train : OldShuttles.FindRef(Item))
+		{
+			const int32 Capacity = Duties.Contains(Train) ? 0 : ShuttleCapacity(Item, Train);
+			if (Shuttles < MaxShuttles && Capacity > 0 && StillNeeds(Item, Capacity) >= ShuttleKeepTrains)
+			{
+				MakeShuttle(Item, Train, Capacity);
 			}
 		}
 	}
-	for (int32 Route = 0; Route < Routes.Num(); ++Route)
+	for (UClass* Item : ItemOrder)
 	{
-		const FSTRosterRoute& Each = Routes[Route];
-		const FOld* Before = Old.Find(Each.GetKey());
+		const FSTRosterRoute& Biggest = Routes[ItemNeeds[Item].Routes[0]];
 		while (Shuttles < MaxShuttles)
 		{
-			int32 Best = INDEX_NONE;
+			TWeakObjectPtr<AFGTrain> Best;
+			int32 BestCapacity = 0;
 			bool bBestPrevious = false;
-			for (int32 Fit = 0; Fit < Each.Fitting.Num(); ++Fit)
+			for (const TWeakObjectPtr<AFGTrain>& Train : Biggest.Fitting)
 			{
-				if (!IsWhole(Each, Fit) || !Each.Fitting[Fit].IsValid() || Duties.Contains(Each.Fitting[Fit]))
+				const int32 Capacity = Duties.Contains(Train) ? 0 : ShuttleCapacity(Item, Train);
+				if (Capacity <= 0)
 				{
 					continue;
 				}
-				const bool bPrevious = Before && Before->Shares.ContainsByPredicate([&](const TPair<TWeakObjectPtr<AFGTrain>, double>& Share) { return Share.Key == Each.Fitting[Fit]; });
-				if (Best == INDEX_NONE || Each.Capacity[Fit] > Each.Capacity[Best] || (Each.Capacity[Fit] == Each.Capacity[Best] && bPrevious && !bBestPrevious))
+				const bool bPrevious = WasOnItem(Item, Train);
+				if (!Best.IsValid() || Capacity > BestCapacity || (Capacity == BestCapacity && bPrevious && !bBestPrevious))
 				{
-					Best = Fit;
+					Best = Train;
+					BestCapacity = Capacity;
 					bBestPrevious = bPrevious;
 				}
 			}
-			if (Best == INDEX_NONE || StillNeeds(Route, Best) < ShuttleMinTrains)
+			if (!Best.IsValid() || StillNeeds(Item, BestCapacity) < ShuttleMinTrains)
 			{
 				break;
 			}
-			MakeShuttle(Route, Best);
+			MakeShuttle(Item, Best, BestCapacity);
 		}
 	}
+	// What an item's shuttles carry counts against the routes they run, in proportion to what each carries.
+	for (const TPair<UClass*, FItemNeed>& Pair : ItemNeeds)
+	{
+		if (Pair.Value.Covered <= 0.0)
+		{
+			continue;
+		}
+		TSet<int32> Served;
+		for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Duty : Duties)
+		{
+			if (Duty.Value.bShuttle && Duty.Value.Routes.Num() > 0 && Routes[Duty.Value.Routes[0]].Item.Get() == Pair.Key)
+			{
+				Served.Append(Duty.Value.Routes);
+			}
+		}
+		double ServedPerTrip = 0.0;
+		for (const int32 Route : Served)
+		{
+			ServedPerTrip += Routes[Route].Flow * Routes[Route].RoundTrip;
+		}
+		for (const int32 Route : Served)
+		{
+			const double PerTrip = Routes[Route].Flow * Routes[Route].RoundTrip;
+			Covered[Route] = ServedPerTrip > 0.0 ? FMath::Min(PerTrip, Pair.Value.Covered * PerTrip / ServedPerTrip) : 0.0;
+		}
+	}
+	auto ShuttlesOf = [&](const UClass* Item)
+	{
+		const FItemNeed* Need = ItemNeeds.Find(const_cast<UClass*>(Item));
+		return Need ? Need->Shuttles : 0;
+	};
 	// Then the shares routes already had, for what their shuttles don't carry: all of them while the trains a route
 	// needs changed by less than RosterKeepShare and its shuttles are the same, else as many as it still needs. Then what
 	// routes still need, from trains that fit them with room: their previous trains first, then the least loaded.
@@ -3129,7 +3271,7 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 		double Need = PerTrip > 0.0 ? Each.Trains * FMath::Max(0.0, 1.0 - Covered[Route] / PerTrip) : Each.Trains;
 		if (const FOld* Before = Old.Find(Each.GetKey()))
 		{
-			const bool bKeep = RouteShuttles[Route] == Before->Shuttles.Num()
+			const bool bKeep = ShuttlesOf(Each.Item.Get()) == OldShuttles.FindRef(Each.Item.Get()).Num()
 				&& FMath::Abs(Each.Trains - Before->Trains) <= RosterKeepShare * FMath::Max(Before->Trains, RosterMinShare);
 			for (const TPair<TWeakObjectPtr<AFGTrain>, double>& Share : Before->Shares)
 			{
@@ -3217,9 +3359,9 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 	mShuttles.Reset();
 	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : mRoster)
 	{
-		if (Pair.Value.bShuttle && Pair.Value.Routes.Num() > 0)
+		for (const int32 Route : Pair.Value.bShuttle ? Pair.Value.Routes : TArray<int32>())
 		{
-			mShuttles.FindOrAdd(mRosterRoutes[Pair.Value.Routes[0]].GetKey()).Add(Pair.Key);
+			mShuttles.FindOrAdd(mRosterRoutes[Route].GetKey()).Add(Pair.Key);
 		}
 	}
 	if (!bAnyChange)

@@ -278,6 +278,10 @@ struct SMARTTRAINS_API FSTJob
 	UPROPERTY(SaveGame)
 	bool bRepeat = false;
 
+	// A repeat that runs the last job's stops without moving anything, because no depot is free.
+	UPROPERTY(SaveGame)
+	bool bLoop = false;
+
 	// Planned for a platform's request: empties a car (and picks up and delivers when it can).
 	UPROPERTY(SaveGame)
 	bool bRequest = false;

@@ -39,6 +39,8 @@ private:
 		int32 Idle = 0;
 		// Running their last job again: free for new trips.
 		int32 Repeating = 0;
+		// Of Repeating: running its stops without moving anything, because no depot is free.
+		int32 Looping = 0;
 	};
 	enum ENodeFlag : uint8
 	{

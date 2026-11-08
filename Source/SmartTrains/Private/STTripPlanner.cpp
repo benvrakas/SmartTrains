@@ -34,6 +34,8 @@ namespace
 	// How far before and after a visit other trains' bookings count towards its stop cost. [s]
 	constexpr double StopNearSeconds = 120.0;
 	// Other trains' bookings count towards the queue limit only for arrivals this soon: later plans still change. [s]
+	// A car loads an item only if it takes at least this share of a car of it.
+	constexpr double MinLoadShare = 0.05;
 	constexpr double QueueLookSeconds = 300.0;
 	// Value of a car left holding cargo after a trip (a car emptied is worth the same). [car-load minutes]
 	constexpr double TiedCarValue = 2.0;
@@ -1054,7 +1056,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 						Total.bFromFull |= IsSupplyFull(Node);
 					}
 					Total.bNoBatch |= Stop.NoBatchItems.Contains(Item);
-					if (Amount <= 0.0)
+					if (Amount <= 0.0 || Amount < MinLoadShare * GetCarRoom(mCars[CarIndex], {}, Item))
 					{
 						continue;
 					}

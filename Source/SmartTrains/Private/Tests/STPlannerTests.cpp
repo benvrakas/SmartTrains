@@ -946,12 +946,12 @@ bool FSTRosterShuttleTest::RunTest(const FString& Parameters)
 	{
 		Stations.Add(FSTTestAccess::MakeStation());
 	}
-	auto Route = [&](int32 Which, double PerTrip)
+	auto Route = [&](int32 Which, double PerTrip, UClass* Item = USTTestSolid::StaticClass())
 	{
 		FSTRosterRoute Each;
 		Each.From = Stations[2 * Which];
 		Each.To = Stations[2 * Which + 1];
-		Each.Item = USTTestSolid::StaticClass();
+		Each.Item = Item;
 		Each.RoundTrip = 600.0;
 		Each.Flow = PerTrip / Each.RoundTrip;
 		for (int32 Index = 0; Index < Trains.Num(); ++Index)
@@ -963,7 +963,7 @@ bool FSTRosterShuttleTest::RunTest(const FString& Parameters)
 		Each.Trains = PerTrip / ((9600.0 + 3200.0 + 9600.0) / 3.0);
 		return Each;
 	};
-	TArray<FSTRosterRoute> Routes = {Route(0, 9600.0), Route(1, 2000.0)};
+	TArray<FSTRosterRoute> Routes = {Route(0, 9600.0), Route(1, 2000.0, USTTestSolidB::StaticClass())};
 	const TMap<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Roster = FSTTestAccess::GetRoster(*Subsystem);
 	for (int32 Plan = 0; Plan < 3; ++Plan)
 	{
@@ -1057,6 +1057,112 @@ bool FSTQueueLookAheadTest::RunTest(const FString& Parameters)
 	const FSTPlanResult Result = Planner.Simulate({Unload});
 	TestTrue(FString::Printf(TEXT("three bookings 15 minutes ahead don't reject the trip (%s)"), *Result.Problem), Result.bValid);
 	TestTrue(TEXT("it still waits for them"), Result.bValid && Result.Arrive.Num() == 1 && Result.Arrive[0] > 900.0);
+	return true;
+}
+
+// Shuttles are per item: two routes of one item that each need 0.6 of a train get one shuttle running both, and other
+// trains leave both to it.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTShuttlePerItemTest, "SmartTrains.Planner.ShuttlePerItem", TestFlags)
+bool FSTShuttlePerItemTest::RunTest(const FString& Parameters)
+{
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	TArray<AFGTrain*> Trains;
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		Trains.Add(NewObject<AFGTrain>(GetTransientPackage()));
+		FSTTestAccess::AddManaged(*Subsystem, Trains.Last());
+	}
+	TArray<AFGTrainStationIdentifier*> Stations;
+	for (int32 Index = 0; Index < 4; ++Index)
+	{
+		Stations.Add(FSTTestAccess::MakeStation());
+	}
+	auto Route = [&](int32 Which, double PerTrip)
+	{
+		FSTRosterRoute Each;
+		Each.From = Stations[2 * Which];
+		Each.To = Stations[2 * Which + 1];
+		Each.Item = USTTestSolid::StaticClass();
+		Each.RoundTrip = 600.0;
+		Each.Flow = PerTrip / Each.RoundTrip;
+		for (AFGTrain* Train : Trains)
+		{
+			Each.Fitting.Add(Train);
+			Each.Capacity.Add(9600);
+			Each.Whole.Add(true);
+		}
+		Each.Trains = PerTrip / 9600.0;
+		return Each;
+	};
+	TArray<FSTRosterRoute> Routes = {Route(0, 5760.0), Route(1, 5760.0)};
+	const TMap<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Roster = FSTTestAccess::GetRoster(*Subsystem);
+	for (int32 Plan = 0; Plan < 3; ++Plan)
+	{
+		FSTTestAccess::BuildRoster(*Subsystem, Routes);
+	}
+	TWeakObjectPtr<AFGTrain> Shuttle;
+	int32 Shuttles = 0;
+	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : Roster)
+	{
+		if (Pair.Value.bShuttle)
+		{
+			Shuttle = Pair.Key;
+			++Shuttles;
+			TestEqual(TEXT("the shuttle runs both routes of the item"), Pair.Value.Routes.Num(), 2);
+		}
+	}
+	TestEqual(TEXT("the item gets one shuttle"), Shuttles, 1);
+	AFGTrain* Other = Trains[0] == Shuttle.Get() ? Trains[1] : Trains[0];
+	TestTrue(TEXT("other trains leave the first route to it"), FSTTestAccess::IsShuttleRoute(*Subsystem, Other, Routes[0]));
+	TestTrue(TEXT("and the second"), FSTTestAccess::IsShuttleRoute(*Subsystem, Other, Routes[1]));
+	Routes = {Route(0, 1920.0), Route(1, 1920.0)};
+	FSTTestAccess::BuildRoster(*Subsystem, Routes);
+	const FSTRosterDuty* Duty = Roster.Find(Shuttle);
+	TestFalse(TEXT("the shuttle goes when the item needs less than half of it"), Duty && Duty->bShuttle);
+	return true;
+}
+
+// A car doesn't load less than a twentieth of a car of an item: on the server such pickups mostly moved nothing.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTSmallLoadTest, "SmartTrains.Planner.SmallLoad", TestFlags)
+bool FSTSmallLoadTest::RunTest(const FString& Parameters)
+{
+	UClass* Ingot = USTTestSolid::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Source = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
+	FSTTestAccess::SetTrip(*Subsystem, Start, Source, 60.f);
+	FSTTestAccess::SetTrip(*Subsystem, Source, Sink, 60.f);
+	auto LoadedFrom = [&](int32 Stock)
+	{
+		TArray<FSTNode> Nodes = {FSTTestAccess::Node(Source, Ingot, ESTRole::Supply, Stock, 4800, 1), FSTTestAccess::Node(Sink, Ingot, ESTRole::Demand, 0, 100000, 1)};
+		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Ingot, true, Stock, FMath::DivideAndRoundUp(Stock, 100)), FSTTestAccess::Platform(Ingot, false, 0.0, 0)};
+		for (FSTTestAccess::FPlatformInfo& Platform : Platforms)
+		{
+			Platform.Slots = 48;
+		}
+		FSTTestAccess::FCarInfo Car = FSTTestAccess::Car();
+		Car.Slots = 32;
+		FSTTestAccess::FCarPlatforms CarPlatforms;
+		CarPlatforms.Add(Source, {{0}});
+		CarPlatforms.Add(Sink, {{1}});
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, Platforms, CarPlatforms);
+		FSTPlanStop Load;
+		Load.Station = Source;
+		Load.LoadItems.Add(Ingot);
+		// Past the batch rule, so only the least load decides.
+		Load.NoBatchItems.Add(Ingot);
+		FSTPlanStop Unload;
+		Unload.Station = Sink;
+		Unload.UnloadItems.Add(Ingot);
+		const FSTPlanResult Result = Planner.Simulate({Load, Unload});
+		AddInfo(FString::Printf(TEXT("stock %d: %s"), Stock, Result.bValid ? TEXT("valid") : *Result.Problem));
+		return Result.bValid && Result.Steps.Num() > 0 && Result.Steps[0].Num() > 0 && Result.Steps[0][0].Loaded.Num() > 0 ? Result.Steps[0][0].Loaded[0].Value : 0;
+	};
+	TestEqual(TEXT("100 isn't loaded into a car of 3200"), LoadedFrom(100), 0);
+	TestEqual(TEXT("1000 is"), LoadedFrom(1000), 1000);
 	return true;
 }
 
