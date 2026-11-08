@@ -329,7 +329,12 @@ int32 ASTSubsystem::GetSinkRoom(const FSTNode& Node, TSubclassOf<UFGItemDescript
 bool ASTSubsystem::CanServe(const FSTTrainState& State, const AFGTrainStationIdentifier* Station) const
 {
 	const AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
-	return Building && IsValid(State.Train) && Building->GetTrackGraphID() == State.Train->GetTrackGraphID();
+	if (!Building || !IsValid(State.Train) || Building->GetTrackGraphID() != State.Train->GetTrackGraphID())
+	{
+		return false;
+	}
+	const double* Until = State.Unreachable.Find(const_cast<AFGTrainStationIdentifier*>(Station));
+	return !Until || *Until <= Now();
 }
 
 //~ Fit model
@@ -2434,7 +2439,7 @@ bool ASTSubsystem::KeepRunningLastJob(FSTTrainState& State, const TCHAR* Why)
 	{
 		const int32 Start = (First + Offset) % Last.Legs.Num();
 		const AFGTrainStationIdentifier* Station = Last.Legs[Start].Station.Get();
-		if (Station != Here && !IsStationQueued(Station, State.Train))
+		if (Station != Here && CanServe(State, Station) && !IsStationQueued(Station, State.Train))
 		{
 			First = Start;
 			break;
@@ -2450,9 +2455,17 @@ bool ASTSubsystem::KeepRunningLastJob(FSTTrainState& State, const TCHAR* Why)
 	for (int32 Offset = 0; Offset < Last.Legs.Num(); ++Offset)
 	{
 		FSTJobLeg Leg = Last.Legs[(First + Offset) % Last.Legs.Num()];
+		if (!CanServe(State, Leg.Station.Get()))
+		{
+			continue;
+		}
 		Leg.Work.Reset();
 		Leg.SkipCars.Reset();
 		Job.Legs.Add(MoveTemp(Leg));
+	}
+	if (Job.Legs.Num() == 0)
+	{
+		return false;
 	}
 	if (Job.Legs.Num() == 1 && Job.Legs[0].Station == Here)
 	{
@@ -3161,6 +3174,18 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 		const FItemNeed& Need = ItemNeeds[Item];
 		return (Need.PerTrip - Need.Covered) / FMath::Max(1, Capacity);
 	};
+	// Train's cars hold an item other than Item: a new shuttle would first have to get rid of it.
+	auto HoldsOther = [](const TWeakObjectPtr<AFGTrain>& Train, const UClass* Item)
+	{
+		for (const TPair<UClass*, int32>& Each : GetCargo(Train.Get()))
+		{
+			if (Each.Key != Item && Each.Value > 0)
+			{
+				return true;
+			}
+		}
+		return false;
+	};
 	// A shuttle's duty: the item's routes it fits whole, each with its part of what they carry.
 	auto MakeShuttle = [&](UClass* Item, const TWeakObjectPtr<AFGTrain>& Train, int32 Capacity)
 	{
@@ -3209,7 +3234,7 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 			bool bBestPrevious = false;
 			for (const TWeakObjectPtr<AFGTrain>& Train : Biggest.Fitting)
 			{
-				const int32 Capacity = Duties.Contains(Train) ? 0 : ShuttleCapacity(Item, Train);
+				const int32 Capacity = Duties.Contains(Train) || HoldsOther(Train, Item) ? 0 : ShuttleCapacity(Item, Train);
 				if (Capacity <= 0)
 				{
 					continue;
@@ -3393,7 +3418,7 @@ bool ASTSubsystem::IsShuttleRoute(const AFGTrain* Train, const AFGTrainStationId
 		{
 			continue;
 		}
-		if (!State->bHasJob || State->Job.bRepeat)
+		if (!State->bHasJob)
 		{
 			return true;
 		}

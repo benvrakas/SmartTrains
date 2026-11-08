@@ -429,7 +429,8 @@ private:
 	TMap<FString, int32> mRouteSeen;
 	// Shuttles per route key: only they plan that pickup and delivery, unless the supplier is full.
 	TMap<FString, TArray<TWeakObjectPtr<AFGTrain>>> mShuttles;
-	// True if a shuttle other than Train is running Item From -> To (free, or its job still loads at From or unloads at To).
+	// True if a shuttle other than Train is running Item From -> To (it has no job, or its job still loads at From or
+	// unloads at To); a shuttle repeating or looping its last trip doesn't count.
 	bool IsShuttleRoute(const AFGTrain* Train, const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, const UClass* Item) const;
 	// The train's shuttle duty, or null.
 	const FSTRosterDuty* GetShuttleDuty(const AFGTrain* Train) const;

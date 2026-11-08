@@ -247,6 +247,12 @@ trains that fit it at both ends (`AddPlannedRoute`; the same route from several 
   the routes they run in the same proportion (`Covered`). The 0.7.4 log showed why: sulfur needed 1.5 to 2.0 trains,
   but over three routes of about 0.6 each, so each route's shuttle came and went every few minutes (0 to 2 shuttles,
   none in 52 of 194 roster builds), and copper shuttles swapped between three consumers.
+- **Shuttles that can't run don't hold their routes** (0.7.6): other trains are kept off a shuttle's routes only while
+  it has no job or its job loads at a route's supplier or unloads at its consumer; a shuttle repeating or looping its
+  last trip doesn't count. A new shuttle must have empty cars or cars holding only its item (`HoldsOther`). In the
+  0.7.5 log the copper shuttle held Caterium Ingot nobody wanted, so it could never fill half a train with copper and
+  looped its last trip; as a looping train counted as free, other trains were kept off every copper route, and AI
+  Limiter RSC was below target the whole time while copper suppliers were full 72 % of the time.
 - **Full loads for shuttles** (0.7.5): a shuttle's roster trip takes the route whose trip delivers most, and only if
   that is at least `ShuttleLoadShare` (half) of what the train carries there; other rostered trains keep the quarter
   of a car rule. Plain sulfur trips carried on average 3,800 of 12,800 in the 0.7.4 log, and 32 of 52 sulfur pickups
@@ -296,6 +302,14 @@ good, so on a through line or single track it would block every train passing. U
 last trip had moved: in the 0.7.4 log they were 252 of 575 finished jobs, 226 of them delivered nothing, they loaded
 cargo nobody had planned, and 74 of the 118 SLOWDRAIN lines came from them (a full platform "taking 0 of" a copied
 plan). The monitor shows how many trains loop and suggests more depots.
+
+**Unreachable stations** (0.7.6): when the game reports no way to the station a managed train is heading for (no
+path, station unreachable, or unreachable with signals) for `UnreachableSeconds` (20 s), that station is left out for
+that train for `UnreachableMinutes` (30) (`FSTTrainState::Unreachable`, checked in `CanServe`, so trips, depots and
+loops all skip it), with an UNREACHABLE warning. A train driving to park or repeating settles again (another depot, or
+a loop without that station); a train on a trip is planned again from the cargo on board. SmartTrains' own track
+search doesn't know signals, so it can't see this beforehand; the game's pathfinder refuses a way only where it passes
+a one-way signal from behind. In the 0.7.5 log a train drove for 17 minutes towards a depot behind such a signal.
 
 **Delivery reservations per platform:** like pickups, a planned delivery records its platform. `GetPlatformRoom` is
 the platform's free room plus what its machines use before the train arrives, less the deliveries promised to it and

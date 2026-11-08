@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.6 (beta)
+
+- **A shuttle that can't run no longer blocks its item.** The copper shuttle was holding leftover cargo nobody
+  wanted, so it couldn't run copper and kept looping its last trip, while other trains were kept off every copper
+  route: copper consumers starved with full suppliers and idle trains. Other trains are now kept off a shuttle's routes
+  only while it actually runs them, and a train only becomes a new shuttle with empty cars or cars holding its item.
+- **Unreachable stations are left out.** When the game finds no way to the station a train is heading for (for
+  example a one-way signal passed from behind on the way into a depot) for 20 seconds, that train leaves the station
+  out for 30 minutes and goes elsewhere, instead of standing there. The log names the station (UNREACHABLE).
+
 ## 0.7.5 (beta)
 
 - **Idle trains stop moving cargo nobody planned.** With no free depot, a train with nothing to do keeps driving its

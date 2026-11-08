@@ -44,6 +44,9 @@ namespace
 	constexpr float TripOutlierFactor = 1.5f;
 	// A self-driving error is logged once it has lasted this long; shorter ones are the game re-routing. [s]
 	constexpr double SelfDrivingErrorLogSeconds = 5.0;
+	// A train the game finds no way for this long leaves out the station it was heading for, for UnreachableMinutes.
+	constexpr double UnreachableSeconds = 20.0;
+	constexpr double UnreachableMinutes = 30.0;
 	// A docked train's stay ends once nothing has moved for this long, after at least the first transfer. [s]
 	constexpr double DockIdleSeconds = 20.0;
 	constexpr double DockFirstTransferSeconds = 30.0;
@@ -573,6 +576,31 @@ void ASTSubsystem::MonitorTrains()
 		{
 			State.SelfDrivingError = Error;
 			State.SelfDrivingErrorSince = Time;
+			State.bUnreachableHandled = false;
+		}
+		const bool bNoWay = Error == static_cast<uint8>(ESelfDrivingLocomotiveError::SDLE_NoPath) || Error == static_cast<uint8>(ESelfDrivingLocomotiveError::SDLE_StationUnreachable)
+			|| Error == static_cast<uint8>(ESelfDrivingLocomotiveError::SDLE_StationUnreachableWithSignals);
+		if (bNoWay && !State.bUnreachableHandled && State.bManaged && State.bHasJob && Time - State.SelfDrivingErrorSince >= UnreachableSeconds
+			&& State.Job.Legs.IsValidIndex(State.Job.Leg) && IsValid(State.Job.Legs[State.Job.Leg].Station))
+		{
+			State.bUnreachableHandled = true;
+			AFGTrainStationIdentifier* Station = State.Job.Legs[State.Job.Leg].Station.Get();
+			State.Unreachable.Add(Station, Time + UnreachableMinutes * 60.0);
+			UE_LOG(LogSmartTrains, Warning, TEXT("UNREACHABLE %s: the game finds no way to %s (%s for %.0f s, job %d); this train leaves it out for %.0f minutes. Check the signals on the way in: a train may not pass a one-way signal from behind."),
+				*STLayout::Name(Train), *STLayout::Name(Station), *StaticEnum<ESelfDrivingLocomotiveError>()->GetNameStringByValue(static_cast<int64>(Error)),
+				Time - State.SelfDrivingErrorSince, State.Job.Id, UnreachableMinutes);
+			if (State.Job.bPark || State.Job.bRepeat)
+			{
+				State.bHasJob = false;
+				State.Phase = ESTTrainPhase::Idle;
+				SettleIdle(State, TEXT("the station it was heading for is unreachable"), true);
+			}
+			else
+			{
+				State.bReplan = true;
+				State.bReplanFresh = true;
+				bDispatchSoon = true;
+			}
 		}
 		const bool bLasting = Error == 0 || Time - State.SelfDrivingErrorSince >= SelfDrivingErrorLogSeconds;
 		if (Error != State.LastSelfDrivingError && bLasting)

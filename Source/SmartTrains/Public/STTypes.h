@@ -423,6 +423,10 @@ struct SMARTTRAINS_API FSTTrainState
 	// Runtime only: the self-driving error now, since when, and whether it was logged (only once it lasts a while).
 	uint8 SelfDrivingError = 0;
 	double SelfDrivingErrorSince = 0.0;
+	// Runtime only: the lasting no-way error was acted on (left out its station).
+	bool bUnreachableHandled = false;
+	// Runtime only: stations the game found no way to for this train, left out of its trips until then.
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> Unreachable;
 	// Runtime only: a player in the driver's seat at the last check (0 none, 1 with autopilot on, 2 driving by hand).
 	uint8 PlayerAboard = 0;
 	// Runtime only, for the current dock: the stay was ended early, the cargo moved so far, and when it last changed.

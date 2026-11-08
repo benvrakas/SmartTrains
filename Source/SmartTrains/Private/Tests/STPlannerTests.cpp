@@ -99,6 +99,21 @@ struct FSTTestAccess
 		State.bManaged = true;
 	}
 
+	// Gives Train a repeat of its last trip (looping it, moving nothing, when bLoop).
+	static void SetRepeating(ASTSubsystem& Subsystem, const AFGTrain* Train, bool bLoop)
+	{
+		for (FSTTrainState& State : Subsystem.mTrains)
+		{
+			if (State.Train == Train)
+			{
+				State.bHasJob = true;
+				State.Job = FSTJob();
+				State.Job.bRepeat = true;
+				State.Job.bLoop = bLoop;
+			}
+		}
+	}
+
 	static bool IsShuttleRoute(const ASTSubsystem& Subsystem, const AFGTrain* Train, const FSTRosterRoute& Route)
 	{
 		return Subsystem.IsShuttleRoute(Train, Route.From.Get(), Route.To.Get(), Route.Item.Get());
@@ -1115,6 +1130,8 @@ bool FSTShuttlePerItemTest::RunTest(const FString& Parameters)
 	AFGTrain* Other = Trains[0] == Shuttle.Get() ? Trains[1] : Trains[0];
 	TestTrue(TEXT("other trains leave the first route to it"), FSTTestAccess::IsShuttleRoute(*Subsystem, Other, Routes[0]));
 	TestTrue(TEXT("and the second"), FSTTestAccess::IsShuttleRoute(*Subsystem, Other, Routes[1]));
+	FSTTestAccess::SetRepeating(*Subsystem, Shuttle.Get(), true);
+	TestFalse(TEXT("a shuttle looping its last trip leaves its routes to others"), FSTTestAccess::IsShuttleRoute(*Subsystem, Other, Routes[0]));
 	Routes = {Route(0, 1920.0), Route(1, 1920.0)};
 	FSTTestAccess::BuildRoster(*Subsystem, Routes);
 	const FSTRosterDuty* Duty = Roster.Find(Shuttle);
