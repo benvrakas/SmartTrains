@@ -1027,4 +1027,37 @@ bool FSTTiedCarsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// Bookings only count towards the queue limit for arrivals within five minutes: plans further ahead still change.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTQueueLookAheadTest, "SmartTrains.Planner.QueueLookAhead", TestFlags)
+bool FSTQueueLookAheadTest::RunTest(const FString& Parameters)
+{
+	UClass* Ingot = USTTestSolid::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	FSTTestAccess::SetQueueTrains(*Subsystem, 2.f);
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
+	FSTTestAccess::SetTrip(*Subsystem, Start, Sink, 900.f);
+	TArray<FSTNode> Nodes = {FSTTestAccess::Node(Sink, Ingot, ESTRole::Demand, 0, 100000, 1)};
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		Bookings.FindOrAdd(Sink).Add({10 + Index, 850.0 + Index * 100.0, 940.0 + Index * 100.0});
+	}
+	FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+	FSTTestAccess::FPlatformInfo Platform = FSTTestAccess::Platform(Ingot, false, 0.0, 0);
+	Platform.Slots = 48;
+	FSTTestAccess::FCarInfo Car = FSTTestAccess::Car(Ingot, 3200.0);
+	Car.Slots = 32;
+	FSTTestAccess::FCarPlatforms CarPlatforms;
+	CarPlatforms.Add(Sink, {{0}});
+	FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, {Platform}, CarPlatforms);
+	FSTPlanStop Unload;
+	Unload.Station = Sink;
+	Unload.UnloadItems.Add(Ingot);
+	const FSTPlanResult Result = Planner.Simulate({Unload});
+	TestTrue(FString::Printf(TEXT("three bookings 15 minutes ahead don't reject the trip (%s)"), *Result.Problem), Result.bValid);
+	TestTrue(TEXT("it still waits for them"), Result.bValid && Result.Arrive.Num() == 1 && Result.Arrive[0] > 900.0);
+	return true;
+}
+
 #endif

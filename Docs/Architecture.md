@@ -179,6 +179,13 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   and fairness weights: a delivery that ends a shortfall sooner is worth more, one to a platform that stays above its
   target within the hour is worth nothing. Moves only go to consumers that fall below target within the hour
   (`Deadline`). Trips still score value / time; the send-at batch rule stays.
+- **Queue limit look-ahead** (0.7.4): other trains' bookings count towards **Queue trains** only for arrivals within
+  `QueueLookSeconds` (5 minutes); later arrivals still wait for bookings but aren't rejected. In the 0.7.3 log trains
+  stood still only 3 % of their trip time, while 292 trips were rejected for "would queue at RockPow- Sulfur SNK" in
+  35 minutes: bookings of long plans 20 minutes ahead, whose times change anyway.
+- **Slow-draining platforms** (0.7.4): an unloading platform that took less than half of what was planned
+  (`SlowDrainShare`) counts no drain in its predicted room for 30 minutes (`mSlowDrainUntil`, SLOWDRAIN lines). Room
+  assumed the node's use drained each platform in proportion to its stock; RockPow Coal P1 sat full while P2 drained.
 - **Stop cost** (0.7.3): each stop costs `StopCostValue` (1 car-load minute), once more for every other train booked
   at that station within `StopNearSeconds` (2 minutes) of the visit. The server log of 2026-11-08 showed why: value
   counted only how full each car got, so three trains bringing a car or two of sulfur each scored like one train
@@ -216,7 +223,8 @@ plans all free trains together against the network's forecast cost (`GetNetworkC
 ### Roster (`BuildRoster`, 0.7.1; setting **Steady roster**, on, with the horizon planner)
 
 With rates that hold steady the best routing repeats, like a timetable. The flow plan (every **Flow plan interval**)
-already works out, per item, the minimum-cost flows from suppliers to consumers; each of its routes becomes an
+already works out, per item, the minimum-cost flows from suppliers to consumers (a route of the last flow plan costs
+`FlowKeepCost` (0.9) of its travel time, 0.7.4, so near-equal suppliers don't swap every few minutes); each of its routes becomes an
 `FSTRosterRoute` with the share of trains it needs (flow x round trip / average load of the trains that fit) and the
 trains that fit it at both ends (`AddPlannedRoute`; the same route from several priority tiers adds up).
 
@@ -228,8 +236,14 @@ trains that fit it at both ends (`AddPlannedRoute`; the same route from several 
   fills every car instead of several trains each taking a car or two. A route keeps its shuttles while what it still
   needs is at least `ShuttleKeepTrains` (half) of each; then routes, biggest first, take the trains that carry most
   (`Capacity`) while they still need `ShuttleMinTrains` (0.7) of one. At most `ShuttleFleetShare` (60 %) of the managed
-  trains are shuttles. Other trains don't plan a shuttle's pickup and delivery (`IsShuttleRoute`) unless the supplier
-  is full; other suppliers and consumers of the item stay open to them. (0.7.2 shared the sulfur route Crater Lake ->
+  trains are shuttles. Other trains don't plan a shuttle's pickup and delivery (`IsShuttleRoute`) while a shuttle is
+  running it (free, or its job still loads at the route's supplier or unloads at its consumer), unless the supplier
+  is full; other suppliers and consumers of the item stay open to them.
+- **Getting shuttles going** (0.7.4): a train made a shuttle mid-trip drops the pickups left in its trip (but its
+  route's) at the next re-plan, and re-plans and horizon plans only add deliveries of what it carries
+  (`SetDeliveriesOnly`), so it is free for its route within a stop or two. The 0.7.3 log showed why: re-plans kept
+  extending the sulfur shuttle's trip for 22 minutes and it never carried sulfur, while other trains were kept off
+  its route. (0.7.2 shared the sulfur route Crater Lake ->
   RockPow, 0.97 trains, over the trains as slices, and other trains kept taking sulfur from the same station.)
 - **Duties** (`FSTRosterDuty`: routes, each one's share of the train, `Load` their sum, at most one train): for what
   shuttles don't carry, first every route keeps the shares it had, all of them while its trains needed changed by less than `RosterKeepShare` (a quarter),

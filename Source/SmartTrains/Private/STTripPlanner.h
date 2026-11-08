@@ -103,6 +103,8 @@ public:
 
 	// Adds moves by regret insertion while the trip's score rises; returns the final result.
 	FSTPlanResult Improve(TArray<FSTPlanStop>& InOutStops, int32 FirstMovable) const;
+	// While on, Improve only adds deliveries of cargo already on board (a shuttle emptying before its route).
+	void SetDeliveriesOnly(bool bOn) { bDeliveriesOnly = bOn; }
 
 	// A trip for Target's request (Docs/Architecture.md, "Requests"): stops that empty the cars that line up with its
 	// platform of other items, whatever empties them soonest, then a pickup (no minimum batch) and the delivery if they
@@ -240,6 +242,7 @@ private:
 	// Rejection reason -> how often it came up for the current train.
 	mutable TMap<FString, int32> mProblems;
 	bool bFcc = false;
+	bool bDeliveriesOnly = false;
 	// Automation tests: every station counts as on the train's track network (they have no world).
 	bool bServeAll = false;
 	int32 mMaxStops = 4;

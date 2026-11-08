@@ -71,6 +71,8 @@ namespace
 	constexpr double ShuttleKeepTrains = 0.5;
 	// Most of the managed trains that may be shuttles.
 	constexpr double ShuttleFleetShare = 0.6;
+	// Share of its travel time a route of the last flow plan costs in the next one, so near-equal routes don't swap.
+	constexpr double FlowKeepCost = 0.9;
 	// Horizon search: stops after this many tries in a row that found nothing better.
 	constexpr int32 HorizonStaleTries = 6;
 	// Horizon planner: a train is emptied only for platforms that fall below target within this. [s]
@@ -1788,12 +1790,16 @@ void ASTSubsystem::HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				}
 			}
 		}
+		// A shuttle whose route trip doesn't work now only delivers what it carries, then waits for its route.
+		const bool bShuttle = GetShuttleDuty(mTrains[Plan.TrainIndex].Train) != nullptr;
 		TArray<FSTPlanStop> Stops;
+		Planner.SetDeliveriesOnly(bShuttle);
 		Planner.Improve(Stops, 0);
+		Planner.SetDeliveriesOnly(false);
 		FSTTripPlanner::Trim(Stops, Planner.Simulate(Stops), 0);
 		FSTPlanResult Result = Planner.Simulate(Stops);
 		double Net = NetOf(Plan, Stops, Result);
-		for (const FSTRequestTarget& Target : Plan.bCarrying ? Short : TArray<FSTRequestTarget>())
+		for (const FSTRequestTarget& Target : Plan.bCarrying && !bShuttle ? Short : TArray<FSTRequestTarget>())
 		{
 			if (Planner.IsOverBudget())
 			{
@@ -1991,6 +1997,10 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	FString Before;
 	const bool bFresh = State.bReplanFresh;
 	State.bReplanFresh = false;
+	// A shuttle drops the pickups of the rest of its trip but its route's, and only delivers what it carries, so it is
+	// free for its route soon.
+	const FSTRosterDuty* Shuttle = GetShuttleDuty(State.Train);
+	const FSTRosterRoute* ShuttleRoute = Shuttle && mRosterRoutes.IsValidIndex(Shuttle->Routes[0]) ? &mRosterRoutes[Shuttle->Routes[0]] : nullptr;
 	for (int32 Leg = State.Job.Leg; !bFresh && Leg < State.Job.Legs.Num(); ++Leg)
 	{
 		const FSTJobLeg& Each = State.Job.Legs[Leg];
@@ -1998,6 +2008,10 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 		Stop.Station = Each.Station;
 		Stop.LoadItems = Each.GetItems(true);
 		Stop.UnloadItems = Each.GetItems(false);
+		if (Shuttle)
+		{
+			Stop.LoadItems.RemoveAll([&](UClass* Item) { return !ShuttleRoute || Item != ShuttleRoute->Item.Get() || Each.Station != ShuttleRoute->From.Get(); });
+		}
 	}
 	// The trip limit is for planning new trips: the rest of a trip under way is checked without it, and additions may
 	// make the trip as long as its rest already is.
@@ -2018,7 +2032,9 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	const bool bKeptWorks = Result.bValid && Stops.Num() > 0;
 	const TArray<FSTPlanStop> Kept = Stops;
 	const FSTPlanResult KeptResult = bKeptWorks ? Planner.Simulate(Stops) : FSTPlanResult();
+	Planner.SetDeliveriesOnly(Shuttle != nullptr);
 	Result = Planner.Improve(Stops, 0);
+	Planner.SetDeliveriesOnly(false);
 	FSTTripPlanner::Trim(Stops, Result, 0);
 	Result = Planner.Simulate(Stops);
 	// Stability: additions to a trip that still works must beat it by the re-plan threshold.
@@ -2830,6 +2846,7 @@ void ASTSubsystem::PlanFlows()
 {
 	TArray<FSTNode> Nodes;
 	BuildNodes(Nodes);
+	const TMap<FString, double> PreviousPairs = MoveTemp(mPlannedPairs);
 	mPlannedPairs.Reset();
 	mAdvice.Reset();
 	mPendingRoster.Reset();
@@ -2912,7 +2929,8 @@ void ASTSubsystem::PlanFlows()
 					{
 						continue;
 					}
-					Routes.Add({Flow.AddEdge(SupplierBase + S, ConsumerBase + (C - Start), TNumericLimits<double>::Max(), Time), From, To, Time});
+					const double Cost = PreviousPairs.Contains(PairKey(Nodes[From], Nodes[To])) ? FlowKeepCost * Time : Time;
+				Routes.Add({Flow.AddEdge(SupplierBase + S, ConsumerBase + (C - Start), TNumericLimits<double>::Max(), Cost), From, To, Time});
 				}
 			}
 			const double Sent = Flow.Solve(0, 1);
@@ -3222,7 +3240,43 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 bool ASTSubsystem::IsShuttleRoute(const AFGTrain* Train, const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, const UClass* Item) const
 {
 	const TArray<TWeakObjectPtr<AFGTrain>>* Shuttles = mShuttles.Find(FSTRosterRoute::MakeKey(From, To, Item));
-	return Shuttles && !Shuttles->ContainsByPredicate([Train](const TWeakObjectPtr<AFGTrain>& Each) { return Each.Get() == Train; });
+	if (!Shuttles || Shuttles->ContainsByPredicate([Train](const TWeakObjectPtr<AFGTrain>& Each) { return Each.Get() == Train; }))
+	{
+		return false;
+	}
+	for (const TWeakObjectPtr<AFGTrain>& Each : *Shuttles)
+	{
+		const FSTTrainState* State = mTrains.FindByPredicate([&](const FSTTrainState& Candidate) { return Candidate.Train == Each.Get(); });
+		if (!State || !IsValid(State->Train))
+		{
+			continue;
+		}
+		if (!State->bHasJob || State->Job.bRepeat)
+		{
+			return true;
+		}
+		for (int32 Leg = State->Job.Leg; Leg < State->Job.Legs.Num(); ++Leg)
+		{
+			const FSTJobLeg& Next = State->Job.Legs[Leg];
+			if ((Next.Station == From && Next.GetItems(true).Contains(Item)) || (Next.Station == To && Next.GetItems(false).Contains(Item)))
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+const FSTRosterDuty* ASTSubsystem::GetShuttleDuty(const AFGTrain* Train) const
+{
+	const FSTRosterDuty* Duty = Train ? mRoster.Find(const_cast<AFGTrain*>(Train)) : nullptr;
+	return Duty && Duty->bShuttle && Duty->Routes.Num() > 0 ? Duty : nullptr;
+}
+
+bool ASTSubsystem::IsSlowDrain(const AFGBuildableTrainPlatformCargo* Platform) const
+{
+	const double* Until = Platform ? mSlowDrainUntil.Find(Platform) : nullptr;
+	return Until && *Until > Now();
 }
 
 FString ASTSubsystem::DescribeDuty(const FSTRosterDuty& Duty) const

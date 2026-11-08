@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.4 (beta)
+
+- **Shuttles actually shuttle.** In 0.7.3 a train made a shuttle in the middle of a trip kept getting new stops added
+  at every stop, so it never ran its route (on the server the sulfur shuttle spent 22 minutes on other cargo), while
+  other trains were kept off that route. Now a new shuttle drops its other pickups, delivers what it carries and starts
+  its route; other trains are kept off the route only while the shuttle is running it.
+- **The flow plan sticks with its routes.** When two suppliers are about as close, the plan no longer swaps between
+  them every few minutes (the copper shuttle swapped routes four times in 15 minutes).
+- **Plans far ahead don't block trips.** Only trains arriving within five minutes count towards the queue limit;
+  long plans booked stations 20 minutes ahead and new trips were turned away although trains hardly ever stood still.
+- **Fewer trips to full platforms.** A platform that took much less than planned (it isn't drained by its belts as
+  fast as the station's use suggested) only counts its free room for the next 30 minutes.
+
 ## 0.7.3 (beta)
 
 - **Shuttles.** A route big enough to keep a whole train busy, like sulfur from Crater Lake to RockPow on the server,

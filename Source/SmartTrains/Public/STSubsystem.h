@@ -426,8 +426,13 @@ private:
 	TMap<FString, int32> mRouteSeen;
 	// Shuttles per route key: only they plan that pickup and delivery, unless the supplier is full.
 	TMap<FString, TArray<TWeakObjectPtr<AFGTrain>>> mShuttles;
-	// True if a shuttle other than Train runs Item From -> To.
+	// True if a shuttle other than Train is running Item From -> To (free, or its job still loads at From or unloads at To).
 	bool IsShuttleRoute(const AFGTrain* Train, const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, const UClass* Item) const;
+	// The train's shuttle duty, or null.
+	const FSTRosterDuty* GetShuttleDuty(const AFGTrain* Train) const;
+	// Unloading platforms that took much less than planned, until when: their predicted room counts no drain.
+	TMap<TWeakObjectPtr<const AFGBuildableTrainPlatformCargo>, double> mSlowDrainUntil;
+	bool IsSlowDrain(const AFGBuildableTrainPlatformCargo* Platform) const;
 
 	FSTSettings mSettings;
 	// Planned flow per (supplier node key, consumer node key), items per second, from the last flow plan.

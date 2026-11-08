@@ -33,6 +33,8 @@ namespace
 	constexpr double StopCostValue = 1.0;
 	// How far before and after a visit other trains' bookings count towards its stop cost. [s]
 	constexpr double StopNearSeconds = 120.0;
+	// Other trains' bookings count towards the queue limit only for arrivals this soon: later plans still change. [s]
+	constexpr double QueueLookSeconds = 300.0;
 	// Value of a car left holding cargo after a trip (a car emptied is worth the same). [car-load minutes]
 	constexpr double TiedCarValue = 2.0;
 	// Share of TiedCarValue for a car holding only items a demand platform needs within the horizon.
@@ -276,8 +278,10 @@ double FSTTripPlanner::GetPlatformRoom(int32 Node, int32 Info, UClass* Item, dou
 	const FSTNode& Consumer = mNodes[Node];
 	const int32 Count = FMath::Max(1, Consumer.Platforms.Num());
 	const double Share = Consumer.Stock > 0 ? static_cast<double>(Stock) / Consumer.Stock : 1.0 / Count;
-	// What its machines take out of it before the train arrives (no more than it holds).
-	const double Used = FMath::Min(static_cast<double>(Stock), Share * Consumer.Rate * FMath::Max(0.0, Arrive - mTime));
+	// What its machines take out of it before the train arrives (no more than it holds); none from a platform that
+	// lately took much less than planned, since its belts don't drain it.
+	const double Used = mSubsystem.IsSlowDrain(Platform.Platform) ? 0.0
+		: FMath::Min(static_cast<double>(Stock), Share * Consumer.Rate * FMath::Max(0.0, Arrive - mTime));
 	int32 Assigned = 0;
 	for (const TPair<const AFGBuildableTrainPlatformCargo*, int32>& Each : Consumer.PlatformReserved)
 	{
@@ -803,7 +807,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 		// score, since it counts as trip time).
 		const FSTSettings& Settings = mSubsystem.mSettings;
 		const int32 Limit = FMath::RoundToInt(Settings.QueueTrains);
-		if (Settings.bLeaveAtOnce && Limit > 0 && Result.Arrive[Index] > Clock + Travel)
+		if (Settings.bLeaveAtOnce && Limit > 0 && Result.Arrive[Index] > Clock + Travel && Clock + Travel - mTime <= QueueLookSeconds)
 		{
 			const int32 Ahead = CountAhead(Station, Clock + Travel, Result.Arrive[Index]);
 			if (Ahead > Limit)
@@ -1275,7 +1279,7 @@ FSTPlanResult FSTTripPlanner::Improve(TArray<FSTPlanStop>& InOutStops, int32 Fir
 		FSTPlanResult BestResult;
 		for (int32 Index = 0; Index < mMoves.Num(); ++Index)
 		{
-			if (Used.Contains(Index))
+			if (Used.Contains(Index) || (bDeliveriesOnly && mMoves[Index].From != INDEX_NONE))
 			{
 				continue;
 			}

@@ -37,6 +37,9 @@ namespace
 {
 	// How long a move that moved nothing isn't planned again for that train. [min]
 	constexpr double NoProgressMinutes = 10.0;
+	// An unloading platform that takes less than this share of what was planned counts as slow draining for SlowDrainMinutes.
+	constexpr double SlowDrainShare = 0.5;
+	constexpr double SlowDrainMinutes = 30.0;
 	// A known trip pair's sample counts at most this many times its estimate (queues and deadlocks are outliers).
 	constexpr float TripOutlierFactor = 1.5f;
 	// A self-driving error is logged once it has lasted this long; shorter ones are the game re-routing. [s]
@@ -848,6 +851,12 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 		if (!Work.bLoad && Work.MovedAmount > 0)
 		{
 			mLastServed.Add(TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, UClass*>(Station, Work.Item.Get()), Now());
+		}
+		if (!Work.bLoad && Work.Platform && Work.PlannedAmount > 0 && Work.MovedAmount < SlowDrainShare * Work.PlannedAmount)
+		{
+			mSlowDrainUntil.Add(Work.Platform.Get(), Now() + SlowDrainMinutes * 60.0);
+			UE_LOG(LogSmartTrains, Log, TEXT("SLOWDRAIN %s took %d of %d planned %s from %s; its room counts no drain for %.0f minutes"),
+				*STLayout::DescribePlatform(Work.Platform.Get()), Work.MovedAmount, Work.PlannedAmount, *STNames::Item(Work.Item.Get()), *STLayout::Name(Train), SlowDrainMinutes);
 		}
 	}
 	if (Leg.HasWork())
