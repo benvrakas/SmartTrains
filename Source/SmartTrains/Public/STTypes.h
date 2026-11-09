@@ -169,6 +169,34 @@ struct SMARTTRAINS_API FSTStationConfig
 	FString Pool;
 };
 
+// A player's settings for one item's service (Docs/Architecture.md, "Services"). Without one, services are automatic.
+USTRUCT()
+struct SMARTTRAINS_API FSTServiceConfig
+{
+	GENERATED_BODY()
+
+	UPROPERTY(SaveGame)
+	TSubclassOf<UFGItemDescriptor> Item;
+
+	// Keep a service train even when the flow plan needs less than one.
+	UPROPERTY(SaveGame)
+	bool bPinned = false;
+
+	// Never give this item a service; pool trains carry it.
+	UPROPERTY(SaveGame)
+	bool bPooled = false;
+
+	// Only these trains run the service (empty: any train whose cars all fit).
+	UPROPERTY(SaveGame)
+	TArray<TObjectPtr<AFGTrain>> Trains;
+
+	// Minutes between the service's pickups; 0: its round trip divided over its trains.
+	UPROPERTY(SaveGame)
+	float RhythmMinutes = 0.f;
+
+	bool IsDefault() const { return !bPinned && !bPooled && Trains.Num() == 0 && RhythmMinutes <= 0.f; }
+};
+
 // What one car loads or unloads at one stop of a job.
 USTRUCT()
 struct SMARTTRAINS_API FSTCarWork

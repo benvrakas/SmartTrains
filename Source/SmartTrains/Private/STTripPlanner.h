@@ -119,6 +119,8 @@ public:
 	// True if Cars load nothing in Stops but Item at stops where Item is loaded for a request (Item null: nothing).
 	bool KeepsRequestCars(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, const TArray<int32>& Cars, UClass* Item) const;
 	// What a simulated trip unloads of Item at the stops at Station (any station if null).
+	// A booking at Station by a train Filter accepts (not this one) starts within Window of Time.
+	bool IsBookedNear(const AFGTrainStationIdentifier* Station, double Time, double Window, TFunctionRef<bool(int32)> Filter) const;
 	static int32 CountUnloaded(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, UClass* Item, const AFGTrainStationIdentifier* Station);
 	// What a simulated trip unloads of Item into Platform; OutStop: the first stop that does.
 	static int32 CountUnloadedInto(const FSTPlanResult& Result, UClass* Item, const AFGBuildableTrainPlatformCargo* Platform, int32* OutStop = nullptr);

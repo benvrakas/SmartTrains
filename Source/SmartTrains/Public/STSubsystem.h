@@ -208,6 +208,13 @@ public:
 	float EstimateStaySeconds(const AFGTrainStationIdentifier* Station) const;
 	// True if Station is a dead end: a train in it can only leave the way trains come in.
 	bool IsDeadEnd(const AFGTrainStationIdentifier* Station) const;
+
+	// Services (Docs/Architecture.md, "Services"): the settings for Item, or null.
+	const FSTServiceConfig* FindServiceConfig(const UClass* Item) const;
+	// Changes Item's service settings. Verb: pin, unpin, pool, auto, rhythm (Minutes), add / remove (Train), clear.
+	bool SetService(UClass* Item, const FString& Verb, float Minutes, AFGTrain* Train, const FString& Cause, FString& OutResult);
+	// One line per running service and per item with settings.
+	TArray<FString> DescribeServices() const;
 	// How many trains of TrainLength fit on the track before Station's way-in switch, waiting for it; -1 if not known yet.
 	int32 GetWaitingRoom(const AFGTrainStationIdentifier* Station, float TrainLength) const;
 	// The switch on Station's way in, shared by stations reached through it; null if not known or none.
@@ -394,6 +401,10 @@ private:
 	UPROPERTY(SaveGame)
 	int32 mNextJobId = 1;
 
+	// Players' service settings, by item.
+	UPROPERTY(SaveGame)
+	TArray<FSTServiceConfig> mServiceConfigs;
+
 	// Now() when the world was saved, so the clock carries on after loading instead of restarting at 0. [s]
 	UPROPERTY(SaveGame)
 	double mClockAtSave = 0.0;
@@ -420,6 +431,17 @@ private:
 	TArray<FSTRosterRoute> mPendingRoster;
 	// Flow plans in a row each route has been in (by route key), for joining the roster.
 	TMap<FString, int32> mRouteSeen;
+	// A running service: its trains, the time between their pickups, what it needs, and its routes.
+	struct FServiceInfo
+	{
+		int32 Trains = 0;
+		double Headway = 0.0;
+		double Needed = 0.0;
+		TArray<FString> Routes;
+	};
+	TMap<TWeakObjectPtr<UClass>, FServiceInfo> mServices;
+	// Roster builds in a row each service needed fewer trains than it has; it shrinks after ServiceDropBuilds.
+	TMap<TWeakObjectPtr<UClass>, int32> mServiceLow;
 	// Shuttles per route key: only they plan that pickup and delivery, unless the supplier is full.
 	TMap<FString, TArray<TWeakObjectPtr<AFGTrain>>> mShuttles;
 	// True if a shuttle other than Train is running Item From -> To (it has no job, or its job still loads at From or

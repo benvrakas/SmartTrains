@@ -205,6 +205,7 @@ namespace
 		TEXT("/st platform [supply|demand|off] [item, item...] [target %] [sendat %] [priority low|normal|high|critical] [rate n/min] | /st platform copy"),
 		TEXT("/st station [depot on|off]"),
 		TEXT("/st train [manage|unmanage] [keepvanilla on|off]"),
+		TEXT("/st service   (item services) | /st service <item> pin|unpin|pool|auto|rhythm <minutes>|add|remove|clear   (add/remove: the train you drive or look at)"),
 		TEXT("/st job <item> from <station> to <station>   (a test job for the train you drive or look at)"),
 		TEXT("/st migrate   (opens the migration window)"),
 		TEXT("/st migrate preview [tracelimit 5000] [allitems] | apply all [confirm] | apply stations 1,2 trains 3 | undo"),
@@ -526,6 +527,40 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			}
 		}
 		Send(Sender, Subsystem->DescribeTrain(Train));
+		return EExecutionStatus::COMPLETED;
+	}
+
+	if (Verb == TEXT("service"))
+	{
+		// /st service <item words> <verb> [minutes]: the verb is the first known word after the item.
+		static const TArray<FString> Verbs = {TEXT("pin"), TEXT("unpin"), TEXT("pool"), TEXT("auto"), TEXT("rhythm"), TEXT("add"), TEXT("remove"), TEXT("clear")};
+		int32 VerbAt = INDEX_NONE;
+		for (int32 Index = 2; Index < Arguments.Num() && VerbAt == INDEX_NONE; ++Index)
+		{
+			VerbAt = Verbs.Contains(Arguments[Index].ToLower()) ? Index : INDEX_NONE;
+		}
+		if (VerbAt != INDEX_NONE)
+		{
+			if (!Allowed(Sender, *Subsystem, STAccess::EChange::Edit, TEXT("change service settings")))
+			{
+				return EExecutionStatus::UNCOMPLETED;
+			}
+			const FString ItemName = FString::Join(TArray<FString>(Arguments.GetData() + 1, VerbAt - 1), TEXT(" "));
+			TSubclassOf<UFGItemDescriptor> Item;
+			FString Error;
+			if (!FindItem(ItemName, Item, Error) || !Item)
+			{
+				Sender->SendChatMessage(Error.IsEmpty() ? TEXT("Name an item, e.g. /st service sulfur pin.") : Error, FLinearColor::Red);
+				return EExecutionStatus::UNCOMPLETED;
+			}
+			const FString Word = Arguments[VerbAt].ToLower();
+			const float Minutes = VerbAt + 1 < Arguments.Num() ? FCString::Atof(*Arguments[VerbAt + 1]) : 0.f;
+			AFGTrain* Train = Word == TEXT("add") || Word == TEXT("remove") ? FindTrain(Sender) : nullptr;
+			FString Result;
+			const bool bDone = Subsystem->SetService(Item.Get(), Word, Minutes, Train, Who, Result);
+			Sender->SendChatMessage(Result, bDone ? FLinearColor::White : FLinearColor::Red);
+		}
+		Send(Sender, Subsystem->DescribeServices());
 		return EExecutionStatus::COMPLETED;
 	}
 

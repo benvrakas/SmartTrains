@@ -334,6 +334,13 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		{
 			View.Summary.Add(TEXT("Fleet saturated: nearly every train is moving on a trip or at a stop all the time. Items waiting for trains (Trains busy elsewhere) need more trains; better planning can't make up for it."));
 		}
+		if (Subsystem.mServices.Num() > 0)
+		{
+			for (const FString& Line : Subsystem.DescribeServices())
+			{
+				View.Summary.Add(TEXT("Service ") + Line);
+			}
+		}
 		if (Last.ParkedOutside > 0)
 		{
 			int32 Depots = 0;

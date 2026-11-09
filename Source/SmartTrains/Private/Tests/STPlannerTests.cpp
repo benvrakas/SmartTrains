@@ -99,6 +99,11 @@ struct FSTTestAccess
 		State.bManaged = true;
 	}
 
+	static void AddServiceConfig(ASTSubsystem& Subsystem, const FSTServiceConfig& Config)
+	{
+		Subsystem.mServiceConfigs.Add(Config);
+	}
+
 	// Gives Train a repeat of its last trip (looping it, moving nothing, when bLoop).
 	static void SetRepeating(ASTSubsystem& Subsystem, const AFGTrain* Train, bool bLoop)
 	{
@@ -1014,7 +1019,12 @@ bool FSTRosterShuttleTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("the shuttle stays while its route needs more than half of it"), ShuttleOf());
 	Routes[0] = Route(0, 3840.0);
 	FSTTestAccess::BuildRoster(*Subsystem, Routes);
-	TestFalse(TEXT("the shuttle goes when its route needs less than half of it"), ShuttleOf());
+	TestTrue(TEXT("one plan needing less doesn't end the service yet"), ShuttleOf());
+	for (int32 Plan = 0; Plan < 6; ++Plan)
+	{
+		FSTTestAccess::BuildRoster(*Subsystem, Routes);
+	}
+	TestFalse(TEXT("the shuttle goes when its route keeps needing less than half of it"), ShuttleOf());
 	TestFalse(TEXT("then any train may plan the route"), FSTTestAccess::IsShuttleRoute(*Subsystem, Trains[1], Routes[0]));
 	return true;
 }
@@ -1134,7 +1144,10 @@ bool FSTShuttlePerItemTest::RunTest(const FString& Parameters)
 	FSTTestAccess::SetRepeating(*Subsystem, Shuttle.Get(), true);
 	TestFalse(TEXT("a shuttle looping its last trip leaves its routes to others"), FSTTestAccess::IsShuttleRoute(*Subsystem, Other, Routes[0]));
 	Routes = {Route(0, 1920.0), Route(1, 1920.0)};
-	FSTTestAccess::BuildRoster(*Subsystem, Routes);
+	for (int32 Plan = 0; Plan < 7; ++Plan)
+	{
+		FSTTestAccess::BuildRoster(*Subsystem, Routes);
+	}
 	const FSTRosterDuty* Duty = Roster.Find(Shuttle);
 	TestFalse(TEXT("the shuttle goes when the item needs less than half of it"), Duty && Duty->bShuttle);
 	return true;
@@ -1233,6 +1246,55 @@ bool FSTSinkNeededTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("ingots the car can deliver to a consumer don't go into the sink"), Dump(true, true));
 	TestTrue(TEXT("ingots the car can never unload at their consumer may, so the car is freed"), Dump(true, false));
 	TestTrue(TEXT("ingots no consumer takes may"), Dump(false, false));
+	return true;
+}
+
+// Service settings: a pinned item keeps a service train though it needs less than one; a pooled one gets none.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTServiceSettingsTest, "SmartTrains.Planner.ServiceSettings", TestFlags)
+bool FSTServiceSettingsTest::RunTest(const FString& Parameters)
+{
+	auto Shuttles = [](bool bPinned, bool bPooled, double PerTrip)
+	{
+		ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+		TArray<AFGTrain*> Trains;
+		for (int32 Index = 0; Index < 3; ++Index)
+		{
+			Trains.Add(NewObject<AFGTrain>(GetTransientPackage()));
+			FSTTestAccess::AddManaged(*Subsystem, Trains.Last());
+		}
+		FSTServiceConfig Config;
+		Config.Item = USTTestSolid::StaticClass();
+		Config.bPinned = bPinned;
+		Config.bPooled = bPooled;
+		FSTTestAccess::AddServiceConfig(*Subsystem, Config);
+		FSTRosterRoute Route;
+		Route.From = FSTTestAccess::MakeStation();
+		Route.To = FSTTestAccess::MakeStation();
+		Route.Item = USTTestSolid::StaticClass();
+		Route.RoundTrip = 600.0;
+		Route.Flow = PerTrip / Route.RoundTrip;
+		for (AFGTrain* Train : Trains)
+		{
+			Route.Fitting.Add(Train);
+			Route.Capacity.Add(9600);
+			Route.Whole.Add(true);
+		}
+		Route.Trains = PerTrip / 9600.0;
+		for (int32 Plan = 0; Plan < 3; ++Plan)
+		{
+			FSTTestAccess::BuildRoster(*Subsystem, {Route});
+		}
+		int32 Count = 0;
+		for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : FSTTestAccess::GetRoster(*Subsystem))
+		{
+			Count += Pair.Value.bShuttle ? 1 : 0;
+		}
+		return Count;
+	};
+	TestEqual(TEXT("a small route gets no service by itself"), Shuttles(false, false, 2000.0), 0);
+	TestEqual(TEXT("pinned, it gets one"), Shuttles(true, false, 2000.0), 1);
+	TestEqual(TEXT("a big route gets one"), Shuttles(false, false, 9600.0), 1);
+	TestEqual(TEXT("pooled, even a big route gets none"), Shuttles(false, true, 9600.0), 0);
 	return true;
 }
 

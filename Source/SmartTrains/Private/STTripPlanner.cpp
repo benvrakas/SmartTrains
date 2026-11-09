@@ -220,6 +220,15 @@ int32 FSTTripPlanner::CountNear(const AFGTrainStationIdentifier* Station, double
 	return Near;
 }
 
+bool FSTTripPlanner::IsBookedNear(const AFGTrainStationIdentifier* Station, double Time, double Window, TFunctionRef<bool(int32)> Filter) const
+{
+	const TArray<FSTBooking>* Bookings = mBookings.Find(Station);
+	return Bookings && Bookings->ContainsByPredicate([&](const FSTBooking& Each)
+	{
+		return Each.Train != mTrainIndex && FMath::Abs(Each.From - Time) < Window && Filter(Each.Train);
+	});
+}
+
 bool FSTTripPlanner::CarHasConsumer(int32 CarIndex, UClass* Item) const
 {
 	for (const FSTNode& Node : mNodes)

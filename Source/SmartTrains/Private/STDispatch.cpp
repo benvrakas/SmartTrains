@@ -70,6 +70,8 @@ namespace
 	constexpr double ShuttleKeepTrains = 0.5;
 	// Most of the managed trains that may be shuttles.
 	constexpr double ShuttleFleetShare = 0.6;
+	// A service keeps a train it needs less than ShuttleKeepTrains of until this many roster builds in a row did.
+	constexpr int32 ServiceDropBuilds = 6;
 	// Share of its travel time a route of the last flow plan costs in the next one, so near-equal routes don't swap.
 	constexpr double FlowKeepCost = 0.9;
 	// A shuttle's roster trip runs if it delivers at least this share of what the train carries on that route.
@@ -1173,6 +1175,21 @@ void ASTSubsystem::HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				{
 					break;
 				}
+			}
+			const UClass* ServiceItem = Duty->bShuttle && Duty->Routes.Num() > 0 && mRosterRoutes.IsValidIndex(Duty->Routes[0]) ? mRosterRoutes[Duty->Routes[0]].Item.Get() : nullptr;
+			const FServiceInfo* Service = ServiceItem ? mServices.Find(const_cast<UClass*>(ServiceItem)) : nullptr;
+			if (Plan.RosterStep != INDEX_NONE && Service && Service->Trains > 1 && Service->Headway > 0.0 && Plan.Result.Arrive.Num() > 0
+				&& Planner.IsBookedNear(Plan.Stops[0].Station, Plan.Result.Arrive[0], Service->Headway * 0.5, [&](int32 Other)
+				{
+					const FSTRosterDuty* OtherDuty = mTrains.IsValidIndex(Other) ? GetShuttleDuty(mTrains[Other].Train) : nullptr;
+					return OtherDuty && OtherDuty->Routes.Num() > 0 && mRosterRoutes.IsValidIndex(OtherDuty->Routes[0]) && mRosterRoutes[OtherDuty->Routes[0]].Item.Get() == ServiceItem;
+				}))
+			{
+				// Another train of the service picks up there within half its spacing: this one keeps the rhythm and waits.
+				Plan.Stops.Reset();
+				Plan.Result = FSTPlanResult();
+				Plan.RosterStep = INDEX_NONE;
+				return;
 			}
 			if (Plan.RosterStep != INDEX_NONE)
 			{
@@ -2288,6 +2305,11 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 	// What Train carries as a shuttle of Item: its load on the item's biggest route, which it must fit whole; else 0.
 	auto ShuttleCapacity = [&](UClass* Item, const TWeakObjectPtr<AFGTrain>& Train)
 	{
+		const FSTServiceConfig* Config = FindServiceConfig(Item);
+		if (Config && Config->Trains.Num() > 0 && !Config->Trains.Contains(Train.Get()))
+		{
+			return 0;
+		}
 		const FSTRosterRoute& Biggest = Routes[ItemNeeds[Item].Routes[0]];
 		const int32 Fit = Biggest.Fitting.IndexOfByKey(Train);
 		return Fit != INDEX_NONE && Train.IsValid() && IsWhole(Biggest, Fit) ? FMath::Max(1, Biggest.Capacity[Fit]) : 0;
@@ -2336,21 +2358,46 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 		++Need.Shuttles;
 		++Shuttles;
 	};
+	auto IsPinned = [&](const UClass* Item)
+	{
+		const FSTServiceConfig* Config = FindServiceConfig(Item);
+		return Config && Config->bPinned;
+	};
+	auto IsPooled = [&](const UClass* Item)
+	{
+		const FSTServiceConfig* Config = FindServiceConfig(Item);
+		return Config && Config->bPooled;
+	};
+	// A service keeps its trains while it needs at least ShuttleKeepTrains of each, a pinned one at least one train, and
+	// a train it needs less is only let go after ServiceDropBuilds builds in a row, so short dips don't reshuffle it.
+	TMap<TWeakObjectPtr<UClass>, int32> Low;
 	for (UClass* Item : ItemOrder)
 	{
-		for (const TWeakObjectPtr<AFGTrain>& Train : OldShuttles.FindRef(Item))
+		bool bLow = false;
+		for (const TWeakObjectPtr<AFGTrain>& Train : IsPooled(Item) ? TArray<TWeakObjectPtr<AFGTrain>>() : OldShuttles.FindRef(Item))
 		{
 			const int32 Capacity = Duties.Contains(Train) ? 0 : ShuttleCapacity(Item, Train);
-			if (Shuttles < MaxShuttles && Capacity > 0 && StillNeeds(Item, Capacity) >= ShuttleKeepTrains)
+			if (Shuttles >= MaxShuttles || Capacity <= 0)
 			{
+				continue;
+			}
+			const bool bNeeded = StillNeeds(Item, Capacity) >= ShuttleKeepTrains || (IsPinned(Item) && ItemNeeds[Item].Shuttles == 0);
+			if (bNeeded || mServiceLow.FindRef(Item) < ServiceDropBuilds)
+			{
+				bLow |= !bNeeded;
 				MakeShuttle(Item, Train, Capacity);
 			}
 		}
+		if (bLow)
+		{
+			Low.Add(Item, mServiceLow.FindRef(Item) + 1);
+		}
 	}
+	mServiceLow = MoveTemp(Low);
 	for (UClass* Item : ItemOrder)
 	{
 		const FSTRosterRoute& Biggest = Routes[ItemNeeds[Item].Routes[0]];
-		while (Shuttles < MaxShuttles)
+		while (Shuttles < MaxShuttles && !IsPooled(Item))
 		{
 			TWeakObjectPtr<AFGTrain> Best;
 			int32 BestCapacity = 0;
@@ -2370,7 +2417,7 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 					bBestPrevious = bPrevious;
 				}
 			}
-			if (!Best.IsValid() || StillNeeds(Item, BestCapacity) < ShuttleMinTrains)
+			if (!Best.IsValid() || (StillNeeds(Item, BestCapacity) < ShuttleMinTrains && !(IsPinned(Item) && ItemNeeds[Item].Shuttles == 0)))
 			{
 				break;
 			}
@@ -2504,6 +2551,30 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 	const bool bAnyChange = Moved > 0 || Routes.Num() != mRosterRoutes.Num();
 	mRosterRoutes = MoveTemp(Routes);
 	mRoster = MoveTemp(Duties);
+	mServices.Reset();
+	for (const TPair<UClass*, FItemNeed>& Pair : ItemNeeds)
+	{
+		if (Pair.Value.Shuttles == 0)
+		{
+			continue;
+		}
+		FServiceInfo& Service = mServices.Add(Pair.Key);
+		Service.Trains = Pair.Value.Shuttles;
+		double Weighted = 0.0;
+		double Total = 0.0;
+		for (const int32 Route : Pair.Value.Routes)
+		{
+			const FSTRosterRoute& Each = mRosterRoutes[Route];
+			const double PerTrip = Each.Flow * Each.RoundTrip;
+			Weighted += PerTrip * Each.RoundTrip;
+			Total += PerTrip;
+			Service.Routes.Add(FString::Printf(TEXT("%s -> %s"), *STLayout::Name(Each.From.Get()), *STLayout::Name(Each.To.Get())));
+		}
+		const FSTServiceConfig* Config = FindServiceConfig(Pair.Key);
+		const double RoundTrip = Total > 0.0 ? Weighted / Total : 0.0;
+		Service.Headway = Config && Config->RhythmMinutes > 0.f ? Config->RhythmMinutes * 60.0 : RoundTrip / FMath::Max(1, Service.Trains);
+		Service.Needed = Pair.Value.Covered > 0.0 ? Pair.Value.PerTrip / (Pair.Value.Covered / Service.Trains) : 0.0;
+	}
 	mShuttles.Reset();
 	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : mRoster)
 	{
@@ -2516,7 +2587,7 @@ void ASTSubsystem::BuildRoster(TArray<FSTRosterRoute>&& Candidates)
 	{
 		return;
 	}
-	UE_LOG(LogSmartTrains, Log, TEXT("ROSTER: %d routes on %d trains (%d shuttles), %d trains' duties changed%s"), mRosterRoutes.Num(), mRoster.Num(), Shuttles, Moved,
+	UE_LOG(LogSmartTrains, Log, TEXT("ROSTER: %d routes on %d trains (%d service trains), %d trains' duties changed%s"), mRosterRoutes.Num(), mRoster.Num(), Shuttles, Moved,
 		Short > 0 ? *FString::Printf(TEXT(", %d routes short of fitting trains (the horizon planner covers them)"), Short) : TEXT(""));
 	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : mRoster)
 	{
@@ -2557,6 +2628,111 @@ bool ASTSubsystem::IsShuttleRoute(const AFGTrain* Train, const AFGTrainStationId
 	return false;
 }
 
+const FSTServiceConfig* ASTSubsystem::FindServiceConfig(const UClass* Item) const
+{
+	return Item ? mServiceConfigs.FindByPredicate([Item](const FSTServiceConfig& Each) { return Each.Item.Get() == Item; }) : nullptr;
+}
+
+bool ASTSubsystem::SetService(UClass* Item, const FString& Verb, float Minutes, AFGTrain* Train, const FString& Cause, FString& OutResult)
+{
+	if (!Item)
+	{
+		OutResult = TEXT("Name an item.");
+		return false;
+	}
+	FSTServiceConfig* Config = mServiceConfigs.FindByPredicate([Item](const FSTServiceConfig& Each) { return Each.Item.Get() == Item; });
+	if (!Config)
+	{
+		Config = &mServiceConfigs.AddDefaulted_GetRef();
+		Config->Item = Item;
+	}
+	const FString Name = STNames::Item(Item);
+	if (Verb == TEXT("pin"))
+	{
+		Config->bPinned = true;
+		Config->bPooled = false;
+		OutResult = FString::Printf(TEXT("%s keeps a service train even when the flow plan needs less than one."), *Name);
+	}
+	else if (Verb == TEXT("unpin"))
+	{
+		Config->bPinned = false;
+		OutResult = FString::Printf(TEXT("%s gets a service only while the flow plan needs one."), *Name);
+	}
+	else if (Verb == TEXT("pool"))
+	{
+		Config->bPooled = true;
+		Config->bPinned = false;
+		OutResult = FString::Printf(TEXT("%s gets no service; pool trains carry it."), *Name);
+	}
+	else if (Verb == TEXT("auto"))
+	{
+		*Config = FSTServiceConfig();
+		Config->Item = Item;
+		OutResult = FString::Printf(TEXT("%s's service is automatic again."), *Name);
+	}
+	else if (Verb == TEXT("rhythm"))
+	{
+		Config->RhythmMinutes = FMath::Clamp(Minutes, 0.f, 240.f);
+		OutResult = Config->RhythmMinutes > 0.f ? FString::Printf(TEXT("%s's service picks up at most every %.1f minutes."), *Name, Config->RhythmMinutes)
+			: FString::Printf(TEXT("%s's service spacing comes from its round trip again."), *Name);
+	}
+	else if ((Verb == TEXT("add") || Verb == TEXT("remove")) && Train)
+	{
+		if (Verb == TEXT("add"))
+		{
+			Config->Trains.AddUnique(Train);
+		}
+		else
+		{
+			Config->Trains.Remove(Train);
+		}
+		OutResult = FString::Printf(TEXT("%s's service may use %d chosen trains%s."), *Name, Config->Trains.Num(), Config->Trains.Num() == 0 ? TEXT(" (none: any that fit)") : TEXT(""));
+	}
+	else if (Verb == TEXT("clear"))
+	{
+		Config->Trains.Reset();
+		OutResult = FString::Printf(TEXT("%s's service may use any train whose cars all fit."), *Name);
+	}
+	else
+	{
+		OutResult = TEXT("Use pin, unpin, pool, auto, rhythm <minutes>, add, remove or clear (add and remove: the train you drive or look at).");
+		return false;
+	}
+	mServiceConfigs.RemoveAll([](const FSTServiceConfig& Each) { return !Each.Item || Each.IsDefault(); });
+	for (FSTServiceConfig& Each : mServiceConfigs)
+	{
+		Each.Trains.RemoveAll([](const TObjectPtr<AFGTrain>& Each) { return !IsValid(Each); });
+	}
+	UE_LOG(LogSmartTrains, Log, TEXT("SERVICE %s: %s (%s)"), *Name, *OutResult, *Cause);
+	PlanFlows();
+	return true;
+}
+
+TArray<FString> ASTSubsystem::DescribeServices() const
+{
+	TArray<FString> Lines;
+	for (const TPair<TWeakObjectPtr<UClass>, FServiceInfo>& Pair : mServices)
+	{
+		const FSTServiceConfig* Config = FindServiceConfig(Pair.Key.Get());
+		Lines.Add(FString::Printf(TEXT("%s: %d train%s, a pickup about every %.1f min (needs %.1f trains): %s%s"), *STNames::Item(Pair.Key.Get()), Pair.Value.Trains,
+			Pair.Value.Trains == 1 ? TEXT("") : TEXT("s"), Pair.Value.Headway / 60.0, Pair.Value.Needed, *FString::Join(Pair.Value.Routes, TEXT(", ")),
+			Config && Config->bPinned ? TEXT(" [pinned]") : TEXT("")));
+	}
+	for (const FSTServiceConfig& Config : mServiceConfigs)
+	{
+		if (Config.Item && !mServices.Contains(Config.Item.Get()))
+		{
+			Lines.Add(FString::Printf(TEXT("%s: no service now%s%s%s"), *STNames::Item(Config.Item), Config.bPooled ? TEXT(" [pooled]") : TEXT(""),
+				Config.bPinned ? TEXT(" [pinned, no whole-fit train free]") : TEXT(""), Config.Trains.Num() > 0 ? *FString::Printf(TEXT(" [%d chosen trains]"), Config.Trains.Num()) : TEXT("")));
+		}
+	}
+	if (Lines.Num() == 0)
+	{
+		Lines.Add(TEXT("No services: no item's flow keeps a whole train busy, and none is pinned."));
+	}
+	return Lines;
+}
+
 const FSTRosterDuty* ASTSubsystem::GetShuttleDuty(const AFGTrain* Train) const
 {
 	const FSTRosterDuty* Duty = Train ? mRoster.Find(const_cast<AFGTrain*>(Train)) : nullptr;
@@ -2580,7 +2756,7 @@ FString ASTSubsystem::DescribeDuty(const FSTRosterDuty& Duty) const
 			Parts.Add(FString::Printf(TEXT("%s %s -> %s"), *STNames::Item(Each.Item.Get()), *STLayout::Name(Each.From.Get()), *STLayout::Name(Each.To.Get())));
 		}
 	}
-	return (Duty.bShuttle ? FString(TEXT("shuttle: ")) : FString()) + FString::Join(Parts, TEXT(", then "));
+	return (Duty.bShuttle ? FString(TEXT("service: ")) : FString()) + FString::Join(Parts, TEXT(", then "));
 }
 
 void ASTSubsystem::AddPlannedRoute(const TArray<FSTNode>& Nodes, int32 From, int32 To, double Flow, float Time, FAdvice& Advice)
