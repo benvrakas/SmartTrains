@@ -24,6 +24,15 @@ in the plan (`C:\Users\benvr\.claude\plans\smarttrains.md`); this file records h
 | `STAccess.*` | Who may change what (admin-gated controls). |
 | `UI/*` | The panels added to vanilla menus, and the controls they are built from. |
 
+## 0.9.1: congestion from Auto Trains
+
+`STAt::GetTrackLoad` calls Auto Trains' `ExternalGetTrackLoad` (1.4.12): the busiest switch or crossing within 400 m of a
+station, as booked time over the next 180 s / 180 s, and the seconds trains wait there now. `ASTSubsystem::GetTrackLoad`
+caches it per station for 15 s (0 without Auto Trains). Used by the stop cost (`TrackLoadWeight` 2: a fully booked way in
+counts like two more trains there), by `RunServices` (no cycle into a way in booked `ServiceJamLoad` (1) full with
+`ServiceJamWaitSeconds` (60) of waiting, unless the service's last departure is more than `ServiceJamSpacings` (3)
+spacings ago) and by the station readout.
+
 ## 0.9.0: services
 
 Plan: `C:\Users\benvr\.claude\plans\smarttrains-services.md`. Code: `STServices.cpp`.

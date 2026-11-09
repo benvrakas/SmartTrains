@@ -72,6 +72,11 @@ namespace STAt
 	// Trains in trouble now; empty if none or Auto Trains isn't loaded.
 	TArray<FTroubled> GetTroubledTrains(const UWorld* World);
 
+	// How busy the switches and crossings within ApproachMetres of Station are over the next HorizonSeconds (booked
+	// time / horizon, the busiest one; above 1 = more booked than fits), and OutWaitingSeconds of trains held up before
+	// them now. -1 without Auto Trains 1.4.12 or traffic control.
+	float GetTrackLoad(const UWorld* World, AFGBuildableRailroadStation* Station, float HorizonSeconds, float ApproachMetres, float& OutWaitingSeconds);
+
 	// Tells Auto Trains that Train's timetable changed, so it predicts the next leg from the new one.
 	void TimeTableChanged(const UWorld* World, AFGTrain* Train);
 

@@ -30,6 +30,11 @@ namespace
 	constexpr int32 ServiceMergeRounds = 20;
 	// A cycle leaves its first stop at most this much earlier than its spacing asks. [s]
 	constexpr double ServiceSpacingSlack = 5.0;
+	// The way into a stop is jammed when Auto Trains has it booked this full with trains already waiting this long;
+	// a service waits for it unless its last train left more than ServiceJamSpacings spacings ago. [load, s, spacings]
+	constexpr float ServiceJamLoad = 1.f;
+	constexpr float ServiceJamWaitSeconds = 60.f;
+	constexpr double ServiceJamSpacings = 3.0;
 
 	FString ServiceKey(const TArray<FSTServiceStop>& Stops)
 	{
@@ -841,6 +846,14 @@ void ASTSubsystem::RunServices(FSTTripPlanner& Planner, const TArray<FSTNode>& N
 				SettleServiceTrain(*State, TEXT("keeping its service's spacing"));
 				continue;
 			}
+			float Waiting = 0.f;
+			const float Load = GetTrackLoad(Stops[0].Station, &Waiting);
+			if (Load >= ServiceJamLoad && Waiting >= ServiceJamWaitSeconds && Time - Service.LastDeparture < ServiceJamSpacings * GetServiceSpacing(Service))
+			{
+				NoteNoTrip(*State, FString::Printf(TEXT("%s: the way into %s is jammed (Auto Trains)"), *DescribeService(Service), *STLayout::Name(Stops[0].Station)));
+				SettleServiceTrain(*State, TEXT("the way into its next stop is jammed"));
+				continue;
+			}
 			if (bFromFirst)
 			{
 				Service.LastDeparture = Departure;
@@ -1034,6 +1047,13 @@ TArray<FString> ASTSubsystem::DescribeStationServices(const AFGTrainStationIdent
 	if (IsDeadEnd(Station))
 	{
 		Lines.Add(TEXT("A dead end: trains leave the way they came."));
+	}
+	float Waiting = 0.f;
+	const float Load = GetTrackLoad(Station, &Waiting);
+	if (Load > 0.f || Waiting > 0.f)
+	{
+		Lines.Add(FString::Printf(TEXT("Way in: its switches and crossings are booked %.0f%% of the next 3 min, %.0f s of waiting there now (Auto Trains)."),
+			Load * 100.f, Waiting));
 	}
 	return Lines;
 }

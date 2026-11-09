@@ -437,6 +437,27 @@ TArray<STAt::FTroubled> STAt::GetTroubledTrains(const UWorld* World)
 	return Troubled;
 }
 
+float STAt::GetTrackLoad(const UWorld* World, AFGBuildableRailroadStation* Station, float HorizonSeconds, float ApproachMetres, float& OutWaitingSeconds)
+{
+	OutWaitingSeconds = 0.f;
+	float Load = -1.f;
+	TObjectPtr<AFGBuildableRailroadStation> StationPtr = Station;
+	CallAt(World, TEXT("ExternalGetTrackLoad"), [&](const UFunction* Function, FStructOnScope& Params)
+	{
+		return Station && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Station"), StationPtr)
+			&& SetParam<FFloatProperty>(Function, Params, TEXT("HorizonSeconds"), HorizonSeconds)
+			&& SetParam<FFloatProperty>(Function, Params, TEXT("ApproachMetres"), ApproachMetres);
+	}, [&](const UFunction* Function, const uint8* Memory)
+	{
+		if (const float* Waiting = ParamValue<float>(Function, Memory, TEXT("OutWaitingSeconds")))
+		{
+			OutWaitingSeconds = *Waiting;
+		}
+		Load = ReturnFloat(Function, Memory);
+	});
+	return Load;
+}
+
 void STAt::TimeTableChanged(const UWorld* World, AFGTrain* Train)
 {
 	TObjectPtr<AFGTrain> TrainPtr = Train;

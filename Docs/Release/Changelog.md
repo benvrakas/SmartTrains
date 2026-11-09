@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.1 (beta)
+
+- **Uses Auto Trains' congestion data** (Auto Trains 1.4.12 or later): how busy the switches and crossings around each
+  station are over the next three minutes, and how long trains already wait there.
+  - A stop at a station whose way in is busy costs more, so trains clearing cargo go elsewhere when they can.
+  - A service doesn't send its next train into a way in that is fully booked with trains already waiting, unless the
+    service is well behind its spacing.
+  - The station menu shows how busy its way in is.
+
 ## 0.9.0 (beta)
 
 **Services run the network.** SmartTrains no longer plans trains trip by trip. It turns the flow plan into services:

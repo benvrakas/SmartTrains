@@ -228,6 +228,16 @@ public:
 	int32 GetWaitingRoom(const AFGTrainStationIdentifier* Station, float TrainLength) const;
 	// The switch on Station's way in, shared by stations reached through it; null if not known or none.
 	const void* GetJunction(const AFGTrainStationIdentifier* Station) const;
+	// Auto Trains' load on the switches and crossings around Station (STAt::GetTrackLoad, asked at most every 15 s per
+	// station): 0 when free or unknown, 1 when booked the whole next 3 minutes. OutWaiting: seconds trains wait there now.
+	float GetTrackLoad(const AFGTrainStationIdentifier* Station, float* OutWaiting = nullptr) const;
+	struct FTrackLoad
+	{
+		float Load = 0.f;
+		float Waiting = 0.f;
+		double At = -1.0e9;
+	};
+	mutable TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, FTrackLoad> mTrackLoads;
 
 	const FSTSettings& GetSettings() const { return mSettings; }
 

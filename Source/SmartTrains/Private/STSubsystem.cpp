@@ -1155,6 +1155,37 @@ int32 ASTSubsystem::GetWaitingRoom(const AFGTrainStationIdentifier* Station, flo
 	return FMath::FloorToInt(Approach.WaitLength / (TrainLength + WaitClearance));
 }
 
+float ASTSubsystem::GetTrackLoad(const AFGTrainStationIdentifier* Station, float* OutWaiting) const
+{
+	// How far ahead and how far around the station Auto Trains is asked about. [s, m]
+	constexpr float TrackLoadHorizon = 180.f;
+	constexpr float TrackLoadApproach = 400.f;
+	constexpr double TrackLoadSeconds = 15.0;
+	if (OutWaiting)
+	{
+		*OutWaiting = 0.f;
+	}
+	AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
+	if (!Building)
+	{
+		return 0.f;
+	}
+	FTrackLoad& Cached = mTrackLoads.FindOrAdd(const_cast<AFGTrainStationIdentifier*>(Station));
+	if (Now() - Cached.At >= TrackLoadSeconds)
+	{
+		float Waiting = 0.f;
+		const float Load = STAt::GetTrackLoad(GetWorld(), Building, TrackLoadHorizon, TrackLoadApproach, Waiting);
+		Cached.Load = FMath::Max(0.f, Load);
+		Cached.Waiting = Load >= 0.f ? Waiting : 0.f;
+		Cached.At = Now();
+	}
+	if (OutWaiting)
+	{
+		*OutWaiting = Cached.Waiting;
+	}
+	return Cached.Load;
+}
+
 const void* ASTSubsystem::GetJunction(const AFGTrainStationIdentifier* Station) const
 {
 	FSTTravel::FApproach Approach;

@@ -27,6 +27,8 @@ namespace
 	constexpr double MinUnloadSlots = 2.0;
 	// Value a stop costs, once plus once per other train booked at that station near the visit. [car-load minutes]
 	constexpr double StopCostValue = 1.0;
+	// Auto Trains' load on the switches around a stop counts like this many more trains there per whole horizon booked.
+	constexpr double TrackLoadWeight = 2.0;
 	// How far before and after a visit other trains' bookings count towards its stop cost. [s]
 	constexpr double StopNearSeconds = 120.0;
 	// What dumping a car load into a sink costs a train switching services: goods a consumer needs within the horizon,
@@ -1118,7 +1120,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 			}
 		}
 		Clock = Result.Arrive[Index] + mSubsystem.EstimateStaySeconds(Station);
-		StopCost += StopCostValue * (1 + CountNear(Station, Result.Arrive[Index] - StopNearSeconds, Clock + StopNearSeconds));
+		StopCost += StopCostValue * (1 + CountNear(Station, Result.Arrive[Index] - StopNearSeconds, Clock + StopNearSeconds) + TrackLoadWeight * mSubsystem.GetTrackLoad(Station));
 		Previous = Station;
 	}
 	Result.EndTime = Clock;
