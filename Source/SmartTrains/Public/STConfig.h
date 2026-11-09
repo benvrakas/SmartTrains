@@ -19,13 +19,7 @@ struct FSTSettings
 	bool bAdminsOnly = false;
 	// Every stop is load/unload once, and a train with a trip leaves at once instead of holding in the station.
 	bool bLeaveAtOnce = true;
-	// A train with no new trip runs its last job again instead of parking.
-	bool bRepeatLastJob = true;
-	// Plans every free train together against the network's forecast cost instead of each its best next trip.
-	bool bHorizonPlanner = true;
-	// A demand platform that would fall below its target before any train could bring it gets a train emptied for it.
-	bool bRequestFallback = true;
-	// With the horizon planner: trains run fixed rotations from the flow plan; the planner only corrects.
+	// Trains run services and shares of the flow plan's routes; the planner only corrects.
 	bool bRoster = true;
 	// How often jobs are handed out. [s]
 	float DispatchSeconds = 3.f;
@@ -41,24 +35,19 @@ struct FSTSettings
 	float LoadWaitSeconds = 30.f;
 	// Longest wait at a delivery for the platform to take everything. [s]
 	float UnloadWaitSeconds = 120.f;
-	// A re-plan after a stop adds to the rest of the trip only if that scores this many times higher. [x]
-	float ReplanThreshold = 1.1f;
 	// Planning time per dispatch round; trains not planned in time wait for the next round. [ms]
 	float PlanBudgetMs = 25.f;
 	// Most stops in one trip.
 	float MaxStops = 4.f;
 	// Longest trip planned. [min]
 	float MaxTripMinutes = 45.f;
-	// After this long carrying cargo no trip wants, it may go to any consumer with room or a sink. [min]
+	// After this long carrying cargo no trip delivers, the monitor counts the train as holding unwanted cargo. [min]
 	float LeftoverMinutes = 30.f;
 	// Least time between one train leaving a station and the next arriving there. [s]
 	float ArrivalGapSeconds = 30.f;
-	// With bLeaveAtOnce: no trip makes more than this many trains wait on the line before a stop, itself included. 0:
-	// no limit. [trains]
+	// With bLeaveAtOnce: no trip makes more than this many trains wait on the line before a stop, itself included, nor
+	// more than fit before its way-in switch. 0: only the switch decides. [trains]
 	float QueueTrains = 2.f;
-	// Requests: a train is emptied for a platform early enough that the goods arrive this long before it would fall
-	// below its target. [min]
-	float RequestMarginMinutes = 5.f;
 };
 
 // SmartTrains' mod configuration: switches and numbers shown in the Mods menu and Satisfactory Mod Manager.

@@ -208,6 +208,10 @@ public:
 	float EstimateStaySeconds(const AFGTrainStationIdentifier* Station) const;
 	// True if Station is a dead end: a train in it can only leave the way trains come in.
 	bool IsDeadEnd(const AFGTrainStationIdentifier* Station) const;
+	// How many trains of TrainLength fit on the track before Station's way-in switch, waiting for it; -1 if not known yet.
+	int32 GetWaitingRoom(const AFGTrainStationIdentifier* Station, float TrainLength) const;
+	// The switch on Station's way in, shared by stations reached through it; null if not known or none.
+	const void* GetJunction(const AFGTrainStationIdentifier* Station) const;
 
 	const FSTSettings& GetSettings() const { return mSettings; }
 
@@ -274,9 +278,6 @@ private:
 	void CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve);
 	// Records why a free train got no trip; logged when the reason changes.
 	void NoteNoTrip(const FSTTrainState& State, const FString& Reason);
-	// Plans trips for demand platforms that ask for a train (ESTRequest): emptying a car that holds another item first
-	// (Docs/Architecture.md, "Requests"). Runs after the round's normal trips.
-	void ServeRequests(FSTTripPlanner& Planner, const TArray<FSTNode>& Nodes);
 	// True if Platform (of demand node Node) asks for a train: its stock and its deliveries on the way fall below its
 	// target (On: 90 %) within the request horizon at its use rate. OutBelowAt: when (game seconds); OutWhy: for logs.
 	bool GetRequestNeed(const FSTNode& Node, const AFGBuildableTrainPlatformCargo* Platform, double& OutBelowAt, FString& OutWhy) const;
@@ -347,14 +348,6 @@ private:
 	FString DescribeStationPlatforms(const AFGTrainStationIdentifier* Station) const;
 	// Station bookings of the trips under way (repeats book nothing), parked trains and Auto Trains' station queues.
 	void BuildBookings(const TArray<FSTNode>& Nodes, double Time, TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& Out);
-	// Gives the train its last trip again, simulated from what it holds and what the stations have now, without the
-	// stops that would move nothing (RepeatLastJob). Returns false if nothing of it is worth driving, or another train
-	// already runs it.
-	bool RepeatLastJob(FSTTrainState& State, const TCHAR* Why);
-	// Gives the train its last trip as it was, with no simulation, to run until it gets a new one: for when nothing is
-	// worth repeating and there is no depot, so it keeps moving instead of standing on the line. Returns false if it has
-	// no trip.
-	bool KeepRunningLastJob(FSTTrainState& State, const TCHAR* Why);
 	// True if other managed trains (2 or more, Except not counted) are on their way to Station, or Auto Trains reports a
 	// queue there.
 	bool IsStationQueued(const AFGTrainStationIdentifier* Station, const AFGTrain* Except) const;

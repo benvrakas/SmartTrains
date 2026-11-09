@@ -16,6 +16,9 @@ namespace STForecast
 	constexpr double LostLoadMinutes = 0.25;
 	// Horizon planner: most stops in a train's plan (several trips).
 	constexpr int32 HorizonStops = 6;
+	// What a second of a train's time costs against the forecast cost a trip removes: a trip's score is its value less
+	// this times its duration. [car-load minutes per second]
+	constexpr double TrainSecondCost = 0.01;
 
 	// Cost of Node over [Now, Now + HorizonSeconds] with Events (any order) on top of its stock, in car-load minutes
 	// (amount / CarCapacity): demand, priority weight x shortfall below target over time; supply, production lost while

@@ -39,6 +39,7 @@ namespace
 void FSTTravel::Reset()
 {
 	mRows.Reset();
+	mApproaches.Reset();
 	mOrder.Reset();
 	mNext = 0;
 }
@@ -59,6 +60,13 @@ void FSTTravel::Step(const TArray<AFGTrainStationIdentifier*>& Stations)
 		}
 		mNext = 0;
 		for (auto It = mRows.CreateIterator(); It; ++It)
+		{
+			if (!Stations.Contains(It.Key().Get()))
+			{
+				It.RemoveCurrent();
+			}
+		}
+		for (auto It = mApproaches.CreateIterator(); It; ++It)
 		{
 			if (!Stations.Contains(It.Key().Get()))
 			{
@@ -98,6 +106,17 @@ void FSTTravel::Step(const TArray<AFGTrainStationIdentifier*>& Stations)
 		return;
 	}
 	const double Started = FPlatformTime::Seconds();
+	TSet<UFGRailroadTrackConnectionComponent*> StationEnds;
+	for (const TPair<UFGRailroadTrackConnectionComponent*, AFGTrainStationIdentifier*>& Each : Arrivals)
+	{
+		StationEnds.Add(Each.Key);
+	}
+	for (const TPair<UFGRailroadTrackConnectionComponent*, AFGTrainStationIdentifier*>& Each : BackArrivals)
+	{
+		StationEnds.Add(Each.Key);
+	}
+	const FApproach Approach = WalkApproach(PlatformEnd, StationEnds);
+	mApproaches.Add(Source, Approach);
 	FRow Row;
 	Search(FarEnd, Arrivals, BackArrivals, ArrivalExtra, Row.Forward, Row.ForwardBack);
 	Search(PlatformEnd, Arrivals, BackArrivals, ArrivalExtra, Row.Reverse, Row.ReverseBack);
@@ -115,9 +134,9 @@ void FSTTravel::Step(const TArray<AFGTrainStationIdentifier*>& Stations)
 		}
 		return FString::Printf(TEXT(" [%s]"), *FString::Join(Parts, TEXT(", ")));
 	};
-	UE_LOG(LogSmartTrains, Verbose, TEXT("Travel: from %s reaches %d stations forward%s, %d reversing%s; push-pull trains also %d forward%s, %d reversing%s from the far end (%.1f ms)"),
+	UE_LOG(LogSmartTrains, Verbose, TEXT("Travel: from %s reaches %d stations forward%s, %d reversing%s; push-pull trains also %d forward%s, %d reversing%s from the far end; %.0f m to wait on before its switch (%.1f ms)"),
 		*STLayout::Name(Source), Row.Forward.Num(), *Names(Row.Forward), Row.Reverse.Num(), *Names(Row.Reverse), Row.ForwardBack.Num(), *Names(Row.ForwardBack),
-		Row.ReverseBack.Num(), *Names(Row.ReverseBack), (FPlatformTime::Seconds() - Started) * 1000.0);
+		Row.ReverseBack.Num(), *Names(Row.ReverseBack), Approach.WaitLength / 100.f, (FPlatformTime::Seconds() - Started) * 1000.0);
 	mRows.Add(Source, MoveTemp(Row));
 }
 
@@ -180,6 +199,56 @@ void FSTTravel::Search(UFGRailroadTrackConnectionComponent* Exit, const TMap<UFG
 			}
 		}
 	}
+}
+
+FSTTravel::FApproach FSTTravel::WalkApproach(UFGRailroadTrackConnectionComponent* PlatformEnd, const TSet<UFGRailroadTrackConnectionComponent*>& StationEnds)
+{
+	FApproach Approach;
+	UFGRailroadTrackConnectionComponent* Exit = PlatformEnd;
+	for (int32 Step = 0; Step < 400 && Exit && Approach.WaitLength < 500000.f; ++Step)
+	{
+		const TArray<UFGRailroadTrackConnectionComponent*> Connections = Exit->GetConnections();
+		if (Connections.Num() > 1)
+		{
+			Approach.Junction = Exit;
+			break;
+		}
+		UFGRailroadTrackConnectionComponent* Entrance = Connections.Num() == 1 ? Connections[0] : nullptr;
+		if (!Entrance)
+		{
+			break;
+		}
+		if (Entrance->GetConnections().Num() > 1)
+		{
+			Approach.Junction = Entrance;
+			break;
+		}
+		if (StationEnds.Contains(Entrance))
+		{
+			break;
+		}
+		AFGBuildableRailroadTrack* Track = Entrance->GetTrack();
+		if (!Track)
+		{
+			break;
+		}
+		if (!Track->GetIsOwnedByPlatform())
+		{
+			Approach.WaitLength += Track->GetLength();
+		}
+		Exit = Entrance->GetOpposite();
+	}
+	return Approach;
+}
+
+bool FSTTravel::GetApproach(const AFGTrainStationIdentifier* Station, FApproach& Out) const
+{
+	if (const FApproach* Found = mApproaches.Find(const_cast<AFGTrainStationIdentifier*>(Station)))
+	{
+		Out = *Found;
+		return true;
+	}
+	return false;
 }
 
 bool FSTTravel::IsDeadEnd(const AFGTrainStationIdentifier* Station) const

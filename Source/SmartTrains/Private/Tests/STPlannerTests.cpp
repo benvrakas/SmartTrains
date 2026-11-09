@@ -719,12 +719,6 @@ bool FSTRequestSoonestEmptyingTest::RunTest(const FString& Parameters)
 		FirstNode.Platforms = {Objects[0]};
 		FSTNode SecondNode = FSTTestAccess::Node(Second, Other, ESTRole::Demand, 0, 100000, 0);
 		SecondNode.Platforms = {Objects[1]};
-		// Near the sink, the consumers of the cargo on board are full, so nobody needs it soon and the sink may take it.
-		if (bSinkNear)
-		{
-			FirstNode.Stock = 100000;
-			SecondNode.Stock = 100000;
-		}
 		FSTNode SinkNode = FSTTestAccess::Node(Sink, nullptr, ESTRole::Demand, 0, 100000, 0);
 		SinkNode.bAnyItem = true;
 		SinkNode.Platforms = {Objects[2]};
@@ -747,7 +741,8 @@ bool FSTRequestSoonestEmptyingTest::RunTest(const FString& Parameters)
 		FSTTestAccess::FCarInfo Car = FSTTestAccess::Car(Other, 2000.0);
 		Car.Slots = 10;
 		FSTTestAccess::FCarPlatforms CarPlatforms;
-		for (int32 Index = 0; Index < 5; ++Index)
+		// Near the sink, the car doesn't line up with the consumers of what it holds, so the sink may take it.
+		for (int32 Index = bSinkNear ? 2 : 0; Index < 5; ++Index)
 		{
 			CarPlatforms.Add(Stations[Index + 1], {{Index}});
 		}
@@ -1189,8 +1184,8 @@ bool FSTSmallLoadTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// A sink never gets cargo a consumer needs within the hour: on the server leftovers of coal, sulfur and AI Limiters went
-// into a depot's sink while their consumers waited.
+// A sink only gets what a car can't unload at any consumer of it: on the server leftovers of coal, sulfur and AI
+// Limiters went into a depot's sink while their consumers waited.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTSinkNeededTest, "SmartTrains.Planner.SinkKeepsNeeded", TestFlags)
 bool FSTSinkNeededTest::RunTest(const FString& Parameters)
 {
@@ -1200,35 +1195,44 @@ bool FSTSinkNeededTest::RunTest(const FString& Parameters)
 	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
 	AFGTrainStationIdentifier* Consumer = FSTTestAccess::MakeStation();
 	FSTTestAccess::SetTrip(*Subsystem, Start, Sink, 60.f);
-	auto Dump = [&](bool bWanted)
+	// bConsumer: a consumer of the ingots exists; bLinesUp: the car stops beside its platform there.
+	auto Dump = [&](bool bConsumer, bool bLinesUp)
 	{
 		FSTNode SinkNode = FSTTestAccess::Node(Sink, nullptr, ESTRole::Demand, 0, 0, 1);
 		SinkNode.bAnyItem = true;
 		TArray<FSTNode> Nodes = {SinkNode};
-		if (bWanted)
+		if (bConsumer)
 		{
 			Nodes.Add(FSTTestAccess::Node(Consumer, Ingot, ESTRole::Demand, 0, 100000, 1));
 		}
 		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
 		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
-		FSTTestAccess::FPlatformInfo Platform = FSTTestAccess::Platform(Ingot, false, 0.0, 0);
-		Platform.bAnyItem = true;
-		Platform.Items.Reset();
-		Platform.Slots = 48;
+		FSTTestAccess::FPlatformInfo SinkPlatform = FSTTestAccess::Platform(Ingot, false, 0.0, 0);
+		SinkPlatform.bAnyItem = true;
+		SinkPlatform.Items.Reset();
+		SinkPlatform.Slots = 48;
+		FSTTestAccess::FPlatformInfo ConsumerPlatform = FSTTestAccess::Platform(Ingot, false, 0.0, 0);
+		ConsumerPlatform.Slots = 48;
 		FSTTestAccess::FCarInfo Car = FSTTestAccess::Car(Ingot, 3200.0);
 		Car.Slots = 32;
 		FSTTestAccess::FCarPlatforms CarPlatforms;
 		CarPlatforms.Add(Sink, {{0}});
-		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, {Platform}, CarPlatforms);
+		if (bLinesUp)
+		{
+			CarPlatforms.Add(Consumer, {{1}});
+		}
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, {SinkPlatform, ConsumerPlatform}, CarPlatforms);
+		FSTTestAccess::ServeAll(Planner);
 		FSTPlanStop Unload;
 		Unload.Station = Sink;
 		Unload.UnloadItems.Add(Ingot);
 		const FSTPlanResult Result = Planner.Simulate({Unload});
-		AddInfo(FString::Printf(TEXT("wanted %d: %s"), bWanted ? 1 : 0, Result.bValid ? TEXT("valid") : *Result.Problem));
+		AddInfo(FString::Printf(TEXT("consumer %d, lines up %d: %s"), bConsumer ? 1 : 0, bLinesUp ? 1 : 0, Result.bValid ? TEXT("valid") : *Result.Problem));
 		return Result.bValid;
 	};
-	TestFalse(TEXT("ingots a consumer needs now don't go into the sink"), Dump(true));
-	TestTrue(TEXT("ingots no consumer wants may"), Dump(false));
+	TestFalse(TEXT("ingots the car can deliver to a consumer don't go into the sink"), Dump(true, true));
+	TestTrue(TEXT("ingots the car can never unload at their consumer may, so the car is freed"), Dump(true, false));
+	TestTrue(TEXT("ingots no consumer takes may"), Dump(false, false));
 	return true;
 }
 

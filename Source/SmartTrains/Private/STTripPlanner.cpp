@@ -21,21 +21,15 @@ namespace
 	constexpr int32 MaxRequestSources = 3;
 	constexpr int32 MaxRequestConsumers = 3;
 	constexpr int32 MaxRequestSinks = 2;
-	// Shortest trip time the score divides by, so very short trips don't get huge scores. [s]
-	constexpr double MinScoreSeconds = 30.0;
-	// Value weight of cargo delivered to a consumer above its target (unwanted cargo after the time limit).
-	constexpr double OverTargetWeight = 0.2;
-	// Value weight of cargo delivered to an any-item sink.
-	constexpr double SinkWeight = 0.1;
 	// Least a car unloads at a stop, in car slots (or all it holds when that is less). [slots]
 	constexpr double MinUnloadSlots = 2.0;
 	// Value a stop costs, once plus once per other train booked at that station near the visit. [car-load minutes]
 	constexpr double StopCostValue = 1.0;
 	// How far before and after a visit other trains' bookings count towards its stop cost. [s]
 	constexpr double StopNearSeconds = 120.0;
-	// Other trains' bookings count towards the queue limit only for arrivals this soon: later plans still change. [s]
 	// A car loads an item only if it takes at least this share of a car of it.
 	constexpr double MinLoadShare = 0.05;
+	// Other trains' bookings count towards the queue limit only for arrivals this soon: later plans still change. [s]
 	constexpr double QueueLookSeconds = 300.0;
 	// Value of a car left holding cargo after a trip (a car emptied is worth the same). [car-load minutes]
 	constexpr double TiedCarValue = 2.0;
@@ -107,10 +101,7 @@ FSTTripPlanner::FSTTripPlanner(const ASTSubsystem& InSubsystem, TArray<FSTNode>&
 	mDeadline = mStarted + FMath::Clamp(mSubsystem.mSettings.PlanBudgetMs, 5.f, 200.f) / 1000.0;
 	bFcc = mSubsystem.IsFccAvailable();
 	mMaxStops = FMath::Clamp(FMath::RoundToInt(mSubsystem.mSettings.MaxStops), 2, 8);
-	if (mSubsystem.mSettings.bHorizonPlanner)
-	{
-		mMaxStops = FMath::Max(mMaxStops, STForecast::HorizonStops);
-	}
+	mMaxStops = FMath::Max(mMaxStops, STForecast::HorizonStops);
 	mMaxTripSeconds = FMath::Max(60.0, mSubsystem.mSettings.MaxTripMinutes * 60.0);
 	for (int32 Index = 0; Index < mNodes.Num(); ++Index)
 	{
@@ -212,15 +203,45 @@ int32 FSTTripPlanner::CountAhead(const AFGTrainStationIdentifier* Station, doubl
 
 int32 FSTTripPlanner::CountNear(const AFGTrainStationIdentifier* Station, double From, double Until) const
 {
+	// Other trains at the station, and at stations whose only way in is through the same switch: they cross it too.
+	const void* Junction = mSubsystem.GetJunction(Station);
 	int32 Near = 0;
-	if (const TArray<FSTBooking>* Bookings = mBookings.Find(Station))
+	for (const TPair<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& Pair : mBookings)
 	{
-		for (const FSTBooking& Each : *Bookings)
+		if (Pair.Key != Station && (!Junction || mSubsystem.GetJunction(Pair.Key) != Junction))
+		{
+			continue;
+		}
+		for (const FSTBooking& Each : Pair.Value)
 		{
 			Near += Each.Train != mTrainIndex && Each.Until > From && Each.From < Until ? 1 : 0;
 		}
 	}
 	return Near;
+}
+
+bool FSTTripPlanner::CarHasConsumer(int32 CarIndex, UClass* Item) const
+{
+	for (const FSTNode& Node : mNodes)
+	{
+		if (Node.Role != ESTRole::Demand || Node.bAnyItem || Node.Item.Get() != Item || !CanServeHere(Node.Station.Get()))
+		{
+			continue;
+		}
+		if (CarFitsAt(CarIndex, Node.Station.Get(), [Item](const FPlatformInfo& Platform) { return Platform.bDemand && !Platform.bLoadMode && !Platform.bAnyItem && Platform.Items.Contains(Item); }))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool FSTTripPlanner::ItemHasConsumer(UClass* Item) const
+{
+	return mNodes.ContainsByPredicate([&](const FSTNode& Node)
+	{
+		return Node.Role == ESTRole::Demand && !Node.bAnyItem && Node.Item.Get() == Item && CanServeHere(Node.Station.Get());
+	});
 }
 
 double FSTTripPlanner::GetTiedShare(const TArray<TPair<UClass*, double>>& Cargo) const
@@ -546,6 +567,7 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 		return false;
 	}
 	bRelaxed = bCarrying && State.UnwantedCargoSince > 0.0 && mTime - State.UnwantedCargoSince > mSubsystem.mSettings.LeftoverMinutes * 60.0;
+	mTrainLength = STLayout::GetTrainLength(Train);
 
 	auto CarFits = [this](int32 Index, const AFGTrainStationIdentifier* Station, TFunctionRef<bool(const FPlatformInfo&)> Test)
 	{
@@ -569,8 +591,8 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 				{
 					continue;
 				}
-				// A sink only takes leftovers no consumer needs within the horizon.
-				if (Consumer.bAnyItem && (!bRelaxed || mNeededSoon.Contains(Carried.Key)))
+				// A sink only takes what this car can't unload at any consumer of the item.
+				if (Consumer.bAnyItem && CarHasConsumer(CarIndex, Carried.Key))
 				{
 					continue;
 				}
@@ -628,7 +650,8 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 			{
 				continue;
 			}
-			if (Consumer.bAnyItem && (!bFull || mNeededSoon.Contains(Item)))
+			// A full supplier's goods go to a sink only if nothing on the network consumes them (overflow).
+			if (Consumer.bAnyItem && (!bFull || ItemHasConsumer(Item)))
 			{
 				continue;
 			}
@@ -714,6 +737,7 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 	Setup.FreeAt = FreeAt;
 	Setup.bAnchorDocked = bAnchorDocked;
 	Setup.bRelaxed = bRelaxed;
+	Setup.TrainLength = mTrainLength;
 	Setup.bPushPull = bPushPull;
 	Setup.Cars = mCars;
 	Setup.Moves = mMoves;
@@ -735,6 +759,7 @@ bool FSTTripPlanner::ResumeTrain(int32 TrainIndex, const AFGTrainStationIdentifi
 	mFreeAt = FreeAt;
 	bAnchorDocked = bInAnchorDocked;
 	bRelaxed = Setup->bRelaxed;
+	mTrainLength = Setup->TrainLength;
 	bPushPull = Setup->bPushPull;
 	mCars = Setup->Cars;
 	mMoves = Setup->Moves;
@@ -746,20 +771,69 @@ bool FSTTripPlanner::ResumeTrain(int32 TrainIndex, const AFGTrainStationIdentifi
 FSTPlanResult FSTTripPlanner::Simulate(const TArray<FSTPlanStop>& Stops) const
 {
 	TSet<TPair<int32, int32>> Skips;
+	TMap<TPair<int32, UClass*>, double> Caps;
 	FSTPlanResult Result;
 	for (int32 Pass = 0; Pass <= mCars.Num(); ++Pass)
 	{
 		const int32 Before = Skips.Num();
-		Result = SimulateWithSkips(Stops, Skips);
+		Result = SimulateWithSkips(Stops, Skips, Caps);
 		if (Result.bValid || Skips.Num() == Before)
 		{
 			break;
 		}
 	}
+	// A car loads only what the trip unloads again: what it would still hold of an item loaded on this trip is taken off
+	// its pickups, and the trip simulated once more (leftovers tie cars and end up in sinks).
+	if (Result.bValid && Caps.Num() == 0)
+	{
+		for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
+		{
+			TMap<UClass*, double> Loaded;
+			TMap<UClass*, double> Unloaded;
+			for (const TArray<FSTPlanCarStep>& Step : Result.Steps)
+			{
+				if (!Step.IsValidIndex(CarIndex))
+				{
+					continue;
+				}
+				for (const TPair<UClass*, int32>& Each : Step[CarIndex].Loaded)
+				{
+					Loaded.FindOrAdd(Each.Key) += Each.Value;
+				}
+				for (const TPair<UClass*, int32>& Each : Step[CarIndex].Unloaded)
+				{
+					Unloaded.FindOrAdd(Each.Key) += Each.Value;
+				}
+			}
+			for (const TPair<UClass*, double>& Each : Loaded)
+			{
+				const double Before = CargoOf(mCars[CarIndex].Cargo, Each.Key);
+				const double Left = Before + Each.Value - Unloaded.FindRef(Each.Key);
+				const double Extra = FMath::Min(Each.Value, Left - Before);
+				if (Extra >= 1.0)
+				{
+					Caps.Add(TPair<int32, UClass*>(CarIndex, Each.Key), FMath::Max(0.0, Each.Value - Extra));
+				}
+			}
+		}
+		if (Caps.Num() > 0)
+		{
+			Skips.Reset();
+			for (int32 Pass = 0; Pass <= mCars.Num(); ++Pass)
+			{
+				const int32 Before = Skips.Num();
+				Result = SimulateWithSkips(Stops, Skips, Caps);
+				if (Result.bValid || Skips.Num() == Before)
+				{
+					break;
+				}
+			}
+		}
+	}
 	return Result;
 }
 
-FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops, TSet<TPair<int32, int32>>& InOutSkips) const
+FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops, TSet<TPair<int32, int32>>& InOutSkips, const TMap<TPair<int32, UClass*>, double>& Caps) const
 {
 	FSTPlanResult Result;
 	auto Fail = [&Result](const FString& Why)
@@ -809,13 +883,20 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 		// still there or not yet docked when it gets there, but the one docked (the waiting time itself only lowers the
 		// score, since it counts as trip time).
 		const FSTSettings& Settings = mSubsystem.mSettings;
-		const int32 Limit = FMath::RoundToInt(Settings.QueueTrains);
-		if (Settings.bLeaveAtOnce && Limit > 0 && Result.Arrive[Index] > Clock + Travel && Clock + Travel - mTime <= QueueLookSeconds)
+		int32 Limit = Settings.QueueTrains > 0.f ? FMath::RoundToInt(Settings.QueueTrains) : MAX_int32;
+		const int32 Room = mSubsystem.GetWaitingRoom(Station, mTrainLength);
+		if (Room >= 0)
+		{
+			Limit = FMath::Min(Limit, Room);
+		}
+		if (Settings.bLeaveAtOnce && Limit < MAX_int32 && Result.Arrive[Index] > Clock + Travel && Clock + Travel - mTime <= QueueLookSeconds)
 		{
 			const int32 Ahead = CountAhead(Station, Clock + Travel, Result.Arrive[Index]);
 			if (Ahead > Limit)
 			{
-				return Fail(FString::Printf(TEXT("would queue at %s behind %d trains (most %d waiting)"), *STLayout::Name(Station), Ahead, Limit));
+				return Fail(Room >= 0 && Room == Limit
+					? FString::Printf(TEXT("would wait before %s behind %d trains (room for %d before its switch)"), *STLayout::Name(Station), Ahead, Room)
+					: FString::Printf(TEXT("would queue at %s behind %d trains (most %d waiting)"), *STLayout::Name(Station), Ahead, Limit));
 			}
 		}
 		Clock = Result.Arrive[Index] + mSubsystem.EstimateStaySeconds(Station);
@@ -873,6 +954,8 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 		bool bNoBatch = false;
 	};
 	TArray<FItemTotals> Totals;
+	// Loaded so far against each cap.
+	TMap<TPair<int32, UClass*>, double> CapTaken;
 	auto SlotAmount = [this](UClass* Item)
 	{
 		return STLayout::GetCarSlotAmount(mCars.Num() > 0 ? mCars[0].Car : nullptr, Item);
@@ -1043,7 +1126,13 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 						Pool = FMath::Min(Pool, Each);
 					}
 					const double Room = GetCarRoom(mCars[CarIndex], Cargo[CarIndex], Item);
-					const double Amount = FMath::FloorToDouble(FMath::Min3(Room, Pool, FMath::Max(0.0, NodeLeft)));
+					double Amount = FMath::FloorToDouble(FMath::Min3(Room, Pool, FMath::Max(0.0, NodeLeft)));
+					if (const double* Cap = Caps.Find(TPair<int32, UClass*>(CarIndex, Item)))
+					{
+						double& Taken = CapTaken.FindOrAdd(TPair<int32, UClass*>(CarIndex, Item));
+						Amount = FMath::Min(Amount, FMath::FloorToDouble(FMath::Max(0.0, *Cap - Taken)));
+						Taken += FMath::Max(0.0, Amount);
+					}
 					FItemTotals& Total = TotalsFor(Item);
 					const bool bFirst = !Loaded.ContainsByPredicate([&](const FLoaded& Each) { return Each.Car == CarIndex && Each.Item == Item; });
 					if (bFirst)
@@ -1124,25 +1213,19 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					{
 						continue;
 					}
-					if (mNodes[Node].bAnyItem && mNeededSoon.Contains(Item))
+					if (mNodes[Node].bAnyItem && CarHasConsumer(CarIndex, Item))
 					{
-						return Fail(FString::Printf(TEXT("car %d would unload %s into the sink at %s, which a consumer needs within the hour"), CarIndex + 1,
+						return Fail(FString::Printf(TEXT("car %d would unload %s into the sink at %s, but it can deliver it to a consumer"), CarIndex + 1,
 							*STNames::Item(Item), *STLayout::Name(Stop.Station)));
 					}
 					FItemTotals& Total = TotalsFor(Item);
 					if (mNodes[Node].bAnyItem)
 					{
-						Result.Value += (Total.bFromFull || bRelaxed) ? SinkWeight * CarShare(Item, Amount) : 0.0;
 						continue;
 					}
 					Total.bCritical |= mNodes[Node].Priority == ESTPriority::Critical;
 					const double Gain = ForecastGain(Node, Item, Arrive, Amount);
 					Result.Value += Gain;
-					// Cargo nobody needs within the horizon: a little for clearing a full supplier or leftovers.
-					if (Gain <= 0.0 && (bRelaxed || Total.bFromFull))
-					{
-						Result.Value += OverTargetWeight * STNames::PriorityWeight(mNodes[Node].Priority) * CarShare(Item, Amount);
-					}
 				}
 			}
 		}
@@ -1179,7 +1262,8 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 	}
 	Result.Value -= StopCost;
 	Result.bValid = true;
-	Result.Score = Result.Value / FMath::Max(MinScoreSeconds, Result.EndTime - mTime);
+	// One objective: what the trip is worth less what the train's time costs.
+	Result.Score = Result.Value - STForecast::TrainSecondCost * FMath::Max(0.0, Result.EndTime - mFreeAt);
 	return Result;
 }
 

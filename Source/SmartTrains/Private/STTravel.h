@@ -24,6 +24,17 @@ public:
 	// can only leave the way trains come in.
 	bool IsDeadEnd(const AFGTrainStationIdentifier* Station) const;
 
+	// What lies outside a station's platform end, the trains' way in: track a train can wait on before the first
+	// switch (platforms not counted), and that switch (null when the way in has none before a track end or another
+	// station).
+	struct FApproach
+	{
+		float WaitLength = 0.f;
+		const void* Junction = nullptr;
+	};
+	// False until Station has been searched.
+	bool GetApproach(const AFGTrainStationIdentifier* Station, FApproach& Out) const;
+
 	// Forgets everything, e.g. when the world changes.
 	void Reset();
 
@@ -44,7 +55,11 @@ private:
 		const TMap<UFGRailroadTrackConnectionComponent*, AFGTrainStationIdentifier*>& BackArrivals, const TMap<AFGTrainStationIdentifier*, float>& ArrivalExtra,
 		TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& Out, TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& OutBack);
 
+	// Walks out from a station's platform end to the first switch, track end or other station (StationEnds).
+	static FApproach WalkApproach(UFGRailroadTrackConnectionComponent* PlatformEnd, const TSet<UFGRailroadTrackConnectionComponent*>& StationEnds);
+
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, FRow> mRows;
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, FApproach> mApproaches;
 	TArray<TWeakObjectPtr<AFGTrainStationIdentifier>> mOrder;
 	int32 mNext = 0;
 };

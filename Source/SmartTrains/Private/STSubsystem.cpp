@@ -1140,6 +1140,24 @@ bool ASTSubsystem::IsNoProgress(const FSTTrainState& State, const AFGTrainStatio
 	});
 }
 
+int32 ASTSubsystem::GetWaitingRoom(const AFGTrainStationIdentifier* Station, float TrainLength) const
+{
+	// Room a waiting train leaves to the train ahead and to the switch. [cm]
+	constexpr float WaitClearance = 500.f;
+	FSTTravel::FApproach Approach;
+	if (!mTravel || TrainLength <= 0.f || !Station || !mTravel->GetApproach(Station, Approach))
+	{
+		return -1;
+	}
+	return FMath::FloorToInt(Approach.WaitLength / (TrainLength + WaitClearance));
+}
+
+const void* ASTSubsystem::GetJunction(const AFGTrainStationIdentifier* Station) const
+{
+	FSTTravel::FApproach Approach;
+	return mTravel && Station && mTravel->GetApproach(Station, Approach) ? Approach.Junction : nullptr;
+}
+
 bool ASTSubsystem::IsDeadEnd(const AFGTrainStationIdentifier* Station) const
 {
 	return mTravel && Station && mTravel->IsDeadEnd(Station);

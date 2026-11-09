@@ -134,6 +134,16 @@ AFGBuildableRailroadStation* STLayout::FindStation(const AFGBuildableTrainPlatfo
 	return nullptr;
 }
 
+float STLayout::GetTrainLength(const AFGTrain* Train)
+{
+	float Length = 0.f;
+	for (const AFGRailroadVehicle* Vehicle : GetVehicles(Train))
+	{
+		Length += Vehicle ? Vehicle->GetLength() : 0.f;
+	}
+	return Length;
+}
+
 TArray<AFGRailroadVehicle*> STLayout::GetVehicles(const AFGTrain* Train)
 {
 	TArray<AFGRailroadVehicle*> Vehicles;

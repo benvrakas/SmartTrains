@@ -210,6 +210,10 @@ private:
 	int32 CountNear(const AFGTrainStationIdentifier* Station, double From, double Until) const;
 	// How much Cargo ties its car down: 0 empty, NeededSoonShare if every item is wanted soon, else 1.
 	double GetTiedShare(const TArray<TPair<UClass*, double>>& Cargo) const;
+	// Car CarIndex can unload Item at a consumer of it the train can reach (whichever way it docks there).
+	bool CarHasConsumer(int32 CarIndex, UClass* Item) const;
+	// A consumer of Item the train can reach exists.
+	bool ItemHasConsumer(UClass* Item) const;
 	double GetAvailable(int32 Node, double Arrive) const;
 	// What platform info index Info of supply node Node can give until Until seconds from now: its stock, its share of
 	// the node's rate, less the pickups promised at it and its share of promises made at no known platform.
@@ -227,7 +231,7 @@ private:
 	bool IsNoProgressHere(const AFGTrainStationIdentifier* Station, UClass* Item, bool bLoad) const;
 	// True if platforms A and B (indices into mPlatforms) have the same role, mode, form and items.
 	bool IsSameKind(int32 A, int32 B) const;
-	FSTPlanResult SimulateWithSkips(const TArray<FSTPlanStop>& Stops, TSet<TPair<int32, int32>>& InOutSkips) const;
+	FSTPlanResult SimulateWithSkips(const TArray<FSTPlanStop>& Stops, TSet<TPair<int32, int32>>& InOutSkips, const TMap<TPair<int32, UClass*>, double>& Caps) const;
 
 	const ASTSubsystem& mSubsystem;
 	TArray<FSTNode>& mNodes;
@@ -252,6 +256,8 @@ private:
 	int32 mTrainIndex = INDEX_NONE;
 	const AFGTrainStationIdentifier* mAnchor = nullptr;
 	double mFreeAt = 0.0;
+	// The train's length, for stations' waiting room (0: unknown). [cm]
+	float mTrainLength = 0.f;
 	bool bAnchorDocked = false;
 	bool bRelaxed = false;
 	// The current train has a locomotive at each end (travel estimates may reverse and arrive from a far end).
@@ -271,6 +277,7 @@ private:
 		bool bAnchorDocked = false;
 		bool bRelaxed = false;
 		bool bPushPull = false;
+		float TrainLength = 0.f;
 		TArray<FCarInfo> Cars;
 		TArray<FSTPlanMove> Moves;
 		TMap<const AFGTrainStationIdentifier*, TArray<TArray<int32>>> CarPlatforms;
