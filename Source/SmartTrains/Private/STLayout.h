@@ -38,6 +38,9 @@ namespace STLayout
 	// Returns the station Platform belongs to and its position in that station's chain, or nullptr.
 	AFGBuildableRailroadStation* FindStation(const AFGBuildableTrainPlatform* Platform, int32* OutIndex = nullptr);
 
+	// Whether a vehicle of Train is on the tracks of Station or its platforms (standing in it, docked or not).
+	bool IsTrainAt(const AFGTrain* Train, const AFGTrainStationIdentifier* Station);
+
 	// Vehicles of Train from its first vehicle to its last, as coupled.
 	TArray<AFGRailroadVehicle*> GetVehicles(const AFGTrain* Train);
 	// Length of Train's vehicles together. [cm]

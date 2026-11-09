@@ -300,6 +300,9 @@ private:
 	// The train's length, for stations' waiting room (0: unknown). [cm]
 	float mTrainLength = 0.f;
 	bool bAnchorDocked = false;
+	// The train stands in Anchor (a vehicle on its tracks) without being docked: Anchor can't be its first stop either,
+	// as the game doesn't dock a train standing there already.
+	bool bAnchorHere = false;
 	bool bRelaxed = false;
 	// The current train has a locomotive at each end (travel estimates may reverse and arrive from a far end).
 	bool bPushPull = false;
@@ -316,6 +319,7 @@ private:
 		const AFGTrainStationIdentifier* Anchor = nullptr;
 		double FreeAt = 0.0;
 		bool bAnchorDocked = false;
+		bool bAnchorHere = false;
 		bool bRelaxed = false;
 		bool bPushPull = false;
 		float TrainLength = 0.f;

@@ -8,6 +8,11 @@
   save, one drop became a 5-stop nitrogen and sulfur trip. It now stays deliveries-only, as it was planned, and its
   timetable is rewritten less often (each rewrite makes Auto Trains plan the train again).
 
+- **Fixed: a train standing in a station could be given that station as its next stop, and then stood there for
+  good.** The game doesn't dock a train that is already in the station, so it waited "at its goal" and held the
+  station track. On the IB save four trains queued behind one for up to 12 minutes. A train counted as being at a
+  station only while docked or just after leaving; now any vehicle on the station's or its platforms' tracks counts.
+
 ## 0.9.4 (beta)
 
 - **Services whose flows dip keep their loop.** A service used to end after about two minutes without flows (three

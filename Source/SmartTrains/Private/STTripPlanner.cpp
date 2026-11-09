@@ -919,6 +919,7 @@ bool FSTTripPlanner::PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifi
 	{
 		return false;
 	}
+	bAnchorHere = !bAnchorDocked && STLayout::IsTrainAt(Train, Anchor);
 	bool bCarrying = false;
 	for (AFGRailroadVehicle* Vehicle : STLayout::GetVehicles(Train))
 	{
@@ -964,6 +965,7 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 	Setup.Anchor = Anchor;
 	Setup.FreeAt = FreeAt;
 	Setup.bAnchorDocked = bAnchorDocked;
+	Setup.bAnchorHere = bAnchorHere;
 	Setup.bRelaxed = bRelaxed;
 	Setup.TrainLength = mTrainLength;
 	Setup.bPushPull = bPushPull;
@@ -988,6 +990,7 @@ bool FSTTripPlanner::ResumeTrain(int32 TrainIndex, const AFGTrainStationIdentifi
 	mAnchor = Anchor;
 	mFreeAt = FreeAt;
 	bAnchorDocked = bInAnchorDocked;
+	bAnchorHere = Setup->bAnchorHere;
 	bRelaxed = Setup->bRelaxed;
 	mTrainLength = Setup->TrainLength;
 	bPushPull = Setup->bPushPull;
@@ -1082,9 +1085,9 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 	{
 		return Fail(TEXT("too many stops"));
 	}
-	if (bAnchorDocked && Stops[0].Station == mAnchor)
+	if ((bAnchorDocked || bAnchorHere) && Stops[0].Station == mAnchor)
 	{
-		return Fail(TEXT("first stop is the station the train is docked at"));
+		return Fail(bAnchorDocked ? TEXT("first stop is the station the train is docked at") : TEXT("first stop is the station the train stands in"));
 	}
 
 	// Times, and what the stops cost: each one holds its station from other trains.

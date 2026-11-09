@@ -97,6 +97,30 @@ TArray<AFGBuildableTrainPlatform*> STLayout::GetPlatforms(const AFGBuildableRail
 	return Platforms;
 }
 
+bool STLayout::IsTrainAt(const AFGTrain* Train, const AFGTrainStationIdentifier* Station)
+{
+	AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
+	if (!Train || !Building)
+	{
+		return false;
+	}
+	TSet<const AFGBuildableRailroadTrack*> Tracks;
+	Tracks.Add(Building->GetTrackPosition().Track.Get());
+	for (const AFGBuildableTrainPlatform* Platform : GetPlatforms(Building))
+	{
+		Tracks.Add(Platform->GetTrackPosition().Track.Get());
+	}
+	Tracks.Remove(nullptr);
+	for (const AFGRailroadVehicle* Vehicle : GetVehicles(Train))
+	{
+		if (Vehicle && Tracks.Contains(Vehicle->GetTrackPosition().Track.Get()))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 AFGBuildableRailroadStation* STLayout::FindStation(const AFGBuildableTrainPlatform* Platform, int32* OutIndex)
 {
 	if (!Platform)
