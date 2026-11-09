@@ -4,6 +4,8 @@
 
 class AFGBuildableTrainPlatformCargo;
 class AFGFreightWagon;
+class AFGRailroadVehicle;
+class AFGTrain;
 class AFGTrainStationIdentifier;
 class ASTSubsystem;
 struct FSTJobLeg;
