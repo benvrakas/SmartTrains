@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.4 (beta)
+
+- **Services whose flows dip keep their loop.** A service used to end after about two minutes without flows (three
+  flow plans), which happens whenever a consumer reaches its target or rates are measured again after a load, and came
+  back minutes later as a new service with a new number, without its lock, spacing or train limits. It now keeps its
+  loop for 15 minutes without flows. Meanwhile it asks for no trains beyond the player's "at least", so its trains
+  serve other services at once instead of one of them standing parked in an empty loop.
+- **Trains with the same name are told apart.** Trains sharing a name (every train nobody named is "Train") show the
+  end of their actor name in the log and menus, as in `Train #5678`. The number is kept in the save, and Auto Trains
+  1.4.13 uses the same one, so the two mods' log lines about a train can be matched.
+
 ## 0.9.3 (beta)
 
 - **Fixed: trains of a service with more than 6 stops never left.** Services merge loops up to 8 stops and an hour, but

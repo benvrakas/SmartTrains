@@ -21,8 +21,10 @@ namespace
 	constexpr double ServiceMaxSeconds = 3600.0;
 	// Two loops merge into one when that saves at least this much of a train.
 	constexpr double ServiceMergeSaving = 0.25;
-	// A service whose flows are gone this many flow plans in a row ends.
-	constexpr int32 ServiceRetirePlans = 3;
+	// A service whose flows have been gone this long ends; until then it keeps its loop (and its id and player
+	// settings) but asks for no trains beyond the player's least. Flows dip out of the flow plan for a few minutes when
+	// a consumer reaches its target or rates are measured again after a load. [s]
+	constexpr double ServiceRetireSeconds = 900.0;
 	// A service gets ceil(needed - this) trains, so a need just over a whole number doesn't take another train.
 	constexpr double ServiceTrainSlack = 0.15;
 	// Most pairs tried per merge round, and merge rounds per design.
@@ -205,7 +207,8 @@ void ASTSubsystem::DesignServices(TArray<FSTRosterRoute>&& Routes)
 		const TArray<int32>* Trains = Layouts.Find(Service.Layout);
 		Service.MissingPlans = Total > 0.0 || Service.bLocked ? 0 : Service.MissingPlans + 1;
 		const bool bStationGone = Service.Stops.ContainsByPredicate([](const FSTServiceStop& Stop) { return !IsValid(Stop.Station) || !Stop.Station->GetStation(); });
-		if (!Trains || Service.MissingPlans > ServiceRetirePlans || bStationGone)
+		const bool bFlowsGone = Service.MissingPlans * FMath::Max(5.0, static_cast<double>(mSettings.PlanSeconds)) > ServiceRetireSeconds;
+		if (!Trains || bFlowsGone || bStationGone)
 		{
 			UE_LOG(LogSmartTrains, Log, TEXT("SERVICE %s retired: %s"), *DescribeService(Service), bStationGone ? TEXT("a station of its loop is gone")
 				: (!Trains ? TEXT("no managed train of its car layout") : TEXT("its flows are gone")));
@@ -557,13 +560,7 @@ void ASTSubsystem::AllocateServiceTrains(const TMap<FString, TArray<int32>>& Lay
 	TMap<int32, int32> Target;
 	for (const FSTService& Service : mNetworkServices)
 	{
-		int32 Want = FMath::Max(1, FMath::CeilToInt(Service.Needed - ServiceTrainSlack));
-		Want = FMath::Max(Want, Service.MinTrains);
-		if (Service.MaxTrains > 0)
-		{
-			Want = FMath::Min(Want, Service.MaxTrains);
-		}
-		Target.Add(Service.Id, Want);
+		Target.Add(Service.Id, GetServiceTarget(Service));
 	}
 	TMap<int32, TArray<int32>> Members;
 	TArray<int32> Free;
@@ -646,7 +643,7 @@ void ASTSubsystem::AllocateServiceTrains(const TMap<FString, TArray<int32>>& Lay
 		double BestLoad = -1.0;
 		for (const FSTService& Service : mNetworkServices)
 		{
-			if (!Fits(Service, Spare))
+			if (!Fits(Service, Spare) || Service.MissingPlans > 0)
 			{
 				continue;
 			}
@@ -926,7 +923,8 @@ TArray<FString> ASTSubsystem::DescribeServices() const
 
 int32 ASTSubsystem::GetServiceTarget(const FSTService& Service) const
 {
-	int32 Want = FMath::Max(1, FMath::CeilToInt(Service.Needed - ServiceTrainSlack));
+	// A service whose flows are gone for now keeps only the trains the player asked for, so the rest work elsewhere.
+	int32 Want = Service.MissingPlans > 0 ? 0 : FMath::Max(1, FMath::CeilToInt(Service.Needed - ServiceTrainSlack));
 	Want = FMath::Max(Want, Service.MinTrains);
 	return Service.MaxTrains > 0 ? FMath::Min(Want, Service.MaxTrains) : Want;
 }

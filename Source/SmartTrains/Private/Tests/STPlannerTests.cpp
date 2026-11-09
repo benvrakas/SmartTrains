@@ -145,6 +145,11 @@ struct FSTTestAccess
 		return Subsystem.MergeLoops(Into, Other);
 	}
 
+	static int32 GetServiceTarget(const ASTSubsystem& Subsystem, const FSTService& Service)
+	{
+		return Subsystem.GetServiceTarget(Service);
+	}
+
 	static void LinkSupplyChain(TArray<FSTNode>& Nodes)
 	{
 		ASTSubsystem::LinkSupplyChain(Nodes);
@@ -1796,6 +1801,25 @@ bool FSTServiceLongLoopTest::RunTest(const FString& Parameters)
 	{
 		TestTrue(TEXT("and moves cargo"), Service.Moved > 0);
 	}
+	return true;
+}
+
+// Trains a service asks for: ceil(needed - slack), at least one, within the player's limits; a service whose flows are
+// gone for now asks for none beyond the player's least, so its trains work elsewhere until it retires or its flows
+// come back.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTServiceTargetTest, "SmartTrains.Services.Target", TestFlags)
+bool FSTServiceTargetTest::RunTest(const FString& Parameters)
+{
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	FSTService Service;
+	Service.Needed = 2.1;
+	TestEqual(TEXT("2.1 trains needed: 2"), FSTTestAccess::GetServiceTarget(*Subsystem, Service), 2);
+	Service.Needed = 0.2;
+	TestEqual(TEXT("a small need still gets one train"), FSTTestAccess::GetServiceTarget(*Subsystem, Service), 1);
+	Service.MissingPlans = 1;
+	TestEqual(TEXT("flows gone: no trains"), FSTTestAccess::GetServiceTarget(*Subsystem, Service), 0);
+	Service.MinTrains = 1;
+	TestEqual(TEXT("flows gone, the player's least kept"), FSTTestAccess::GetServiceTarget(*Subsystem, Service), 1);
 	return true;
 }
 

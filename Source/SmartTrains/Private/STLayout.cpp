@@ -4,6 +4,7 @@
 #include "Buildables/FGBuildableRailroadStation.h"
 #include "Buildables/FGBuildableTrainPlatform.h"
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
+#include "EngineUtils.h"
 #include "FGFactoryConnectionComponent.h"
 #include "FGFreightWagon.h"
 #include "FGInventoryComponent.h"
@@ -356,9 +357,44 @@ FString STLayout::DescribePlatform(const AFGBuildableTrainPlatform* Platform)
 	return Station ? FString::Printf(TEXT("P%d of %s"), Index + 1, *Name(Station)) : GetNameSafe(Platform);
 }
 
+namespace
+{
+	// How many trains carry each name, counted once per frame (on the game thread).
+	TMap<FString, int32> GTrainNameCounts;
+	uint64 GTrainNameFrame = MAX_uint64;
+	TWeakObjectPtr<UWorld> GTrainNameWorld;
+
+	bool IsTrainNameShared(const AFGTrain* Train, const FString& Name)
+	{
+		UWorld* World = Train->GetWorld();
+		if (!World || !IsInGameThread())
+		{
+			return false;
+		}
+		if (GTrainNameFrame != GFrameCounter || GTrainNameWorld.Get() != World)
+		{
+			GTrainNameCounts.Reset();
+			GTrainNameFrame = GFrameCounter;
+			GTrainNameWorld = World;
+			for (TActorIterator<AFGTrain> It(World); It; ++It)
+			{
+				++GTrainNameCounts.FindOrAdd(It->GetTrainName().ToString());
+			}
+		}
+		return GTrainNameCounts.FindRef(Name) > 1;
+	}
+}
+
 FString STLayout::Name(const AFGTrain* Train)
 {
-	return Train ? Train->GetTrainName().ToString() : FString(TEXT("?"));
+	if (!Train)
+	{
+		return TEXT("?");
+	}
+	// Trains sharing a name (every train nobody named is "Train") get the end of their actor's name, which the save
+	// keeps, so log lines and menus tell them apart; Auto Trains names them the same way.
+	const FString Name = Train->GetTrainName().ToString();
+	return IsTrainNameShared(Train, Name) ? FString::Printf(TEXT("%s #%s"), *Name, *Train->GetName().Right(4)) : Name;
 }
 
 FString STLayout::DescribeVehicle(const AFGTrain* Train, const AFGRailroadVehicle* Vehicle)
