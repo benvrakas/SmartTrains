@@ -379,9 +379,10 @@ void USTPlatformPanel::RefreshEditor()
 	const bool bDemand = mRole == ESTRole::Demand;
 	mRequestButton->SetText(FText::Format(LOCTEXT("RequestButton", "Request a train: {0}"), FText::FromString(STNames::Request(mRequest))));
 	mRequestButton->SetIsEnabled(bHasSettings);
-	mRequestButton->SetVisibility(bDemand ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	// Requests ended in 0.8.0: the horizon planner empties cars for short platforms itself. The saved setting stays.
+	mRequestButton->SetVisibility(ESlateVisibility::Collapsed);
 	mRequestHint->SetText(RequestHint(mRequest));
-	mRequestHint->SetVisibility(bDemand ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	mRequestHint->SetVisibility(ESlateVisibility::Collapsed);
 	const bool bHasItems = mRole == ESTRole::Supply || mRole == ESTRole::Demand;
 	mItemsLabel->SetVisibility(bHasItems ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	mItemBox->SetVisibility(bHasItems ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);

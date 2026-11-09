@@ -14,31 +14,28 @@ them (see below).
 
 - **Platforms:** open a freight or fluid platform and click **Open SmartTrains settings**.
   - **Supply:** managed trains pick items up here.
-  - **Demand:** managed trains keep it stocked to a target. **Request a train** (Automatic by default): when the
-    platform will fall below its target, even with the deliveries on the way, before any train that can carry the
-    item could bring it, a train whose car lines up with it is emptied of what it holds (at consumers or sinks,
-    whatever is soonest) and sent for it, in time to arrive **Request a train this early** (5 minutes) before. **On**
-    asks until it and its deliveries are 90 % full; **Off** never asks.
-  - **Sink:** managed trains unload cargo here that no consumer takes, any item. Cargo a consumer needs within the
-    hour never goes to a sink. Give sinks their own station: a depot holds one train, so sink stops there queue.
+  - **Demand:** managed trains keep it stocked to a target. When it would run short and the only trains whose cars
+    line up with it hold other cargo, one of them is emptied first and sent.
+  - **Sink:** managed trains unload cargo here that has nowhere else to go, any item: cargo a car can't unload at any
+    consumer of it, and production nobody on the network uses.
   - **Off:** vanilla.
   - Each item gets a target and a priority (demand), or a minimum batch (supply: **Send at % of a load**, 50 % by
     default; a station 90 % full or a Critical consumer ships less).
   - **Copy**, **Paste** and **Copy to the station's other platforms** carry every setting of the platform.
 - **Trains:** in the locomotive menu, switch **Managed by SmartTrains** on. SmartTrains writes the train's timetable
   for each trip. The game, or Auto Trains, drives it.
-- **Planning (horizon planner, beta, on by default):** SmartTrains forecasts every platform's stock over the next
-  hour and plans all free trains together, so the platforms that would run short soonest are served first. A train
-  holding the wrong cargo can be emptied first when a platform needs it. Switch **Horizon planner** off in the Mods
-  menu for the classic planner, which gives each free train its best next trip.
-- **Steady roster (beta, on):** with the horizon planner, the routes of the flow plan are shared out over the trains
-  that fit them and each train runs its routes in turn, like a timetable, while rates stay the same. The planner only
-  corrects for what the roster doesn't cover. An item that keeps a whole train busy gets a **shuttle**: a train whose
-  cars all fit it runs only that item's routes with full loads, like a unit train, and other trains leave those
-  pickups and deliveries to it.
-- **Fewer, fuller visits:** every stop costs a little, more at a station other trains are using, so trains don't queue
-  up to fetch a car or two each. Trips that leave cars empty, free for any item next, are preferred over trips that
-  leave leftovers.
+- **Planning:** SmartTrains forecasts every platform's stock over the next hour and plans all free trains together,
+  so the platforms that would run short soonest are served first. Every trip is scored the same way: how much shortage
+  it removes, less what the train's time costs.
+- **Services (on):** an item whose flow keeps a whole train busy gets dedicated trains whose cars all fit it. They run
+  all of that item's routes with full loads, picking up at a steady spacing, and other trains leave those pickups and
+  deliveries to them. Smaller flows are shared out over the other trains as a roster; the planner corrects the rest.
+  `/st service` lists them; you can pin an item, keep it in the pool, set its spacing or choose its trains.
+- **Recipes:** SmartTrains follows each platform's belts and pipes to its machines. Their recipes give the real rate
+  of a full supplier or a starved consumer, and a consumer whose machines wait on another missing input counts its
+  shortage less until that input arrives.
+- **Fewer, fuller visits:** every stop costs a little, more at a station other trains are using or reach through the
+  same switch. Cars load only what the trip delivers, so no leftovers tie a car to one item.
 - **Trips:** one trip can visit up to 4 stations and serve several platforms and items. It plans car by car: which
   car loads what where, and which car unloads where. After every stop the rest of the trip is planned again from what
   the cars really hold.
@@ -50,15 +47,14 @@ them (see below).
 - **Spacing:** trips are timed so trains arrive at a station at least **Gap between trains at a station** (Mods
   menu, 30 s) apart.
 - **Leaving at once** (default): a train moves what it can in one transfer and leaves. A train with a trip starts it
-  straight away. No trip makes more than **Most trains waiting before a station** (2) wait on the line before a
-  busy station at once, so trains don't queue across junctions. Switch **Trains leave stations at once** off for the old behaviour: deliveries and pickups wait up
-  to their longest wait, and a train whose next station is busy waits in its station.
-- **No parking** (default): a train with no new trip runs its last job again, like a timetable loop, until a new trip
-  is worth it, or waits at a **depot** (a rail yard: switch it on under the station's name in the station menu). A
-  depot holds one train, so set one station as a depot per train you expect to be idle, best ones without supply or
-  demand platforms and off the main line. With no free depot, an idle train drives its last trip's stops without
-  moving anything. With **Repeat the last job instead of parking** off, idle trains park at a depot
-  or where they finished, and move to a depot or a free station when a trip needs their station.
+  straight away. No trip makes more trains wait in front of a station than fit on the track before its switch
+  (measured from the track), and never more than **Most trains waiting before a station** (2), so trains don't queue
+  across junctions. Switch **Trains leave stations at once** off for the old behaviour: deliveries and pickups wait
+  up to their longest wait, and a train whose next station is busy waits in its station.
+- **Idle trains park** at the nearest free **depot** (a rail yard: switch it on under the station's name in the
+  station menu), one train per depot, or else where they are, and move when a trip needs that station. A depot may
+  have sink or other platforms too: it is booked like any station, so a train coming to unload and a train coming to
+  park never queue behind each other.
 - **Dead ends:** a train parked in a dead-end station keeps it until it leaves, so no second train is sent into a
   bay it couldn't enter.
 

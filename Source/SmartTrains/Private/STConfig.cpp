@@ -45,7 +45,7 @@ namespace
 			{TEXT("LeaveAtOnce"), &FSTSettings::bLeaveAtOnce, LOCTEXT("LeaveAtOnce", "Trains leave stations at once"),
 				LOCTEXT("LeaveAtOnceTip", "Every stop is load/unload once: a train moves what it can in one transfer and leaves. A train with a trip also starts it at once instead of holding in the station while its next stop is busy or Auto Trains sees no way yet. Off: deliveries and pickups wait up to their longest wait, and trains hold in stations.")},
 			{TEXT("Roster"), &FSTSettings::bRoster, LOCTEXT("Roster", "Services and roster"),
-				LOCTEXT("RosterTip", "With the horizon planner: the flow plan's routes are shared out over the trains that fit them, and each runs its routes in turn like a timetable, so trains keep doing the same thing while rates stay the same. The horizon planner only plans trains without a roster trip worth running. Off: the horizon planner plans every free train.")},
+				LOCTEXT("RosterTip", "Items whose flow keeps a whole train busy get service trains that run only that item's routes, picking up at a steady spacing (/st service); the flow plan's other routes are shared out over the trains that fit them as a roster. The planner plans the rest and corrects. Off: the planner plans every free train.")},
 			{TEXT("AdminsOnly"), &FSTSettings::bAdminsOnly, LOCTEXT("AdminsOnly", "Only admins change SmartTrains"),
 				LOCTEXT("AdminsOnlyTip", "In multiplayer, only the host (or, on a dedicated server, its admins) can change platform, station and train settings. Server settings, migration, test copies and backups are always admin only. On a dedicated server, change settings in game with /st set.")},
 		};
@@ -76,9 +76,9 @@ namespace
 			{TEXT("MaxTripMinutes"), &FSTSettings::MaxTripMinutes, 5.f, 120.f, LOCTEXT("MaxTrip", "Longest trip (minutes)"),
 				LOCTEXT("MaxTripTip", "Trips are planned at most this long, 5 to 120 minutes. Stock forecasts get unreliable over long trips.")},
 			{TEXT("LeftoverMinutes"), &FSTSettings::LeftoverMinutes, 5.f, 240.f, LOCTEXT("Leftover", "Unwanted cargo after (minutes)"),
-				LOCTEXT("LeftoverTip", "Cargo that no consumer below its target wants for this long may go to any consumer with room, or to an any-item sink, 5 to 240 minutes.")},
+				LOCTEXT("LeftoverTip", "After this long carrying cargo no trip delivers, a train counts as holding unwanted cargo in the monitor and /st status, 5 to 240 minutes. Where cargo may go doesn't depend on it.")},
 			{TEXT("QueueTrains"), &FSTSettings::QueueTrains, 0.f, 10.f, LOCTEXT("QueueTrains", "Most trains waiting before a station"),
-				LOCTEXT("QueueTrainsTip", "While trains leave stations at once, no trip is planned that would make more than this many trains wait on the line before a station at the same time, the new one included. Long queues before busy stations block junctions and cause deadlocks; a shorter wait only makes a trip score lower. 0 to 10 trains; 0 means no limit.")},
+				LOCTEXT("QueueTrainsTip", "While trains leave stations at once, no trip is planned that would make more than this many trains wait before a station at the same time, the new one included, nor more than fit on the track in front of the station before its switch (measured from the track). Long queues block junctions and cause deadlocks. 0 to 10 trains; 0 means only the track decides.")},
 			{TEXT("ArrivalGapSeconds"), &FSTSettings::ArrivalGapSeconds, 0.f, 300.f, LOCTEXT("ArrivalGap", "Gap between trains at a station (seconds)"),
 				LOCTEXT("ArrivalGapTip", "Trips are timed so the next train arrives at a station at least this long after the last one left, 0 to 300 seconds. A train whose first stop is busy waits where it is instead of queueing on the line.")},
 		};

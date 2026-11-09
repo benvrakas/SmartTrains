@@ -125,5 +125,12 @@ tests are compiled only where `WITH_DEV_AUTOMATION_TESTS` is on, so not into the
 | `SmartTrains.Planner.Assignment` | The Hungarian assignment beats the greedy choice; rows worth nothing get nothing. |
 | `SmartTrains.FlowPlan.MinCostFlow` | The flow plan fills the cheap route first and sends all the consumer takes. |
 
+**Replay** (`SmartTrains.Replay.Snapshots`, 0.8.0): every `*.json` in `Mods/SmartTrains/Tests/Snapshots` (written on the
+server by `/st snapshot`) is loaded and each free train in it is planned again: moves (`BuildMoves`, which needs no
+live train), regret insertion, simulation. Every plan must be valid; the plans are listed in the report. The editor
+has no game items, so each snapshot item gets one of 48 stand-in classes (`STReplayItems.h`) with its form and stack
+size set on the class default. Not replayed: services, waiting room (no track), Auto Trains. `fixture-two-stations.json`
+is a hand-made example.
+
 The editor's game classes are stubs: inventories report no slot sizes. The tests therefore give a fluid a 2,400 m3
 stack to stand in for a platform or car. Fluid slot sizes themselves (the 50 m3 bug) can only be checked in game.

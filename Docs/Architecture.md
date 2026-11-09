@@ -24,6 +24,70 @@ in the plan (`C:\Users\benvr\.claude\plans\smarttrains.md`); this file records h
 | `STAccess.*` | Who may change what (admin-gated controls). |
 | `UI/*` | The panels added to vanilla menus, and the controls they are built from. |
 
+## 0.8.0: one way of deciding
+
+0.7.x added a mechanism per problem the server logs showed (shuttles, requests, repeats, loops, sink rules), and each
+fix exposed the next problem through how they interacted. 0.8.0 replaces them with general rules:
+
+- **One planner, one objective.** `HorizonRound` is the only planner (the classic round, `ServeRequests` and the
+  Hungarian first-move assignment are no longer used). A trip's score is `Value - TrainSecondCost x duration`
+  (`STForecast::TrainSecondCost`, 0.01 car-load minutes per second), the same net the horizon search compares, so
+  regret insertion, re-plans and the search all optimise one thing. Value is the forecast cost removed (shortfall x
+  priority x `CostScale`, plus lost production x 0.25), less the stop cost, plus or minus tied cars. The over-target
+  bonus (0.2) and sink value (0.1) are gone; a re-plan now has to beat the kept rest by `ReplanMarginValue` in score.
+- **Idle trains park** (`SettleIdle`): a free depot (`FindDepot`), else park where it is; `ClearNeededBays` moves a
+  parked train when a trip needs its station or Auto Trains reports a train waiting for it. `RepeatLastJob`,
+  `KeepRunningLastJob` and the retry loop are removed; repeat jobs in older saves still count as free.
+- **Waiting room** (`FSTTravel::WalkApproach`, `GetWaitingRoom`): from each station's platform end, the walk follows the
+  track out until the first switch (a connection with more than one track), a track end or another station, adding
+  the length of track not owned by platforms. Room = that length / (train length + 5 m). The queue limit is the smaller
+  of **Most trains waiting before a station** and the room, so no trip is planned that would wait on more track than
+  there is. A depot is no special case: a parked train books its station like any train, and a short siding has no
+  room, so trains coming to unload into a depot's sink and trains coming to park there never queue behind each other.
+- **Junctions:** the switch where the walk ends (`GetJunction`) is shared by stations reached through it; `CountNear`
+  (stop cost) counts other trains booked at any of them, so trips spread over stations behind one switch.
+- **Sinks per car** (`CarHasConsumer`, `ItemHasConsumer`): cargo on board may go to a sink only if that car can't unload
+  it at any consumer of the item the train can reach (whichever way it docks there); a full supplier's goods only if no
+  consumer of the item exists. `Simulate` rejects a sink stop that breaks this. (0.7.7's one-hour rule let cargo
+  through whenever its consumers were full for now.)
+- **Loads capped** (`Simulate`): after a valid simulation, what a car would still hold of an item loaded on this trip is
+  taken off its pickups (`Caps`) and the trip simulated again, so cars load only what the trip unloads.
+- **Services** (below, "Services").
+- **Recipe rates and supply chain** (below).
+- **Snapshots** (below).
+
+### Services
+
+The 0.7.x per-item shuttles, made steady and controllable:
+- A service keeps a train it needs less than half of (`ShuttleKeepTrains`) for `ServiceDropBuilds` (6) roster builds
+  in a row (`mServiceLow`) before letting it go, so dips in the measured rates don't reshuffle it.
+- Spacing (`FServiceInfo::Headway`): the item's round trip (weighted by what each route carries) divided over its
+  trains, or the player's rhythm. A service train whose pickup would come within half the spacing of another of the
+  same service at that station (`IsBookedNear`) waits this round.
+- Player settings (`FSTServiceConfig`, saved, `/st service`): pinned (one train even below `ShuttleMinTrains`), pooled
+  (none), chosen trains (only they), rhythm. `DescribeServices` feeds the command and the monitor.
+- Logs: `ROSTER: ... (N service trains)`, duties `service: ...`, `SERVICE <item>: ...` for settings.
+
+### Recipe rates and supply chain
+
+- `StepTraces` (every second, one platform; each again after `TraceRefreshSeconds`, 10 minutes) runs the migration's
+  connection trace (`STTrace::Trace`) and keeps the machines it reaches (`mTraces`).
+- `BuildNodes` gives each node the union of its platforms' machines and `RecipeRate`: what their recipes make (supply)
+  or use (demand) of the item at their clock speed (manufacturers only; extractors count 0).
+- The flow plan uses the recipe rate where a measurement is only a lower bound: a starved consumer (before: measured x
+  1.5) and a full supplier (on top of offering its stock).
+- `LinkSupplyChain`: a consumer that has stock but shares a machine with another consumer that is starved can't use
+  what it gets; its `CostScale` drops to `WaitingCostScale` (0.25) and `WaitsOn` names the missing item (monitor
+  "Supply chain" lines). Example from the server: Uranium Fuel Rod RSC 1A waiting on Encased Uranium Cells while that
+  cell's maker waits on sulfur.
+
+### Snapshots and replay
+
+`/st snapshot` sets `bSnapshotNext`; the next `HorizonRound` adds each free train's `DescribeForReplay` (cars, cargo,
+platforms, dock maps, start) after `BeginTrain`, and `WriteSnapshot` writes them with the nodes, bookings, travel
+times, stays, items (form, stack) and settings to `Saved/SmartTrains/Snapshots`. The test `SmartTrains.Replay.Snapshots`
+rebuilds that situation (Docs/Testing.md) and plans each train again.
+
 ## How trains are controlled
 
 SmartTrains never drives a train. It writes the managed train's timetable for each job and lets the game (and Auto

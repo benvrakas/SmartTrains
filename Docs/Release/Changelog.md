@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.8.0 (beta)
+
+One way of deciding instead of many: the parts that each patched a problem of their own are replaced by a few
+general rules.
+
+- **One planner.** The horizon planner, which plans every free train against a forecast of every platform, is the
+  only planner; the classic planner and the request fallback are gone (the planner already empties a train for a
+  platform that runs short). Every trip is scored the same way: what it is worth, less what the train's time costs.
+- **Idle trains park.** A train with nothing to do goes to a free depot, or parks where it is and moves when a trip
+  needs that station. Repeating and looping the last trip are gone, with their settings.
+- **Room to wait comes from the track.** SmartTrains measures the track in front of each station up to its switch and
+  plans no trip that would make more trains wait there than fit. A station with no room in front (like a short depot
+  siding) never gets a queue on the main line, whatever the trains come for. Stations reached through the same switch
+  count each other's trains as traffic.
+- **Sinks take only what has nowhere else to go:** cargo a car can't unload at any consumer of it (no consumer, or
+  none where that car stops beside the right platform), and production nobody on the network uses. Everything else
+  waits for its consumer.
+- **Cars load only what the trip delivers.** No more leftovers loaded on purpose, which tied cars to one item.
+- **Services.** An item whose flow keeps a whole train busy gets dedicated trains that run all of its routes, picking
+  up at a steady spacing; they stay through short dips. `/st service` lists them and lets you pin an item, keep it in
+  the pool, set its spacing or choose its trains.
+- **Recipes.** SmartTrains reads the machines behind each platform. A starved consumer's or full supplier's rate comes
+  from their recipes, and a consumer whose machines wait on another missing input counts its shortage less until
+  that input arrives (the monitor names these).
+- **Snapshots** (`/st snapshot`, admin): writes the planner's inputs to a file that the automated tests can replay.
+- Removed settings: Repeat the last job instead of parking, Horizon planner, Request fallback, Re-plan threshold,
+  Request a train this early. The platform menu's Request a train button is hidden.
+
 ## 0.7.7 (beta)
 
 - **Sinks only get cargo nobody needs.** Cargo a train's current trip didn't deliver counted as unwanted after a few

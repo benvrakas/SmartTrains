@@ -52,6 +52,25 @@ Setting a role switches the platform to load (supply) or unload (demand).
   `/st emptycars all confirm` does it for every managed train. A managed train's trip is planned again. Logged as
   `EMPTY <train> by <player>: removed ...`.
 
+## Services
+
+- `/st service`: lists the item services (their trains, spacing, what they need and their routes) and items with
+  service settings.
+- `/st service <item> pin`: keep a service train even when the flow plan needs less than one. `unpin` undoes it.
+- `/st service <item> pool`: never give the item a service; pool trains carry it.
+- `/st service <item> rhythm <minutes>`: at most one pickup of the service every that many minutes; `rhythm 0` takes
+  the spacing from the round trip again.
+- `/st service <item> add` / `remove`: the train you drive or look at may (or may no longer) run the service; with
+  any chosen, only they do. `clear` forgets the choice.
+- `/st service <item> auto`: back to automatic.
+
+## Snapshots
+
+- `/st snapshot` (admin): the next dispatch round writes every free train's planning inputs (nodes, bookings, travel
+  times, cars, platforms, dock maps) to `Saved/SmartTrains/Snapshots/snapshot-<time>.json` on the server (log line
+  `SNAPSHOT`). Copy it to `Mods/SmartTrains/Tests/Snapshots` and the automated test `SmartTrains.Replay.Snapshots`
+  plans those trains again offline.
+
 ## Migration (see Migration.md)
 
 - `/st migrate`: opens the migration window (preview with tickable rows, apply, undo, test copy, backup). From the
