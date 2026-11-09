@@ -928,17 +928,17 @@ FString ASTSubsystem::DescribeServiceRole(const FSTTrainState& State) const
 	}
 	const int32 Position = Service->Trains.IndexOfByKey(State.Train);
 	const int32 Target = GetServiceTarget(*Service);
-	FString Role = Position != INDEX_NONE && Position < Target ? FString::Printf(TEXT("Train %d of %d in %s"), Position + 1, Service->Trains.Num(), *DescribeService(*Service))
+	FString Text = Position != INDEX_NONE && Position < Target ? FString::Printf(TEXT("Train %d of %d in %s"), Position + 1, Service->Trains.Num(), *DescribeService(*Service))
 		: FString::Printf(TEXT("Spare in %s"), *DescribeService(*Service));
 	if (State.bHasJob && State.Job.ServiceId == 0 && !State.Job.bPark)
 	{
-		Role += TEXT(", clearing cargo that isn't the service's first");
+		Text += TEXT(", clearing cargo that isn't the service's first");
 	}
 	else if (!State.bHasJob)
 	{
-		Role += TEXT(", waiting for its next cycle");
+		Text += TEXT(", waiting for its next cycle");
 	}
-	return Role + FString::Printf(TEXT(" (one every %.1f min%s)."), GetServiceSpacing(*Service) / 60.0, State.bServiceStay ? TEXT(", stays in this service") : TEXT(""));
+	return Text + FString::Printf(TEXT(" (one every %.1f min%s)."), GetServiceSpacing(*Service) / 60.0, State.bServiceStay ? TEXT(", stays in this service") : TEXT(""));
 }
 
 TArray<FString> ASTSubsystem::DescribePlatformServices(const AFGBuildableTrainPlatformCargo* Platform) const

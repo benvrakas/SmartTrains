@@ -439,6 +439,7 @@ private:
 	// Flows the last design couldn't put in a service, with why.
 	TArray<FString> mServiceUncovered;
 
+public:
 	// Services (STServices.cpp).
 	FSTService* FindService(int32 Id);
 	const FSTService* FindService(int32 Id) const;
@@ -469,6 +470,8 @@ private:
 	// Player settings: a train's Stay in this service (bStay) or Keep out of services; a service's lock, spacing, trains.
 	bool SetTrainServiceFlags(AFGTrain* Train, bool bStay, bool bOn, const FString& Cause);
 	bool SetServiceSettings(int32 Id, const FString& Verb, float First, float Second, const FString& Cause, FString& OutResult);
+
+private:
 
 	// Now() when the world was saved, so the clock carries on after loading instead of restarting at 0. [s]
 	UPROPERTY(SaveGame)
