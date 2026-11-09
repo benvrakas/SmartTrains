@@ -586,7 +586,7 @@ void ASTSubsystem::MonitorTrains()
 			State.bUnreachableHandled = true;
 			AFGTrainStationIdentifier* Station = State.Job.Legs[State.Job.Leg].Station.Get();
 			State.Unreachable.Add(Station, Time + UnreachableMinutes * 60.0);
-			UE_LOG(LogSmartTrains, Warning, TEXT("UNREACHABLE %s: the game finds no way to %s (%s for %.0f s, job %d); this train leaves it out for %.0f minutes. Check the signals on the way in: a train may not pass a one-way signal from behind."),
+			UE_LOG(LogSmartTrains, Warning, TEXT("UNREACHABLE %s: the game finds no way to %s (%s for %.0f s, job %d); this train leaves it out for %.0f minutes. Check which way the station faces (a train arrives in its direction; a station built backwards reads as unreachable with signals), then the signals on the way in (a train may not pass a one-way signal from behind)."),
 				*STLayout::Name(Train), *STLayout::Name(Station), *StaticEnum<ESelfDrivingLocomotiveError>()->GetNameStringByValue(static_cast<int64>(Error)),
 				Time - State.SelfDrivingErrorSince, State.Job.Id, UnreachableMinutes);
 			if (State.Job.bPark || State.Job.bRepeat)

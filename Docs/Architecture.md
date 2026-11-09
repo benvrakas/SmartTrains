@@ -309,7 +309,9 @@ that train for `UnreachableMinutes` (30) (`FSTTrainState::Unreachable`, checked 
 loops all skip it), with an UNREACHABLE warning. A train driving to park or repeating settles again (another depot, or
 a loop without that station); a train on a trip is planned again from the cargo on board. SmartTrains' own track
 search doesn't know signals, so it can't see this beforehand; the game's pathfinder refuses a way only where it passes
-a one-way signal from behind. In the 0.7.5 log a train drove for 17 minutes towards a depot behind such a signal.
+a one-way signal from behind. In the 0.7.5 log a train drove for 17 minutes towards a depot the game called unreachable
+with signals; the cause was the depot station built backwards: arriving in its direction meant driving the main line
+against a one-way signal. The warning names station facing first.
 
 **Delivery reservations per platform:** like pickups, a planned delivery records its platform. `GetPlatformRoom` is
 the platform's free room plus what its machines use before the train arrives, less the deliveries promised to it and
