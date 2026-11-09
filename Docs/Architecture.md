@@ -24,6 +24,44 @@ in the plan (`C:\Users\benvr\.claude\plans\smarttrains.md`); this file records h
 | `STAccess.*` | Who may change what (admin-gated controls). |
 | `UI/*` | The panels added to vanilla menus, and the controls they are built from. |
 
+## 0.9.0: services
+
+Plan: `C:\Users\benvr\.claude\plans\smarttrains-services.md`. Code: `STServices.cpp`.
+
+- **Data** (`FSTService`, saved in `mNetworkServices`): stops (`FSTServiceStop`: station, items loaded, items unloaded),
+  flows (`FSTServiceFlow`: supplier, consumer, item, flow per second, what one train carries per loop), trains, car layout
+  (`STLayout::GetLayoutKey`: vehicle classes in order, read from the smaller end), loop time, trains needed, last
+  departure from the first stop, version, player settings (lock, spacing, least and most trains). A train's
+  `ServiceId`, `bServiceStay`, `bServiceReserve` are saved with it; a cycle job carries `FSTJob::ServiceId`.
+- **Design** (`DesignServices`, after every flow plan, replacing the roster): existing services keep their loops, their
+  flows follow the flow plan, and they end after `ServiceRetirePlans` (3) plans without flows (not when locked). Flows no
+  service carries get a gathering loop per consumer station: suppliers in the order of the shortest loop (all orders up
+  to 5), then the consumer, on the car layout that carries the most of them (`RateLoop` with a train of each layout).
+  Flows its cars can't carry try again on another layout; what no layout can carry is listed as not covered
+  (`mServiceUncovered`). Then loops of one layout merge, best saving first, while one loop needs at least
+  `ServiceMergeSaving` (0.25) trains fewer than two (`MergeLoops`: the other loop's stops go in their order at the
+  cheapest places; every flow must still pick up before it drops; at most 8 stops and an hour). Existing services may
+  take new loops in (unless locked); dedicated items never merge.
+- **Cars** (`FSTTripPlanner::AllocateServiceCars`): per flow, the cars that line up with a supply platform of its item at
+  its pickup and a demand platform at its drop (both ways round, and of the right cargo type). Each car carries one
+  flow at a time over its stretch of the loop; flows with the fewest cars to choose from get one first, then the rest
+  go to the flow needing the most trains per car. Trains needed = max over flows of flow x loop / per train.
+- **Trains** (`AllocateServiceTrains`): target `GetServiceTarget` = ceil(needed - 0.15) within the player limits.
+  Members of the right layout stay up to the target (the newest leave first unless told to stay); short services take
+  free trains of their layout, those already holding the service's items first, then the emptiest; trains left over
+  go to the service of their layout with the most to carry per train (spares). Trains no service of their layout needs,
+  or kept out, park (`SettleIdle`: a free depot, else in place).
+- **Running** (`RunServices`, every dispatch round, replacing the horizon round): a free service train first clears
+  cargo that isn't the service's (`SetDeliveriesOnly` + `SetSwitching`: it may dump into a sink at a price of
+  `SurplusDumpValue` (0.5) per car load, or `NeededDumpValue` (30) for goods a consumer needs within the hour, so
+  those are delivered). Otherwise it gets a cycle: the loop's stops, simulated for amounts (loads capped to what the loop
+  delivers; pickups under the platform's Least per visit share of the flow's per-train load left out of the cycle;
+  stops moving nothing trimmed). Spacing: a cycle leaves the first stop no sooner than the last train's departure plus
+  `GetServiceSpacing` (loop / trains, or the player's); else the train waits where it is (parked; `ClearNeededBays`
+  moves it if a trip needs that station). A cycle's rest is re-planned after each stop for amounts only (nothing added).
+- The timetable written for each cycle has the same stops each time, so the game's timetable loops as in vanilla and
+  `WriteJob` doesn't rewrite it while it is the same.
+
 ## 0.8.0: one way of deciding
 
 0.7.x added a mechanism per problem the server logs showed (shuttles, requests, repeats, loops, sink rules), and each

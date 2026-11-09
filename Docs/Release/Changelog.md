@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.9.0 (beta)
+
+**Services run the network.** SmartTrains no longer plans trains trip by trip. It turns the flow plan into services:
+loops of stations that trains run as real, looping timetables, adjusted as the factory changes.
+
+- **What a service is:** a loop of pickups and drops, run by trains of one car layout, with each car's work at each
+  stop. A factory's mixed inputs come in one loop (car 1 iron, car 2 coal...), and one train can drop different cars at
+  different consumers along the way (spacer platforms).
+- **How they form:** every consumer station gets a gathering loop (its suppliers, then it) on the car layout that
+  carries the most of it. Loops of the same layout merge into one bigger loop when that saves trains, for example two
+  plants at opposite ends of the map served by one loop instead of two that each run back empty. They change only when
+  that clearly pays, and end when their flows stay gone.
+- **Trains:** each service gets the trains its flows need, spaced evenly around its loop. Trains left over are spread
+  over the services of their layout as extra trains, so they keep carrying something instead of sitting in depots;
+  depots are optional, for trains no service can use.
+- **Joining and leaving:** a train that joins a service first clears what isn't the service's cargo: delivered, or
+  dumped into a sink on its way when the goods aren't needed soon (needed goods are always delivered).
+- **Each cycle** loads what the forecasts call for; a pickup that would load less than its platform's **Least per
+  visit** is left out of that cycle, so the service keeps its spacing instead of waiting.
+- **Monitor:** a Services tab (each loop, its trains, spacing, loop time, what each train is doing), tiles for
+  services, short services and flows not covered, and the fleet by car layout with advice on which trains to add.
+- **Menus:** the platform menu says which services serve it (or why none does); the station menu lists the services
+  calling there, its room to wait and the stations sharing its switch; the locomotive menu shows the train's role and
+  has **Stay in this service** and **Keep out of services**.
+- **Commands:** `/st service`, `/st service S3`, `/st service S3 lock|unlock|spacing <minutes>|trains <least> <most>`,
+  `/st service <item> dedicated|auto`, `/st train stay|reserve on|off`.
+- Removed: the trip-by-trip planner for free trains, the roster and per-item shuttles, the Services and roster switch.
+
 ## 0.8.0 (beta)
 
 One way of deciding instead of many: the parts that each patched a problem of their own are replaced by a few
