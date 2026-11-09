@@ -944,7 +944,7 @@ FString ASTSubsystem::DescribeServiceRole(const FSTTrainState& State) const
 TArray<FString> ASTSubsystem::DescribePlatformServices(const AFGBuildableTrainPlatformCargo* Platform) const
 {
 	TArray<FString> Lines;
-	const AFGTrainStationIdentifier* Station = STLayout::GetIdentifier(STLayout::FindStation(Platform));
+	const AFGTrainStationIdentifier* Station = STLayout::GetIdentifier(STLayout::FindStation(const_cast<AFGBuildableTrainPlatformCargo*>(Platform)));
 	const FSTPlatformConfig* Config = FindPlatformConfig(Platform);
 	if (!Station || !Config || Config->Role == ESTRole::Off || Config->Role == ESTRole::Sink)
 	{
