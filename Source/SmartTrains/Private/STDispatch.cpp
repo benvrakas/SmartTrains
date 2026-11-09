@@ -1695,9 +1695,15 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	const FSTPlanResult KeptResult = bKeptWorks ? Planner.Simulate(Stops) : FSTPlanResult();
 	if (State.Job.ServiceId == 0)
 	{
-		Planner.SetDeliveriesOnly(Shuttle != nullptr);
+		// A service train clearing cargo that isn't its service's keeps to that: deliveries (or a sink) only, as
+		// RunServices planned it. Planned again from scratch it used to pick up unrelated work, a 5-stop trip instead of
+		// one drop, and kept the train out of its service.
+		const bool bClearing = !State.bServiceReserve && FindService(State.ServiceId) != nullptr;
+		Planner.SetDeliveriesOnly(Shuttle != nullptr || bClearing);
+		Planner.SetSwitching(bClearing);
 		Result = Planner.Improve(Stops, 0);
 		Planner.SetDeliveriesOnly(false);
+		Planner.SetSwitching(false);
 	}
 	FSTTripPlanner::Trim(Stops, Result, 0);
 	Result = Planner.Simulate(Stops);

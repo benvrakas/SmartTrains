@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.5 (beta)
+
+- **Fixed: a service train clearing other cargo could be sent off on unrelated trips.** A train joining a service first
+  delivers (or dumps) cargo that isn't the service's. When that trip was planned again from scratch, for example
+  because another train needed its station, it was planned like any free train's and picked up new work: on the IB
+  save, one drop became a 5-stop nitrogen and sulfur trip. It now stays deliveries-only, as it was planned, and its
+  timetable is rewritten less often (each rewrite makes Auto Trains plan the train again).
+
 ## 0.9.4 (beta)
 
 - **Services whose flows dip keep their loop.** A service used to end after about two minutes without flows (three
