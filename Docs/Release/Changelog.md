@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.7 (beta)
+
+- **Sinks only get cargo nobody needs.** Cargo a train's current trip didn't deliver counted as unwanted after a few
+  minutes, and then all of it could go to a sink, even items consumers were waiting for. Once the server's depot
+  sinks became reachable, trains dumped coal, concrete, copper, sulfur and even AI Limiters there and queued onto the
+  main line for the depot stations. Now an item only goes to a sink if no consumer needs it within the hour.
+- The UNREACHABLE warning says to check which way the station faces first: a station built backwards also reads as
+  "unreachable with signals".
+
 ## 0.7.6 (beta)
 
 - **A shuttle that can't run no longer blocks its item.** The copper shuttle was holding leftover cargo nobody

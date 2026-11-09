@@ -19,7 +19,8 @@ them (see below).
     item could bring it, a train whose car lines up with it is emptied of what it holds (at consumers or sinks,
     whatever is soonest) and sent for it, in time to arrive **Request a train this early** (5 minutes) before. **On**
     asks until it and its deliveries are 90 % full; **Off** never asks.
-  - **Sink:** managed trains unload cargo here that no consumer takes, any item.
+  - **Sink:** managed trains unload cargo here that no consumer takes, any item. Cargo a consumer needs within the
+    hour never goes to a sink. Give sinks their own station: a depot holds one train, so sink stops there queue.
   - **Off:** vanilla.
   - Each item gets a target and a priority (demand), or a minimum batch (supply: **Send at % of a load**, 50 % by
     default; a station 90 % full or a Critical consumer ships less).

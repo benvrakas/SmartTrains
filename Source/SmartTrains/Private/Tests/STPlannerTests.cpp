@@ -719,6 +719,12 @@ bool FSTRequestSoonestEmptyingTest::RunTest(const FString& Parameters)
 		FirstNode.Platforms = {Objects[0]};
 		FSTNode SecondNode = FSTTestAccess::Node(Second, Other, ESTRole::Demand, 0, 100000, 0);
 		SecondNode.Platforms = {Objects[1]};
+		// Near the sink, the consumers of the cargo on board are full, so nobody needs it soon and the sink may take it.
+		if (bSinkNear)
+		{
+			FirstNode.Stock = 100000;
+			SecondNode.Stock = 100000;
+		}
 		FSTNode SinkNode = FSTTestAccess::Node(Sink, nullptr, ESTRole::Demand, 0, 100000, 0);
 		SinkNode.bAnyItem = true;
 		SinkNode.Platforms = {Objects[2]};
@@ -1180,6 +1186,49 @@ bool FSTSmallLoadTest::RunTest(const FString& Parameters)
 	};
 	TestEqual(TEXT("100 isn't loaded into a car of 3200"), LoadedFrom(100), 0);
 	TestEqual(TEXT("1000 is"), LoadedFrom(1000), 1000);
+	return true;
+}
+
+// A sink never gets cargo a consumer needs within the hour: on the server leftovers of coal, sulfur and AI Limiters went
+// into a depot's sink while their consumers waited.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTSinkNeededTest, "SmartTrains.Planner.SinkKeepsNeeded", TestFlags)
+bool FSTSinkNeededTest::RunTest(const FString& Parameters)
+{
+	UClass* Ingot = USTTestSolid::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Consumer = FSTTestAccess::MakeStation();
+	FSTTestAccess::SetTrip(*Subsystem, Start, Sink, 60.f);
+	auto Dump = [&](bool bWanted)
+	{
+		FSTNode SinkNode = FSTTestAccess::Node(Sink, nullptr, ESTRole::Demand, 0, 0, 1);
+		SinkNode.bAnyItem = true;
+		TArray<FSTNode> Nodes = {SinkNode};
+		if (bWanted)
+		{
+			Nodes.Add(FSTTestAccess::Node(Consumer, Ingot, ESTRole::Demand, 0, 100000, 1));
+		}
+		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		FSTTestAccess::FPlatformInfo Platform = FSTTestAccess::Platform(Ingot, false, 0.0, 0);
+		Platform.bAnyItem = true;
+		Platform.Items.Reset();
+		Platform.Slots = 48;
+		FSTTestAccess::FCarInfo Car = FSTTestAccess::Car(Ingot, 3200.0);
+		Car.Slots = 32;
+		FSTTestAccess::FCarPlatforms CarPlatforms;
+		CarPlatforms.Add(Sink, {{0}});
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, {Platform}, CarPlatforms);
+		FSTPlanStop Unload;
+		Unload.Station = Sink;
+		Unload.UnloadItems.Add(Ingot);
+		const FSTPlanResult Result = Planner.Simulate({Unload});
+		AddInfo(FString::Printf(TEXT("wanted %d: %s"), bWanted ? 1 : 0, Result.bValid ? TEXT("valid") : *Result.Problem));
+		return Result.bValid;
+	};
+	TestFalse(TEXT("ingots a consumer needs now don't go into the sink"), Dump(true));
+	TestTrue(TEXT("ingots no consumer wants may"), Dump(false));
 	return true;
 }
 

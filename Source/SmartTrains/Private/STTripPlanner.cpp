@@ -569,7 +569,8 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 				{
 					continue;
 				}
-				if (Consumer.bAnyItem && !bRelaxed)
+				// A sink only takes leftovers no consumer needs within the horizon.
+				if (Consumer.bAnyItem && (!bRelaxed || mNeededSoon.Contains(Carried.Key)))
 				{
 					continue;
 				}
@@ -627,7 +628,7 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 			{
 				continue;
 			}
-			if (Consumer.bAnyItem && !bFull)
+			if (Consumer.bAnyItem && (!bFull || mNeededSoon.Contains(Item)))
 			{
 				continue;
 			}
@@ -1122,6 +1123,11 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					if (Node == INDEX_NONE)
 					{
 						continue;
+					}
+					if (mNodes[Node].bAnyItem && mNeededSoon.Contains(Item))
+					{
+						return Fail(FString::Printf(TEXT("car %d would unload %s into the sink at %s, which a consumer needs within the hour"), CarIndex + 1,
+							*STNames::Item(Item), *STLayout::Name(Stop.Station)));
 					}
 					FItemTotals& Total = TotalsFor(Item);
 					if (mNodes[Node].bAnyItem)

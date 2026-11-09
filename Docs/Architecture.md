@@ -432,6 +432,15 @@ Demand node with `bAnyItem`, as "Any item" demand platforms were before; `PostLo
 **Unwanted cargo after** minutes, its cargo may go to consumers above target or to sinks. `/st status` warns when
 more than half the managed trains carry unwanted cargo.
 
+**Sinks keep what is needed** (0.7.7): a sink only gets an item no consumer needs within the forecast horizon
+(`mNeededSoon`): move generation skips sinks for such items (leftovers and full suppliers alike), and `Simulate` rejects
+a stop that would unload one into a sink (kept stops of older plans and request trips included). "Unwanted" only means
+no stop of the current trip unloads the item, so before 0.7.7 every leftover went to the sinks once the depots on the
+server became reachable: in 35 minutes 25 sink stops destroyed 19,500 coal, 11,000 concrete, 7,000 copper sheets,
+2,300 sulfur and 2,000 AI Limiters while their consumers waited, and trains queued onto the main line for the depot
+stations the sinks were in. Emptying a car also gains the tied-car value, which made dumping score above delivering
+later.
+
 **Flow plan** (every **Flow plan interval**): for each item, consumers are taken by priority tier, highest first.
 Each tier is an exact **minimum-cost flow** (`STMinCostFlow`, successive shortest paths with Bellman-Ford). Source
 → supplier edges carry what is left of each supplier's rate, supplier → consumer edges cost the travel time, and
