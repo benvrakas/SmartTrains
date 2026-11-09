@@ -778,6 +778,11 @@ void ASTSubsystem::BuildBookings(const TArray<FSTNode>& Nodes, double Time, TMap
 		for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
 		{
 			const FSTJobLeg& Each = State.Job.Legs[Leg];
+			// A stop whose station was dismantled books nothing (its job is cleaned up when it is written again).
+			if (!IsValid(Each.Station))
+			{
+				continue;
+			}
 			const double Stay = EstimateStaySeconds(Each.Station);
 			double From = Each.PlannedArrival;
 			if (Leg == State.Job.Leg && IsValid(State.Train) && State.Train->IsDocked() && State.DockedStation.Get() == Each.Station)
@@ -837,6 +842,20 @@ void ASTSubsystem::DispatchRound()
 	TArray<FSTNode> Nodes;
 	BuildNodes(Nodes);
 	const double Time = Now();
+	// Jobs with a stop whose station was dismantled are written again without it (or end) before anything plans with them.
+	for (FSTTrainState& State : mTrains)
+	{
+		bool bGone = false;
+		for (int32 Leg = FMath::Max(0, State.Job.Leg); State.bManaged && State.bHasJob && Leg < State.Job.Legs.Num(); ++Leg)
+		{
+			bGone |= !IsValid(State.Job.Legs[Leg].Station) || !State.Job.Legs[Leg].Station->GetStation();
+		}
+		if (bGone)
+		{
+			State.WrittenStopKeys.Reset();
+			WriteJob(State, TEXT("a stop's station is gone"));
+		}
+	}
 
 	mAtTravelCallsLeft = AtTravelCallsPerRound;
 	mHeldFor.Reset();
@@ -2141,6 +2160,28 @@ void ASTSubsystem::WriteJob(FSTTrainState& State, const TCHAR* Why)
 	if (!IsValid(Train) || mSettings.bObserveOnly || !State.bHasJob)
 	{
 		return;
+	}
+	// Stops whose station was dismantled are left out; with none left the job ends and the train is planned again.
+	int32 Gone = 0;
+	for (int32 Leg = State.Job.Legs.Num() - 1; Leg >= State.Job.Leg && Leg >= 0; --Leg)
+	{
+		if (!IsValid(State.Job.Legs[Leg].Station) || !State.Job.Legs[Leg].Station->GetStation())
+		{
+			State.Job.Legs.RemoveAt(Leg);
+			++Gone;
+		}
+	}
+	if (Gone > 0)
+	{
+		UE_LOG(LogSmartTrains, Warning, TEXT("%s job %d: %d stops left out, their station is gone"), *STLayout::Name(Train), State.Job.Id, Gone);
+		if (!State.Job.Legs.IsValidIndex(State.Job.Leg))
+		{
+			State.bHasJob = false;
+			State.Phase = ESTTrainPhase::Idle;
+			State.WrittenStations.Reset();
+			bDispatchSoon = true;
+			return;
+		}
 	}
 	AFGRailroadTimeTable* TimeTable = Train->GetTimeTable();
 	if (!TimeTable)

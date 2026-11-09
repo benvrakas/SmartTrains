@@ -204,9 +204,15 @@ void ASTSubsystem::DesignServices(TArray<FSTRosterRoute>&& Routes)
 		}
 		const TArray<int32>* Trains = Layouts.Find(Service.Layout);
 		Service.MissingPlans = Total > 0.0 || Service.bLocked ? 0 : Service.MissingPlans + 1;
-		if (!Trains || Service.MissingPlans > ServiceRetirePlans)
+		const bool bStationGone = Service.Stops.ContainsByPredicate([](const FSTServiceStop& Stop) { return !IsValid(Stop.Station) || !Stop.Station->GetStation(); });
+		if (!Trains || Service.MissingPlans > ServiceRetirePlans || bStationGone)
 		{
-			UE_LOG(LogSmartTrains, Log, TEXT("SERVICE %s retired: %s"), *DescribeService(Service), !Trains ? TEXT("no managed train of its car layout") : TEXT("its flows are gone"));
+			UE_LOG(LogSmartTrains, Log, TEXT("SERVICE %s retired: %s"), *DescribeService(Service), bStationGone ? TEXT("a station of its loop is gone")
+				: (!Trains ? TEXT("no managed train of its car layout") : TEXT("its flows are gone")));
+			for (const FSTServiceFlow& Flow : Service.Flows)
+			{
+				Covered.Remove(RouteKey(Flow.From.Get(), Flow.To.Get(), Flow.Item.Get()));
+			}
 			for (const TObjectPtr<AFGTrain>& Train : Service.Trains)
 			{
 				if (FSTTrainState* State = FindTrainState(Train))

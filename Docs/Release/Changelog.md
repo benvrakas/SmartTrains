@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.2 (beta)
+
+- **Fixed: dismantling a station a managed train was heading for crashed the server**, or left the train with "next
+  stop invalid". The game drops a dismantled station from timetables; SmartTrains then wrote the train's job back with
+  the station that no longer exists, and building station bookings read it. Now a job's stops whose station is gone are
+  left out (the job ends if none is left and the train is planned again), bookings skip them, a lasting "next stop
+  invalid" gets the timetable written again, and a service with a station that is gone ends and is designed again.
+
 ## 0.9.1 (beta)
 
 - **Uses Auto Trains' congestion data** (Auto Trains 1.4.12 or later): how busy the switches and crossings around each

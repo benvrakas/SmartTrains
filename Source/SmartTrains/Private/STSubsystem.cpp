@@ -581,6 +581,18 @@ void ASTSubsystem::MonitorTrains()
 			State.SelfDrivingErrorSince = Time;
 			State.bUnreachableHandled = false;
 		}
+		if (Error == static_cast<uint8>(ESelfDrivingLocomotiveError::SDLE_InvalidNextStop) && !State.bUnreachableHandled && State.bManaged && State.bHasJob
+			&& Time - State.SelfDrivingErrorSince >= SelfDrivingErrorLogSeconds)
+		{
+			State.bUnreachableHandled = true;
+			UE_LOG(LogSmartTrains, Warning, TEXT("%s: the game says its next stop is invalid (job %d); its timetable is written again"), *STLayout::Name(Train), State.Job.Id);
+			State.WrittenStopKeys.Reset();
+			WriteJob(State, TEXT("its next stop was invalid"));
+			if (!State.bHasJob)
+			{
+				SettleIdle(State, TEXT("its stops' stations are gone"));
+			}
+		}
 		const bool bNoWay = Error == static_cast<uint8>(ESelfDrivingLocomotiveError::SDLE_NoPath) || Error == static_cast<uint8>(ESelfDrivingLocomotiveError::SDLE_StationUnreachable)
 			|| Error == static_cast<uint8>(ESelfDrivingLocomotiveError::SDLE_StationUnreachableWithSignals);
 		if (bNoWay && !State.bUnreachableHandled && State.bManaged && State.bHasJob && Time - State.SelfDrivingErrorSince >= UnreachableSeconds
