@@ -882,8 +882,8 @@ void ASTSubsystem::DispatchRound()
 	{
 		return;
 	}
-	// Every free train planned together against the network's forecast cost.
-	HorizonRound(Planner, Nodes);
+	// Every free train runs its service's next cycle.
+	RunServices(Planner);
 	if (!mSettings.bObserveOnly)
 	{
 		ClearNeededBays();
@@ -1067,7 +1067,7 @@ void ASTSubsystem::NoteNoTrip(const FSTTrainState& State, const FString& Reason)
 	}
 }
 
-void ASTSubsystem::CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve)
+void ASTSubsystem::CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve, int32 ServiceId)
 {
 	const double Time = Now();
 	mIdleReasons.Remove(State.Train.Get());
@@ -1089,7 +1089,9 @@ void ASTSubsystem::CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, con
 	{
 		Stations.Add(STLayout::Name(Stop.Station));
 	}
-	Job.Summary = FString::Printf(TEXT("%s: %s"), *FString::Join(Items, TEXT(", ")), *FString::Join(Stations, TEXT(" -> ")));
+	Job.ServiceId = ServiceId;
+	Job.Summary = FString::Printf(TEXT("%s%s: %s"), ServiceId > 0 ? *FString::Printf(TEXT("S%d "), ServiceId) : TEXT(""), *FString::Join(Items, TEXT(", ")),
+		*FString::Join(Stations, TEXT(" -> ")));
 	const FString Line = FString::Printf(TEXT("%s: %s [%s], %d moved, value %.2f, score %.4f"), *STLayout::Name(State.Train), *Job.Summary,
 		*Planner.Describe(Stops, Result), Result.Moved, Result.Value, Result.Score);
 	if (bReserve)
@@ -1670,9 +1672,12 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	const bool bKeptWorks = Result.bValid && Stops.Num() > 0;
 	const TArray<FSTPlanStop> Kept = Stops;
 	const FSTPlanResult KeptResult = bKeptWorks ? Planner.Simulate(Stops) : FSTPlanResult();
-	Planner.SetDeliveriesOnly(Shuttle != nullptr);
-	Result = Planner.Improve(Stops, 0);
-	Planner.SetDeliveriesOnly(false);
+	if (State.Job.ServiceId == 0)
+	{
+		Planner.SetDeliveriesOnly(Shuttle != nullptr);
+		Result = Planner.Improve(Stops, 0);
+		Planner.SetDeliveriesOnly(false);
+	}
 	FSTTripPlanner::Trim(Stops, Result, 0);
 	Result = Planner.Simulate(Stops);
 	// Stability: additions to a trip that still works must beat it by the re-plan threshold.
@@ -1808,6 +1813,12 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 		{
 			return;
 		}
+	}
+	// A service train without a cycle now waits where it is for its next one.
+	if (FindService(State.ServiceId))
+	{
+		SettleServiceTrain(State, Why);
+		return;
 	}
 	// Idle: to the nearest depot no other train is at or heading for. With none free it parks where it is, and moves
 	// when a trip needs that station or (with Auto Trains) a train waits for it (ClearNeededBays).
@@ -2392,18 +2403,8 @@ void ASTSubsystem::PlanFlows()
 		}
 	}
 	mPlannedNodes = Nodes;
-	if (mSettings.bRoster)
-	{
-		mPendingRoster.Sort([](const FSTRosterRoute& A, const FSTRosterRoute& B) { return A.GetKey() < B.GetKey(); });
-		BuildRoster(MoveTemp(mPendingRoster));
-	}
-	else if (mRosterRoutes.Num() > 0)
-	{
-		mRosterRoutes.Reset();
-		mRoster.Reset();
-		mShuttles.Reset();
-		UE_LOG(LogSmartTrains, Log, TEXT("ROSTER: off"));
-	}
+	mPendingRoster.Sort([](const FSTRosterRoute& A, const FSTRosterRoute& B) { return A.GetKey() < B.GetKey(); });
+	DesignServices(MoveTemp(mPendingRoster));
 	mPendingRoster.Reset();
 }
 
@@ -2935,31 +2936,6 @@ bool ASTSubsystem::SetService(UClass* Item, const FString& Verb, float Minutes, 
 	UE_LOG(LogSmartTrains, Log, TEXT("SERVICE %s: %s (%s)"), *Name, *OutResult, *Cause);
 	PlanFlows();
 	return true;
-}
-
-TArray<FString> ASTSubsystem::DescribeServices() const
-{
-	TArray<FString> Lines;
-	for (const TPair<TWeakObjectPtr<UClass>, FServiceInfo>& Pair : mServices)
-	{
-		const FSTServiceConfig* Config = FindServiceConfig(Pair.Key.Get());
-		Lines.Add(FString::Printf(TEXT("%s: %d train%s, a pickup about every %.1f min (needs %.1f trains): %s%s"), *STNames::Item(Pair.Key.Get()), Pair.Value.Trains,
-			Pair.Value.Trains == 1 ? TEXT("") : TEXT("s"), Pair.Value.Headway / 60.0, Pair.Value.Needed, *FString::Join(Pair.Value.Routes, TEXT(", ")),
-			Config && Config->bPinned ? TEXT(" [pinned]") : TEXT("")));
-	}
-	for (const FSTServiceConfig& Config : mServiceConfigs)
-	{
-		if (Config.Item && !mServices.Contains(Config.Item.Get()))
-		{
-			Lines.Add(FString::Printf(TEXT("%s: no service now%s%s%s"), *STNames::Item(Config.Item), Config.bPooled ? TEXT(" [pooled]") : TEXT(""),
-				Config.bPinned ? TEXT(" [pinned, no whole-fit train free]") : TEXT(""), Config.Trains.Num() > 0 ? *FString::Printf(TEXT(" [%d chosen trains]"), Config.Trains.Num()) : TEXT("")));
-		}
-	}
-	if (Lines.Num() == 0)
-	{
-		Lines.Add(TEXT("No services: no item's flow keeps a whole train busy, and none is pinned."));
-	}
-	return Lines;
 }
 
 const FSTRosterDuty* ASTSubsystem::GetShuttleDuty(const AFGTrain* Train) const

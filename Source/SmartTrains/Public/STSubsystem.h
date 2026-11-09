@@ -306,7 +306,7 @@ private:
 	// Sum of every node's forecast cost with the events planned for it. [car-load minutes]
 	double GetNetworkCost(const TArray<FSTNode>& Nodes) const;
 	// Turns a planned trip into State's job (and, if bReserve, reserves it for the trains planned after it).
-	void CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve);
+	void CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve, int32 ServiceId = 0);
 	// Records why a free train got no trip; logged when the reason changes.
 	void NoteNoTrip(const FSTTrainState& State, const FString& Reason);
 	// True if Platform (of demand node Node) asks for a train: its stock and its deliveries on the way fall below its
@@ -428,6 +428,37 @@ private:
 	// Players' service settings, by item.
 	UPROPERTY(SaveGame)
 	TArray<FSTServiceConfig> mServiceConfigs;
+
+	// The network's services, and the next service number.
+	UPROPERTY(SaveGame)
+	TArray<FSTService> mNetworkServices;
+
+	UPROPERTY(SaveGame)
+	int32 mNextServiceId = 1;
+
+	// Flows the last design couldn't put in a service, with why.
+	TArray<FString> mServiceUncovered;
+
+	// Services (STServices.cpp).
+	FSTService* FindService(int32 Id);
+	const FSTService* FindService(int32 Id) const;
+	// "S3 Sulfur: Crater Lake -> RockPow".
+	FString DescribeService(const FSTService& Service) const;
+	// Time between its trains leaving its first stop. [s]
+	double GetServiceSpacing(const FSTService& Service) const;
+	// One loop through Stops and back with stays; -1 if a leg can't be driven. [s]
+	double GetLoopSeconds(const TArray<FSTServiceStop>& Stops, bool bPushPull) const;
+	// Fills Flows' PerTrain for the train at TrainIndex's layout; Cycle and trains Needed. False if a flow can't be carried.
+	bool RateLoop(FSTTripPlanner& Planner, int32 TrainIndex, TArray<FSTServiceStop>& Stops, TArray<FSTServiceFlow>& Flows, double& OutCycle, double& OutNeeded) const;
+	// Every flow plan: keeps, makes, merges and ends services, then gives them trains.
+	void DesignServices(TArray<FSTRosterRoute>&& Routes);
+	// Other's stops into Into's loop; false if the result can't work as one loop.
+	bool MergeLoops(FSTService& Into, const FSTService& Other) const;
+	void AllocateServiceTrains(const TMap<FString, TArray<int32>>& Layouts);
+	// Every dispatch round: each free service train gets its next cycle (or clears foreign cargo first).
+	void RunServices(FSTTripPlanner& Planner);
+	// A service train with no cycle now waits where it is.
+	void SettleServiceTrain(FSTTrainState& State, const TCHAR* Why);
 
 	// Now() when the world was saved, so the clock carries on after loading instead of restarting at 0. [s]
 	UPROPERTY(SaveGame)

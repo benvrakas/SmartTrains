@@ -4,6 +4,8 @@
 
 class AFGBuildableTrainPlatformCargo;
 class AFGFreightWagon;
+class AFGRailroadVehicle;
+class AFGTrain;
 class AFGTrainStationIdentifier;
 class ASTSubsystem;
 struct FSTJobLeg;
@@ -105,6 +107,24 @@ public:
 	FSTPlanResult Improve(TArray<FSTPlanStop>& InOutStops, int32 FirstMovable) const;
 	// While on, Improve only adds deliveries of cargo already on board (a shuttle emptying before its route).
 	void SetDeliveriesOnly(bool bOn) { bDeliveriesOnly = bOn; }
+	// A train switching services may dump cargo that isn't its new service's into sinks, at the cargo's value.
+	void SetSwitching(bool bOn) { bSwitching = bOn; }
+	// The current train's cars and start only (no moves): enough to simulate given stops.
+	bool PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bInAnchorDocked);
+	// More planning time for this planner (the service designer). [ms]
+	void RaiseBudget(double Milliseconds);
+	// A flow a service loop carries: what one train carries of it per loop comes from AllocateServiceCars.
+	struct FFlowRef
+	{
+		const AFGTrainStationIdentifier* From = nullptr;
+		const AFGTrainStationIdentifier* To = nullptr;
+		UClass* Item = nullptr;
+		double Flow = 0.0;
+	};
+	// Per flow (same order): what the current train carries of it per loop of Stops. Each car carries one flow at a time,
+	// from a stop where it lines up with a supply platform of the item to one where it lines up with a demand platform;
+	// a car may carry several flows one after another. Every flow gets a car first, then the busiest take the rest.
+	TArray<double> AllocateServiceCars(const TArray<FSTPlanStop>& Stops, const TArray<FFlowRef>& Flows) const;
 
 	// A trip for Target's request (Docs/Architecture.md, "Requests"): stops that empty the cars that line up with its
 	// platform of other items, whatever empties them soonest, then a pickup (no minimum batch) and the delivery if they
@@ -258,6 +278,7 @@ private:
 	mutable TMap<FString, int32> mProblems;
 	bool bFcc = false;
 	bool bDeliveriesOnly = false;
+	bool bSwitching = false;
 	// Automation tests: every station counts as on the train's track network (they have no world).
 	bool bServeAll = false;
 	int32 mMaxStops = 4;
