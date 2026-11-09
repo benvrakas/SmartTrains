@@ -765,6 +765,10 @@ void ASTSubsystem::RunServices(FSTTripPlanner& Planner, const TArray<FSTNode>& N
 			{
 				continue;
 			}
+			// The loop was checked against the service limits when it was designed, which are wider than a trip's: the
+			// "Most stops per trip" and "Longest trip" settings must not stop a whole service from running.
+			Planner.RaiseStopLimit(ServiceMaxStops);
+			Planner.RaiseTripLimit(2.0 * ServiceMaxSeconds);
 			TArray<FSTPlanStop> Stops;
 			for (const FSTServiceStop& Stop : Service.Stops)
 			{

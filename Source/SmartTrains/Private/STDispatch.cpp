@@ -1675,6 +1675,7 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	// The trip limit is for planning new trips: the rest of a trip under way is checked without it, and additions may
 	// make the trip as long as its rest already is.
 	Planner.RaiseTripLimit(1.0e9);
+	Planner.RaiseStopLimit(Stops.Num());
 	FSTPlanResult Result = Planner.Simulate(Stops);
 	Planner.ResetTripLimit(Result.bValid ? Result.EndTime - Now() + 120.0 : 0.0);
 	Before = Planner.Describe(Stops, Result);

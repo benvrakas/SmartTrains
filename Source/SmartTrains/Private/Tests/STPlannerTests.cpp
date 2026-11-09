@@ -1755,4 +1755,48 @@ bool FSTServiceMergeTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// A merged service loop may have up to 8 stops, more than a trip may (the "Most stops per trip" setting, at least 6).
+// Its cycles are simulated with the service's limit, or the trains of an 8-stop service never get a cycle ("nothing to
+// move this cycle (too many stops)", service S9 on the IB save, 2026-11-09).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTServiceLongLoopTest, "SmartTrains.Services.LongLoop", TestFlags)
+bool FSTServiceLongLoopTest::RunTest(const FString& Parameters)
+{
+	UClass* Ingot = USTTestSolid::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	TArray<AFGTrainStationIdentifier*> Stations;
+	TArray<FSTNode> Nodes;
+	TArray<FSTTestAccess::FPlatformInfo> Platforms;
+	FSTTestAccess::FCarPlatforms CarPlatforms;
+	TArray<FSTPlanStop> Stops;
+	for (int32 Index = 0; Index < 8; ++Index)
+	{
+		const bool bSupply = Index % 2 == 0;
+		AFGTrainStationIdentifier* Station = FSTTestAccess::MakeStation();
+		FSTTestAccess::SetTrip(*Subsystem, Index == 0 ? Start : Stations.Last(), Station, 60.f);
+		Stations.Add(Station);
+		Nodes.Add(FSTTestAccess::Node(Station, Ingot, bSupply ? ESTRole::Supply : ESTRole::Demand, bSupply ? 100000 : 0, 100000, 1));
+		FSTTestAccess::FPlatformInfo& Platform = Platforms.Add_GetRef(FSTTestAccess::Platform(Ingot, bSupply, bSupply ? 50000.0 : 0.0, bSupply ? 1 : 0));
+		Platform.Slots = 10;
+		CarPlatforms.Add(Station, {{Index}});
+		FSTPlanStop& Stop = Stops.AddDefaulted_GetRef();
+		Stop.Station = Station;
+		(bSupply ? Stop.LoadItems : Stop.UnloadItems).Add(Ingot);
+	}
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+	FSTTestAccess::FCarInfo Car = FSTTestAccess::Car();
+	Car.Slots = 2;
+	FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, Platforms, CarPlatforms);
+	const FSTPlanResult Plain = Planner.Simulate(Stops);
+	TestFalse(TEXT("an 8-stop trip is over the trip stop limit"), Plain.bValid);
+	Planner.RaiseStopLimit(8);
+	const FSTPlanResult Service = Planner.Simulate(Stops);
+	if (TestTrue(FString::Printf(TEXT("with the service's stop limit the 8-stop cycle works (%s)"), *Service.Problem), Service.bValid))
+	{
+		TestTrue(TEXT("and moves cargo"), Service.Moved > 0);
+	}
+	return true;
+}
+
 #endif

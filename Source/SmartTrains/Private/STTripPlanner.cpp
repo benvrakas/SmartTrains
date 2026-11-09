@@ -110,6 +110,7 @@ FSTTripPlanner::FSTTripPlanner(const ASTSubsystem& InSubsystem, TArray<FSTNode>&
 	bFcc = mSubsystem.IsFccAvailable();
 	mMaxStops = FMath::Clamp(FMath::RoundToInt(mSubsystem.mSettings.MaxStops), 2, 8);
 	mMaxStops = FMath::Max(mMaxStops, STForecast::HorizonStops);
+	mBaseMaxStops = mMaxStops;
 	mMaxTripSeconds = FMath::Max(60.0, mSubsystem.mSettings.MaxTripMinutes * 60.0);
 	for (int32 Index = 0; Index < mNodes.Num(); ++Index)
 	{
@@ -138,6 +139,11 @@ void FSTTripPlanner::RaiseTripLimit(double Seconds)
 void FSTTripPlanner::ResetTripLimit(double AtLeast)
 {
 	mMaxTripSeconds = FMath::Max(FMath::Max(60.0, mSubsystem.mSettings.MaxTripMinutes * 60.0), AtLeast);
+}
+
+void FSTTripPlanner::RaiseStopLimit(int32 Stops)
+{
+	mMaxStops = FMath::Max(mMaxStops, Stops);
 }
 
 bool FSTTripPlanner::IsOverBudget() const
@@ -897,6 +903,7 @@ bool FSTTripPlanner::PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifi
 {
 	mTrainIndex = TrainIndex;
 	mMaxTripSeconds = FMath::Max(60.0, mSubsystem.mSettings.MaxTripMinutes * 60.0);
+	mMaxStops = mBaseMaxStops;
 	mAnchor = Anchor;
 	mFreeAt = FreeAt;
 	bAnchorDocked = bInAnchorDocked;
@@ -975,6 +982,7 @@ bool FSTTripPlanner::ResumeTrain(int32 TrainIndex, const AFGTrainStationIdentifi
 	}
 	mTrainIndex = TrainIndex;
 	mMaxTripSeconds = FMath::Max(60.0, mSubsystem.mSettings.MaxTripMinutes * 60.0);
+	mMaxStops = mBaseMaxStops;
 	mAnchor = Anchor;
 	mFreeAt = FreeAt;
 	bAnchorDocked = bInAnchorDocked;

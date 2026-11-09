@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.3 (beta)
+
+- **Fixed: trains of a service with more than 6 stops never left.** Services merge loops up to 8 stops and an hour, but
+  each cycle was still checked against the trip limits ("Most stops per trip", at least 6, and "Longest trip"), so every
+  train of such a service parked with "nothing to move this cycle (too many stops)". On the IB save, 12 trains of an
+  8-stop service stood idle while the monitor reported the layout 14 trains short. A service's cycles now use the
+  service's own limits, and the re-plan of a trip under way is checked against its own length.
+
 ## 0.9.2 (beta)
 
 - **Fixed: dismantling a station a managed train was heading for crashed the server**, or left the train with "next

@@ -174,6 +174,9 @@ public:
 	void RaiseTripLimit(double Seconds);
 	// Back to the setting's limit, or AtLeast if that is longer.
 	void ResetTripLimit(double AtLeast);
+	// Lets the current train's trip have at least Stops stops (a service's whole loop, the rest of a trip under way);
+	// reset by BeginTrain, ResumeTrain and PrepareCars.
+	void RaiseStopLimit(int32 Stops);
 
 	// True when this round's planning time is used up.
 	bool IsOverBudget() const;
@@ -282,6 +285,8 @@ private:
 	// Automation tests: every station counts as on the train's track network (they have no world).
 	bool bServeAll = false;
 	int32 mMaxStops = 4;
+	// The stop limit from the settings, which mMaxStops goes back to for each train.
+	int32 mBaseMaxStops = 4;
 	double mMaxTripSeconds = 1200.0;
 
 	// Current train.
