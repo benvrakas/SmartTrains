@@ -7,6 +7,10 @@
   back minutes later as a new service with a new number, without its lock, spacing or train limits. It now keeps its
   loop for 15 minutes without flows. Meanwhile it asks for no trains beyond the player's "at least", so its trains
   serve other services at once instead of one of them standing parked in an empty loop.
+- **Fixed: a service cycle could be dropped after its first stop with the cargo on board.** After each stop the rest of
+  a trip is checked again, and that check refused it when the next station had no room to wait before its switch, a
+  rule meant for choosing new trips. A service cycle then ended on the spot: on the IB save, a train loaded 3200 copper
+  ingots and then abandoned the 7 stops that would have used them. A trip under way now keeps its stops and waits.
 - **Trains with the same name are told apart.** Trains sharing a name (every train nobody named is "Train") show the
   end of their actor name in the log and menus, as in `Train #5678`. The number is kept in the save, and Auto Trains
   1.4.13 uses the same one, so the two mods' log lines about a train can be matched.

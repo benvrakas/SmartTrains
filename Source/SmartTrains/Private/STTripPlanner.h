@@ -177,6 +177,9 @@ public:
 	// Lets the current train's trip have at least Stops stops (a service's whole loop, the rest of a trip under way);
 	// reset by BeginTrain, ResumeTrain and PrepareCars.
 	void RaiseStopLimit(int32 Stops);
+	// Lets the current train's trip wait for a busy station beyond the queue and waiting-room limits (the rest of a trip
+	// under way, whose cargo is on board); reset by BeginTrain, ResumeTrain and PrepareCars.
+	void AllowQueue() { bAllowQueue = true; }
 
 	// True when this round's planning time is used up.
 	bool IsOverBudget() const;
@@ -287,6 +290,7 @@ private:
 	int32 mMaxStops = 4;
 	// The stop limit from the settings, which mMaxStops goes back to for each train.
 	int32 mBaseMaxStops = 4;
+	bool bAllowQueue = false;
 	double mMaxTripSeconds = 1200.0;
 
 	// Current train.

@@ -904,6 +904,7 @@ bool FSTTripPlanner::PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifi
 	mTrainIndex = TrainIndex;
 	mMaxTripSeconds = FMath::Max(60.0, mSubsystem.mSettings.MaxTripMinutes * 60.0);
 	mMaxStops = mBaseMaxStops;
+	bAllowQueue = false;
 	mAnchor = Anchor;
 	mFreeAt = FreeAt;
 	bAnchorDocked = bInAnchorDocked;
@@ -983,6 +984,7 @@ bool FSTTripPlanner::ResumeTrain(int32 TrainIndex, const AFGTrainStationIdentifi
 	mTrainIndex = TrainIndex;
 	mMaxTripSeconds = FMath::Max(60.0, mSubsystem.mSettings.MaxTripMinutes * 60.0);
 	mMaxStops = mBaseMaxStops;
+	bAllowQueue = false;
 	mAnchor = Anchor;
 	mFreeAt = FreeAt;
 	bAnchorDocked = bInAnchorDocked;
@@ -1117,7 +1119,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 		{
 			Limit = FMath::Min(Limit, Room);
 		}
-		if (Settings.bLeaveAtOnce && Limit < MAX_int32 && Result.Arrive[Index] > Clock + Travel && Clock + Travel - mTime <= QueueLookSeconds)
+		if (!bAllowQueue && Settings.bLeaveAtOnce && Limit < MAX_int32 && Result.Arrive[Index] > Clock + Travel && Clock + Travel - mTime <= QueueLookSeconds)
 		{
 			const int32 Ahead = CountAhead(Station, Clock + Travel, Result.Arrive[Index]);
 			if (Ahead > Limit)

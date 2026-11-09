@@ -587,7 +587,7 @@ bool FSTQueueTrainsTest::RunTest(const FString& Parameters)
 	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
 	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
 	FSTTestAccess::SetTrip(*Subsystem, Start, Sink, 60.f);
-	auto Try = [&](int32 Ahead)
+	auto Try = [&](int32 Ahead, bool bUnderWay = false)
 	{
 		TArray<FSTNode> Nodes = {FSTTestAccess::Node(Sink, Ingot, ESTRole::Demand, 0, 100000, 1)};
 		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
@@ -604,6 +604,10 @@ bool FSTQueueTrainsTest::RunTest(const FString& Parameters)
 		FSTTestAccess::FCarPlatforms CarPlatforms;
 		CarPlatforms.Add(Sink, {{0}});
 		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, {Platform}, CarPlatforms);
+		if (bUnderWay)
+		{
+			Planner.AllowQueue();
+		}
 		FSTPlanStop Unload;
 		Unload.Station = Sink;
 		Unload.UnloadItems.Add(Ingot);
@@ -613,6 +617,10 @@ bool FSTQueueTrainsTest::RunTest(const FString& Parameters)
 	TestTrue(FString::Printf(TEXT("behind two trains the trip works (%s)"), *Two.Problem), Two.bValid);
 	const FSTPlanResult Three = Try(3);
 	TestFalse(TEXT("behind three trains the trip would queue"), Three.bValid);
+	// The rest of a trip under way keeps its stop and waits: its cargo is on board (a service cycle used to be dropped
+	// after its first pickup when the next station was busy, 2026-11-09).
+	const FSTPlanResult UnderWay = Try(3, true);
+	TestTrue(FString::Printf(TEXT("a trip under way may wait behind three trains (%s)"), *UnderWay.Problem), UnderWay.bValid);
 	return true;
 }
 
