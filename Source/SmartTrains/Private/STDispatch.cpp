@@ -8,7 +8,13 @@
 #include "FGRailroadSubsystem.h"
 #include "FGRailroadTimeTable.h"
 #include "FGTrain.h"
+#include "Dom/JsonObject.h"
+#include "Dom/JsonValue.h"
 #include "FGRecipe.h"
+#include "HAL/FileManager.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Serialization/JsonSerializer.h"
 #include "FGTrainStationIdentifier.h"
 #include "Resources/FGItemDescriptor.h"
 #include "SmartTrains.h"
@@ -1127,6 +1133,7 @@ void ASTSubsystem::HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		bool bCarrying = false;
 	};
 	TArray<FPlan> Plans;
+	TArray<TSharedPtr<FJsonValue>> SnapshotTrains;
 	for (int32 TrainIndex = 0; TrainIndex < mTrains.Num() && !Planner.IsOverBudget(); ++TrainIndex)
 	{
 		FSTTrainState& State = mTrains[TrainIndex];
@@ -1143,8 +1150,17 @@ void ASTSubsystem::HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		Plan.bCarrying = GetCargo(State.Train).Num() > 0;
 		if (Planner.BeginTrain(TrainIndex, Plan.Anchor, Plan.FreeAt, Plan.bDocked))
 		{
+			if (bSnapshotNext)
+			{
+				SnapshotTrains.Add(MakeShared<FJsonValueObject>(Planner.DescribeForReplay()));
+			}
 			Plans.Add(MoveTemp(Plan));
 		}
+	}
+	if (bSnapshotNext)
+	{
+		bSnapshotNext = false;
+		WriteSnapshot(Nodes, Planner.GetBookings(), SnapshotTrains);
 	}
 	if (Plans.Num() == 0)
 	{
@@ -1462,6 +1478,142 @@ void ASTSubsystem::HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 	}
 	UE_LOG(LogSmartTrains, Verbose, TEXT("HORIZON: %d trains planned, %d trips (%d from the roster), network cost %.1f -> %.1f car-load minutes, %d searches (%d kept), %.1f ms"),
 		Plans.Num(), Trips, Rostered, Start, Best, Tries, Kept, Planner.GetElapsedMs());
+}
+
+void ASTSubsystem::WriteSnapshot(const TArray<FSTNode>& Nodes, const TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& Bookings,
+	const TArray<TSharedPtr<FJsonValue>>& Trains) const
+{
+	TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetNumberField(TEXT("version"), 1);
+	Root->SetNumberField(TEXT("now"), Now());
+	TSharedRef<FJsonObject> Settings = MakeShared<FJsonObject>();
+	Settings->SetNumberField(TEXT("queueTrains"), mSettings.QueueTrains);
+	Settings->SetBoolField(TEXT("leaveAtOnce"), mSettings.bLeaveAtOnce);
+	Settings->SetNumberField(TEXT("maxStops"), mSettings.MaxStops);
+	Settings->SetNumberField(TEXT("maxTripMinutes"), mSettings.MaxTripMinutes);
+	Settings->SetNumberField(TEXT("arrivalGapSeconds"), mSettings.ArrivalGapSeconds);
+	Root->SetObjectField(TEXT("settings"), Settings);
+	TSet<UClass*> Items;
+	TSet<const AFGTrainStationIdentifier*> Stations;
+	TArray<TSharedPtr<FJsonValue>> NodeValues;
+	for (const FSTNode& Node : Nodes)
+	{
+		TSharedRef<FJsonObject> Each = MakeShared<FJsonObject>();
+		Each->SetStringField(TEXT("station"), GetNameSafe(Node.Station.Get()));
+		Each->SetStringField(TEXT("item"), GetPathNameSafe(Node.Item.Get()));
+		Each->SetNumberField(TEXT("role"), static_cast<int32>(Node.Role));
+		Each->SetBoolField(TEXT("anyItem"), Node.bAnyItem);
+		Each->SetNumberField(TEXT("stock"), Node.Stock);
+		Each->SetNumberField(TEXT("capacity"), Node.Capacity);
+		Each->SetNumberField(TEXT("rate"), Node.Rate);
+		Each->SetBoolField(TEXT("starved"), Node.bStarved);
+		Each->SetNumberField(TEXT("priority"), static_cast<int32>(Node.Priority));
+		Each->SetNumberField(TEXT("target"), Node.TargetPercent);
+		Each->SetNumberField(TEXT("sendAt"), Node.SendAtPercent);
+		Each->SetNumberField(TEXT("reserved"), Node.Reserved);
+		Each->SetNumberField(TEXT("plannedFlow"), Node.PlannedFlow);
+		Each->SetNumberField(TEXT("recipeRate"), Node.RecipeRate);
+		Each->SetNumberField(TEXT("costScale"), Node.CostScale);
+		TArray<TSharedPtr<FJsonValue>> Platforms;
+		for (const TWeakObjectPtr<AFGBuildableTrainPlatformCargo>& Platform : Node.Platforms)
+		{
+			Platforms.Add(MakeShared<FJsonValueString>(GetNameSafe(Platform.Get())));
+		}
+		Each->SetArrayField(TEXT("platforms"), Platforms);
+		TSharedRef<FJsonObject> PlatformReserved = MakeShared<FJsonObject>();
+		for (const TPair<const AFGBuildableTrainPlatformCargo*, int32>& Pair : Node.PlatformReserved)
+		{
+			PlatformReserved->SetNumberField(GetNameSafe(Pair.Key), Pair.Value);
+		}
+		Each->SetObjectField(TEXT("platformReserved"), PlatformReserved);
+		TArray<TSharedPtr<FJsonValue>> Planned;
+		for (const FSTNodeEvent& Event : Node.Planned)
+		{
+			Planned.Add(MakeShared<FJsonValueArray>(TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueNumber>(Event.Time), MakeShared<FJsonValueNumber>(Event.Amount)}));
+		}
+		Each->SetArrayField(TEXT("planned"), Planned);
+		NodeValues.Add(MakeShared<FJsonValueObject>(Each));
+		if (Node.Item)
+		{
+			Items.Add(Node.Item.Get());
+		}
+		Stations.Add(Node.Station.Get());
+	}
+	Root->SetArrayField(TEXT("nodes"), NodeValues);
+	for (const FSTTrainState& State : mTrains)
+	{
+		Stations.Add(State.LastStation.Get());
+		for (const TPair<UClass*, int32>& Held : GetCargo(State.Train))
+		{
+			Items.Add(Held.Key);
+		}
+	}
+	for (const FSTPlatformConfig& Config : mPlatforms)
+	{
+		for (const FSTItemRule& Rule : Config.Items)
+		{
+			if (Rule.Item)
+			{
+				Items.Add(Rule.Item.Get());
+			}
+		}
+	}
+	Stations.Remove(nullptr);
+	Items.Remove(nullptr);
+	TArray<TSharedPtr<FJsonValue>> ItemValues;
+	for (UClass* Item : Items)
+	{
+		TSharedRef<FJsonObject> Each = MakeShared<FJsonObject>();
+		Each->SetStringField(TEXT("path"), GetPathNameSafe(Item));
+		Each->SetStringField(TEXT("name"), STNames::Item(Item));
+		Each->SetBoolField(TEXT("fluid"), STNames::IsFluid(Item));
+		Each->SetNumberField(TEXT("stack"), UFGItemDescriptor::GetStackSize(Item));
+		ItemValues.Add(MakeShared<FJsonValueObject>(Each));
+	}
+	Root->SetArrayField(TEXT("items"), ItemValues);
+	TArray<TSharedPtr<FJsonValue>> StationValues;
+	TArray<TSharedPtr<FJsonValue>> TravelValues;
+	for (const AFGTrainStationIdentifier* From : Stations)
+	{
+		TSharedRef<FJsonObject> Each = MakeShared<FJsonObject>();
+		Each->SetStringField(TEXT("key"), GetNameSafe(From));
+		Each->SetStringField(TEXT("name"), STLayout::Name(From));
+		Each->SetNumberField(TEXT("stay"), EstimateStaySeconds(From));
+		StationValues.Add(MakeShared<FJsonValueObject>(Each));
+		for (const AFGTrainStationIdentifier* To : Stations)
+		{
+			const float Seconds = From != To ? EstimateTravelSeconds(From, To, false) : -1.f;
+			if (Seconds >= 0.f)
+			{
+				TravelValues.Add(MakeShared<FJsonValueArray>(TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueString>(GetNameSafe(From)),
+					MakeShared<FJsonValueString>(GetNameSafe(To)), MakeShared<FJsonValueNumber>(Seconds)}));
+			}
+		}
+	}
+	Root->SetArrayField(TEXT("stations"), StationValues);
+	Root->SetArrayField(TEXT("travel"), TravelValues);
+	TSharedRef<FJsonObject> BookingValues = MakeShared<FJsonObject>();
+	for (const TPair<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& Pair : Bookings)
+	{
+		TArray<TSharedPtr<FJsonValue>> List;
+		for (const FSTBooking& Booking : Pair.Value)
+		{
+			List.Add(MakeShared<FJsonValueArray>(TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueNumber>(Booking.Train), MakeShared<FJsonValueNumber>(Booking.From),
+				MakeShared<FJsonValueNumber>(Booking.Until)}));
+		}
+		BookingValues->SetArrayField(GetNameSafe(Pair.Key), List);
+	}
+	Root->SetObjectField(TEXT("bookings"), BookingValues);
+	Root->SetArrayField(TEXT("trains"), Trains);
+	FString Text;
+	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Text);
+	FJsonSerializer::Serialize(Root, Writer);
+	const FString Path = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("SmartTrains"), TEXT("Snapshots"),
+		FString::Printf(TEXT("snapshot-%s.json"), *FDateTime::Now().ToString(TEXT("%Y%m%d-%H%M%S"))));
+	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+	const bool bSaved = FFileHelper::SaveStringToFile(Text, *Path);
+	UE_LOG(LogSmartTrains, Log, TEXT("SNAPSHOT %s: %d nodes, %d free trains, %d stations, %d items%s"), *Path, Nodes.Num(), Trains.Num(), Stations.Num(), Items.Num(),
+		bSaved ? TEXT("") : TEXT(" (could not be written)"));
 }
 
 void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)

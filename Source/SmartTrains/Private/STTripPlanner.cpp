@@ -1,4 +1,6 @@
 #include "STTripPlanner.h"
+#include "Dom/JsonObject.h"
+#include "Dom/JsonValue.h"
 #include "STForecast.h"
 #include "Buildables/FGBuildableRailroadStation.h"
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
@@ -218,6 +220,77 @@ int32 FSTTripPlanner::CountNear(const AFGTrainStationIdentifier* Station, double
 		}
 	}
 	return Near;
+}
+
+TSharedRef<FJsonObject> FSTTripPlanner::DescribeForReplay() const
+{
+	TSharedRef<FJsonObject> Train = MakeShared<FJsonObject>();
+	Train->SetStringField(TEXT("name"), TrainName());
+	Train->SetNumberField(TEXT("index"), mTrainIndex);
+	Train->SetStringField(TEXT("anchor"), GetNameSafe(mAnchor));
+	Train->SetNumberField(TEXT("freeAt"), mFreeAt);
+	Train->SetBoolField(TEXT("anchorDocked"), bAnchorDocked);
+	Train->SetBoolField(TEXT("pushPull"), bPushPull);
+	Train->SetBoolField(TEXT("fcc"), bFcc);
+	TArray<TSharedPtr<FJsonValue>> Cars;
+	for (const FCarInfo& Car : mCars)
+	{
+		TSharedRef<FJsonObject> Each = MakeShared<FJsonObject>();
+		Each->SetNumberField(TEXT("slots"), Car.Slots);
+		TSharedRef<FJsonObject> Cargo = MakeShared<FJsonObject>();
+		for (const TPair<UClass*, double>& Held : Car.Cargo)
+		{
+			Cargo->SetNumberField(GetPathNameSafe(Held.Key), Held.Value);
+		}
+		Each->SetObjectField(TEXT("cargo"), Cargo);
+		Cars.Add(MakeShared<FJsonValueObject>(Each));
+	}
+	Train->SetArrayField(TEXT("cars"), Cars);
+	TArray<TSharedPtr<FJsonValue>> Platforms;
+	for (const FPlatformInfo& Platform : mPlatforms)
+	{
+		TSharedRef<FJsonObject> Each = MakeShared<FJsonObject>();
+		Each->SetStringField(TEXT("key"), GetNameSafe(Platform.Platform));
+		Each->SetBoolField(TEXT("configured"), Platform.bConfigured);
+		Each->SetBoolField(TEXT("supply"), Platform.bSupply);
+		Each->SetBoolField(TEXT("demand"), Platform.bDemand);
+		Each->SetBoolField(TEXT("anyItem"), Platform.bAnyItem);
+		Each->SetBoolField(TEXT("loadMode"), Platform.bLoadMode);
+		Each->SetBoolField(TEXT("fluid"), Platform.bFluid);
+		Each->SetNumberField(TEXT("slots"), Platform.Slots);
+		Each->SetNumberField(TEXT("occupied"), Platform.Occupied);
+		TArray<TSharedPtr<FJsonValue>> Items;
+		for (UClass* Item : Platform.Items)
+		{
+			Items.Add(MakeShared<FJsonValueString>(GetPathNameSafe(Item)));
+		}
+		Each->SetArrayField(TEXT("items"), Items);
+		TSharedRef<FJsonObject> Stock = MakeShared<FJsonObject>();
+		for (const TPair<UClass*, int32>& Held : Platform.Stock)
+		{
+			Stock->SetNumberField(GetPathNameSafe(Held.Key), Held.Value);
+		}
+		Each->SetObjectField(TEXT("stock"), Stock);
+		Platforms.Add(MakeShared<FJsonValueObject>(Each));
+	}
+	Train->SetArrayField(TEXT("platforms"), Platforms);
+	TSharedRef<FJsonObject> Maps = MakeShared<FJsonObject>();
+	for (const TPair<const AFGTrainStationIdentifier*, TArray<TArray<int32>>>& Pair : mCarPlatforms)
+	{
+		TArray<TSharedPtr<FJsonValue>> Ways;
+		for (const TArray<int32>& Way : Pair.Value)
+		{
+			TArray<TSharedPtr<FJsonValue>> Cells;
+			for (const int32 Index : Way)
+			{
+				Cells.Add(MakeShared<FJsonValueNumber>(Index));
+			}
+			Ways.Add(MakeShared<FJsonValueArray>(Cells));
+		}
+		Maps->SetArrayField(GetNameSafe(Pair.Key), Ways);
+	}
+	Train->SetObjectField(TEXT("carPlatforms"), Maps);
+	return Train;
 }
 
 bool FSTTripPlanner::IsBookedNear(const AFGTrainStationIdentifier* Station, double Time, double Window, TFunctionRef<bool(int32)> Filter) const
@@ -529,6 +602,185 @@ bool FSTTripPlanner::CarFitsAt(int32 Index, const AFGTrainStationIdentifier* Sta
 	return true;
 }
 
+void FSTTripPlanner::BuildMoves()
+{
+	mMoves.Reset();
+	auto CarFits = [this](int32 Index, const AFGTrainStationIdentifier* Station, TFunctionRef<bool(const FPlatformInfo&)> Test)
+	{
+		return CarFitsAt(Index, Station, Test);
+	};
+	auto Demands = [](UClass* Item)
+	{
+		return [Item](const FPlatformInfo& Platform) { return Platform.bDemand && !Platform.bLoadMode && (Platform.bAnyItem || Platform.Items.Contains(Item)); };
+	};
+
+	TArray<FSTPlanMove> Moves;
+	// Cargo already on board.
+	for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
+	{
+		for (const TPair<UClass*, double>& Carried : mCars[CarIndex].Cargo)
+		{
+			for (int32 To = 0; To < mNodes.Num(); ++To)
+			{
+				const FSTNode& Consumer = mNodes[To];
+				if (Consumer.Role != ESTRole::Demand || (Consumer.Item.Get() != Carried.Key && !Consumer.bAnyItem) || !CanServeHere(Consumer.Station.Get()))
+				{
+					continue;
+				}
+				// A sink only takes what this car can't unload at any consumer of the item.
+				if (Consumer.bAnyItem && CarHasConsumer(CarIndex, Carried.Key))
+				{
+					continue;
+				}
+				if (IsNoProgressHere(Consumer.Station.Get(), Carried.Key, false))
+				{
+					UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: no %s to %s for now (it unloaded none there lately)"), *TrainName(), *STNames::Item(Carried.Key),
+						*STLayout::Name(Consumer.Station.Get()));
+					continue;
+				}
+				if (CarFits(CarIndex, Consumer.Station.Get(), Demands(Carried.Key)))
+				{
+					Moves.AddUnique({INDEX_NONE, To, Carried.Key});
+				}
+			}
+		}
+	}
+	// Supplier -> consumer pairs that at least one car of the train fits at both ends.
+	for (int32 From = 0; From < mNodes.Num(); ++From)
+	{
+		const FSTNode& Supplier = mNodes[From];
+		if (Supplier.Role != ESTRole::Supply || !Supplier.Item || !CanServeHere(Supplier.Station.Get()))
+		{
+			continue;
+		}
+		const float ToSupplier = mSubsystem.EstimateTravelSeconds(mAnchor, Supplier.Station.Get(), bPushPull);
+		if (ToSupplier < 0.f || GetAvailable(From, mFreeAt + ToSupplier) <= 0.0)
+		{
+			continue;
+		}
+		UClass* Item = Supplier.Item.Get();
+		if (IsNoProgressHere(Supplier.Station.Get(), Item, true))
+		{
+			UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: no %s from %s for now (it loaded none there lately)"), *TrainName(), *STNames::Item(Item),
+				*STLayout::Name(Supplier.Station.Get()));
+			continue;
+		}
+		const bool bFull = IsSupplyFull(From);
+		TArray<int32> SupplyCars;
+		for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
+		{
+			if (CarFits(CarIndex, Supplier.Station.Get(), [Item](const FPlatformInfo& Platform) { return Platform.bSupply && Platform.bLoadMode && Platform.Items.Contains(Item); }))
+			{
+				SupplyCars.Add(CarIndex);
+			}
+		}
+		if (SupplyCars.Num() == 0)
+		{
+			continue;
+		}
+		for (int32 To = 0; To < mNodes.Num(); ++To)
+		{
+			const FSTNode& Consumer = mNodes[To];
+			if (Consumer.Role != ESTRole::Demand || (Consumer.Item.Get() != Item && !Consumer.bAnyItem) || Consumer.Station == Supplier.Station
+				|| !CanServeHere(Consumer.Station.Get()))
+			{
+				continue;
+			}
+			// A full supplier's goods go to a sink only if nothing on the network consumes them (overflow).
+			if (Consumer.bAnyItem && (!bFull || ItemHasConsumer(Item)))
+			{
+				continue;
+			}
+			if (IsNoProgressHere(Consumer.Station.Get(), Item, false))
+			{
+				continue;
+			}
+			if (!Consumer.bAnyItem && !bFull)
+			{
+				// Only consumers that fall below their target within the forecast horizon.
+				const float Leg = mSubsystem.EstimateTravelSeconds(Supplier.Station.Get(), Consumer.Station.Get(), bPushPull);
+				const double CarCapacity = STLayout::GetCarCapacity(mCars[0].Car, Item);
+				if (Leg < 0.f || STForecast::Deadline(Consumer, Consumer.Planned, mTime, CarCapacity) >= mTime + STForecast::HorizonSeconds)
+				{
+					continue;
+				}
+			}
+			// A shuttle's route is its own, but for a full supplier.
+			if (!bFull && TrainNow() && mSubsystem.IsShuttleRoute(TrainNow(), Supplier.Station.Get(), Consumer.Station.Get(), Item))
+			{
+				continue;
+			}
+			const bool bAnyCar = SupplyCars.ContainsByPredicate([&](int32 CarIndex) { return CarFits(CarIndex, Consumer.Station.Get(), Demands(Item)); });
+			if (bAnyCar)
+			{
+				Moves.AddUnique({From, To, Item});
+			}
+		}
+	}
+	// Solo scores, then keep the best few (cargo on board always). With Detailed log: why deliveries to High and
+	// Critical consumers score nothing by themselves.
+	const bool bDetail = UE_LOG_ACTIVE(LogSmartTrains, Verbose);
+	auto MoveName = [this](const FSTPlanMove& Move)
+	{
+		return FString::Printf(TEXT("%s %s -> %s"), *STNames::Item(Move.Item), Move.From == INDEX_NONE ? TEXT("on board") : *STLayout::Name(mNodes[Move.From].Station.Get()),
+			*STLayout::Name(mNodes[Move.To].Station.Get()));
+	};
+	TArray<FString> Unscored;
+	for (FSTPlanMove& Move : Moves)
+	{
+		TArray<FSTPlanStop> Stops;
+		FSTPlanResult Result;
+		double Second = 0.0;
+		const TMap<FString, int32> Before = bDetail ? mProblems : TMap<FString, int32>();
+		Move.SoloScore = InsertBest(Stops, Move, 0, Result, Second) ? Result.Score : 0.0;
+		if (bDetail && Move.SoloScore <= 0.0 && static_cast<uint8>(mNodes[Move.To].Priority) >= static_cast<uint8>(ESTPriority::High))
+		{
+			FString Why = TEXT("no value");
+			for (const TPair<FString, int32>& Each : mProblems)
+			{
+				if (Each.Value > Before.FindRef(Each.Key))
+				{
+					Why = Each.Key;
+					break;
+				}
+			}
+			Unscored.Add(FString::Printf(TEXT("%s (%s)"), *MoveName(Move), *Why));
+		}
+	}
+	Moves.Sort([](const FSTPlanMove& A, const FSTPlanMove& B) { return A.SoloScore > B.SoloScore; });
+	if (bDetail && Moves.Num() > 0)
+	{
+		TArray<FString> Best;
+		for (int32 Index = 0; Index < Moves.Num() && Index < 3; ++Index)
+		{
+			Best.Add(FString::Printf(TEXT("%s %.3f"), *MoveName(Moves[Index]), Moves[Index].SoloScore));
+		}
+		UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: best moves alone: %s%s%s"), *TrainName(), *FString::Join(Best, TEXT("; ")),
+			Unscored.Num() > 0 ? TEXT("; scoring nothing alone: ") : TEXT(""), *FString::Join(TArray<FString>(Unscored.GetData(), FMath::Min(4, Unscored.Num())), TEXT("; ")));
+	}
+	int32 Kept = 0;
+	for (const FSTPlanMove& Move : Moves)
+	{
+		if (Move.From == INDEX_NONE || Kept++ < MaxMovesPerTrain)
+		{
+			mMoves.Add(Move);
+		}
+	}
+	UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: %d moves (%d kept), %d cars, from %s at %+.0f s%s"), *TrainName(), Moves.Num(), mMoves.Num(),
+		mCars.Num(), *STLayout::Name(mAnchor), mFreeAt - mTime, bRelaxed ? TEXT(", unwanted cargo may go anywhere") : TEXT(""));
+}
+
+const AFGTrain* FSTTripPlanner::TrainNow() const
+{
+	return mSubsystem.mTrains.IsValidIndex(mTrainIndex) ? mSubsystem.mTrains[mTrainIndex].Train.Get() : nullptr;
+}
+
+FString FSTTripPlanner::TrainName() const
+{
+	const AFGTrain* Train = TrainNow();
+	return Train ? STLayout::Name(Train) : FString(TEXT("replayed train"));
+}
+
 bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bInAnchorDocked)
 {
 	mTrainIndex = TrainIndex;
@@ -578,169 +830,7 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 	bRelaxed = bCarrying && State.UnwantedCargoSince > 0.0 && mTime - State.UnwantedCargoSince > mSubsystem.mSettings.LeftoverMinutes * 60.0;
 	mTrainLength = STLayout::GetTrainLength(Train);
 
-	auto CarFits = [this](int32 Index, const AFGTrainStationIdentifier* Station, TFunctionRef<bool(const FPlatformInfo&)> Test)
-	{
-		return CarFitsAt(Index, Station, Test);
-	};
-	auto Demands = [](UClass* Item)
-	{
-		return [Item](const FPlatformInfo& Platform) { return Platform.bDemand && !Platform.bLoadMode && (Platform.bAnyItem || Platform.Items.Contains(Item)); };
-	};
-
-	TArray<FSTPlanMove> Moves;
-	// Cargo already on board.
-	for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
-	{
-		for (const TPair<UClass*, double>& Carried : mCars[CarIndex].Cargo)
-		{
-			for (int32 To = 0; To < mNodes.Num(); ++To)
-			{
-				const FSTNode& Consumer = mNodes[To];
-				if (Consumer.Role != ESTRole::Demand || (Consumer.Item.Get() != Carried.Key && !Consumer.bAnyItem) || !mSubsystem.CanServe(State, Consumer.Station.Get()))
-				{
-					continue;
-				}
-				// A sink only takes what this car can't unload at any consumer of the item.
-				if (Consumer.bAnyItem && CarHasConsumer(CarIndex, Carried.Key))
-				{
-					continue;
-				}
-				if (mSubsystem.IsNoProgress(State, Consumer.Station.Get(), Carried.Key, false))
-				{
-					UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: no %s to %s for now (it unloaded none there lately)"), *STLayout::Name(Train), *STNames::Item(Carried.Key),
-						*STLayout::Name(Consumer.Station.Get()));
-					continue;
-				}
-				if (CarFits(CarIndex, Consumer.Station.Get(), Demands(Carried.Key)))
-				{
-					Moves.AddUnique({INDEX_NONE, To, Carried.Key});
-				}
-			}
-		}
-	}
-	// Supplier -> consumer pairs that at least one car of the train fits at both ends.
-	for (int32 From = 0; From < mNodes.Num(); ++From)
-	{
-		const FSTNode& Supplier = mNodes[From];
-		if (Supplier.Role != ESTRole::Supply || !Supplier.Item || !mSubsystem.CanServe(State, Supplier.Station.Get()))
-		{
-			continue;
-		}
-		const float ToSupplier = mSubsystem.EstimateTravelSeconds(Anchor, Supplier.Station.Get(), bPushPull);
-		if (ToSupplier < 0.f || GetAvailable(From, mFreeAt + ToSupplier) <= 0.0)
-		{
-			continue;
-		}
-		UClass* Item = Supplier.Item.Get();
-		if (mSubsystem.IsNoProgress(State, Supplier.Station.Get(), Item, true))
-		{
-			UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: no %s from %s for now (it loaded none there lately)"), *STLayout::Name(Train), *STNames::Item(Item),
-				*STLayout::Name(Supplier.Station.Get()));
-			continue;
-		}
-		const bool bFull = IsSupplyFull(From);
-		TArray<int32> SupplyCars;
-		for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
-		{
-			if (CarFits(CarIndex, Supplier.Station.Get(), [Item](const FPlatformInfo& Platform) { return Platform.bSupply && Platform.bLoadMode && Platform.Items.Contains(Item); }))
-			{
-				SupplyCars.Add(CarIndex);
-			}
-		}
-		if (SupplyCars.Num() == 0)
-		{
-			continue;
-		}
-		for (int32 To = 0; To < mNodes.Num(); ++To)
-		{
-			const FSTNode& Consumer = mNodes[To];
-			if (Consumer.Role != ESTRole::Demand || (Consumer.Item.Get() != Item && !Consumer.bAnyItem) || Consumer.Station == Supplier.Station
-				|| !mSubsystem.CanServe(State, Consumer.Station.Get()))
-			{
-				continue;
-			}
-			// A full supplier's goods go to a sink only if nothing on the network consumes them (overflow).
-			if (Consumer.bAnyItem && (!bFull || ItemHasConsumer(Item)))
-			{
-				continue;
-			}
-			if (mSubsystem.IsNoProgress(State, Consumer.Station.Get(), Item, false))
-			{
-				continue;
-			}
-			if (!Consumer.bAnyItem && !bFull)
-			{
-				// Only consumers that fall below their target within the forecast horizon.
-				const float Leg = mSubsystem.EstimateTravelSeconds(Supplier.Station.Get(), Consumer.Station.Get(), bPushPull);
-				const double CarCapacity = STLayout::GetCarCapacity(mCars[0].Car, Item);
-				if (Leg < 0.f || STForecast::Deadline(Consumer, Consumer.Planned, mTime, CarCapacity) >= mTime + STForecast::HorizonSeconds)
-				{
-					continue;
-				}
-			}
-			// A shuttle's route is its own, but for a full supplier.
-			if (!bFull && mSubsystem.IsShuttleRoute(Train, Supplier.Station.Get(), Consumer.Station.Get(), Item))
-			{
-				continue;
-			}
-			const bool bAnyCar = SupplyCars.ContainsByPredicate([&](int32 CarIndex) { return CarFits(CarIndex, Consumer.Station.Get(), Demands(Item)); });
-			if (bAnyCar)
-			{
-				Moves.AddUnique({From, To, Item});
-			}
-		}
-	}
-	// Solo scores, then keep the best few (cargo on board always). With Detailed log: why deliveries to High and
-	// Critical consumers score nothing by themselves.
-	const bool bDetail = UE_LOG_ACTIVE(LogSmartTrains, Verbose);
-	auto MoveName = [this](const FSTPlanMove& Move)
-	{
-		return FString::Printf(TEXT("%s %s -> %s"), *STNames::Item(Move.Item), Move.From == INDEX_NONE ? TEXT("on board") : *STLayout::Name(mNodes[Move.From].Station.Get()),
-			*STLayout::Name(mNodes[Move.To].Station.Get()));
-	};
-	TArray<FString> Unscored;
-	for (FSTPlanMove& Move : Moves)
-	{
-		TArray<FSTPlanStop> Stops;
-		FSTPlanResult Result;
-		double Second = 0.0;
-		const TMap<FString, int32> Before = bDetail ? mProblems : TMap<FString, int32>();
-		Move.SoloScore = InsertBest(Stops, Move, 0, Result, Second) ? Result.Score : 0.0;
-		if (bDetail && Move.SoloScore <= 0.0 && static_cast<uint8>(mNodes[Move.To].Priority) >= static_cast<uint8>(ESTPriority::High))
-		{
-			FString Why = TEXT("no value");
-			for (const TPair<FString, int32>& Each : mProblems)
-			{
-				if (Each.Value > Before.FindRef(Each.Key))
-				{
-					Why = Each.Key;
-					break;
-				}
-			}
-			Unscored.Add(FString::Printf(TEXT("%s (%s)"), *MoveName(Move), *Why));
-		}
-	}
-	Moves.Sort([](const FSTPlanMove& A, const FSTPlanMove& B) { return A.SoloScore > B.SoloScore; });
-	if (bDetail && Moves.Num() > 0)
-	{
-		TArray<FString> Best;
-		for (int32 Index = 0; Index < Moves.Num() && Index < 3; ++Index)
-		{
-			Best.Add(FString::Printf(TEXT("%s %.3f"), *MoveName(Moves[Index]), Moves[Index].SoloScore));
-		}
-		UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: best moves alone: %s%s%s"), *STLayout::Name(Train), *FString::Join(Best, TEXT("; ")),
-			Unscored.Num() > 0 ? TEXT("; scoring nothing alone: ") : TEXT(""), *FString::Join(TArray<FString>(Unscored.GetData(), FMath::Min(4, Unscored.Num())), TEXT("; ")));
-	}
-	int32 Kept = 0;
-	for (const FSTPlanMove& Move : Moves)
-	{
-		if (Move.From == INDEX_NONE || Kept++ < MaxMovesPerTrain)
-		{
-			mMoves.Add(Move);
-		}
-	}
-	UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: %d moves (%d kept), %d cars, from %s at %+.0f s%s"), *STLayout::Name(Train), Moves.Num(), mMoves.Num(),
-		mCars.Num(), *STLayout::Name(Anchor), FreeAt - mTime, bRelaxed ? TEXT(", unwanted cargo may go anywhere") : TEXT(""));
+	BuildMoves();
 	FTrainSetup& Setup = mSetups.FindOrAdd(TrainIndex);
 	Setup.Anchor = Anchor;
 	Setup.FreeAt = FreeAt;

@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "now": 1000,
+  "settings": {"queueTrains": 2, "leaveAtOnce": true, "maxStops": 4, "maxTripMinutes": 45, "arrivalGapSeconds": 30},
+  "items": [{"path": "/Game/Fixture/Desc_Ingot.Desc_Ingot_C", "name": "Ingot", "fluid": false, "stack": 100}],
+  "stations": [
+    {"key": "Start", "name": "Start", "stay": 30},
+    {"key": "Mine", "name": "Mine", "stay": 30},
+    {"key": "Smelter", "name": "Smelter", "stay": 30}
+  ],
+  "travel": [
+    ["Start", "Mine", 60], ["Start", "Smelter", 120], ["Mine", "Smelter", 120],
+    ["Mine", "Start", 60], ["Smelter", "Start", 120], ["Smelter", "Mine", 120]
+  ],
+  "nodes": [
+    {"station": "Mine", "item": "/Game/Fixture/Desc_Ingot.Desc_Ingot_C", "role": 1, "anyItem": false, "stock": 4800, "capacity": 4800, "rate": 1,
+     "starved": false, "priority": 1, "target": 50, "sendAt": 50, "reserved": 0, "plannedFlow": 0, "recipeRate": 0, "costScale": 1,
+     "platforms": ["PlatformMine"], "platformReserved": {}, "planned": []},
+    {"station": "Smelter", "item": "/Game/Fixture/Desc_Ingot.Desc_Ingot_C", "role": 2, "anyItem": false, "stock": 0, "capacity": 4800, "rate": 2,
+     "starved": true, "priority": 1, "target": 50, "sendAt": 50, "reserved": 0, "plannedFlow": 0, "recipeRate": 0, "costScale": 1,
+     "platforms": ["PlatformSmelter"], "platformReserved": {}, "planned": []}
+  ],
+  "bookings": {},
+  "trains": [
+    {"name": "Fixture train", "index": 0, "anchor": "Start", "freeAt": 1000, "anchorDocked": false, "pushPull": false, "fcc": true,
+     "cars": [{"slots": 32, "cargo": {}}],
+     "platforms": [
+       {"key": "PlatformMine", "configured": true, "supply": true, "demand": false, "anyItem": false, "loadMode": true, "fluid": false,
+        "slots": 48, "occupied": 48, "items": ["/Game/Fixture/Desc_Ingot.Desc_Ingot_C"], "stock": {"/Game/Fixture/Desc_Ingot.Desc_Ingot_C": 4800}},
+       {"key": "PlatformSmelter", "configured": true, "supply": false, "demand": true, "anyItem": false, "loadMode": false, "fluid": false,
+        "slots": 48, "occupied": 0, "items": ["/Game/Fixture/Desc_Ingot.Desc_Ingot_C"], "stock": {}}
+     ],
+     "carPlatforms": {"Mine": [[0]], "Smelter": [[1]]}}
+  ]
+}

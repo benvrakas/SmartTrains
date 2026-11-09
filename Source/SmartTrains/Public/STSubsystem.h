@@ -222,6 +222,8 @@ public:
 	bool SetService(UClass* Item, const FString& Verb, float Minutes, AFGTrain* Train, const FString& Cause, FString& OutResult);
 	// One line per running service and per item with settings.
 	TArray<FString> DescribeServices() const;
+	// /st snapshot: the next horizon round writes its planning inputs to a file.
+	void RequestSnapshot() { bSnapshotNext = true; }
 	// How many trains of TrainLength fit on the track before Station's way-in switch, waiting for it; -1 if not known yet.
 	int32 GetWaitingRoom(const AFGTrainStationIdentifier* Station, float TrainLength) const;
 	// The switch on Station's way in, shared by stations reached through it; null if not known or none.
@@ -278,6 +280,9 @@ private:
 	static void LinkSupplyChain(TArray<FSTNode>& Nodes);
 	// Samples every configured platform's stock and rates. [1 s]
 	void SamplePlatforms();
+	// /st snapshot: the next horizon round writes every free train's planning inputs to a file for replay tests.
+	bool bSnapshotNext = false;
+	void WriteSnapshot(const TArray<FSTNode>& Nodes, const TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& Bookings, const TArray<TSharedPtr<class FJsonValue>>& Trains) const;
 	// Traces one platform's belts or pipes to its machines (STTrace), each again after a while. [1 s]
 	void StepTraces();
 	// Machines behind each traced platform, and when it was traced (Now()).

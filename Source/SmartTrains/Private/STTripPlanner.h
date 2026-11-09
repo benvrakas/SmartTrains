@@ -119,6 +119,9 @@ public:
 	// True if Cars load nothing in Stops but Item at stops where Item is loaded for a request (Item null: nothing).
 	bool KeepsRequestCars(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, const TArray<int32>& Cars, UClass* Item) const;
 	// What a simulated trip unloads of Item at the stops at Station (any station if null).
+	// The current train's planning inputs (cars, platforms, dock maps, start), for /st snapshot.
+	TSharedRef<class FJsonObject> DescribeForReplay() const;
+	const TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& GetBookings() const { return mBookings; }
 	// A booking at Station by a train Filter accepts (not this one) starts within Window of Time.
 	bool IsBookedNear(const AFGTrainStationIdentifier* Station, double Time, double Window, TFunctionRef<bool(int32)> Filter) const;
 	static int32 CountUnloaded(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, UClass* Item, const AFGTrainStationIdentifier* Station);
@@ -186,6 +189,12 @@ private:
 	};
 
 	int32 GetPlatformInfo(const AFGBuildableTrainPlatformCargo* Platform) const;
+	// The current train's moves (mMoves), from its cars, their platforms and the nodes; needs no live train, so a
+	// replayed snapshot can use it.
+	void BuildMoves();
+	// The current train, if it is a live one.
+	const AFGTrain* TrainNow() const;
+	FString TrainName() const;
 	// A supplier for a request, with the current train's cars that line up with its loader and the requesting platform.
 	struct FRequestSource
 	{

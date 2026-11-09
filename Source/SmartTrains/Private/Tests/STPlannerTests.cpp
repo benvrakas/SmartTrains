@@ -14,6 +14,13 @@
 #include "STSubsystem.h"
 #include "STTripPlanner.h"
 #include "Tests/STTestItems.h"
+#include "Tests/STReplayItems.h"
+#include "Dom/JsonObject.h"
+#include "HAL/FileManager.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 
 // Builds planner situations without a game world: stations, learned trip times, platforms, cars and the platform
 // each car meets for every way the train may dock.
@@ -97,6 +104,40 @@ struct FSTTestAccess
 		FSTTrainState& State = Subsystem.mTrains.AddDefaulted_GetRef();
 		State.Train = Train;
 		State.bManaged = true;
+	}
+
+	static void BuildMoves(FSTTripPlanner& Planner)
+	{
+		Planner.BuildMoves();
+	}
+
+	static void SetStart(FSTTripPlanner& Planner, double FreeAt, bool bAnchorDocked)
+	{
+		Planner.mFreeAt = FreeAt;
+		Planner.bAnchorDocked = bAnchorDocked;
+	}
+
+	static double GetTime(const FSTTripPlanner& Planner)
+	{
+		return Planner.mTime;
+	}
+
+	static FSTSettings& Settings(ASTSubsystem& Subsystem)
+	{
+		return Subsystem.mSettings;
+	}
+
+	static void SetStay(ASTSubsystem& Subsystem, AFGTrainStationIdentifier* Station, float Seconds)
+	{
+		FSTDwellTime& Stay = Subsystem.mStays.AddDefaulted_GetRef();
+		Stay.Station = Station;
+		Stay.Seconds = Seconds;
+		Stay.Samples = 1;
+	}
+
+	static int32 CountMoves(const FSTTripPlanner& Planner)
+	{
+		return Planner.mMoves.Num();
 	}
 
 	static void LinkSupplyChain(TArray<FSTNode>& Nodes)
@@ -1321,6 +1362,268 @@ bool FSTSupplyChainTest::RunTest(const FString& Parameters)
 	const double Waiting = STForecast::Cost(Nodes[0], {}, 0.0, 3200.0);
 	const double Free = STForecast::Cost(Ingots, {}, 0.0, 3200.0);
 	TestTrue(FString::Printf(TEXT("its shortfall costs less (%.1f against %.1f)"), Waiting, Free), Waiting < Free);
+	return true;
+}
+
+// Replays every snapshot in Mods/SmartTrains/Tests/Snapshots (/st snapshot writes them on the server): each free train
+// is planned again from the snapshot's inputs, and every plan must be valid. Passes with no snapshots.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTReplaySnapshotsTest, "SmartTrains.Replay.Snapshots", TestFlags)
+bool FSTReplaySnapshotsTest::RunTest(const FString& Parameters)
+{
+	const FString Folder = FPaths::Combine(FPaths::ProjectDir(), TEXT("Mods"), TEXT("SmartTrains"), TEXT("Tests"), TEXT("Snapshots"));
+	TArray<FString> Files;
+	IFileManager::Get().FindFiles(Files, *FPaths::Combine(Folder, TEXT("*.json")), true, false);
+	if (Files.Num() == 0)
+	{
+		AddInfo(FString::Printf(TEXT("no snapshots in %s"), *Folder));
+		return true;
+	}
+	const TArray<UClass*> Stand = STReplayItemClasses();
+	for (const FString& File : Files)
+	{
+		FString Text;
+		TSharedPtr<FJsonObject> Root;
+		if (!FFileHelper::LoadFileToString(Text, *FPaths::Combine(Folder, File)) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root) || !Root.IsValid())
+		{
+			AddError(FString::Printf(TEXT("%s can't be read"), *File));
+			continue;
+		}
+		ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+		FSTSettings& Settings = FSTTestAccess::Settings(*Subsystem);
+		const TSharedPtr<FJsonObject>* SettingsObject = nullptr;
+		if (Root->TryGetObjectField(TEXT("settings"), SettingsObject))
+		{
+			Settings.QueueTrains = (*SettingsObject)->GetNumberField(TEXT("queueTrains"));
+			Settings.bLeaveAtOnce = (*SettingsObject)->GetBoolField(TEXT("leaveAtOnce"));
+			Settings.MaxStops = (*SettingsObject)->GetNumberField(TEXT("maxStops"));
+			Settings.MaxTripMinutes = (*SettingsObject)->GetNumberField(TEXT("maxTripMinutes"));
+			Settings.ArrivalGapSeconds = (*SettingsObject)->GetNumberField(TEXT("arrivalGapSeconds"));
+		}
+		// Items: each one a stand-in class with its form and stack size.
+		TMap<FString, UClass*> Items;
+		TMap<UClass*, FString> ItemNames;
+		for (const TSharedPtr<FJsonValue>& Value : Root->GetArrayField(TEXT("items")))
+		{
+			const TSharedPtr<FJsonObject> Item = Value->AsObject();
+			if (Items.Num() >= Stand.Num())
+			{
+				AddWarning(FString::Printf(TEXT("%s has more items than stand-ins (%d); the rest are left out"), *File, Stand.Num()));
+				break;
+			}
+			UClass* Class = Stand[Items.Num()];
+			UFGItemDescriptor* Default = Class->GetDefaultObject<UFGItemDescriptor>();
+			const bool bFluid = Item->GetBoolField(TEXT("fluid"));
+			const int32 Stack = static_cast<int32>(Item->GetNumberField(TEXT("stack")));
+			Cast<USTReplayItemBase>(Default)->Configure(bFluid, Stack);
+			Items.Add(Item->GetStringField(TEXT("path")), Class);
+			ItemNames.Add(Class, Item->GetStringField(TEXT("name")));
+		}
+		auto ItemOf = [&](const FString& Path) { return Items.FindRef(Path); };
+		// Stations, travel times and stays.
+		TMap<FString, AFGTrainStationIdentifier*> Stations;
+		TMap<FString, FString> StationNames;
+		auto StationOf = [&](const FString& Key) -> AFGTrainStationIdentifier*
+		{
+			if (Key.IsEmpty() || Key == TEXT("None"))
+			{
+				return nullptr;
+			}
+			AFGTrainStationIdentifier*& Station = Stations.FindOrAdd(Key);
+			if (!Station)
+			{
+				Station = FSTTestAccess::MakeStation();
+			}
+			return Station;
+		};
+		for (const TSharedPtr<FJsonValue>& Value : Root->GetArrayField(TEXT("stations")))
+		{
+			const TSharedPtr<FJsonObject> Station = Value->AsObject();
+			const FString Key = Station->GetStringField(TEXT("key"));
+			StationNames.Add(Key, Station->GetStringField(TEXT("name")));
+			FSTTestAccess::SetStay(*Subsystem, StationOf(Key), Station->GetNumberField(TEXT("stay")));
+		}
+		for (const TSharedPtr<FJsonValue>& Value : Root->GetArrayField(TEXT("travel")))
+		{
+			const TArray<TSharedPtr<FJsonValue>>& Row = Value->AsArray();
+			FSTTestAccess::SetTrip(*Subsystem, StationOf(Row[0]->AsString()), StationOf(Row[1]->AsString()), Row[2]->AsNumber());
+		}
+		// Times: the snapshot's clock moved onto the test planner's.
+		const double SnapshotNow = Root->GetNumberField(TEXT("now"));
+		TMap<FString, AFGBuildableTrainPlatformCargo*> PlatformObjects;
+		auto PlatformOf = [&](const FString& Key)
+		{
+			AFGBuildableTrainPlatformCargo*& Platform = PlatformObjects.FindOrAdd(Key);
+			if (!Platform)
+			{
+				Platform = NewObject<AFGBuildableTrainPlatformCargo>(GetTransientPackage());
+			}
+			return Platform;
+		};
+		TArray<FSTNode> BaseNodes;
+		for (const TSharedPtr<FJsonValue>& Value : Root->GetArrayField(TEXT("nodes")))
+		{
+			const TSharedPtr<FJsonObject> Object = Value->AsObject();
+			FSTNode Node;
+			Node.Station = StationOf(Object->GetStringField(TEXT("station")));
+			Node.Item = ItemOf(Object->GetStringField(TEXT("item")));
+			Node.Role = static_cast<ESTRole>(static_cast<int32>(Object->GetNumberField(TEXT("role"))));
+			Node.bAnyItem = Object->GetBoolField(TEXT("anyItem"));
+			if (!Node.Item && !Node.bAnyItem)
+			{
+				continue;
+			}
+			Node.Stock = static_cast<int32>(Object->GetNumberField(TEXT("stock")));
+			Node.Capacity = static_cast<int32>(Object->GetNumberField(TEXT("capacity")));
+			Node.Rate = Object->GetNumberField(TEXT("rate"));
+			Node.bRateKnown = true;
+			Node.bStarved = Object->GetBoolField(TEXT("starved"));
+			Node.Priority = static_cast<ESTPriority>(static_cast<int32>(Object->GetNumberField(TEXT("priority"))));
+			Node.TargetPercent = Object->GetNumberField(TEXT("target"));
+			Node.SendAtPercent = Object->GetNumberField(TEXT("sendAt"));
+			Node.Reserved = static_cast<int32>(Object->GetNumberField(TEXT("reserved")));
+			Node.PlannedFlow = Object->GetNumberField(TEXT("plannedFlow"));
+			Node.RecipeRate = Object->GetNumberField(TEXT("recipeRate"));
+			Node.CostScale = Object->GetNumberField(TEXT("costScale"));
+			for (const TSharedPtr<FJsonValue>& Platform : Object->GetArrayField(TEXT("platforms")))
+			{
+				Node.Platforms.Add(PlatformOf(Platform->AsString()));
+			}
+			for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Object->GetObjectField(TEXT("platformReserved"))->Values)
+			{
+				Node.PlatformReserved.Add(PlatformOf(Pair.Key), static_cast<int32>(Pair.Value->AsNumber()));
+			}
+			for (const TSharedPtr<FJsonValue>& Event : Object->GetArrayField(TEXT("planned")))
+			{
+				const TArray<TSharedPtr<FJsonValue>>& Pair = Event->AsArray();
+				Node.Planned.Add({Pair[0]->AsNumber() - SnapshotNow, Pair[1]->AsNumber()});
+			}
+			BaseNodes.Add(MoveTemp(Node));
+		}
+		int32 Planned = 0;
+		int32 Trips = 0;
+		for (const TSharedPtr<FJsonValue>& Value : Root->GetArrayField(TEXT("trains")))
+		{
+			const TSharedPtr<FJsonObject> Train = Value->AsObject();
+			TArray<FSTNode> Nodes = BaseNodes;
+			TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+			FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+			const double Shift = FSTTestAccess::GetTime(Planner) - SnapshotNow;
+			for (FSTNode& Node : Nodes)
+			{
+				for (FSTNodeEvent& Event : Node.Planned)
+				{
+					Event.Time += SnapshotNow + Shift;
+				}
+			}
+			for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Root->GetObjectField(TEXT("bookings"))->Values)
+			{
+				for (const TSharedPtr<FJsonValue>& Booking : Pair.Value->AsArray())
+				{
+					const TArray<TSharedPtr<FJsonValue>>& Row = Booking->AsArray();
+					Bookings.FindOrAdd(StationOf(Pair.Key)).Add({static_cast<int32>(Row[0]->AsNumber()) + 1000, Row[1]->AsNumber() + Shift, Row[2]->AsNumber() + Shift});
+				}
+			}
+			TArray<FSTTestAccess::FPlatformInfo> Platforms;
+			for (const TSharedPtr<FJsonValue>& PlatformValue : Train->GetArrayField(TEXT("platforms")))
+			{
+				const TSharedPtr<FJsonObject> Object = PlatformValue->AsObject();
+				FSTTestAccess::FPlatformInfo& Info = Platforms.AddDefaulted_GetRef();
+				Info.Platform = PlatformOf(Object->GetStringField(TEXT("key")));
+				Info.bConfigured = Object->GetBoolField(TEXT("configured"));
+				Info.bSupply = Object->GetBoolField(TEXT("supply"));
+				Info.bDemand = Object->GetBoolField(TEXT("demand"));
+				Info.bAnyItem = Object->GetBoolField(TEXT("anyItem"));
+				Info.bLoadMode = Object->GetBoolField(TEXT("loadMode"));
+				Info.bFluid = Object->GetBoolField(TEXT("fluid"));
+				Info.Slots = static_cast<int32>(Object->GetNumberField(TEXT("slots")));
+				Info.Occupied = static_cast<int32>(Object->GetNumberField(TEXT("occupied")));
+				for (const TSharedPtr<FJsonValue>& Item : Object->GetArrayField(TEXT("items")))
+				{
+					if (UClass* Class = ItemOf(Item->AsString()))
+					{
+						Info.Items.Add(Class);
+					}
+				}
+				for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Object->GetObjectField(TEXT("stock"))->Values)
+				{
+					if (UClass* Class = ItemOf(Pair.Key))
+					{
+						Info.Stock.Add(Class, static_cast<int32>(Pair.Value->AsNumber()));
+					}
+				}
+			}
+			TArray<FSTTestAccess::FCarInfo> Cars;
+			for (const TSharedPtr<FJsonValue>& CarValue : Train->GetArrayField(TEXT("cars")))
+			{
+				const TSharedPtr<FJsonObject> Object = CarValue->AsObject();
+				FSTTestAccess::FCarInfo& Car = Cars.AddDefaulted_GetRef();
+				Car.Slots = static_cast<int32>(Object->GetNumberField(TEXT("slots")));
+				for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Object->GetObjectField(TEXT("cargo"))->Values)
+				{
+					if (UClass* Class = ItemOf(Pair.Key))
+					{
+						Car.Cargo.Emplace(Class, Pair.Value->AsNumber());
+					}
+				}
+			}
+			FSTTestAccess::FCarPlatforms CarPlatforms;
+			for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Train->GetObjectField(TEXT("carPlatforms"))->Values)
+			{
+				TArray<TArray<int32>>& Ways = CarPlatforms.FindOrAdd(StationOf(Pair.Key));
+				for (const TSharedPtr<FJsonValue>& Way : Pair.Value->AsArray())
+				{
+					TArray<int32>& Cells = Ways.AddDefaulted_GetRef();
+					for (const TSharedPtr<FJsonValue>& Cell : Way->AsArray())
+					{
+						Cells.Add(static_cast<int32>(Cell->AsNumber()));
+					}
+				}
+			}
+			AFGTrainStationIdentifier* Anchor = StationOf(Train->GetStringField(TEXT("anchor")));
+			if (!Anchor || Cars.Num() == 0)
+			{
+				continue;
+			}
+			FSTTestAccess::SetTrain(Planner, Anchor, Train->GetBoolField(TEXT("fcc")), Train->GetBoolField(TEXT("pushPull")), Cars, Platforms, CarPlatforms);
+			FSTTestAccess::SetStart(Planner, Train->GetNumberField(TEXT("freeAt")) + Shift, Train->GetBoolField(TEXT("anchorDocked")));
+			FSTTestAccess::ServeAll(Planner);
+			FSTTestAccess::BuildMoves(Planner);
+			TArray<FSTPlanStop> Stops;
+			FSTPlanResult Result = Planner.Improve(Stops, 0);
+			++Planned;
+			if (Stops.Num() == 0)
+			{
+				AddInfo(FString::Printf(TEXT("%s: %s: no trip (%d moves)"), *File, *Train->GetStringField(TEXT("name")), FSTTestAccess::CountMoves(Planner)));
+				continue;
+			}
+			Result = Planner.Simulate(Stops);
+			++Trips;
+			// The plan with the snapshot's names (the stand-ins have none).
+			TArray<FString> Parts;
+			for (const FSTPlanStop& Stop : Stops)
+			{
+				FString Name;
+				for (const TPair<FString, AFGTrainStationIdentifier*>& Pair : Stations)
+				{
+					Name = Pair.Value == Stop.Station ? StationNames.FindRef(Pair.Key) : Name;
+				}
+				TArray<FString> Moves;
+				for (UClass* Item : Stop.LoadItems)
+				{
+					Moves.Add(TEXT("+") + ItemNames.FindRef(Item));
+				}
+				for (UClass* Item : Stop.UnloadItems)
+				{
+					Moves.Add(TEXT("-") + ItemNames.FindRef(Item));
+				}
+				Parts.Add(FString::Printf(TEXT("%s (%s)"), *Name, *FString::Join(Moves, TEXT(" "))));
+			}
+			const FString Plan = FString::Printf(TEXT("%s, %d moved"), *FString::Join(Parts, TEXT(" -> ")), Result.Moved);
+			TestTrue(FString::Printf(TEXT("%s: %s plans a valid trip (%s)"), *File, *Train->GetStringField(TEXT("name")), *Result.Problem), Result.bValid);
+			AddInfo(FString::Printf(TEXT("%s: %s: %s, score %.2f"), *File, *Train->GetStringField(TEXT("name")), *Plan, Result.Score));
+		}
+		AddInfo(FString::Printf(TEXT("%s: %d free trains replayed, %d with a trip"), *File, Planned, Trips));
+	}
 	return true;
 }
 

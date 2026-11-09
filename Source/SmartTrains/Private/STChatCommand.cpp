@@ -205,6 +205,7 @@ namespace
 		TEXT("/st platform [supply|demand|off] [item, item...] [target %] [sendat %] [priority low|normal|high|critical] [rate n/min] | /st platform copy"),
 		TEXT("/st station [depot on|off]"),
 		TEXT("/st train [manage|unmanage] [keepvanilla on|off]"),
+		TEXT("/st snapshot   (the next dispatch round's planning inputs to a file in the server's Saved/SmartTrains/Snapshots, for replay tests; admin only)"),
 		TEXT("/st service   (item services) | /st service <item> pin|unpin|pool|auto|rhythm <minutes>|add|remove|clear   (add/remove: the train you drive or look at)"),
 		TEXT("/st job <item> from <station> to <station>   (a test job for the train you drive or look at)"),
 		TEXT("/st migrate   (opens the migration window)"),
@@ -527,6 +528,17 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			}
 		}
 		Send(Sender, Subsystem->DescribeTrain(Train));
+		return EExecutionStatus::COMPLETED;
+	}
+
+	if (Verb == TEXT("snapshot"))
+	{
+		if (!Allowed(Sender, *Subsystem, STAccess::EChange::Network, TEXT("write a planner snapshot")))
+		{
+			return EExecutionStatus::UNCOMPLETED;
+		}
+		Subsystem->RequestSnapshot();
+		Sender->SendChatMessage(TEXT("The next dispatch round writes its planning inputs to Saved/SmartTrains/Snapshots (SNAPSHOT in the log)."));
 		return EExecutionStatus::COMPLETED;
 	}
 
