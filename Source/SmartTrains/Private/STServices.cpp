@@ -699,7 +699,7 @@ void ASTSubsystem::AllocateServiceTrains(const TMap<FString, TArray<int32>>& Lay
 	}
 }
 
-void ASTSubsystem::RunServices(FSTTripPlanner& Planner)
+void ASTSubsystem::RunServices(FSTTripPlanner& Planner, const TArray<FSTNode>& Nodes)
 {
 	const double Time = Now();
 	for (FSTService& Service : mNetworkServices)
@@ -768,7 +768,57 @@ void ASTSubsystem::RunServices(FSTTripPlanner& Planner)
 					Each.UnloadItems.Add(Item.Get());
 				}
 			}
+			// A service keeps its spacing instead of waiting for a batch: a pickup that would load less than its
+			// platform's Least per visit (of what the train carries of that flow) is left out of this cycle instead.
+			for (FSTPlanStop& Stop : Stops)
+			{
+				Stop.NoBatchItems = Stop.LoadItems;
+			}
 			FSTPlanResult Result = Planner.Simulate(Stops);
+			for (int32 Pass = 0; Pass < 3 && Result.bValid; ++Pass)
+			{
+				bool bDropped = false;
+				for (int32 StopIndex = 0; StopIndex < Stops.Num(); ++StopIndex)
+				{
+					for (int32 ItemIndex = Stops[StopIndex].LoadItems.Num() - 1; ItemIndex >= 0; --ItemIndex)
+					{
+						UClass* Item = Stops[StopIndex].LoadItems[ItemIndex];
+						const FSTServiceFlow* Flow = Service.Flows.FindByPredicate([&](const FSTServiceFlow& Each)
+						{
+							return Each.Item.Get() == Item && Each.From.Get() == Stops[StopIndex].Station;
+						});
+						const int32 Node = FindNode(Nodes, Stops[StopIndex].Station, Item, ESTRole::Supply);
+						const double Share = Node != INDEX_NONE ? STNames::SendAtPercent(Nodes[Node].SendAtPercent) / 100.0 : 0.0;
+						double Loaded = 0.0;
+						for (const FSTPlanCarStep& Step : Result.Steps.IsValidIndex(StopIndex) ? Result.Steps[StopIndex] : TArray<FSTPlanCarStep>())
+						{
+							for (const TPair<UClass*, int32>& Each : Step.Loaded)
+							{
+								Loaded += Each.Key == Item ? Each.Value : 0;
+							}
+						}
+						if (Flow && Loaded < Share * Flow->PerTrain)
+						{
+							Stops[StopIndex].LoadItems.RemoveAt(ItemIndex);
+							bDropped = true;
+						}
+					}
+				}
+				if (!bDropped)
+				{
+					break;
+				}
+				// Drops of items no stop picks up any more go too.
+				for (FSTPlanStop& Stop : Stops)
+				{
+					Stop.UnloadItems.RemoveAll([&](UClass* Item)
+					{
+						return !Stops.ContainsByPredicate([&](const FSTPlanStop& Each) { return Each.LoadItems.Contains(Item); })
+							&& !GetCargo(State->Train).Contains(Item);
+					});
+				}
+				Result = Planner.Simulate(Stops);
+			}
 			if (Result.bValid)
 			{
 				FSTTripPlanner::Trim(Stops, Result, 0);

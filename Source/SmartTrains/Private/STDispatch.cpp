@@ -883,7 +883,7 @@ void ASTSubsystem::DispatchRound()
 		return;
 	}
 	// Every free train runs its service's next cycle.
-	RunServices(Planner);
+	RunServices(Planner, Nodes);
 	if (!mSettings.bObserveOnly)
 	{
 		ClearNeededBays();

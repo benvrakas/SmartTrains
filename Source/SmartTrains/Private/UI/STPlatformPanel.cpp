@@ -414,7 +414,7 @@ void USTPlatformPanel::RefreshEditor()
 		if (Row.Amount.IsValid())
 		{
 			Row.Amount->SetText(mRole == ESTRole::Supply
-				? FText::Format(LOCTEXT("SendAt", "Send at {0}% of a load"), FText::AsNumber(FMath::RoundToInt(GetPercent(Rule, mRole))))
+				? FText::Format(LOCTEXT("SendAt", "Least per visit: {0}% of the cars here"), FText::AsNumber(FMath::RoundToInt(GetPercent(Rule, mRole))))
 				: FText::Format(LOCTEXT("Target", "Keep stocked at {0}%"), FText::AsNumber(FMath::RoundToInt(GetPercent(Rule, mRole)))));
 		}
 		if (Row.AmountRow.IsValid())

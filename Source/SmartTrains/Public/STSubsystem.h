@@ -456,7 +456,7 @@ private:
 	bool MergeLoops(FSTService& Into, const FSTService& Other) const;
 	void AllocateServiceTrains(const TMap<FString, TArray<int32>>& Layouts);
 	// Every dispatch round: each free service train gets its next cycle (or clears foreign cargo first).
-	void RunServices(FSTTripPlanner& Planner);
+	void RunServices(FSTTripPlanner& Planner, const TArray<FSTNode>& Nodes);
 	// A service train with no cycle now waits where it is.
 	void SettleServiceTrain(FSTTrainState& State, const TCHAR* Why);
 	// Trains a service gets: ceil(needed - slack), within its player limits.
