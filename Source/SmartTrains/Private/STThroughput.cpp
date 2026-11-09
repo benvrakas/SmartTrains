@@ -356,6 +356,19 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 	{
 		View.Summary.Add(TEXT("Measuring: the first sample comes within 10 seconds."));
 	}
+	{
+		TArray<FSTNode> ChainNodes;
+		Subsystem.BuildNodes(ChainNodes);
+		int32 Shown = 0;
+		for (const FSTNode& Node : ChainNodes)
+		{
+			if (Node.WaitsOn && Shown++ < 6)
+			{
+				View.Summary.Add(FString::Printf(TEXT("Supply chain: %s at %s waits on %s there (starved), so deliveries of it count less until that arrives."),
+					*STNames::Item(Node.Item), *STLayout::Name(Node.Station.Get()), *STNames::Item(Node.WaitsOn)));
+			}
+		}
+	}
 	View.Summary.Add(Subsystem.IsFccAvailable() ? TEXT("Freight Car Control: on (cars can skip stops).")
 		: TEXT("Freight Car Control: off (every car must fit the platform it stops beside)."));
 

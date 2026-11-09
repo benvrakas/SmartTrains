@@ -99,6 +99,11 @@ struct FSTTestAccess
 		State.bManaged = true;
 	}
 
+	static void LinkSupplyChain(TArray<FSTNode>& Nodes)
+	{
+		ASTSubsystem::LinkSupplyChain(Nodes);
+	}
+
 	static void AddServiceConfig(ASTSubsystem& Subsystem, const FSTServiceConfig& Config)
 	{
 		Subsystem.mServiceConfigs.Add(Config);
@@ -1295,6 +1300,27 @@ bool FSTServiceSettingsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("pinned, it gets one"), Shuttles(true, false, 2000.0), 1);
 	TestEqual(TEXT("a big route gets one"), Shuttles(false, false, 9600.0), 1);
 	TestEqual(TEXT("pooled, even a big route gets none"), Shuttles(false, true, 9600.0), 0);
+	return true;
+}
+
+// Supply chain: a consumer whose machine also waits on a starved item counts its shortfall less.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTSupplyChainTest, "SmartTrains.Planner.SupplyChain", TestFlags)
+bool FSTSupplyChainTest::RunTest(const FString& Parameters)
+{
+	AFGTrainStationIdentifier* Station = FSTTestAccess::MakeStation();
+	const AActor* Machine = NewObject<AActor>(GetTransientPackage());
+	FSTNode Ingots = FSTTestAccess::Node(Station, USTTestSolid::StaticClass(), ESTRole::Demand, 1000, 10000, 1);
+	Ingots.Machines.Add(Machine);
+	FSTNode Concrete = FSTTestAccess::Node(Station, USTTestSolidB::StaticClass(), ESTRole::Demand, 0, 10000, 1);
+	Concrete.Machines.Add(Machine);
+	Concrete.bStarved = true;
+	TArray<FSTNode> Nodes = {Ingots, Concrete};
+	FSTTestAccess::LinkSupplyChain(Nodes);
+	TestTrue(TEXT("ingots wait on the starved concrete"), Nodes[0].WaitsOn == USTTestSolidB::StaticClass() && Nodes[0].CostScale < 1.0);
+	TestTrue(TEXT("the starved concrete itself counts in full"), !Nodes[1].WaitsOn && FMath::IsNearlyEqual(Nodes[1].CostScale, 1.0));
+	const double Waiting = STForecast::Cost(Nodes[0], {}, 0.0, 3200.0);
+	const double Free = STForecast::Cost(Ingots, {}, 0.0, 3200.0);
+	TestTrue(FString::Printf(TEXT("its shortfall costs less (%.1f against %.1f)"), Waiting, Free), Waiting < Free);
 	return true;
 }
 

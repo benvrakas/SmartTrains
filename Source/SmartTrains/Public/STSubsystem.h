@@ -60,6 +60,13 @@ struct FSTNode
 	double PlannedFlow = 0.0;
 	// Deliveries (demand) or pickups (supply) planned by jobs under way, with their arrival times; repeats excluded.
 	TArray<FSTNodeEvent> Planned;
+	// The machines behind its platforms (from the connection trace), and what their recipes make (supply) or use
+	// (demand) of Item at their clock speed; 0 when not known. [/s]
+	TArray<TWeakObjectPtr<const AActor>> Machines;
+	double RecipeRate = 0.0;
+	// Demand: its machines wait on another item that is starved there, so its shortfall counts this much.
+	double CostScale = 1.0;
+	TSubclassOf<UFGItemDescriptor> WaitsOn;
 };
 
 // A route of the steady roster (Docs/Architecture.md, "Roster"): Item from From to To, from the flow plan.
@@ -267,8 +274,20 @@ private:
 
 	// Fast checks of every managed train: docking, job progress, external timetable changes. [0.25 s]
 	void MonitorTrains();
+	// Supply chain (Docs/Architecture.md): marks consumers whose machines wait on another starved item there.
+	static void LinkSupplyChain(TArray<FSTNode>& Nodes);
 	// Samples every configured platform's stock and rates. [1 s]
 	void SamplePlatforms();
+	// Traces one platform's belts or pipes to its machines (STTrace), each again after a while. [1 s]
+	void StepTraces();
+	// Machines behind each traced platform, and when it was traced (Now()).
+	struct FTraceCache
+	{
+		double At = -1.0e9;
+		TArray<TWeakObjectPtr<const AActor>> Machines;
+	};
+	TMap<TWeakObjectPtr<AFGBuildableTrainPlatformCargo>, FTraceCache> mTraces;
+	int32 mTraceNext = 0;
 	// Hands out trips to free trains, and re-plans trips under way that asked for it (STDispatch.cpp).
 	void Dispatch();
 	void DispatchRound();

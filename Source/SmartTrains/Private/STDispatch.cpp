@@ -1,4 +1,5 @@
 #include "Algo/StableSort.h"
+#include "Buildables/FGBuildableManufacturer.h"
 #include "Buildables/FGBuildableRailroadStation.h"
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "FGFreightWagon.h"
@@ -7,6 +8,7 @@
 #include "FGRailroadSubsystem.h"
 #include "FGRailroadTimeTable.h"
 #include "FGTrain.h"
+#include "FGRecipe.h"
 #include "FGTrainStationIdentifier.h"
 #include "Resources/FGItemDescriptor.h"
 #include "SmartTrains.h"
@@ -55,6 +57,33 @@ namespace
 	// Request setting On: a platform asks until it and its deliveries on the way reach this share of its capacity.
 	constexpr double RequestFullShare = 0.9;
 	constexpr double TrainSecondCost = STForecast::TrainSecondCost;
+	// A consumer whose machines wait on another starved item counts its shortfall this much (Docs/Architecture.md,
+	// "Supply chain").
+	constexpr double WaitingCostScale = 0.25;
+
+	// What Machines' recipes make (bProducts) or use of Item per second at their clock speed. [/s]
+	double GetRecipeRate(const TArray<TWeakObjectPtr<const AActor>>& Machines, UClass* Item, bool bProducts)
+	{
+		double PerSecond = 0.0;
+		for (const TWeakObjectPtr<const AActor>& Machine : Machines)
+		{
+			const AFGBuildableManufacturer* Manufacturer = Cast<AFGBuildableManufacturer>(Machine.Get());
+			const TSubclassOf<UFGRecipe> Recipe = Manufacturer ? Manufacturer->GetCurrentRecipe() : nullptr;
+			const float Duration = Recipe ? UFGRecipe::GetManufacturingDuration(Recipe) : 0.f;
+			if (Duration <= 0.f)
+			{
+				continue;
+			}
+			const float Clock = Manufacturer->GetCurrentPotential() > 0.f ? Manufacturer->GetCurrentPotential() : 1.f;
+			const TArray<FItemAmount> Amounts = bProducts ? UFGRecipe::GetProducts(Recipe)
+				: UFGRecipe::GetIngredients(const_cast<AFGBuildableManufacturer*>(Manufacturer), Recipe);
+			for (const FItemAmount& Amount : Amounts)
+			{
+				PerSecond += Amount.ItemClass == Item ? Amount.Amount * Clock / Duration : 0.0;
+			}
+		}
+		return PerSecond;
+	}
 	// A re-plan after a stop replaces the rest of the trip only if it is worth this much more as well. [car-load minutes]
 	constexpr double ReplanMarginValue = 5.0;
 	// Roster: least share of a train worth giving a route; routes keep their trains while trains needed change by less
@@ -255,6 +284,26 @@ void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 			Node.bStarved |= Config.Role == ESTRole::Demand && ItemStats && ItemStats->EmptySeconds > 30.0;
 		}
 	}
+	// Machines and recipe rates, from the traces of each node's platforms.
+	for (FSTNode& Node : OutNodes)
+	{
+		if (!Node.Item || Node.bAnyItem)
+		{
+			continue;
+		}
+		for (const TWeakObjectPtr<AFGBuildableTrainPlatformCargo>& Platform : Node.Platforms)
+		{
+			if (const FTraceCache* Cache = mTraces.Find(Platform))
+			{
+				for (const TWeakObjectPtr<const AActor>& Machine : Cache->Machines)
+				{
+					Node.Machines.AddUnique(Machine);
+				}
+			}
+		}
+		Node.RecipeRate = GetRecipeRate(Node.Machines, Node.Item.Get(), Node.Role == ESTRole::Supply);
+	}
+	LinkSupplyChain(OutNodes);
 	// Amounts promised by jobs still to come (repeats promise nothing).
 	for (const FSTTrainState& State : mTrains)
 	{
@@ -289,6 +338,29 @@ void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 		if (const double* Planned = mPlannedPairs.Find(NodeKey(Node)))
 		{
 			Node.PlannedFlow = *Planned;
+		}
+	}
+}
+
+void ASTSubsystem::LinkSupplyChain(TArray<FSTNode>& Nodes)
+{
+	// A consumer with stock whose machines also wait on a starved item can't use what it gets, so its shortfall counts
+	// less until that item arrives.
+	for (FSTNode& Node : Nodes)
+	{
+		if (Node.Role != ESTRole::Demand || Node.bAnyItem || !Node.Item || Node.bStarved || Node.Machines.Num() == 0)
+		{
+			continue;
+		}
+		for (const FSTNode& Other : Nodes)
+		{
+			if (&Other != &Node && Other.Role == ESTRole::Demand && !Other.bAnyItem && Other.Item && Other.Item != Node.Item && Other.bStarved
+				&& Other.Machines.ContainsByPredicate([&](const TWeakObjectPtr<const AActor>& Machine) { return Node.Machines.Contains(Machine); }))
+			{
+				Node.CostScale = WaitingCostScale;
+				Node.WaitsOn = Other.Item;
+				break;
+			}
 		}
 	}
 }
@@ -2080,10 +2152,15 @@ void ASTSubsystem::PlanFlows()
 			{
 				continue;
 			}
-			double Rate = Node.Role == ESTRole::Demand && Node.bStarved ? FMath::Max(Node.Rate, 1.0 / 60.0) * 1.5 : Node.Rate;
+			// A starved consumer and a full supplier can't measure their rates: their machines' recipes tell, else a guess.
+			double Rate = Node.Rate;
+			if (Node.Role == ESTRole::Demand && Node.bStarved)
+			{
+				Rate = Node.RecipeRate > 0.0 ? FMath::Max(Node.Rate, Node.RecipeRate) : FMath::Max(Node.Rate, 1.0 / 60.0) * 1.5;
+			}
 			if (Node.Role == ESTRole::Supply && Node.Capacity > 0 && Node.Stock >= FullSupplyShare * Node.Capacity)
 			{
-				Rate += Node.Stock / FullStockSeconds;
+				Rate = FMath::Max(Rate, Node.RecipeRate) + Node.Stock / FullStockSeconds;
 			}
 			if (Rate <= 0.0)
 			{

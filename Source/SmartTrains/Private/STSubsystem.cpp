@@ -14,6 +14,7 @@
 #include "STBridges.h"
 #include "STLayout.h"
 #include "STThroughput.h"
+#include "STTrace.h"
 #include "STTravel.h"
 #include "Subsystem/SubsystemActorManager.h"
 #include "TimerManager.h"
@@ -37,6 +38,8 @@ namespace
 {
 	// How long a move that moved nothing isn't planned again for that train. [min]
 	constexpr double NoProgressMinutes = 10.0;
+	// A platform's machines are traced again after this long. [s]
+	constexpr double TraceRefreshSeconds = 600.0;
 	// An unloading platform that takes less than this share of what was planned counts as slow draining for SlowDrainMinutes.
 	constexpr double SlowDrainShare = 0.5;
 	constexpr double SlowDrainMinutes = 30.0;
@@ -1232,6 +1235,38 @@ void ASTSubsystem::SamplePlatforms()
 		}
 	}
 	for (auto It = mStats.CreateIterator(); It; ++It)
+	{
+		if (!It.Key().IsValid())
+		{
+			It.RemoveCurrent();
+		}
+	}
+	StepTraces();
+}
+
+void ASTSubsystem::StepTraces()
+{
+	const double Time = Now();
+	for (int32 Tries = 0; Tries < mPlatforms.Num(); ++Tries)
+	{
+		mTraceNext = (mTraceNext + 1) % mPlatforms.Num();
+		const FSTPlatformConfig& Config = mPlatforms[mTraceNext];
+		if ((Config.Role != ESTRole::Supply && Config.Role != ESTRole::Demand) || !IsValid(Config.Platform))
+		{
+			continue;
+		}
+		FTraceCache& Cache = mTraces.FindOrAdd(Config.Platform);
+		if (Time - Cache.At < TraceRefreshSeconds)
+		{
+			continue;
+		}
+		const STTrace::FResult Result = STTrace::Trace(Config.Platform, Config.Role == ESTRole::Supply);
+		Cache.At = Time;
+		Cache.Machines = Result.MachineActors;
+		UE_LOG(LogSmartTrains, Verbose, TEXT("TRACE %s: %d machines (%s)"), *GetNameSafe(Config.Platform), Result.Machines, *Result.Summary());
+		break;
+	}
+	for (auto It = mTraces.CreateIterator(); It; ++It)
 	{
 		if (!It.Key().IsValid())
 		{

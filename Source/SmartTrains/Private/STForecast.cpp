@@ -99,7 +99,7 @@ namespace
 		}
 		Advance(End);
 		// Car-load minutes; demand weighted by priority.
-		const double Weight = bDemand ? STNames::PriorityWeight(Node.Priority) / 60.0 : STForecast::LostLoadMinutes;
+		const double Weight = bDemand ? STNames::PriorityWeight(Node.Priority) * Node.CostScale / 60.0 : STForecast::LostLoadMinutes;
 		Out.Cost = Weight * Out.Cost / FMath::Max(1.0, CarCapacity);
 		return Out;
 	}
