@@ -169,6 +169,104 @@ struct SMARTTRAINS_API FSTStationConfig
 	FString Pool;
 };
 
+// One stop of a service loop: the station and what its cars load and unload there.
+USTRUCT()
+struct SMARTTRAINS_API FSTServiceStop
+{
+	GENERATED_BODY()
+
+	UPROPERTY(SaveGame)
+	TObjectPtr<AFGTrainStationIdentifier> Station = nullptr;
+
+	UPROPERTY(SaveGame)
+	TArray<TSubclassOf<UFGItemDescriptor>> LoadItems;
+
+	UPROPERTY(SaveGame)
+	TArray<TSubclassOf<UFGItemDescriptor>> UnloadItems;
+};
+
+// A flow-plan route a service carries, and what one of its trains carries of it per loop.
+USTRUCT()
+struct SMARTTRAINS_API FSTServiceFlow
+{
+	GENERATED_BODY()
+
+	UPROPERTY(SaveGame)
+	TObjectPtr<AFGTrainStationIdentifier> From = nullptr;
+
+	UPROPERTY(SaveGame)
+	TObjectPtr<AFGTrainStationIdentifier> To = nullptr;
+
+	UPROPERTY(SaveGame)
+	TSubclassOf<UFGItemDescriptor> Item;
+
+	// [/s]
+	UPROPERTY(SaveGame)
+	double Flow = 0.0;
+
+	UPROPERTY(SaveGame)
+	double PerTrain = 0.0;
+};
+
+// A service: a loop made from the flow plan and the trains running it as a looping timetable (Docs/Architecture.md,
+// "Services").
+USTRUCT()
+struct SMARTTRAINS_API FSTService
+{
+	GENERATED_BODY()
+
+	UPROPERTY(SaveGame)
+	int32 Id = 0;
+
+	// The car layout its trains share (STLayout::GetLayoutKey).
+	UPROPERTY(SaveGame)
+	FString Layout;
+
+	UPROPERTY(SaveGame)
+	TArray<FSTServiceStop> Stops;
+
+	UPROPERTY(SaveGame)
+	TArray<FSTServiceFlow> Flows;
+
+	UPROPERTY(SaveGame)
+	TArray<TObjectPtr<AFGTrain>> Trains;
+
+	// One loop with stays. [s]
+	UPROPERTY(SaveGame)
+	double CycleSeconds = 0.0;
+
+	// Trains its flows need.
+	UPROPERTY(SaveGame)
+	double Needed = 0.0;
+
+	// When a train last left its first stop (Now()).
+	UPROPERTY(SaveGame)
+	double LastDeparture = -1.0e9;
+
+	UPROPERTY(SaveGame)
+	double CreatedAt = 0.0;
+
+	UPROPERTY(SaveGame)
+	int32 Version = 1;
+
+	// Flow plans in a row without its flows.
+	UPROPERTY(SaveGame)
+	int32 MissingPlans = 0;
+
+	// Player settings: no automatic changes to its stops; spacing; fewest and most trains (0: automatic).
+	UPROPERTY(SaveGame)
+	bool bLocked = false;
+
+	UPROPERTY(SaveGame)
+	float SpacingMinutes = 0.f;
+
+	UPROPERTY(SaveGame)
+	int32 MinTrains = 0;
+
+	UPROPERTY(SaveGame)
+	int32 MaxTrains = 0;
+};
+
 // A player's settings for one item's service (Docs/Architecture.md, "Services"). Without one, services are automatic.
 USTRUCT()
 struct SMARTTRAINS_API FSTServiceConfig
@@ -194,7 +292,11 @@ struct SMARTTRAINS_API FSTServiceConfig
 	UPROPERTY(SaveGame)
 	float RhythmMinutes = 0.f;
 
-	bool IsDefault() const { return !bPinned && !bPooled && Trains.Num() == 0 && RhythmMinutes <= 0.f; }
+	// Its flows only run in loops of their own, never merged with other items' loops.
+	UPROPERTY(SaveGame)
+	bool bDedicated = false;
+
+	bool IsDefault() const { return !bPinned && !bPooled && !bDedicated && Trains.Num() == 0 && RhythmMinutes <= 0.f; }
 };
 
 // What one car loads or unloads at one stop of a job.
@@ -313,6 +415,10 @@ struct SMARTTRAINS_API FSTJob
 	// Planned for a platform's request: empties a car (and picks up and delivers when it can).
 	UPROPERTY(SaveGame)
 	bool bRequest = false;
+
+	// A cycle of this service (0: not a service cycle).
+	UPROPERTY(SaveGame)
+	int32 ServiceId = 0;
 
 	// One line for logs and readouts.
 	UPROPERTY(SaveGame)
@@ -437,6 +543,19 @@ struct SMARTTRAINS_API FSTTrainState
 	// when it changes).
 	double LastRepeatTry = -1000.0;
 	FString LastRepeatRefusal;
+
+	// Its service (0: none), the one before, and the player's settings: stay in this service; keep out of services.
+	UPROPERTY(SaveGame)
+	int32 ServiceId = 0;
+
+	UPROPERTY(SaveGame)
+	int32 LastServiceId = 0;
+
+	UPROPERTY(SaveGame)
+	bool bServiceStay = false;
+
+	UPROPERTY(SaveGame)
+	bool bServiceReserve = false;
 	// Runtime only: it left a stop of a request trip, so its request cars are checked before the pickup.
 	bool bRequestRecheck = false;
 

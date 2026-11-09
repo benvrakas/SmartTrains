@@ -1,8 +1,8 @@
 ## SmartTrains
 
-Trains without fixed timetables. Give your freight and fluid platforms a role and the items they handle. SmartTrains
-then sends managed trains from where items pile up to where they're needed, by stock, production rate, distance and
-how long each consumer has waited. You don't need a train per factory.
+Timetables that make themselves. Give your freight and fluid platforms a role and the items they handle. SmartTrains
+works out what has to move where, turns that into **services** (loops of stations, each run by a few trains as a real
+looping timetable) and keeps them adjusted as your factory grows. You don't plan a train per factory.
 
 **Beta.** Try it on a copy of your save first (`/st testcopy`).
 
@@ -19,26 +19,25 @@ them (see below).
   - **Sink:** managed trains unload cargo here that has nowhere else to go, any item: cargo a car can't unload at any
     consumer of it, and production nobody on the network uses.
   - **Off:** vanilla.
-  - Each item gets a target and a priority (demand), or a minimum batch (supply: **Send at % of a load**, 50 % by
-    default; a station 90 % full or a Critical consumer ships less).
+  - Each item gets a target and a priority (demand), or a **Least per visit** (supply, 50 % by default): a service
+    skips that pickup for a cycle when it would load less than that share of what its cars there carry.
   - **Copy**, **Paste** and **Copy to the station's other platforms** carry every setting of the platform.
-- **Trains:** in the locomotive menu, switch **Managed by SmartTrains** on. SmartTrains writes the train's timetable
-  for each trip. The game, or Auto Trains, drives it.
-- **Planning:** SmartTrains forecasts every platform's stock over the next hour and plans all free trains together,
-  so the platforms that would run short soonest are served first. Every trip is scored the same way: how much shortage
-  it removes, less what the train's time costs.
-- **Services (on):** an item whose flow keeps a whole train busy gets dedicated trains whose cars all fit it. They run
-  all of that item's routes with full loads, picking up at a steady spacing, and other trains leave those pickups and
-  deliveries to them. Smaller flows are shared out over the other trains as a roster; the planner corrects the rest.
-  `/st service` lists them; you can pin an item, keep it in the pool, set its spacing or choose its trains.
+- **Trains:** in the locomotive menu, switch **Managed by SmartTrains** on. SmartTrains writes its timetable; the
+  game, or Auto Trains, drives it.
+- **Services:** every consumer station gets a gathering loop: its suppliers, then the station, on the car layout that
+  carries the most of what it needs. A factory's mixed inputs come in one loop, each car carrying the item whose
+  platforms it lines up with, and one train can drop different cars at different consumers. Loops of the same layout
+  merge when that saves trains (a train carrying something both ways instead of running back empty). Each service runs
+  as a looping timetable, with the trains its flows need spaced evenly around it. `/st service` and the monitor's
+  Services tab show them.
+- **Spare trains** are spread over the services of their layout as extra trains, so they keep carrying something.
+  Depots are optional, for trains no service can use.
+- **Changing jobs:** a train joining a service first clears cargo that isn't the service's: delivered, or dumped into
+  a sink on its way if those goods aren't needed soon. Goods a consumer needs are always delivered.
 - **Recipes:** SmartTrains follows each platform's belts and pipes to its machines. Their recipes give the real rate
   of a full supplier or a starved consumer, and a consumer whose machines wait on another missing input counts its
   shortage less until that input arrives.
-- **Fewer, fuller visits:** every stop costs a little, more at a station other trains are using or reach through the
-  same switch. Cars load only what the trip delivers, so no leftovers tie a car to one item.
-- **Trips:** one trip can visit up to 4 stations and serve several platforms and items. It plans car by car: which
-  car loads what where, and which car unloads where. After every stop the rest of the trip is planned again from what
-  the cars really hold.
+- **Each cycle** loads what the stock forecasts call for, and only what the loop delivers.
 - **Fit:** train length, the order of the cars and the order of the platforms are checked for every trip. Push-pull
   trains, with a locomotive at each end, are handled both ways round.
 
@@ -51,7 +50,7 @@ them (see below).
   (measured from the track), and never more than **Most trains waiting before a station** (2), so trains don't queue
   across junctions. Switch **Trains leave stations at once** off for the old behaviour: deliveries and pickups wait
   up to their longest wait, and a train whose next station is busy waits in its station.
-- **Idle trains park** at the nearest free **depot** (a rail yard: switch it on under the station's name in the
+- **Trains no service uses park** at the nearest free **depot** (a rail yard: switch it on under the station's name in the
   station menu), one train per depot, or else where they are, and move when a trip needs that station. A depot may
   have sink or other platforms too: it is booked like any station, so a train coming to unload and a train coming to
   park never queue behind each other.

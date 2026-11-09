@@ -101,6 +101,13 @@ struct SMARTTRAINS_API FSTTrainView
 	UPROPERTY()
 	TArray<FString> Lines;
 
+	// Stay in this service; Keep out of services.
+	UPROPERTY()
+	bool bServiceStay = false;
+
+	UPROPERTY()
+	bool bServiceReserve = false;
+
 	UPROPERTY()
 	int32 AppliedEdit = 0;
 };
@@ -266,6 +273,10 @@ enum class ESTTrainAction : uint8
 	Unmanage,
 	KeepVanillaOn,
 	KeepVanillaOff,
+	StayOn,
+	StayOff,
+	ReserveOn,
+	ReserveOff,
 };
 
 // One row of the throughput monitor: an item, station, platform or train, or an overview tile.
@@ -318,6 +329,9 @@ struct SMARTTRAINS_API FSTMonitorView
 	TArray<FString> Summary;
 
 	// Per item, the ones that limit deliveries first. Columns: supply, demand, trains, below target.
+	UPROPERTY()
+	TArray<FSTMonitorRow> Services;
+
 	UPROPERTY()
 	TArray<FSTMonitorRow> Items;
 

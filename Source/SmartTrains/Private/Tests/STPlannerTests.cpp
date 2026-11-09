@@ -140,6 +140,11 @@ struct FSTTestAccess
 		return Planner.mMoves.Num();
 	}
 
+	static bool MergeLoops(const ASTSubsystem& Subsystem, FSTService& Into, const FSTService& Other)
+	{
+		return Subsystem.MergeLoops(Into, Other);
+	}
+
 	static void LinkSupplyChain(TArray<FSTNode>& Nodes)
 	{
 		ASTSubsystem::LinkSupplyChain(Nodes);
@@ -1624,6 +1629,129 @@ bool FSTReplaySnapshotsTest::RunTest(const FString& Parameters)
 		}
 		AddInfo(FString::Printf(TEXT("%s: %d free trains replayed, %d with a trip"), *File, Planned, Trips));
 	}
+	return true;
+}
+
+// Service cars: each flow gets the cars that line up with its supply and demand platforms; a car carries flows one
+// after another when their stretches of the loop don't overlap.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTServiceCarsTest, "SmartTrains.Services.Cars", TestFlags)
+bool FSTServiceCarsTest::RunTest(const FString& Parameters)
+{
+	UClass* Ingot = USTTestSolid::StaticClass();
+	UClass* Concrete = USTTestSolidB::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Mine = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Quarry = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Factory = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Other = FSTTestAccess::MakeStation();
+	{
+		// Two cars: ingots from the mine in either, concrete from the quarry only in car 2; at the factory car 1 meets
+		// the ingot platform and car 2 the concrete one.
+		TArray<FSTNode> Nodes;
+		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Ingot, true, 0.0, 0), FSTTestAccess::Platform(Ingot, true, 0.0, 0),
+			FSTTestAccess::Platform(Concrete, true, 0.0, 0), FSTTestAccess::Platform(Ingot, false, 0.0, 0), FSTTestAccess::Platform(Concrete, false, 0.0, 0)};
+		FSTTestAccess::FCarInfo Car = FSTTestAccess::Car();
+		Car.Slots = 32;
+		FSTTestAccess::FCarPlatforms CarPlatforms;
+		CarPlatforms.Add(Mine, {{0, 1}});
+		CarPlatforms.Add(Quarry, {{INDEX_NONE, 2}});
+		CarPlatforms.Add(Factory, {{3, 4}});
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car, Car}, Platforms, CarPlatforms);
+		FSTPlanStop A;
+		A.Station = Mine;
+		A.LoadItems.Add(Ingot);
+		FSTPlanStop B;
+		B.Station = Quarry;
+		B.LoadItems.Add(Concrete);
+		FSTPlanStop C;
+		C.Station = Factory;
+		C.UnloadItems = {Ingot, Concrete};
+		const TArray<double> PerTrain = Planner.AllocateServiceCars({A, B, C}, {{Mine, Factory, Ingot, 1.0}, {Quarry, Factory, Concrete, 1.0}});
+		TestTrue(FString::Printf(TEXT("both inputs get a car (%.0f, %.0f)"), PerTrain[0], PerTrain[1]), PerTrain[0] > 0.0 && PerTrain[1] > 0.0);
+	}
+	{
+		// One car, two flows one after the other along the loop: it carries both.
+		TArray<FSTNode> Nodes;
+		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+		TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Ingot, true, 0.0, 0), FSTTestAccess::Platform(Ingot, false, 0.0, 0),
+			FSTTestAccess::Platform(Concrete, true, 0.0, 0), FSTTestAccess::Platform(Concrete, false, 0.0, 0)};
+		FSTTestAccess::FCarInfo Car = FSTTestAccess::Car();
+		Car.Slots = 32;
+		FSTTestAccess::FCarPlatforms CarPlatforms;
+		CarPlatforms.Add(Mine, {{0}});
+		CarPlatforms.Add(Factory, {{1}});
+		CarPlatforms.Add(Quarry, {{2}});
+		CarPlatforms.Add(Other, {{3}});
+		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, Platforms, CarPlatforms);
+		FSTPlanStop A;
+		A.Station = Mine;
+		A.LoadItems.Add(Ingot);
+		FSTPlanStop B;
+		B.Station = Factory;
+		B.UnloadItems.Add(Ingot);
+		FSTPlanStop C;
+		C.Station = Quarry;
+		C.LoadItems.Add(Concrete);
+		FSTPlanStop D;
+		D.Station = Other;
+		D.UnloadItems.Add(Concrete);
+		const TArray<double> PerTrain = Planner.AllocateServiceCars({A, B, C, D}, {{Mine, Factory, Ingot, 1.0}, {Quarry, Other, Concrete, 1.0}});
+		TestTrue(FString::Printf(TEXT("one car carries both, one after the other (%.0f, %.0f)"), PerTrain[0], PerTrain[1]), PerTrain[0] > 0.0 && PerTrain[1] > 0.0);
+	}
+	return true;
+}
+
+// Merging loops: the second loop's stops go into the first so every flow still picks up before it drops.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTServiceMergeTest, "SmartTrains.Services.Merge", TestFlags)
+bool FSTServiceMergeTest::RunTest(const FString& Parameters)
+{
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	TArray<AFGTrainStationIdentifier*> Stations;
+	for (int32 Index = 0; Index < 4; ++Index)
+	{
+		Stations.Add(FSTTestAccess::MakeStation());
+	}
+	for (AFGTrainStationIdentifier* From : Stations)
+	{
+		for (AFGTrainStationIdentifier* To : Stations)
+		{
+			if (From != To)
+			{
+				FSTTestAccess::SetTrip(*Subsystem, From, To, 100.f);
+			}
+		}
+	}
+	auto Loop = [&](int32 Pick, int32 Drop, UClass* Item)
+	{
+		FSTService Service;
+		FSTServiceStop& From = Service.Stops.AddDefaulted_GetRef();
+		From.Station = Stations[Pick];
+		From.LoadItems.Add(Item);
+		FSTServiceStop& To = Service.Stops.AddDefaulted_GetRef();
+		To.Station = Stations[Drop];
+		To.UnloadItems.Add(Item);
+		FSTServiceFlow& Flow = Service.Flows.AddDefaulted_GetRef();
+		Flow.From = Stations[Pick];
+		Flow.To = Stations[Drop];
+		Flow.Item = Item;
+		return Service;
+	};
+	FSTService Merged = Loop(0, 1, USTTestSolid::StaticClass());
+	TestTrue(TEXT("two loops merge"), FSTTestAccess::MergeLoops(*Subsystem, Merged, Loop(2, 3, USTTestSolidB::StaticClass())));
+	TestEqual(TEXT("into four stops"), Merged.Stops.Num(), 4);
+	for (const FSTServiceFlow& Flow : Merged.Flows)
+	{
+		const int32 Pick = Merged.Stops.IndexOfByPredicate([&](const FSTServiceStop& Stop) { return Stop.Station == Flow.From; });
+		const int32 Drop = Merged.Stops.IndexOfByPredicate([&](const FSTServiceStop& Stop) { return Stop.Station == Flow.To; });
+		TestTrue(TEXT("each flow picks up before it drops"), Pick != INDEX_NONE && Drop != INDEX_NONE && Pick < Drop);
+	}
+	FSTService Shared = Loop(0, 1, USTTestSolid::StaticClass());
+	TestTrue(TEXT("a loop sharing the supplier merges into a milk run"), FSTTestAccess::MergeLoops(*Subsystem, Shared, Loop(0, 2, USTTestSolid::StaticClass())));
+	TestEqual(TEXT("with three stops"), Shared.Stops.Num(), 3);
 	return true;
 }
 

@@ -40,6 +40,7 @@ private:
 	enum class ETab : uint8
 	{
 		Overview,
+		Services,
 		Items,
 		Stations,
 		Platforms,
@@ -52,6 +53,7 @@ private:
 	void UpdateTabs(const FSTMonitorView& View);
 	void ShowTab(const FSTMonitorView& View);
 	void ShowOverview(const FSTMonitorView& View);
+	void ShowServices(const FSTMonitorView& View);
 	void ShowItems(const FSTMonitorView& View);
 	void ShowStations(const FSTMonitorView& View);
 	void ShowPlatforms(const FSTMonitorView& View);

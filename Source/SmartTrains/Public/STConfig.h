@@ -19,8 +19,6 @@ struct FSTSettings
 	bool bAdminsOnly = false;
 	// Every stop is load/unload once, and a train with a trip leaves at once instead of holding in the station.
 	bool bLeaveAtOnce = true;
-	// Trains run services and shares of the flow plan's routes; the planner only corrects.
-	bool bRoster = true;
 	// How often jobs are handed out. [s]
 	float DispatchSeconds = 3.f;
 	// How often the flow plan is worked out again. [s]

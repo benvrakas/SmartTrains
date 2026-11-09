@@ -1,4 +1,5 @@
 #include "STLayout.h"
+#include "Algo/Reverse.h"
 #include "Buildables/FGBuildableConveyorAttachment.h"
 #include "Buildables/FGBuildableRailroadStation.h"
 #include "Buildables/FGBuildableTrainPlatform.h"
@@ -132,6 +133,23 @@ AFGBuildableRailroadStation* STLayout::FindStation(const AFGBuildableTrainPlatfo
 		}
 	}
 	return nullptr;
+}
+
+FString STLayout::GetLayoutKey(const AFGTrain* Train)
+{
+	TArray<FString> Parts;
+	for (const AFGRailroadVehicle* Vehicle : GetVehicles(Train))
+	{
+		FString Name = GetNameSafe(Vehicle ? Vehicle->GetClass() : nullptr);
+		Name.RemoveFromStart(TEXT("BP_"));
+		Name.RemoveFromStart(TEXT("Build_"));
+		Name.RemoveFromEnd(TEXT("_C"));
+		Parts.Add(Name);
+	}
+	const FString Forward = FString::Join(Parts, TEXT("-"));
+	Algo::Reverse(Parts);
+	const FString Backward = FString::Join(Parts, TEXT("-"));
+	return Forward < Backward ? Forward : Backward;
 }
 
 float STLayout::GetTrainLength(const AFGTrain* Train)

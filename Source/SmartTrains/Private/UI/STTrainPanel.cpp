@@ -40,6 +40,14 @@ void USTTrainPanel::BuildContent(UVerticalBox* Root)
 	{
 		Send(static_cast<uint8>(bManaged ? ESTTrainAction::Unmanage : ESTTrainAction::Manage));
 	}, FMargin(0.f, 0.f, 0.f, 2.f));
+	mStay = MakeButton(Root, LOCTEXT("StayOff", "Stay in this service: off"), [this]()
+	{
+		Send(static_cast<uint8>(bStay ? ESTTrainAction::StayOff : ESTTrainAction::StayOn));
+	}, FMargin(0.f, 0.f, 0.f, 2.f));
+	mReserve = MakeButton(Root, LOCTEXT("ReserveOff", "Keep out of services: off"), [this]()
+	{
+		Send(static_cast<uint8>(bReserve ? ESTTrainAction::ReserveOff : ESTTrainAction::ReserveOn));
+	}, FMargin(0.f, 0.f, 0.f, 2.f));
 	mStatus = MakeText(Root, LOCTEXT("Loading", "Asking the server..."), 10);
 	mLines = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 4.f, 0.f, 0.f));
 }
@@ -137,6 +145,12 @@ void USTTrainPanel::Refresh(USTRemoteCallObject* RCO)
 	mStatus->SetText(FText::FromString(Status));
 	mManage->SetText(View->bManaged ? LOCTEXT("ManageOn", "Managed by SmartTrains: on") : LOCTEXT("ManageOff", "Managed by SmartTrains: off"));
 	mManage->SetIsEnabled(View->bManaged || View->CannotManage.IsEmpty());
+	bStay = View->bServiceStay;
+	bReserve = View->bServiceReserve;
+	mStay->SetText(bStay ? LOCTEXT("StayOn", "Stay in this service: on") : LOCTEXT("StayOff", "Stay in this service: off"));
+	mReserve->SetText(bReserve ? LOCTEXT("ReserveOn", "Keep out of services: on") : LOCTEXT("ReserveOff", "Keep out of services: off"));
+	mStay->SetVisibility(View->bManaged ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	mReserve->SetVisibility(View->bManaged ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	SetLines(mLines, View->Lines);
 	SetEditLocked(View->bManaged);
 }

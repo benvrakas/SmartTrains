@@ -29,6 +29,10 @@ namespace
 	constexpr double StopCostValue = 1.0;
 	// How far before and after a visit other trains' bookings count towards its stop cost. [s]
 	constexpr double StopNearSeconds = 120.0;
+	// What dumping a car load into a sink costs a train switching services: goods a consumer needs within the horizon,
+	// and goods none does. [car-load minutes]
+	constexpr double NeededDumpValue = 30.0;
+	constexpr double SurplusDumpValue = 0.5;
 	// A car loads an item only if it takes at least this share of a car of it.
 	constexpr double MinLoadShare = 0.05;
 	// Other trains' bookings count towards the queue limit only for arrivals this soon: later plans still change. [s]
@@ -291,6 +295,112 @@ TSharedRef<FJsonObject> FSTTripPlanner::DescribeForReplay() const
 	}
 	Train->SetObjectField(TEXT("carPlatforms"), Maps);
 	return Train;
+}
+
+void FSTTripPlanner::RaiseBudget(double Milliseconds)
+{
+	mDeadline = FMath::Max(mDeadline, FPlatformTime::Seconds() + Milliseconds / 1000.0);
+}
+
+TArray<double> FSTTripPlanner::AllocateServiceCars(const TArray<FSTPlanStop>& Stops, const TArray<FFlowRef>& Flows) const
+{
+	TArray<double> PerTrain;
+	PerTrain.Init(0.0, Flows.Num());
+	// Per flow: its pickup and drop positions in the loop, and the cars that line up at both.
+	struct FSpan
+	{
+		int32 Pick = INDEX_NONE;
+		int32 Drop = INDEX_NONE;
+		TArray<int32> Cars;
+	};
+	TArray<FSpan> Spans;
+	for (const FFlowRef& Flow : Flows)
+	{
+		FSpan& Span = Spans.AddDefaulted_GetRef();
+		Span.Pick = Stops.IndexOfByPredicate([&](const FSTPlanStop& Stop) { return Stop.Station == Flow.From; });
+		Span.Drop = Stops.IndexOfByPredicate([&](const FSTPlanStop& Stop) { return Stop.Station == Flow.To; });
+		if (Span.Pick == INDEX_NONE || Span.Drop == INDEX_NONE || Span.Pick >= Span.Drop || !Flow.Item)
+		{
+			continue;
+		}
+		UClass* Item = Flow.Item;
+		for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
+		{
+			const AFGFreightWagon* Wagon = mCars[CarIndex].Car;
+			if (Wagon && !STLayout::ItemFitsCargoType(Item, STLayout::GetCargoType(Wagon)))
+			{
+				continue;
+			}
+			if (CarFitsAt(CarIndex, Flow.From, [Item](const FPlatformInfo& Platform) { return Platform.bSupply && Platform.bLoadMode && Platform.Items.Contains(Item); })
+				&& CarFitsAt(CarIndex, Flow.To, [Item](const FPlatformInfo& Platform) { return Platform.bDemand && !Platform.bLoadMode && (Platform.bAnyItem || Platform.Items.Contains(Item)); }))
+			{
+				Span.Cars.Add(CarIndex);
+			}
+		}
+	}
+	// Each car's busy stretches of the loop, [pick, drop].
+	TArray<TArray<TPair<int32, int32>>> Busy;
+	Busy.SetNum(mCars.Num());
+	auto IsFree = [&](int32 CarIndex, const FSpan& Span)
+	{
+		return !Busy[CarIndex].ContainsByPredicate([&](const TPair<int32, int32>& Each) { return Span.Pick < Each.Value && Each.Key < Span.Drop; });
+	};
+	auto Give = [&](int32 FlowIndex, int32 CarIndex)
+	{
+		Busy[CarIndex].Add({Spans[FlowIndex].Pick, Spans[FlowIndex].Drop});
+		PerTrain[FlowIndex] += STLayout::GetCarCapacity(mCars[CarIndex].Car, Flows[FlowIndex].Item) * (mCars[CarIndex].Slots > 0 && !mCars[CarIndex].Car
+			? static_cast<double>(mCars[CarIndex].Slots) / 32.0 : 1.0);
+	};
+	// A car for every flow first, the flows with the fewest cars to choose from before the others.
+	TArray<int32> Order;
+	for (int32 Index = 0; Index < Flows.Num(); ++Index)
+	{
+		Order.Add(Index);
+	}
+	Order.Sort([&](int32 A, int32 B) { return Spans[A].Cars.Num() < Spans[B].Cars.Num(); });
+	for (const int32 FlowIndex : Order)
+	{
+		for (const int32 CarIndex : Spans[FlowIndex].Cars)
+		{
+			if (IsFree(CarIndex, Spans[FlowIndex]))
+			{
+				Give(FlowIndex, CarIndex);
+				break;
+			}
+		}
+	}
+	// Then the rest, each to the flow that needs the most trains per car it has.
+	for (bool bGave = true; bGave;)
+	{
+		bGave = false;
+		int32 BestFlow = INDEX_NONE;
+		int32 BestCar = INDEX_NONE;
+		double BestNeed = 0.0;
+		for (int32 FlowIndex = 0; FlowIndex < Flows.Num(); ++FlowIndex)
+		{
+			const double Need = Flows[FlowIndex].Flow / FMath::Max(1.0, PerTrain[FlowIndex]);
+			if (Need <= BestNeed)
+			{
+				continue;
+			}
+			for (const int32 CarIndex : Spans[FlowIndex].Cars)
+			{
+				if (IsFree(CarIndex, Spans[FlowIndex]))
+				{
+					BestFlow = FlowIndex;
+					BestCar = CarIndex;
+					BestNeed = Need;
+					break;
+				}
+			}
+		}
+		if (BestFlow != INDEX_NONE)
+		{
+			Give(BestFlow, BestCar);
+			bGave = true;
+		}
+	}
+	return PerTrain;
 }
 
 bool FSTTripPlanner::IsBookedNear(const AFGTrainStationIdentifier* Station, double Time, double Window, TFunctionRef<bool(int32)> Filter) const
@@ -628,7 +738,7 @@ void FSTTripPlanner::BuildMoves()
 					continue;
 				}
 				// A sink only takes what this car can't unload at any consumer of the item.
-				if (Consumer.bAnyItem && CarHasConsumer(CarIndex, Carried.Key))
+				if (Consumer.bAnyItem && !bSwitching && CarHasConsumer(CarIndex, Carried.Key))
 				{
 					continue;
 				}
@@ -781,7 +891,7 @@ FString FSTTripPlanner::TrainName() const
 	return Train ? STLayout::Name(Train) : FString(TEXT("replayed train"));
 }
 
-bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bInAnchorDocked)
+bool FSTTripPlanner::PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bInAnchorDocked)
 {
 	mTrainIndex = TrainIndex;
 	mMaxTripSeconds = FMath::Max(60.0, mSubsystem.mSettings.MaxTripMinutes * 60.0);
@@ -830,6 +940,15 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 	bRelaxed = bCarrying && State.UnwantedCargoSince > 0.0 && mTime - State.UnwantedCargoSince > mSubsystem.mSettings.LeftoverMinutes * 60.0;
 	mTrainLength = STLayout::GetTrainLength(Train);
 
+	return true;
+}
+
+bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bInAnchorDocked)
+{
+	if (!PrepareCars(TrainIndex, Anchor, FreeAt, bInAnchorDocked))
+	{
+		return false;
+	}
 	BuildMoves();
 	FTrainSetup& Setup = mSetups.FindOrAdd(TrainIndex);
 	Setup.Anchor = Anchor;
@@ -1310,6 +1429,13 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					const int32 Node = FindNode(Stop.Station, Item, false);
 					if (Node == INDEX_NONE)
 					{
+						continue;
+					}
+					if (mNodes[Node].bAnyItem && bSwitching)
+					{
+						// Dumped to switch services sooner: the cargo's value is lost, little for goods no consumer needs soon,
+						// a lot for goods one does (so those are delivered).
+						Result.Value -= CarShare(Item, Amount) * (mNeededSoon.Contains(Item) ? NeededDumpValue : SurplusDumpValue);
 						continue;
 					}
 					if (mNodes[Node].bAnyItem && CarHasConsumer(CarIndex, Item))

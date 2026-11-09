@@ -42,6 +42,9 @@ namespace STLayout
 	TArray<AFGRailroadVehicle*> GetVehicles(const AFGTrain* Train);
 	// Length of Train's vehicles together. [cm]
 	float GetTrainLength(const AFGTrain* Train);
+	// Train's car layout: its vehicle classes in order, read from whichever end gives the smaller text, so trains built
+	// the same way share it whichever way round they stand.
+	FString GetLayoutKey(const AFGTrain* Train);
 
 	// Vehicles behind Locomotive, nearest first: the vehicles that stand beside platforms 0, 1, 2... when it docks.
 	TArray<AFGRailroadVehicle*> GetVehiclesBehind(const AFGLocomotive* Locomotive);

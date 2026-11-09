@@ -157,6 +157,7 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 	{
 		return Lines;
 	}
+	Lines.Append(DescribePlatformServices(Platform));
 	if (mSettings.bObserveOnly)
 	{
 		Lines.Add(TEXT("Observe only is on (Mods menu): rates are measured, but no jobs are given."));
@@ -332,6 +333,12 @@ FSTTrainView ASTSubsystem::MakeTrainView(const AFGTrain* Train, int32 AppliedEdi
 	else if (STLayout::GetPossibleDockingLocomotives(Train).Num() == 0)
 	{
 		View.CannotManage = TEXT("it has no locomotive that can dock");
+	}
+	View.bServiceStay = State && State->bServiceStay;
+	View.bServiceReserve = State && State->bServiceReserve;
+	if (State && State->bManaged)
+	{
+		View.Lines.Add(DescribeServiceRole(*State));
 	}
 	if (!View.bManaged)
 	{

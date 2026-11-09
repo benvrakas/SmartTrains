@@ -54,15 +54,16 @@ Setting a role switches the platform to load (supply) or unload (demand).
 
 ## Services
 
-- `/st service`: lists the item services (their trains, spacing, what they need and their routes) and items with
-  service settings.
-- `/st service <item> pin`: keep a service train even when the flow plan needs less than one. `unpin` undoes it.
-- `/st service <item> pool`: never give the item a service; pool trains carry it.
-- `/st service <item> rhythm <minutes>`: at most one pickup of the service every that many minutes; `rhythm 0` takes
-  the spacing from the round trip again.
-- `/st service <item> add` / `remove`: the train you drive or look at may (or may no longer) run the service; with
-  any chosen, only they do. `clear` forgets the choice.
-- `/st service <item> auto`: back to automatic.
+- `/st service`: every service (its loop with what each stop loads and drops, trains, spacing, loop time) and the flows
+  no service covers, with why.
+- `/st service S3`: one service and what each of its trains is doing.
+- `/st service S3 lock` / `unlock`: no automatic changes to its loop (and it stays while its flows are gone).
+- `/st service S3 spacing <minutes>`: at most one train leaving its first stop every that many minutes; `0` for the
+  loop time divided over its trains.
+- `/st service S3 trains <least> <most>`: limits on its trains (`0` = automatic).
+- `/st service <item> dedicated`: that item's flows only run in loops of their own; `auto` undoes it.
+- `/st train stay on|off`: the train you drive or look at stays in its service.
+- `/st train reserve on|off`: keeps it out of services (it parks when idle).
 
 ## Snapshots
 
