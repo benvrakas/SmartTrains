@@ -206,7 +206,8 @@ namespace
 		TEXT("/st station [depot on|off]"),
 		TEXT("/st train [manage|unmanage] [keepvanilla on|off]"),
 		TEXT("/st snapshot   (the next dispatch round's planning inputs to a file in the server's Saved/SmartTrains/Snapshots, for replay tests; admin only)"),
-		TEXT("/st service   (item services) | /st service <item> pin|unpin|pool|auto|rhythm <minutes>|add|remove|clear   (add/remove: the train you drive or look at)"),
+		TEXT("/st service   (services) | /st service S3 [lock|unlock|spacing <minutes>|trains <least> <most>] | /st service <item> dedicated|auto"),
+		TEXT("/st train stay on|off   (stay in its service) | /st train reserve on|off   (keep out of services)"),
 		TEXT("/st job <item> from <station> to <station>   (a test job for the train you drive or look at)"),
 		TEXT("/st migrate   (opens the migration window)"),
 		TEXT("/st migrate preview [tracelimit 5000] [allitems] | apply all [confirm] | apply stations 1,2 trains 3 | undo"),
@@ -526,6 +527,10 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			{
 				Subsystem->SetTrainKeepVanilla(Train, IsOn(Arguments[++Index]), Who);
 			}
+			else if ((Word == TEXT("stay") || Word == TEXT("reserve")) && Index + 1 < Arguments.Num())
+			{
+				Subsystem->SetTrainServiceFlags(Train, Word == TEXT("stay"), IsOn(Arguments[++Index]), Who);
+			}
 		}
 		Send(Sender, Subsystem->DescribeTrain(Train));
 		return EExecutionStatus::COMPLETED;
@@ -542,10 +547,49 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		return EExecutionStatus::COMPLETED;
 	}
 
+	if (Verb == TEXT("service") && Arguments.Num() >= 2 && Arguments[1].Len() > 1 && (Arguments[1][0] == TEXT('S') || Arguments[1][0] == TEXT('s'))
+		&& Arguments[1].RightChop(1).IsNumeric())
+	{
+		const int32 Id = FCString::Atoi(*Arguments[1].RightChop(1));
+		if (Arguments.Num() >= 3)
+		{
+			if (!Allowed(Sender, *Subsystem, STAccess::EChange::Edit, TEXT("change service settings")))
+			{
+				return EExecutionStatus::UNCOMPLETED;
+			}
+			FString Result;
+			const bool bDone = Subsystem->SetServiceSettings(Id, Arguments[2].ToLower(), Arguments.Num() >= 4 ? FCString::Atof(*Arguments[3]) : 0.f,
+				Arguments.Num() >= 5 ? FCString::Atof(*Arguments[4]) : 0.f, Who, Result);
+			Sender->SendChatMessage(Result, bDone ? FLinearColor::White : FLinearColor::Red);
+			return EExecutionStatus::COMPLETED;
+		}
+		const FSTService* Service = Subsystem->FindService(Id);
+		if (!Service)
+		{
+			Sender->SendChatMessage(FString::Printf(TEXT("There is no service S%d."), Id), FLinearColor::Red);
+			return EExecutionStatus::UNCOMPLETED;
+		}
+		for (const FString& Line : Subsystem->DescribeServices())
+		{
+			if (Line.StartsWith(FString::Printf(TEXT("S%d "), Id)))
+			{
+				Sender->SendChatMessage(Line);
+			}
+		}
+		for (const TObjectPtr<AFGTrain>& Train : Service->Trains)
+		{
+			if (const FSTTrainState* State = Subsystem->FindTrainState(Train))
+			{
+				Sender->SendChatMessage(FString::Printf(TEXT("  %s: %s"), *STLayout::Name(Train), *Subsystem->DescribeServiceRole(*State)));
+			}
+		}
+		return EExecutionStatus::COMPLETED;
+	}
+
 	if (Verb == TEXT("service"))
 	{
 		// /st service <item words> <verb> [minutes]: the verb is the first known word after the item.
-		static const TArray<FString> Verbs = {TEXT("pin"), TEXT("unpin"), TEXT("pool"), TEXT("auto"), TEXT("rhythm"), TEXT("add"), TEXT("remove"), TEXT("clear")};
+		static const TArray<FString> Verbs = {TEXT("dedicated"), TEXT("auto")};
 		int32 VerbAt = INDEX_NONE;
 		for (int32 Index = 2; Index < Arguments.Num() && VerbAt == INDEX_NONE; ++Index)
 		{

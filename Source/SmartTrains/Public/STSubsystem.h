@@ -459,6 +459,16 @@ private:
 	void RunServices(FSTTripPlanner& Planner);
 	// A service train with no cycle now waits where it is.
 	void SettleServiceTrain(FSTTrainState& State, const TCHAR* Why);
+	// Trains a service gets: ceil(needed - slack), within its player limits.
+	int32 GetServiceTarget(const FSTService& Service) const;
+	// One line on what the train does for services (empty when not managed).
+	FString DescribeServiceRole(const FSTTrainState& State) const;
+	// Services serving Platform, or why none does; services calling at Station, its room to wait and its switch.
+	TArray<FString> DescribePlatformServices(const AFGBuildableTrainPlatformCargo* Platform) const;
+	TArray<FString> DescribeStationServices(const AFGTrainStationIdentifier* Station) const;
+	// Player settings: a train's Stay in this service (bStay) or Keep out of services; a service's lock, spacing, trains.
+	bool SetTrainServiceFlags(AFGTrain* Train, bool bStay, bool bOn, const FString& Cause);
+	bool SetServiceSettings(int32 Id, const FString& Verb, float First, float Second, const FString& Cause, FString& OutResult);
 
 	// Now() when the world was saved, so the clock carries on after loading instead of restarting at 0. [s]
 	UPROPERTY(SaveGame)

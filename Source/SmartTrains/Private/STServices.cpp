@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include "Algo/Sort.h"
+#include "Buildables/FGBuildableRailroadStation.h"
+#include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "FGFreightWagon.h"
 #include "FGTrain.h"
 #include "FGTrainStationIdentifier.h"
@@ -847,4 +849,191 @@ TArray<FString> ASTSubsystem::DescribeServices() const
 		Lines.Add(TEXT("No services yet: the flow plan has no flows a managed train can carry."));
 	}
 	return Lines;
+}
+
+int32 ASTSubsystem::GetServiceTarget(const FSTService& Service) const
+{
+	int32 Want = FMath::Max(1, FMath::CeilToInt(Service.Needed - ServiceTrainSlack));
+	Want = FMath::Max(Want, Service.MinTrains);
+	return Service.MaxTrains > 0 ? FMath::Min(Want, Service.MaxTrains) : Want;
+}
+
+FString ASTSubsystem::DescribeServiceRole(const FSTTrainState& State) const
+{
+	if (!State.bManaged)
+	{
+		return FString();
+	}
+	if (State.bServiceReserve)
+	{
+		return TEXT("Kept out of services (parked when idle).");
+	}
+	const FSTService* Service = FindService(State.ServiceId);
+	if (!Service)
+	{
+		const FString Layout = STLayout::GetLayoutKey(State.Train);
+		const bool bAnyOfLayout = mNetworkServices.ContainsByPredicate([&](const FSTService& Each) { return Each.Layout == Layout; });
+		return bAnyOfLayout ? FString(TEXT("No service: the services of its car layout have the trains they need.")) :
+			FString::Printf(TEXT("No service: none runs on its car layout (%s)."), *Layout);
+	}
+	const int32 Position = Service->Trains.IndexOfByKey(State.Train);
+	const int32 Target = GetServiceTarget(*Service);
+	FString Role = Position != INDEX_NONE && Position < Target ? FString::Printf(TEXT("Train %d of %d in %s"), Position + 1, Service->Trains.Num(), *DescribeService(*Service))
+		: FString::Printf(TEXT("Spare in %s"), *DescribeService(*Service));
+	if (State.bHasJob && State.Job.ServiceId == 0 && !State.Job.bPark)
+	{
+		Role += TEXT(", clearing cargo that isn't the service's first");
+	}
+	else if (!State.bHasJob)
+	{
+		Role += TEXT(", waiting for its next cycle");
+	}
+	return Role + FString::Printf(TEXT(" (one every %.1f min%s)."), GetServiceSpacing(*Service) / 60.0, State.bServiceStay ? TEXT(", stays in this service") : TEXT(""));
+}
+
+TArray<FString> ASTSubsystem::DescribePlatformServices(const AFGBuildableTrainPlatformCargo* Platform) const
+{
+	TArray<FString> Lines;
+	const AFGTrainStationIdentifier* Station = STLayout::GetIdentifier(STLayout::FindStation(Platform));
+	const FSTPlatformConfig* Config = FindPlatformConfig(Platform);
+	if (!Station || !Config || Config->Role == ESTRole::Off || Config->Role == ESTRole::Sink)
+	{
+		return Lines;
+	}
+	for (const FSTService& Service : mNetworkServices)
+	{
+		for (const FSTServiceFlow& Flow : Service.Flows)
+		{
+			const bool bHere = Config->Role == ESTRole::Supply ? Flow.From.Get() == Station : Flow.To.Get() == Station;
+			if (bHere && Config->Items.ContainsByPredicate([&](const FSTItemRule& Rule) { return Rule.Item == Flow.Item; }))
+			{
+				Lines.AddUnique(FString::Printf(TEXT("Served by %s: %s, a train every %.1f min."), *DescribeService(Service), *STNames::Item(Flow.Item),
+					GetServiceSpacing(Service) / 60.0));
+			}
+		}
+	}
+	if (Lines.Num() == 0)
+	{
+		const FString Name = STLayout::Name(Station);
+		for (const FString& Uncovered : mServiceUncovered)
+		{
+			if (Uncovered.Contains(Name))
+			{
+				Lines.Add(TEXT("Not served: ") + Uncovered);
+			}
+		}
+		if (Lines.Num() == 0)
+		{
+			Lines.Add(TEXT("Not served by a service yet: the flow plan has no flow for it now (nothing short, nothing to fetch, or no reachable partner)."));
+		}
+	}
+	return Lines;
+}
+
+TArray<FString> ASTSubsystem::DescribeStationServices(const AFGTrainStationIdentifier* Station) const
+{
+	TArray<FString> Lines;
+	for (const FSTService& Service : mNetworkServices)
+	{
+		const int32 Stop = Service.Stops.IndexOfByPredicate([Station](const FSTServiceStop& Each) { return Each.Station.Get() == Station; });
+		if (Stop == INDEX_NONE)
+		{
+			continue;
+		}
+		TArray<FString> Moves;
+		for (const TSubclassOf<UFGItemDescriptor>& Item : Service.Stops[Stop].LoadItems)
+		{
+			Moves.Add(TEXT("loads ") + STNames::Item(Item));
+		}
+		for (const TSubclassOf<UFGItemDescriptor>& Item : Service.Stops[Stop].UnloadItems)
+		{
+			Moves.Add(TEXT("drops ") + STNames::Item(Item));
+		}
+		Lines.Add(FString::Printf(TEXT("%s %s here, %.1f trains an hour."), *DescribeService(Service), *FString::Join(Moves, TEXT(", ")),
+			GetServiceSpacing(Service) > 0.0 ? 3600.0 / GetServiceSpacing(Service) : 0.0));
+	}
+	const AFGTrain* Any = mTrains.Num() > 0 ? mTrains[0].Train.Get() : nullptr;
+	const int32 Room = GetWaitingRoom(Station, STLayout::GetTrainLength(Any));
+	if (Room >= 0)
+	{
+		Lines.Add(FString::Printf(TEXT("Room to wait before its switch: %d train%s (of %s's length)."), Room, Room == 1 ? TEXT("") : TEXT("s"), *STLayout::Name(Any)));
+	}
+	if (const void* Junction = GetJunction(Station))
+	{
+		TArray<FString> Shared;
+		for (const FSTStationConfig& Each : mStations)
+		{
+			if (Each.Station && Each.Station.Get() != Station && GetJunction(Each.Station) == Junction)
+			{
+				Shared.Add(STLayout::Name(Each.Station.Get()));
+			}
+		}
+		for (const FSTPlatformConfig& Each : mPlatforms)
+		{
+			const AFGTrainStationIdentifier* Other = STLayout::GetIdentifier(STLayout::FindStation(Each.Platform));
+			if (Other && Other != Station && GetJunction(Other) == Junction)
+			{
+				Shared.AddUnique(STLayout::Name(Other));
+			}
+		}
+		if (Shared.Num() > 0)
+		{
+			Lines.Add(TEXT("Shares its way-in switch with: ") + FString::Join(Shared, TEXT(", ")) + TEXT("."));
+		}
+	}
+	if (IsDeadEnd(Station))
+	{
+		Lines.Add(TEXT("A dead end: trains leave the way they came."));
+	}
+	return Lines;
+}
+
+bool ASTSubsystem::SetTrainServiceFlags(AFGTrain* Train, bool bStay, bool bOn, const FString& Cause)
+{
+	FSTTrainState* State = FindTrainState(Train);
+	if (!State)
+	{
+		return false;
+	}
+	(bStay ? State->bServiceStay : State->bServiceReserve) = bOn;
+	UE_LOG(LogSmartTrains, Log, TEXT("SERVICE %s: %s %s (%s)"), *STLayout::Name(Train), bStay ? TEXT("stay in its service") : TEXT("kept out of services"),
+		bOn ? TEXT("on") : TEXT("off"), *Cause);
+	PlanFlows();
+	return true;
+}
+
+bool ASTSubsystem::SetServiceSettings(int32 Id, const FString& Verb, float First, float Second, const FString& Cause, FString& OutResult)
+{
+	FSTService* Service = FindService(Id);
+	if (!Service)
+	{
+		OutResult = FString::Printf(TEXT("There is no service S%d (/st service lists them)."), Id);
+		return false;
+	}
+	if (Verb == TEXT("lock") || Verb == TEXT("unlock"))
+	{
+		Service->bLocked = Verb == TEXT("lock");
+		OutResult = Service->bLocked ? TEXT("Its stops won't change by themselves, and it stays while its flows are gone.") : TEXT("It changes with the flow plan again.");
+	}
+	else if (Verb == TEXT("spacing"))
+	{
+		Service->SpacingMinutes = FMath::Clamp(First, 0.f, 240.f);
+		OutResult = Service->SpacingMinutes > 0.f ? FString::Printf(TEXT("A train leaves its first stop at most every %.1f min."), Service->SpacingMinutes)
+			: FString(TEXT("Its spacing is its loop divided over its trains again."));
+	}
+	else if (Verb == TEXT("trains"))
+	{
+		Service->MinTrains = FMath::Clamp(FMath::RoundToInt(First), 0, 50);
+		Service->MaxTrains = FMath::Clamp(FMath::RoundToInt(Second), 0, 50);
+		OutResult = FString::Printf(TEXT("Trains: at least %d, at most %s."), Service->MinTrains, Service->MaxTrains > 0 ? *FString::FromInt(Service->MaxTrains) : TEXT("as many as it needs"));
+	}
+	else
+	{
+		OutResult = TEXT("Use lock, unlock, spacing <minutes> or trains <least> <most>.");
+		return false;
+	}
+	OutResult = DescribeService(*Service) + TEXT(": ") + OutResult;
+	UE_LOG(LogSmartTrains, Log, TEXT("SERVICE %s (%s)"), *OutResult, *Cause);
+	PlanFlows();
+	return true;
 }

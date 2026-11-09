@@ -38,6 +38,12 @@ private:
 	TObjectPtr<USTButton> mManage;
 
 	UPROPERTY()
+	TObjectPtr<USTButton> mStay;
+
+	UPROPERTY()
+	TObjectPtr<USTButton> mReserve;
+
+	UPROPERTY()
 	TObjectPtr<UTextBlock> mStatus;
 
 	UPROPERTY()
@@ -46,4 +52,6 @@ private:
 	TWeakObjectPtr<UWidget> mEditButton;
 	bool bEditLocked = false;
 	bool bManaged = false;
+	bool bStay = false;
+	bool bReserve = false;
 };

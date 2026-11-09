@@ -2918,6 +2918,11 @@ bool ASTSubsystem::SetService(UClass* Item, const FString& Verb, float Minutes, 
 		}
 		OutResult = FString::Printf(TEXT("%s's service may use %d chosen trains%s."), *Name, Config->Trains.Num(), Config->Trains.Num() == 0 ? TEXT(" (none: any that fit)") : TEXT(""));
 	}
+	else if (Verb == TEXT("dedicated"))
+	{
+		Config->bDedicated = true;
+		OutResult = FString::Printf(TEXT("%s only runs in loops of its own, never merged with other items' loops."), *Name);
+	}
 	else if (Verb == TEXT("clear"))
 	{
 		Config->Trains.Reset();
@@ -2925,7 +2930,7 @@ bool ASTSubsystem::SetService(UClass* Item, const FString& Verb, float Minutes, 
 	}
 	else
 	{
-		OutResult = TEXT("Use pin, unpin, pool, auto, rhythm <minutes>, add, remove or clear (add and remove: the train you drive or look at).");
+		OutResult = TEXT("Use dedicated or auto.");
 		return false;
 	}
 	mServiceConfigs.RemoveAll([](const FSTServiceConfig& Each) { return !Each.Item || Each.IsDefault(); });

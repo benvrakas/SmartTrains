@@ -1359,6 +1359,7 @@ TArray<FString> ASTSubsystem::DescribeStation(const AFGTrainStationIdentifier* S
 	const AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
 	const FSTStationConfig* Config = mStations.FindByPredicate([Station](const FSTStationConfig& Each) { return Each.Station == Station; });
 	Lines.Add(FString::Printf(TEXT("Station %s%s"), *STLayout::Name(Station), Config && Config->bDepot ? TEXT(" (depot)") : TEXT("")));
+	Lines.Append(DescribeStationServices(Station));
 	FString Layout;
 	for (const AFGBuildableTrainPlatform* Platform : STLayout::GetPlatforms(Building))
 	{
@@ -1392,6 +1393,10 @@ TArray<FString> ASTSubsystem::DescribeTrain(const AFGTrain* Train) const
 	Lines.Add(FString::Printf(TEXT("%s [%s]: %s%s%s"), *STLayout::Name(Train), *Consist,
 		State && State->bManaged ? TEXT("managed, ") : TEXT("not managed"), State && State->bManaged ? STNames::Phase(State->Phase) : TEXT(""),
 		State && State->bKeepVanilla ? TEXT(", keep vanilla") : TEXT("")));
+	if (State && State->bManaged)
+	{
+		Lines.Add(DescribeServiceRole(*State));
+	}
 	if (State && State->bHasJob)
 	{
 		Lines.Add(FString::Printf(TEXT("  Job %d: %s (leg %d of %d)"), State->Job.Id, *State->Job.Summary, State->Job.Leg + 1, State->Job.Legs.Num()));
