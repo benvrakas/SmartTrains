@@ -291,54 +291,71 @@ namespace
 		return true;
 	}
 
-	// Sets Proposal's platforms and (bRename) the station's name; returns one line per change.
-	TArray<FString> ApplySetupProposal(ASTSubsystem& Subsystem, const STMigration::FStationProposal& Proposal, bool bRename, const FString& Cause)
-	{
-		TArray<FString> Done;
-		AFGTrainStationIdentifier* Station = Proposal.Station.Get();
-		for (const STMigration::FPlatformProposal& Platform : Proposal.Platforms)
-		{
-			AFGBuildableTrainPlatformCargo* Cargo = Platform.Platform.Get();
-			if (!Cargo || !Platform.bCargo)
-			{
-				continue;
-			}
-			if (Platform.Role != ESTRole::Off && Platform.Items.Num() == 0)
-			{
-				UE_LOG(LogSmartTrains, Log, TEXT("SETUP %s P%d: no item found, left as %s"), *STLayout::Name(Station), Platform.Index + 1, *SetupSettingsOf(Subsystem, Cargo));
-				continue;
-			}
-			if (SetupIsSetTo(Subsystem, Cargo, Platform.Role, Platform.Items))
-			{
-				Subsystem.SetPlatformMachines(Cargo, Platform.Machines);
-				continue;
-			}
-			TArray<FSTItemRule> Rules;
-			for (const TSubclassOf<UFGItemDescriptor>& Item : Platform.Items)
-			{
-				Rules.AddDefaulted_GetRef().Item = Item;
-			}
-			const FString Before = SetupSettingsOf(Subsystem, Cargo);
-			Subsystem.SetPlatformConfig(Cargo, Platform.Role, Rules, Cause + TEXT(" (station set-up)"));
-			Subsystem.SetPlatformMachines(Cargo, Platform.Machines);
-			const FString After = SetupSettingsOf(Subsystem, Cargo);
-			Done.Add(FString::Printf(TEXT("P%d: %s -> %s"), Platform.Index + 1, *Before, *After));
-			UE_LOG(LogSmartTrains, Log, TEXT("SETUP %s P%d: %s -> %s (%s)"), *STLayout::Name(Station), Platform.Index + 1, *Before, *After, *Platform.Evidence);
-		}
-		const FString Old = StationNameOf(Station);
-		if (bRename && Station && !Proposal.NewName.IsEmpty() && Proposal.NewName != Old)
-		{
-			Station->SetStationName(FText::FromString(Proposal.NewName));
-			Done.Add(FString::Printf(TEXT("Renamed %s -> %s"), *Old, *Proposal.NewName));
-			UE_LOG(LogSmartTrains, Log, TEXT("SETUP renamed %s -> %s (%s; %s)"), *Old, *Proposal.NewName, *Proposal.NameNote, *Cause);
-		}
-		return Done;
-	}
-
 	FString SetupCsv(const FString& Text)
 	{
 		return TEXT("\"") + Text.Replace(TEXT("\""), TEXT("\"\"")) + TEXT("\"");
 	}
+}
+
+TArray<FString> STSetup::ApplyProposal(ASTSubsystem& Subsystem, const STMigration::FStationProposal& Proposal, bool bRename, const FString& Cause,
+	FSTMigrationUndo* Undo)
+{
+	TArray<FString> Done;
+	AFGTrainStationIdentifier* Station = Proposal.Station.Get();
+	for (const STMigration::FPlatformProposal& Platform : Proposal.Platforms)
+	{
+		AFGBuildableTrainPlatformCargo* Cargo = Platform.Platform.Get();
+		if (!Cargo || !Platform.bCargo)
+		{
+			continue;
+		}
+		if (Platform.Role != ESTRole::Off && Platform.Items.Num() == 0)
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("SETUP %s P%d: no item found, left as %s"), *STLayout::Name(Station), Platform.Index + 1, *SetupSettingsOf(Subsystem, Cargo));
+			continue;
+		}
+		if (SetupIsSetTo(Subsystem, Cargo, Platform.Role, Platform.Items))
+		{
+			Subsystem.SetPlatformMachines(Cargo, Platform.Machines);
+			continue;
+		}
+		if (Undo)
+		{
+			FSTPlatformConfig Before;
+			if (const FSTPlatformConfig* Existing = Subsystem.FindPlatformConfig(Cargo))
+			{
+				Before = *Existing;
+			}
+			Before.Platform = Cargo;
+			Before.bOriginalLoadMode = Cargo->GetIsInLoadMode();
+			Before.bHasOriginalLoadMode = true;
+			Undo->Platforms.Add(Before);
+		}
+		TArray<FSTItemRule> Rules;
+		for (const TSubclassOf<UFGItemDescriptor>& Item : Platform.Items)
+		{
+			Rules.AddDefaulted_GetRef().Item = Item;
+		}
+		const FString Before = SetupSettingsOf(Subsystem, Cargo);
+		Subsystem.SetPlatformConfig(Cargo, Platform.Role, Rules, Cause + TEXT(" (station set-up)"));
+		Subsystem.SetPlatformMachines(Cargo, Platform.Machines);
+		const FString After = SetupSettingsOf(Subsystem, Cargo);
+		Done.Add(FString::Printf(TEXT("P%d: %s -> %s"), Platform.Index + 1, *Before, *After));
+		UE_LOG(LogSmartTrains, Log, TEXT("SETUP %s P%d: %s -> %s (%s)"), *STLayout::Name(Station), Platform.Index + 1, *Before, *After, *Platform.Evidence);
+	}
+	const FString Old = StationNameOf(Station);
+	if (bRename && Station && !Proposal.NewName.IsEmpty() && Proposal.NewName != Old)
+	{
+		if (Undo)
+		{
+			Undo->RenamedStations.Add(Station);
+			Undo->OldNames.Add(Old);
+		}
+		Station->SetStationName(FText::FromString(Proposal.NewName));
+		Done.Add(FString::Printf(TEXT("Renamed %s -> %s"), *Old, *Proposal.NewName));
+		UE_LOG(LogSmartTrains, Log, TEXT("SETUP renamed %s -> %s (%s; %s)"), *Old, *Proposal.NewName, *Proposal.NameNote, *Cause);
+	}
+	return Done;
 }
 
 //~ Platforms
@@ -1217,7 +1234,7 @@ TArray<FString> ASTSubsystem::SetUpStation(AFGTrainStationIdentifier* Station, b
 		{
 			Proposal.Platforms.Reset();
 		}
-		const TArray<FString> Done = ApplySetupProposal(*this, Proposal, bRename, Cause);
+		const TArray<FString> Done = STSetup::ApplyProposal(*this, Proposal, bRename, Cause);
 		Lines.Reset();
 		Lines.Add(Done.Num() > 0 ? FString::Printf(TEXT("Done: %d change%s."), Done.Num(), Done.Num() == 1 ? TEXT("") : TEXT("s")) : FString(TEXT("Nothing to change.")));
 		Lines.Append(Done);
@@ -1248,7 +1265,7 @@ FString ASTSubsystem::AutodetectPlatform(AFGBuildableTrainPlatformCargo* Platfor
 	}
 	const STMigration::FPlatformProposal Kept = *Own;
 	Proposal.Platforms = {Kept};
-	const TArray<FString> Done = ApplySetupProposal(*this, Proposal, false, Cause);
+	const TArray<FString> Done = STSetup::ApplyProposal(*this, Proposal, false, Cause);
 	TArray<FString> Items;
 	for (const TSubclassOf<UFGItemDescriptor>& Item : Kept.Items)
 	{
@@ -1352,7 +1369,7 @@ bool ASTSubsystem::StepSetupAll(double BudgetMs)
 		Job->Renamed += !Proposal.NewName.IsEmpty() && Proposal.NewName != Old ? 1 : 0;
 		if (Job->bApply)
 		{
-			Job->Changes += ApplySetupProposal(*this, Proposal, Job->bRename, Job->Cause).Num();
+			Job->Changes += STSetup::ApplyProposal(*this, Proposal, Job->bRename, Job->Cause).Num();
 		}
 	}
 	if (Job->Next < Job->Stations.Num())

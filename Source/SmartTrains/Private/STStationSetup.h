@@ -38,6 +38,11 @@ namespace STSetup
 	// fills), until other train platforms.
 	FFactory AnalyzeFactory(const ASTSubsystem& Subsystem, const STMigration::FStationProposal& Proposal);
 
+	// Sets Proposal's platforms (and with bRename the station's name), recording what was there in Undo if given.
+	// Platforms already set the same keep their settings (only their machines are kept again). Returns one line per change.
+	TArray<FString> ApplyProposal(ASTSubsystem& Subsystem, const STMigration::FStationProposal& Proposal, bool bRename, const FString& Cause,
+		FSTMigrationUndo* Undo = nullptr);
+
 	// Fills Proposal.NewName and NameNote. Taken: names of other stations (and names given earlier in the same run);
 	// the new name is added to it.
 	void NameStation(const ASTSubsystem& Subsystem, STMigration::FStationProposal& Proposal, TSet<FString>& Taken);

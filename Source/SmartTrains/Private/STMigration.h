@@ -57,7 +57,6 @@ namespace STMigration
 	struct FTrainProposal
 	{
 		TWeakObjectPtr<AFGTrain> Train;
-		bool bPullBased = false;
 		bool bPreselected = false;
 		FString Route;
 		FString Note;
@@ -69,7 +68,6 @@ namespace STMigration
 	{
 		TArray<FStationProposal> Stations;
 		TArray<FTrainProposal> Trains;
-		bool bDttRead = false;
 		FString DttNote;
 		FString CsvPath;
 		double MadeAt = 0.0;
@@ -86,19 +84,12 @@ namespace STMigration
 	// True while the last preview's station names are still being worked out.
 	bool IsNaming(UWorld* World);
 
-	// Gathers the evidence and builds a preview; writes the CSV report and returns chat lines.
-	// TraceLimit: buildings and belt segments each platform's connection trace may visit.
-	// bOneItem: each platform gets one item, so a machine with several inputs isn't flooded with one of them.
-	TArray<FString> Preview(ASTSubsystem* Subsystem, UWorld* World, int32 TraceLimit = STTrace::DefaultLimit, bool bOneItem = true);
-
-	// False if the words contain "allitems".
-	bool ParseOneItem(const TArray<FString>& Words);
-
-	// Reads "tracelimit <n>" from command words; Default when absent.
-	int32 ParseTraceLimit(const TArray<FString>& Words, int32 Default = STTrace::DefaultLimit);
+	// Builds a preview: every station's platforms from what is attached (STSetup::ProposeStation) and every train that
+	// isn't managed yet; writes the CSV report and returns chat lines. Station names follow (StepNaming).
+	TArray<FString> Preview(ASTSubsystem* Subsystem, UWorld* World);
 
 	// Applies the last preview. Selection: "all" (unflagged stations and preselected trains), or "stations 1,2" and/or
-	// "trains 3,4" (numbers from the preview). Returns chat lines.
+	// "trains 3,4" (numbers from the preview); "rename" also renames the stations. Returns chat lines.
 	TArray<FString> Apply(ASTSubsystem* Subsystem, UWorld* World, const TArray<FString>& Selection, const FString& Cause);
 
 	// Puts back what the last apply changed. Returns chat lines.
@@ -107,11 +98,6 @@ namespace STMigration
 	// The migration window's rows from the last preview, and whether applying or undoing is possible.
 	FSTMigrationView MakeView(ASTSubsystem* Subsystem, UWorld* World);
 
-	// Sets a platform of the last preview by hand. Station is the preview's station number, Platform the platform's
-	// number in its station (both from 1). The setting is kept for later previews until its station is applied.
-	// Returns false with OutMessage saying why if it can't be set.
-	bool SetPlatform(UWorld* World, int32 Station, int32 Platform, ESTRole Role, const TArray<TSubclassOf<UFGItemDescriptor>>& Items, const FString& Who,
-		FString& OutMessage);
 }
 
 // Save copies for testing (Docs/Commands.md, "Beta tools").

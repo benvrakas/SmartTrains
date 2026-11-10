@@ -24,44 +24,6 @@ namespace
 {
 	TMap<TWeakObjectPtr<UWorld>, STMigration::FPreview> GPreviews;
 
-	// A platform set by hand in the migration window.
-	struct FHandSetting
-	{
-		ESTRole Role = ESTRole::Off;
-		TArray<TSubclassOf<UFGItemDescriptor>> Items;
-		FString Who;
-	};
-	TMap<TWeakObjectPtr<UWorld>, TMap<TWeakObjectPtr<AFGBuildableTrainPlatformCargo>, FHandSetting>> GHandSettings;
-
-	const TCHAR* ByHand = TEXT("by hand");
-
-	void UseHandSetting(STMigration::FPlatformProposal& Platform, const FHandSetting& Setting)
-	{
-		Platform.Role = Setting.Role;
-		Platform.Items = Setting.Role == ESTRole::Off ? TArray<TSubclassOf<UFGItemDescriptor>>() : Setting.Items;
-		Platform.Confidence = ByHand;
-		Platform.Note = FString::Printf(TEXT("set by hand (%s)"), *Setting.Who);
-		Platform.Conflict = Platform.Role != ESTRole::Off && Platform.Items.Num() == 0 ? FString(TEXT("no item chosen")) : FString();
-	}
-
-	// After a platform changed: a station flagged for a platform's problem takes the next platform's problem, or none.
-	void UpdatePlatformFlag(STMigration::FStationProposal& Station)
-	{
-		if (!Station.Flag.IsEmpty() && !Station.Flag.StartsWith(TEXT("platform ")))
-		{
-			return;
-		}
-		Station.Flag.Reset();
-		for (const STMigration::FPlatformProposal& Platform : Station.Platforms)
-		{
-			if (!Platform.Conflict.IsEmpty())
-			{
-				Station.Flag = FString::Printf(TEXT("platform %d: %s"), Platform.Index + 1, *Platform.Conflict);
-				return;
-			}
-		}
-	}
-
 	FString ItemList(const TArray<TSubclassOf<UFGItemDescriptor>>& Items)
 	{
 		FString Text;
@@ -146,125 +108,6 @@ namespace
 			}
 		}
 		return Numbers;
-	}
-}
-
-namespace
-{
-	const TCHAR* NoItemConflict = TEXT("no item found: the trace reached no machine, and it is empty and no timetable names one");
-
-	// Route inference: a platform the other evidence left without items gets the items that trains stopping there
-	// carry from or to the other stations on their timetables (loads elsewhere for a demand platform, deliveries
-	// elsewhere for a supply platform). Repeats while it fills platforms, so items carry along chains of routes.
-	void InferFromRoutes(STMigration::FPreview& Preview, bool bOneItem)
-	{
-		TMap<const AFGTrainStationIdentifier*, int32> StationIndex;
-		for (int32 Index = 0; Index < Preview.Stations.Num(); ++Index)
-		{
-			StationIndex.Add(Preview.Stations[Index].Station.Get(), Index);
-		}
-		int32 Filled = 0;
-		for (int32 Pass = 0; Pass < 4; ++Pass)
-		{
-			int32 FilledThisPass = 0;
-			for (const STMigration::FTrainProposal& Train : Preview.Trains)
-			{
-				// What the route's other stations supply and take, counted by platforms.
-				TMap<UClass*, int32> Loaded;
-				TMap<UClass*, int32> Delivered;
-				for (const TWeakObjectPtr<AFGTrainStationIdentifier>& Stop : Train.Stops)
-				{
-					const int32* Index = StationIndex.Find(Stop.Get());
-					if (!Index)
-					{
-						continue;
-					}
-					for (const STMigration::FPlatformProposal& Platform : Preview.Stations[*Index].Platforms)
-					{
-						for (const TSubclassOf<UFGItemDescriptor>& Item : Platform.Items)
-						{
-							if (Platform.Role == ESTRole::Supply)
-							{
-								++Loaded.FindOrAdd(Item.Get());
-							}
-							else if (Platform.Role == ESTRole::Demand)
-							{
-								++Delivered.FindOrAdd(Item.Get());
-							}
-						}
-					}
-				}
-				for (const TWeakObjectPtr<AFGTrainStationIdentifier>& Stop : Train.Stops)
-				{
-					const int32* Index = StationIndex.Find(Stop.Get());
-					if (!Index)
-					{
-						continue;
-					}
-					for (STMigration::FPlatformProposal& Platform : Preview.Stations[*Index].Platforms)
-					{
-						if (Platform.Role == ESTRole::Off || Platform.Items.Num() > 0 || Platform.Conflict != NoItemConflict || !Platform.Platform.IsValid())
-						{
-							continue;
-						}
-						const EFreightCargoType CargoType = STLayout::GetPlatformCargoType(Platform.Platform.Get());
-						TArray<TPair<UClass*, int32>> Candidates;
-						for (const TPair<UClass*, int32>& Each : Platform.Role == ESTRole::Demand ? Loaded : Delivered)
-						{
-							if (STLayout::ItemFitsCargoType(Each.Key, CargoType))
-							{
-								Candidates.Emplace(Each.Key, Each.Value);
-							}
-						}
-						if (Candidates.Num() == 0)
-						{
-							continue;
-						}
-						Candidates.Sort([](const TPair<UClass*, int32>& A, const TPair<UClass*, int32>& B) { return A.Value > B.Value; });
-						const int32 Take = bOneItem ? 1 : Candidates.Num();
-						for (int32 Each = 0; Each < Take; ++Each)
-						{
-							Platform.Items.Add(Candidates[Each].Key);
-						}
-						Platform.Conflict.Reset();
-						Platform.Confidence = TEXT("medium");
-						Platform.Note = FString::Printf(TEXT("inferred from %s's route (%s)%s"), *STLayout::Name(Train.Train.Get()), *Train.Route,
-							bOneItem && Candidates.Num() > 1 ? TEXT("; one item per platform: the one most platforms on the route move, check it") : TEXT(""));
-						Platform.Evidence += TEXT(", route inference");
-						UE_LOG(LogSmartTrains, Verbose, TEXT("MIGRATION route inference: %s platform %d gets %s from %s"), *STLayout::Name(Preview.Stations[*Index].Station.Get()),
-							Platform.Index + 1, *STNames::Item(Platform.Items[0]), *STLayout::Name(Train.Train.Get()));
-						++FilledThisPass;
-					}
-				}
-			}
-			Filled += FilledThisPass;
-			if (FilledThisPass == 0)
-			{
-				break;
-			}
-		}
-		if (Filled == 0)
-		{
-			return;
-		}
-		// Flags that came from a platform conflict are worked out again.
-		for (STMigration::FStationProposal& Station : Preview.Stations)
-		{
-			if (!Station.Flag.StartsWith(TEXT("platform ")))
-			{
-				continue;
-			}
-			Station.Flag.Reset();
-			for (const STMigration::FPlatformProposal& Platform : Station.Platforms)
-			{
-				if (!Platform.Conflict.IsEmpty())
-				{
-					Station.Flag = FString::Printf(TEXT("platform %d: %s"), Platform.Index + 1, *Platform.Conflict);
-					break;
-				}
-			}
-		}
-		UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION route inference filled %d platforms"), Filled);
 	}
 }
 
@@ -501,7 +344,7 @@ bool STMigration::StepNaming(ASTSubsystem* Subsystem, UWorld* World, double Budg
 	return true;
 }
 
-TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int32 TraceLimit, bool bOneItem)
+TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World)
 {
 	TArray<FString> Lines;
 	AFGRailroadSubsystem* Railroad = World ? AFGRailroadSubsystem::Get(World) : nullptr;
@@ -512,83 +355,39 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 	}
 	FPreview Preview;
 	Preview.MadeAt = World->GetTimeSeconds();
+	Preview.DttNote = STDtt::IsInstalled(World)
+		? TEXT("DynamicTimeTable is installed: it rewrites managed trains' timetables, so uninstall it before managing trains")
+		: TEXT("every train that can dock is ticked to join the managed pool; untick any you want to keep on its own timetable");
 
-	// DynamicTimeTable groups tell pull-based trains from dedicated ones.
-	TSet<const AFGTrainStationIdentifier*> GroupMembers;
-	TMap<const AFGTrainStationIdentifier*, FString> GroupOf;
-	if (STDtt::IsInstalled(World))
-	{
-		TArray<STDtt::FGroup> Groups;
-		FString Error;
-		Preview.bDttRead = STDtt::ReadGroups(World, Groups, Error);
-		Preview.DttNote = Preview.bDttRead ? FString::Printf(TEXT("%d DynamicTimeTable groups"), Groups.Num()) : TEXT("DynamicTimeTable installed but unreadable: ") + Error;
-		for (const STDtt::FGroup& Group : Groups)
-		{
-			for (const AFGTrainStationIdentifier* Station : Group.Stations)
-			{
-				GroupMembers.Add(Station);
-				GroupOf.Add(Station, Group.Name);
-			}
-		}
-	}
-	else
-	{
-		Preview.DttNote = TEXT("DynamicTimeTable not installed: every train that can dock is ticked to join the managed pool; untick any you want to keep on its own timetable");
-	}
-
+	// Trains: every one with a timetable that isn't managed yet, ticked when it can dock and isn't kept vanilla.
 	TArray<AFGTrain*> Trains;
 	Railroad->GetAllTrains(Trains);
 	TMap<const AFGTrainStationIdentifier*, TArray<int32>> UsersOf;
-	TMap<const AFGTrainStationIdentifier*, TSet<UClass*>> LoadItemsAt;
-	TMap<const AFGTrainStationIdentifier*, TSet<UClass*>> UnloadItemsAt;
 	for (AFGTrain* Train : Trains)
 	{
 		AFGRailroadTimeTable* TimeTable = Train ? Train->GetTimeTable() : nullptr;
-		if (!TimeTable)
-		{
-			continue;
-		}
 		const FSTTrainState* State = Subsystem->FindTrainState(Train);
-		if (State && State->bManaged)
+		if (!TimeTable || (State && State->bManaged))
 		{
 			continue;
 		}
 		TArray<FTimeTableStop> Stops;
 		TimeTable->GetStops(Stops);
+		if (Stops.Num() == 0)
+		{
+			continue;
+		}
 		FTrainProposal Proposal;
 		Proposal.Train = Train;
 		for (const FTimeTableStop& Stop : Stops)
 		{
 			Proposal.Route += (Proposal.Route.IsEmpty() ? TEXT("") : TEXT(" > ")) + STLayout::Name(Stop.Station);
 			Proposal.Stops.Add(Stop.Station);
-			Proposal.bPullBased |= GroupMembers.Contains(Stop.Station);
-			for (const TSubclassOf<UFGItemDescriptor>& Item : Stop.DockingRuleSet.LoadFilterDescriptors)
-			{
-				if (Item)
-				{
-					LoadItemsAt.FindOrAdd(Stop.Station).Add(Item.Get());
-				}
-			}
-			for (const TSubclassOf<UFGItemDescriptor>& Item : Stop.DockingRuleSet.UnloadFilterDescriptors)
-			{
-				if (Item)
-				{
-					UnloadItemsAt.FindOrAdd(Stop.Station).Add(Item.Get());
-				}
-			}
-		}
-		if (Stops.Num() == 0)
-		{
-			continue;
 		}
 		const bool bKeepVanilla = State && State->bKeepVanilla;
-		const bool bCanDock = STLayout::GetPossibleDockingLocomotives(Proposal.Train.Get()).Num() > 0;
-		// With DynamicTimeTable groups, pull-based trains are ticked and dedicated ones kept. Without them every train
-		// joins the managed pool (a train that used to shuttle simply takes other trips when its route is stocked).
-		Proposal.bPreselected = !bKeepVanilla && bCanDock && (Preview.bDttRead ? Proposal.bPullBased : true);
-		Proposal.Note = bKeepVanilla ? TEXT("kept vanilla") : (!bCanDock ? TEXT("no locomotive that can dock")
-			: (Proposal.bPullBased ? TEXT("pull-based (stops in a DynamicTimeTable group)")
-			: (Preview.bDttRead ? TEXT("dedicated: kept as is") : TEXT("joins the managed pool"))));
+		const bool bCanDock = STLayout::GetPossibleDockingLocomotives(Train).Num() > 0;
+		Proposal.bPreselected = !bKeepVanilla && bCanDock;
+		Proposal.Note = bKeepVanilla ? TEXT("kept vanilla") : (!bCanDock ? TEXT("no locomotive that can dock") : TEXT("joins the managed pool"));
 		const int32 TrainIndex = Preview.Trains.Add(Proposal);
 		for (const FTimeTableStop& Stop : Stops)
 		{
@@ -596,321 +395,33 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 		}
 	}
 
+	// Stations: each one's platforms set from what is attached, as the station menu's Autodetect does.
 	TArray<AFGTrainStationIdentifier*> Stations;
 	Railroad->GetAllTrainStations(Stations);
 	for (AFGTrainStationIdentifier* Identifier : Stations)
 	{
-		AFGBuildableRailroadStation* Building = Identifier ? Identifier->GetStation() : nullptr;
-		const TArray<AFGBuildableTrainPlatform*> Platforms = STLayout::GetPlatforms(Building);
-		FStationProposal Station;
-		Station.Station = Identifier;
-		bool bAnyPull = false;
-		bool bAnyDedicated = false;
-		for (int32 TrainIndex : UsersOf.FindRef(Identifier))
+		if (!IsValid(Identifier))
 		{
-			const FTrainProposal& User = Preview.Trains[TrainIndex];
-			bAnyPull |= User.bPullBased;
-			bAnyDedicated |= !User.bPullBased;
-			Station.Users.Add(STLayout::Name(User.Train.Get()));
+			continue;
 		}
-		for (int32 Index = 0; Index < Platforms.Num(); ++Index)
-		{
-			AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Platforms[Index]);
-			if (!Cargo)
-			{
-				continue;
-			}
-			FPlatformProposal Platform;
-			Platform.Platform = Cargo;
-			Platform.Index = Index;
-			if (!STLayout::CanMoveCargo(Cargo))
-			{
-				Platform.bCargo = false;
-				Platform.Evidence = FString::Printf(TEXT("%s: no inventory or no belt or pipe connectors, can't move cargo"), *Cargo->GetClass()->GetName());
-				UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION %s platform %d (%s) can't move cargo: listed without a role"), *STLayout::Name(Identifier), Index + 1,
-					*Cargo->GetClass()->GetName());
-				Station.Platforms.Add(Platform);
-				continue;
-			}
-			const bool bLoadMode = Cargo->GetIsInLoadMode();
-			int32 Inputs = 0;
-			int32 Outputs = 0;
-			FSTPlatformAccess::CountConnections(Cargo, Inputs, Outputs);
-			Platform.Evidence = FString::Printf(TEXT("%s mode, %d inputs and %d outputs connected"), bLoadMode ? TEXT("load") : TEXT("unload"), Inputs, Outputs);
-			if (Inputs == 0 && Outputs == 0)
-			{
-				Platform.Role = ESTRole::Off;
-				Platform.Evidence += TEXT(", nothing attached");
-			}
-			else
-			{
-				Platform.Role = bLoadMode ? ESTRole::Supply : ESTRole::Demand;
-				if (bLoadMode && Inputs == 0)
-				{
-					Platform.Conflict = TEXT("set to load but nothing feeds it");
-				}
-				else if (!bLoadMode && Outputs == 0)
-				{
-					Platform.Conflict = TEXT("set to unload but nothing takes from it");
-				}
-			}
-			// Backups: what the platform holds now, and what timetable filters move here.
-			TSet<UClass*> Backup;
-			TMap<UClass*, int32> Held;
-			if (const UFGInventoryComponent* Inventory = Cargo->GetInventory())
-			{
-				TArray<FInventoryStack> Stacks;
-				Inventory->GetInventoryStacks(Stacks);
-				for (const FInventoryStack& Stack : Stacks)
-				{
-					if (Stack.HasItems() && Stack.Item.GetItemClass())
-					{
-						Backup.Add(Stack.Item.GetItemClass());
-						Held.FindOrAdd(Stack.Item.GetItemClass()) += Stack.NumItems;
-					}
-				}
-			}
-			const TSet<UClass*> Scheduled = (bLoadMode ? LoadItemsAt : UnloadItemsAt).FindRef(Identifier);
-			// One item per platform: from several, the one it holds most of, then one its timetables send, then the
-			// largest traced flow. Returns how it was chosen.
-			auto ChooseOne = [&Held, &Scheduled](const TArray<UClass*>& Choices, const TMap<UClass*, float>& Flow, UClass*& OutItem) -> FString
-			{
-				OutItem = nullptr;
-				int32 Most = 0;
-				for (UClass* Item : Choices)
-				{
-					if (Held.FindRef(Item) > Most)
-					{
-						Most = Held.FindRef(Item);
-						OutItem = Item;
-					}
-				}
-				if (OutItem)
-				{
-					return TEXT("the one it holds most of");
-				}
-				for (UClass* Item : Choices)
-				{
-					if (Scheduled.Contains(Item))
-					{
-						OutItem = Item;
-						return TEXT("the one its timetables send");
-					}
-				}
-				float Largest = -1.f;
-				for (UClass* Item : Choices)
-				{
-					if (Flow.FindRef(Item) > Largest)
-					{
-						Largest = Flow.FindRef(Item);
-						OutItem = Item;
-					}
-				}
-				return TEXT("the largest flow; check it");
-			};
-			// The choices in ChooseOne's order after stock: the ones its timetables send, then by traced flow.
-			auto SpreadOrder = [&Scheduled](const TArray<UClass*>& Choices, const TMap<UClass*, float>& Flow)
-			{
-				TArray<UClass*> Order = Choices;
-				Order.StableSort([&](const UClass& A, const UClass& B)
-				{
-					const bool bA = Scheduled.Contains(&A);
-					const bool bB = Scheduled.Contains(&B);
-					return bA != bB ? bA : Flow.FindRef(&A) > Flow.FindRef(&B);
-				});
-				return TArray<TSubclassOf<UFGItemDescriptor>>(Order);
-			};
-			const int32 FromInventory = Backup.Num();
-			for (UClass* Item : (bLoadMode ? LoadItemsAt : UnloadItemsAt).FindRef(Identifier))
-			{
-				if (STLayout::ItemFitsCargoType(Item, STLayout::GetPlatformCargoType(Cargo)))
-				{
-					Backup.Add(Item);
-				}
-			}
-			const int32 FromFilters = Backup.Num() - FromInventory;
-
-			// The connection trace is the source of truth: what the machines behind the belts and pipes make or use.
-			// The backups are only used when the trace finds nothing.
-			TSet<UClass*> Traced;
-			FString Source = TEXT("none");
-			bool bChoseByFlow = false;
-			if (Platform.Role != ESTRole::Off)
-			{
-				const STTrace::FResult Trace = STTrace::Trace(Cargo, bLoadMode, TraceLimit);
-				Platform.TraceText = Trace.Summary();
-				const EFreightCargoType CargoType = STLayout::GetPlatformCargoType(Cargo);
-				for (const TSubclassOf<UFGItemDescriptor>& Item : Trace.Items())
-				{
-					if (Item && STLayout::ItemFitsCargoType(Item.Get(), CargoType))
-					{
-						Traced.Add(Item.Get());
-					}
-				}
-				if (Traced.Num() > 0)
-				{
-					Source = TEXT("trace");
-					Platform.Machines = Trace.MachineActors;
-					if (bOneItem && Traced.Num() > 1)
-					{
-						TMap<UClass*, float> Flow;
-						for (const STTrace::FFlow& Each : Trace.Flows)
-						{
-							Flow.FindOrAdd(Each.Item.Get()) += Each.PerMinute;
-						}
-						UClass* Chosen = nullptr;
-						const FString How = ChooseOne(Traced.Array(), Flow, Chosen);
-						if (!How.StartsWith(TEXT("the one it holds")))
-						{
-							Platform.SpreadChoices = SpreadOrder(Traced.Array(), Flow);
-						}
-						TArray<FString> Others;
-						for (UClass* Item : Traced)
-						{
-							if (Item != Chosen)
-							{
-								Others.Add(STNames::Item(Item));
-							}
-						}
-						Platform.Items.Add(Chosen);
-						Platform.OneItemNote = FString::Printf(TEXT("belts also carry %s; one item per platform: %s"), *FString::Join(Others, TEXT(", ")), *How);
-						Traced = {Chosen};
-						bChoseByFlow = How.StartsWith(TEXT("the largest"));
-					}
-					else
-					{
-						for (UClass* Item : Traced)
-						{
-							Platform.Items.Add(Item);
-						}
-					}
-					TArray<FString> Ignored;
-					for (UClass* Item : Backup)
-					{
-						if (!Traced.Contains(Item))
-						{
-							Ignored.Add(STNames::Item(Item));
-						}
-					}
-					bool bConfirmed = false;
-					for (UClass* Item : Traced)
-					{
-						bConfirmed |= Backup.Contains(Item);
-					}
-					// A clean trace is high; an unclean one the platform's stock or timetables confirm is high too.
-					Platform.Confidence = bChoseByFlow ? TEXT("medium")
-						: (Trace.Confidence == STTrace::EConfidence::High || bConfirmed ? TEXT("high") : STTrace::ConfidenceName(Trace.Confidence));
-					if (Ignored.Num() > 0)
-					{
-						Platform.Note = FString::Printf(TEXT("also holds or is sent %s, not on its belts: ignored"), *FString::Join(Ignored, TEXT(", ")));
-					}
-					if (!Platform.OneItemNote.IsEmpty())
-					{
-						Platform.Note = Platform.Note.IsEmpty() ? Platform.OneItemNote : Platform.OneItemNote + TEXT("; ") + Platform.Note;
-					}
-				}
-				else if (Backup.Num() > 0)
-				{
-					Source = TEXT("backup");
-					Platform.Confidence = TEXT("medium");
-					Platform.Note = TEXT("trace found nothing; items from its inventory and timetables");
-					if (bOneItem && Backup.Num() > 1)
-					{
-						UClass* Chosen = nullptr;
-						const FString How = ChooseOne(Backup.Array(), TMap<UClass*, float>(), Chosen);
-						if (!How.StartsWith(TEXT("the one it holds")))
-						{
-							Platform.SpreadChoices = SpreadOrder(Backup.Array(), TMap<UClass*, float>());
-						}
-						Platform.Items.Add(Chosen);
-						Platform.Note += FString::Printf(TEXT("; one item per platform: %s"), *How);
-					}
-					else
-					{
-						for (UClass* Item : Backup)
-						{
-							Platform.Items.Add(Item);
-						}
-					}
-				}
-				else if (Trace.PipeFluidHint && STLayout::ItemFitsCargoType(Trace.PipeFluidHint.Get(), CargoType))
-				{
-					Source = TEXT("pipe contents");
-					Platform.Items.Add(Trace.PipeFluidHint.Get());
-					Platform.Confidence = TEXT("medium");
-					Platform.Note = TEXT("only the fluid now in its pipes");
-				}
-				else
-				{
-					Platform.Confidence = TEXT("unclear");
-				}
-			}
-			Platform.Evidence += FString::Printf(TEXT(", items from: %s (trace %d, inventory %d, timetable filters %d)"), *Source, Traced.Num(), FromInventory, FromFilters);
-			if (Platform.Role != ESTRole::Off && Platform.Items.Num() == 0 && Platform.Conflict.IsEmpty())
-			{
-				Platform.Conflict = NoItemConflict;
-			}
-			Station.Platforms.Add(Platform);
-		}
+		FStationProposal Station = STSetup::ProposeStation(*Subsystem, Identifier);
 		if (!Station.Platforms.ContainsByPredicate([](const FPlatformProposal& Each) { return Each.bCargo; }))
 		{
 			continue;
 		}
-		if (Preview.bDttRead)
+		for (int32 TrainIndex : UsersOf.FindRef(Identifier))
 		{
-			if (!bAnyPull && bAnyDedicated)
-			{
-				Station.bDedicatedOnly = true;
-				Station.Flag = TEXT("used only by dedicated trains: kept vanilla");
-			}
-			else if (bAnyPull && bAnyDedicated)
-			{
-				Station.Flag = TEXT("shared by pull-based and dedicated trains: left unset");
-			}
-			else if (!bAnyPull)
-			{
-				Station.Flag = TEXT("no train stops here");
-			}
+			Station.Users.Add(STLayout::Name(Preview.Trains[TrainIndex].Train.Get()));
 		}
 		for (const FPlatformProposal& Platform : Station.Platforms)
 		{
-			if (!Platform.Conflict.IsEmpty() && Station.Flag.IsEmpty())
+			if (!Platform.Conflict.IsEmpty())
 			{
 				Station.Flag = FString::Printf(TEXT("platform %d: %s"), Platform.Index + 1, *Platform.Conflict);
+				break;
 			}
-		}
-		if (const FString* Group = GroupOf.Find(Identifier))
-		{
-			Station.Users.Insert(FString::Printf(TEXT("group '%s'"), **Group), 0);
 		}
 		Preview.Stations.Add(MoveTemp(Station));
-	}
-
-	ShareOutItems(Preview);
-	InferFromRoutes(Preview, bOneItem);
-
-	// Platforms set by hand in the migration window keep that setting.
-	if (const TMap<TWeakObjectPtr<AFGBuildableTrainPlatformCargo>, FHandSetting>* Hand = GHandSettings.Find(World))
-	{
-		int32 Used = 0;
-		for (FStationProposal& Station : Preview.Stations)
-		{
-			bool bChanged = false;
-			for (FPlatformProposal& Platform : Station.Platforms)
-			{
-				if (const FHandSetting* Setting = Platform.bCargo ? Hand->Find(Platform.Platform) : nullptr)
-				{
-					UseHandSetting(Platform, *Setting);
-					bChanged = true;
-					++Used;
-				}
-			}
-			if (bChanged)
-			{
-				UpdatePlatformFlag(Station);
-			}
-		}
-		UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION %d platforms keep their setting by hand"), Used);
 	}
 
 	// Names from the station set-up (factory product, map area, number and rate) come a few stations per step
@@ -928,7 +439,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 		for (const FPlatformProposal& Platform : Station.Platforms)
 		{
 			Report += FString::Printf(TEXT("station,%d,%s,%d,%s,%s,%s,%s,%s,%s,%s\n"), Index + 1, *Csv(STLayout::Name(Station.Station.Get())), Platform.Index + 1,
-				STNames::Role(Platform.Role), *Csv(ItemList(Platform.Items)), *Csv(Platform.Evidence), *Csv(!Platform.Conflict.IsEmpty() ? Platform.Conflict : (!Platform.Note.IsEmpty() ? Platform.Note : Station.Flag)),
+				STNames::Role(Platform.Role), *Csv(ItemList(Platform.Items)), *Csv(Platform.Evidence), *Csv(!Platform.Conflict.IsEmpty() ? Platform.Conflict : Platform.Note),
 				*Csv(FString::Join(Station.Users, TEXT("; "))), *Platform.Confidence, *Csv(Platform.TraceText));
 		}
 		Lines.Add(FString::Printf(TEXT("S%d %s"), Index + 1, *StationText(Station)));
@@ -944,12 +455,10 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 	}
 	Preview.CsvPath = FPaths::Combine(FPaths::ProjectLogDir(), FString::Printf(TEXT("SmartTrains-migration-%s.csv"), *FDateTime::Now().ToString(TEXT("%Y%m%d-%H%M%S"))));
 	const bool bWritten = FFileHelper::SaveStringToFile(Report, *Preview.CsvPath);
-	Lines.Insert(FString::Printf(TEXT("Migration preview: %d stations (%d ready), %d trains (%d ticked). %s. Report %s %s"), Preview.Stations.Num(), Ready,
-		Preview.Trains.Num(), Ticked, *Preview.DttNote, bWritten ? TEXT("written to") : TEXT("NOT written to"), *Preview.CsvPath), 0);
-	Lines.Add(TEXT("Apply with /st migrate apply all, or /st migrate apply stations 1,2 trains 3. /st migrate undo puts it back."));
-	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION trace limit %d buildings and belts per platform, %s"), TraceLimit, bOneItem ? TEXT("one item per platform") : TEXT("all traced items"));
-	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION preview: %d stations (%d ready), %d trains (%d ticked), %s, report %s"), Preview.Stations.Num(), Ready,
-		Preview.Trains.Num(), Ticked, *Preview.DttNote, *Preview.CsvPath);
+	Lines.Insert(FString::Printf(TEXT("Migration preview: %d stations (%d ready), %d trains (%d ticked); %s. Station names follow in a moment. Report %s %s"),
+		Preview.Stations.Num(), Ready, Preview.Trains.Num(), Ticked, *Preview.DttNote, bWritten ? TEXT("written to") : TEXT("NOT written to"), *Preview.CsvPath), 0);
+	Lines.Add(TEXT("Apply with /st migrate apply all [rename], or /st migrate apply stations 1,2 trains 3. /st migrate undo puts it back."));
+	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION preview: %d stations (%d ready), %d trains (%d ticked)"), Preview.Stations.Num(), Ready, Preview.Trains.Num(), Ticked);
 	for (const FString& Line : Lines)
 	{
 		UE_LOG(LogSmartTrains, Verbose, TEXT("MIGRATION %s"), *Line);
@@ -1040,48 +549,16 @@ TArray<FString> STMigration::Apply(ASTSubsystem* Subsystem, UWorld* World, const
 			continue;
 		}
 		const FStationProposal& Proposal = Preview->Stations[Index];
-		AFGTrainStationIdentifier* Identifier = Proposal.Station.Get();
-		const FString OldName = Identifier ? Identifier->GetStationName().ToString() : FString();
-		if (bRename && Identifier && !Proposal.NewName.IsEmpty() && Proposal.NewName != OldName)
+		const TArray<FString> Done = STSetup::ApplyProposal(*Subsystem, Proposal, bRename, Cause + TEXT(" (migration)"), &Undo);
+		for (const FString& Line : Done)
 		{
-			Undo.RenamedStations.Add(Identifier);
-			Undo.OldNames.Add(OldName);
-			Identifier->SetStationName(FText::FromString(Proposal.NewName));
-			++Renamed;
-			UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION renamed %s -> %s (%s; %s)"), *OldName, *Proposal.NewName, *Proposal.NameNote, *Cause);
-		}
-		for (const FPlatformProposal& Platform : Preview->Stations[Index].Platforms)
-		{
-			AFGBuildableTrainPlatformCargo* Cargo = Platform.Platform.Get();
-			if (!Cargo || Platform.Role == ESTRole::Off || Platform.Items.Num() == 0)
+			if (Line.StartsWith(TEXT("Renamed")))
 			{
-				continue;
+				++Renamed;
 			}
-			FSTPlatformConfig Before;
-			if (const FSTPlatformConfig* Existing = Subsystem->FindPlatformConfig(Cargo))
+			else
 			{
-				Before = *Existing;
-			}
-			Before.Platform = Cargo;
-			Before.bOriginalLoadMode = Cargo->GetIsInLoadMode();
-			Before.bHasOriginalLoadMode = true;
-			Undo.Platforms.Add(Before);
-			TArray<FSTItemRule> Rules;
-			for (const TSubclassOf<UFGItemDescriptor>& Item : Platform.Items)
-			{
-				FSTItemRule& Rule = Rules.AddDefaulted_GetRef();
-				Rule.Item = Item;
-			}
-			Subsystem->SetPlatformConfig(Cargo, Platform.Role, Rules, Cause + TEXT(" (migration)"));
-			Subsystem->SetPlatformMachines(Cargo, Platform.Machines);
-			++PlatformsSet;
-		}
-		// Applied: its platforms' settings by hand are done with.
-		if (TMap<TWeakObjectPtr<AFGBuildableTrainPlatformCargo>, FHandSetting>* Hand = GHandSettings.Find(World))
-		{
-			for (const FPlatformProposal& Platform : Preview->Stations[Index].Platforms)
-			{
-				Hand->Remove(Platform.Platform);
+				++PlatformsSet;
 			}
 		}
 	}
@@ -1100,51 +577,10 @@ TArray<FString> STMigration::Apply(ASTSubsystem* Subsystem, UWorld* World, const
 			Lines.Add(FString::Printf(TEXT("%s not managed: %s"), *STLayout::Name(Train), *Why));
 		}
 	}
-	int32 KeptVanilla = 0;
-	if (Preview->bDttRead)
-	{
-		for (const FTrainProposal& Proposal : Preview->Trains)
-		{
-			const FSTTrainState* State = Subsystem->FindTrainState(Proposal.Train.Get());
-			if (Proposal.Train.IsValid() && !Proposal.bPullBased && !(State && State->bManaged))
-			{
-				Subsystem->SetTrainKeepVanilla(Proposal.Train.Get(), true, Cause + TEXT(" (migration: dedicated train)"));
-				++KeptVanilla;
-			}
-		}
-	}
-	Lines.Add(FString::Printf(TEXT("Migrated: %d platforms set on %d stations, %d stations renamed, %d trains managed, %d dedicated trains marked keep vanilla. /st migrate undo puts it back."),
-		PlatformsSet, Stations.Num(), Renamed, TrainsManaged, KeptVanilla));
-	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION applied by %s: %d platforms, %d stations, %d trains managed, %d kept vanilla"), *Cause, PlatformsSet, Stations.Num(),
-		TrainsManaged, KeptVanilla);
-
-	// DynamicTimeTable groups whose members are all SmartTrains stations now can be deleted by the player.
-	if (Preview->bDttRead)
-	{
-		TSet<const AFGTrainStationIdentifier*> Converted;
-		for (int32 Index : Stations)
-		{
-			if (Preview->Stations.IsValidIndex(Index))
-			{
-				Converted.Add(Preview->Stations[Index].Station.Get());
-			}
-		}
-		TArray<STDtt::FGroup> Groups;
-		FString Error;
-		STDtt::ReadGroups(World, Groups, Error);
-		for (const STDtt::FGroup& Group : Groups)
-		{
-			bool bAllConverted = Group.Stations.Num() > 0;
-			for (const AFGTrainStationIdentifier* Member : Group.Stations)
-			{
-				bAllConverted &= Converted.Contains(Member);
-			}
-			if (bAllConverted)
-			{
-				Lines.Add(FString::Printf(TEXT("DynamicTimeTable group '%s' is no longer needed; you can delete it in DynamicTimeTable."), *Group.Name));
-			}
-		}
-	}
+	Lines.Add(FString::Printf(TEXT("Migrated: %d platforms set on %d stations, %d stations renamed, %d trains managed. /st migrate undo puts it back."),
+		PlatformsSet, Stations.Num(), Renamed, TrainsManaged));
+	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION applied by %s: %d platforms, %d stations, %d renamed, %d trains managed"), *Cause, PlatformsSet, Stations.Num(), Renamed,
+		TrainsManaged);
 	return Lines;
 }
 
@@ -1266,66 +702,4 @@ FSTMigrationView STMigration::MakeView(ASTSubsystem* Subsystem, UWorld* World)
 		Row.bProposed = Train.bPreselected;
 	}
 	return View;
-}
-
-bool STMigration::SetPlatform(UWorld* World, int32 Station, int32 Platform, ESTRole Role, const TArray<TSubclassOf<UFGItemDescriptor>>& Items, const FString& Who,
-	FString& OutMessage)
-{
-	FPreview* Preview = GPreviews.Find(World);
-	FStationProposal* Proposal = Preview && Preview->Stations.IsValidIndex(Station - 1) ? &Preview->Stations[Station - 1] : nullptr;
-	FPlatformProposal* Target = Proposal ? Proposal->Platforms.FindByPredicate([Platform](const FPlatformProposal& Each) { return Each.Index + 1 == Platform; }) : nullptr;
-	AFGBuildableTrainPlatformCargo* Cargo = Target ? Target->Platform.Get() : nullptr;
-	if (!Cargo)
-	{
-		OutMessage = FString::Printf(TEXT("Station %d platform %d isn't in the preview any more; press Preview again."), Station, Platform);
-		return false;
-	}
-	if (!Target->bCargo)
-	{
-		OutMessage = FString::Printf(TEXT("Station %d platform %d can't move freight or fluid, so it can't have a role."), Station, Platform);
-		return false;
-	}
-	const EFreightCargoType CargoType = STLayout::GetPlatformCargoType(Cargo);
-	FHandSetting Setting;
-	Setting.Role = Role;
-	Setting.Who = Who;
-	for (const TSubclassOf<UFGItemDescriptor>& Item : Items)
-	{
-		if (!Item && Role != ESTRole::Demand)
-		{
-			OutMessage = TEXT("'Any item' only works on a demand platform (a sink).");
-			return false;
-		}
-		if (Item && !STLayout::ItemFitsCargoType(Item, CargoType))
-		{
-			OutMessage = FString::Printf(TEXT("%s doesn't fit this kind of platform."), *STNames::Item(Item));
-			return false;
-		}
-		Setting.Items.AddUnique(Item);
-	}
-	UseHandSetting(*Target, Setting);
-	UpdatePlatformFlag(*Proposal);
-	GHandSettings.FindOrAdd(World).Add(Cargo, Setting);
-	const FString Name = STLayout::Name(Proposal->Station.Get());
-	OutMessage = FString::Printf(TEXT("S%d %s, platform %d: %s %s (by hand; applied with its station)."), Station, *Name, Platform, STNames::Role(Target->Role),
-		Target->Items.Num() > 0 ? *ItemList(Target->Items) : TEXT("with no item"));
-	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION %s set S%d %s platform %d by hand: %s %s"), *Who, Station, *Name, Platform, STNames::Role(Target->Role), *ItemList(Target->Items));
-	return true;
-}
-
-int32 STMigration::ParseTraceLimit(const TArray<FString>& Words, int32 Default)
-{
-	for (int32 Index = 0; Index + 1 < Words.Num(); ++Index)
-	{
-		if (Words[Index].Equals(TEXT("tracelimit"), ESearchCase::IgnoreCase) && Words[Index + 1].IsNumeric())
-		{
-			return FMath::Clamp(FCString::Atoi(*Words[Index + 1]), STTrace::MinLimit, STTrace::MaxLimit);
-		}
-	}
-	return Default;
-}
-
-bool STMigration::ParseOneItem(const TArray<FString>& Words)
-{
-	return !Words.ContainsByPredicate([](const FString& Word) { return Word.Equals(TEXT("allitems"), ESearchCase::IgnoreCase); });
 }

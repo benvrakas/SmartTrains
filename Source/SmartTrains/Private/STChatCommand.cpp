@@ -212,7 +212,7 @@ namespace
 		TEXT("/st group [item]   (per item: the flow plan's routes, trains needed and working on it)"),
 		TEXT("/st job <item> from <station> to <station>   (a test job for the train you drive or look at)"),
 		TEXT("/st migrate   (opens the migration window)"),
-		TEXT("/st migrate preview [tracelimit 5000] [allitems] | apply all [confirm] | apply stations 1,2 trains 3 | undo"),
+		TEXT("/st migrate preview | apply all [rename] [confirm] | apply stations 1,2 trains 3 | undo"),
 		TEXT("/st testcopy [session name] | /st backup"),
 		TEXT("/st settings | /st set <setting> <value>   (the server's settings; changing them is admin only)"),
 		TEXT("/st emptycars | /st emptycars all confirm   (deletes the cargo of the train you drive or look at, or of every managed train; admin only)"),
@@ -663,7 +663,7 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		}
 		else if (Step == TEXT("preview"))
 		{
-			Send(Sender, STMigration::Preview(Subsystem, World, STMigration::ParseTraceLimit(Arguments), STMigration::ParseOneItem(Arguments)));
+			Send(Sender, STMigration::Preview(Subsystem, World));
 		}
 		else if ((Step == TEXT("apply") || Step == TEXT("undo"))
 			&& !Allowed(Sender, *Subsystem, STAccess::EChange::Network, Step == TEXT("apply") ? TEXT("apply a migration") : TEXT("undo a migration")))

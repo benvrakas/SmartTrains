@@ -65,8 +65,6 @@ private:
 	void SendMigration(uint8 Step, const TArray<FString>& Selection = TArray<FString>());
 	// Preview with the trace limit from the field.
 	void SendPreview();
-	void ReadTraceLimit(const FString& Text);
-	void ShowItemsMode();
 	void ShowRenameMode();
 	void ApplyTicked();
 	void RestoreGameInput();
@@ -82,10 +80,7 @@ private:
 	void AddFilterBar(bool bStations, int32 Shown, int32 Total);
 	void AddStation(const FSTMigrationRow& Row);
 	// Sends a platform's role and items set by hand, and ticks its station.
-	void SendPlatform(int32 Station, int32 Platform, ESTRole Role, const TArray<TSubclassOf<UFGItemDescriptor>>& Items);
 	// The item picker under a platform being changed: a search field and every item that fits, its items first.
-	void AddPicker(int32 Station, const FSTMigrationPlatformRow& Platform);
-	void FilterPicker(const FString& Search);
 	void AddTrain(const FSTMigrationRow& Row);
 	// Ticks or unticks every row of a kind that the current filter shows.
 	void SetAllTicks(bool bStations, bool bTicked);
@@ -116,12 +111,6 @@ private:
 	TObjectPtr<UVerticalBox> mContent;
 
 	UPROPERTY()
-	TObjectPtr<USTTextInput> mTraceLimit;
-
-	UPROPERTY()
-	TObjectPtr<USTButton> mItemsMode;
-
-	UPROPERTY()
 	TObjectPtr<USTButton> mRenameMode;
 
 	struct FTabWidgets
@@ -137,13 +126,8 @@ private:
 
 	// The platform whose items are being picked ("S3/2": station row key and platform number), the picker's search
 	// text and its rows with their item names.
-	FString mPicking;
-	FString mPickSearch;
-	TArray<TPair<TWeakObjectPtr<USTRow>, FString>> mPickerRows;
 
 	// Trace limit and items mode for this session's previews; the open tab and filters.
-	static int32 sTraceLimit;
-	static bool sAllItems;
 	// Apply also renames the ticked stations (station set-up names).
 	static bool sRename;
 	static ETab sTab;
