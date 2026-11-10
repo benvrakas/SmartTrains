@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.15.3 (beta)
+
+- **Migration window: apply names, platforms or both.** The toolbar button that was Rename stations on/off now says
+  what Apply sets and cycles on click: **platforms only**, **platforms and names**, **names only**. Names only renames
+  the ticked stations and leaves their platforms as they are. The New name column shows while names are included.
+  Chat: `/st migrate apply all namesonly`.
+
 ## 0.15.2 (beta)
 
 - **Migration window tidied up.** One toolbar instead of three rows: Preview, Apply ticked, Undo, **Rename stations

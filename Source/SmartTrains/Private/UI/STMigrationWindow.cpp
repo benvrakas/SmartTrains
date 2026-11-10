@@ -26,6 +26,7 @@
 
 TWeakObjectPtr<USTMigrationWindow> USTMigrationWindow::sOpen;
 bool USTMigrationWindow::sRename = false;
+bool USTMigrationWindow::sPlatforms = true;
 USTMigrationWindow::ETab USTMigrationWindow::sTab = USTMigrationWindow::ETab::Stations;
 USTMigrationWindow::EFilter USTMigrationWindow::sStationFilter = USTMigrationWindow::EFilter::All;
 USTMigrationWindow::EFilter USTMigrationWindow::sTrainFilter = USTMigrationWindow::EFilter::All;
@@ -307,12 +308,25 @@ void USTMigrationWindow::BuildContent(UVerticalBox* Root)
 	AddTool(Toolbar, mUndo, 0.f);
 	mRenameMode = MakeButton(nullptr, FText::GetEmpty(), [this]()
 	{
-		sRename = !sRename;
+		// Platforms only -> names and platforms -> names only -> platforms only.
+		if (!sRename)
+		{
+			sRename = true;
+		}
+		else if (sPlatforms)
+		{
+			sPlatforms = false;
+		}
+		else
+		{
+			sRename = false;
+			sPlatforms = true;
+		}
 		ShowRenameMode();
 		ShowTab();
 	}, FMargin(0.f));
-	mRenameMode->SetFixedWidth(220.f);
-	AddTool(Toolbar, mRenameMode, 220.f);
+	mRenameMode->SetFixedWidth(290.f);
+	AddTool(Toolbar, mRenameMode, 290.f);
 	ShowRenameMode();
 	UHorizontalBox* Beta = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
 	USTButton* TestCopy = MakeButton(nullptr, LOCTEXT("TestCopy", "Test copy"), [this]() { SendMigration(static_cast<uint8>(ESTMigrationStep::TestCopy)); }, FMargin(0.f));
@@ -363,7 +377,8 @@ void USTMigrationWindow::BuildContent(UVerticalBox* Root)
 
 void USTMigrationWindow::ShowRenameMode()
 {
-	mRenameMode->SetText(sRename ? LOCTEXT("RenameOn", "Rename stations: on") : LOCTEXT("RenameOff", "Rename stations: off"));
+	mRenameMode->SetText(!sRename ? LOCTEXT("ApplyPlatforms", "Apply: platforms only")
+		: (sPlatforms ? LOCTEXT("ApplyBoth", "Apply: platforms and names") : LOCTEXT("ApplyNames", "Apply: names only")));
 }
 
 void USTMigrationWindow::SendPreview()
@@ -432,7 +447,7 @@ void USTMigrationWindow::ApplyTicked()
 	}
 	if (sRename)
 	{
-		Selection.Add(TEXT("rename"));
+		Selection.Add(sPlatforms ? TEXT("rename") : TEXT("namesonly"));
 	}
 	bApplyArmed = false;
 	sTab = ETab::Result;

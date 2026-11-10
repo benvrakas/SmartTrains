@@ -18,9 +18,10 @@ struct FSTMigrationPlatformRow;
 struct FSTMigrationRow;
 struct FSTMigrationView;
 
-// Migration window opened by "/st migrate". One toolbar (Preview, Apply ticked, Undo, Rename stations, and with beta
+// Migration window opened by "/st migrate". One toolbar (Preview, Apply ticked, Undo, what Apply sets: platforms,
+// names or both, and with beta
 // tools Test copy and Backup) above three tabs:
-// - Stations: a table, one row per station (tick, station, new name while Rename stations is on, platforms, status);
+// - Stations: a table, one row per station (tick, station, new name while Apply sets names, platforms, status);
 //   clicking a station opens its platforms with role, item icons and confidence.
 // - Trains: one row per train, ticked to be managed.
 // - Result: what the last step said.
@@ -130,6 +131,8 @@ private:
 	// Trace limit and items mode for this session's previews; the open tab and filters.
 	// Apply also renames the ticked stations (station set-up names).
 	static bool sRename;
+	// Apply sets the platforms (with sRename: and renames; without: platforms only); false: names only.
+	static bool sPlatforms;
 	static ETab sTab;
 	static EFilter sStationFilter;
 	static EFilter sTrainFilter;

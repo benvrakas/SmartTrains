@@ -457,7 +457,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World)
 	const bool bWritten = FFileHelper::SaveStringToFile(Report, *Preview.CsvPath);
 	Lines.Insert(FString::Printf(TEXT("Migration preview: %d stations (%d ready), %d trains (%d ticked); %s. Station names follow in a moment. Report %s %s"),
 		Preview.Stations.Num(), Ready, Preview.Trains.Num(), Ticked, *Preview.DttNote, bWritten ? TEXT("written to") : TEXT("NOT written to"), *Preview.CsvPath), 0);
-	Lines.Add(TEXT("Apply with /st migrate apply all [rename], or /st migrate apply stations 1,2 trains 3. /st migrate undo puts it back."));
+	Lines.Add(TEXT("Apply with /st migrate apply all [rename | namesonly], or /st migrate apply stations 1,2 trains 3. /st migrate undo puts it back."));
 	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION preview: %d stations (%d ready), %d trains (%d ticked)"), Preview.Stations.Num(), Ready, Preview.Trains.Num(), Ticked);
 	for (const FString& Line : Lines)
 	{
@@ -536,7 +536,10 @@ TArray<FString> STMigration::Apply(ASTSubsystem* Subsystem, UWorld* World, const
 	Undo.AppliedBy = Cause;
 	int32 PlatformsSet = 0;
 	int32 Renamed = 0;
-	const bool bRename = Selection.ContainsByPredicate([](const FString& Word) { return Word.Equals(TEXT("rename"), ESearchCase::IgnoreCase); });
+	auto Has = [&Selection](const TCHAR* Wanted) { return Selection.ContainsByPredicate([Wanted](const FString& Word) { return Word.Equals(Wanted, ESearchCase::IgnoreCase); }); };
+	// "namesonly": the station names alone (it implies rename); without "rename": the platforms alone.
+	const bool bNamesOnly = Has(TEXT("namesonly"));
+	const bool bRename = bNamesOnly || Has(TEXT("rename"));
 	// Names still being worked out are finished first.
 	if (bRename)
 	{
@@ -548,7 +551,11 @@ TArray<FString> STMigration::Apply(ASTSubsystem* Subsystem, UWorld* World, const
 		{
 			continue;
 		}
-		const FStationProposal& Proposal = Preview->Stations[Index];
+		FStationProposal Proposal = Preview->Stations[Index];
+		if (bNamesOnly)
+		{
+			Proposal.Platforms.Reset();
+		}
 		const TArray<FString> Done = STSetup::ApplyProposal(*Subsystem, Proposal, bRename, Cause + TEXT(" (migration)"), &Undo);
 		for (const FString& Line : Done)
 		{
