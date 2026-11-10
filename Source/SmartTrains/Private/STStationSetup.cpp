@@ -396,6 +396,20 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 		Platform.Role = bSupply ? ESTRole::Supply : ESTRole::Demand;
 		Platform.Evidence = FString::Printf(TEXT("%d in, %d out%s"), Inputs, Outputs, Inputs > 0 && Outputs > 0 ? TEXT(", both: its load mode decides") : TEXT(""));
 		const EFreightCargoType CargoType = STLayout::GetPlatformCargoType(Cargo);
+		// What it holds now, by item.
+		TMap<UClass*, int32> Held;
+		if (const UFGInventoryComponent* Inventory = Cargo->GetInventory())
+		{
+			TArray<FInventoryStack> Stacks;
+			Inventory->GetInventoryStacks(Stacks);
+			for (const FInventoryStack& Stack : Stacks)
+			{
+				if (Stack.HasItems() && Stack.Item.GetItemClass())
+				{
+					Held.FindOrAdd(Stack.Item.GetItemClass()) += Stack.NumItems;
+				}
+			}
+		}
 		const STTrace::FResult Trace = STTrace::Trace(Cargo, bSupply);
 		Platform.TraceText = Trace.Summary();
 		Platform.Machines = Trace.MachineActors;
@@ -412,10 +426,27 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 			TArray<UClass*> Order;
 			Flow.GetKeys(Order);
 			Order.Sort([&Flow](const UClass& A, const UClass& B) { return Flow.FindRef(const_cast<UClass*>(&A)) > Flow.FindRef(const_cast<UClass*>(&B)); });
-			Platform.Items.Add(Order[0]);
+			// Of the items its machines take or make, the one it holds most of: a factory with several inputs has a
+			// platform per input, and each already holds its own.
+			UClass* HeldItem = nullptr;
+			int32 HeldMost = 0;
+			for (UClass* Item : Order)
+			{
+				if (Held.FindRef(Item) > HeldMost)
+				{
+					HeldMost = Held.FindRef(Item);
+					HeldItem = Item;
+				}
+			}
+			Platform.Items.Add(HeldItem ? HeldItem : Order[0]);
 			Platform.Confidence = STTrace::ConfidenceName(Trace.Confidence);
 			Platform.Evidence += TEXT(", items from its machines: ") + Trace.Summary();
-			if (Order.Num() > 1)
+			if (Order.Num() > 1 && HeldItem)
+			{
+				Platform.OneItemNote = FString::Printf(TEXT("several items on its belts; it holds %s"), *STNames::Item(HeldItem));
+				Platform.Note = Platform.OneItemNote;
+			}
+			else if (Order.Num() > 1)
 			{
 				for (UClass* Item : Order)
 				{
@@ -427,19 +458,6 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 			continue;
 		}
 		// No machine reached: what it holds, then the fluid in its pipes.
-		TMap<UClass*, int32> Held;
-		if (const UFGInventoryComponent* Inventory = Cargo->GetInventory())
-		{
-			TArray<FInventoryStack> Stacks;
-			Inventory->GetInventoryStacks(Stacks);
-			for (const FInventoryStack& Stack : Stacks)
-			{
-				if (Stack.HasItems() && Stack.Item.GetItemClass())
-				{
-					Held.FindOrAdd(Stack.Item.GetItemClass()) += Stack.NumItems;
-				}
-			}
-		}
 		UClass* Most = nullptr;
 		int32 MostHeld = 0;
 		for (const TPair<UClass*, int32>& Pair : Held)

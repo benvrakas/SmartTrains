@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.15.1 (beta)
+
+- **Fixed: Autodetect could swap a factory's inputs between its platforms.** Where the belts of several platforms
+  reach the same machines (a factory with several inputs), each platform got one of the machines' items in turn, not
+  the one it carries: at MF Resource SNK the platform full of Reinforced Iron Plate became Steel Pipe and the one full
+  of Steel Pipe became Reinforced Iron Plate. Of the items its machines use or make, a platform now takes the one it
+  already holds; only an empty platform gets one shared out.
+- **Rename station from its factory** is now under the station's name on the station menu's first tab, next to the
+  depot switch. It used to be in a part of the menu that didn't show.
+- **Removed: Autodetect all platforms** from the station menu. Set platforms one at a time with **Autodetect** in
+  each platform's menu. `/st setup` and the migration still set every platform.
+
 ## 0.15.0 (beta)
 
 **The migration tool is the station set-up for every station, plus the trains.** Only the platforms' roles and items

@@ -117,10 +117,11 @@ window's Rename stations); never automatic.
   - **Number** (`PickNumber`): the number the station's name already has, if no other station has it; else the
     smallest from 1 that no other station's name has for the same area, product and role, with any rate
     (`MatchesName`). Setting up again keeps names stable while only the rate changes.
-- **Preview and apply:** the station panel has Rename station (`Server_SetUpStation` mode 0 previews the name, 1
-  renames) and Autodetect all platforms (2 previews the platforms, 3 sets them). The lines come back in
-  `FSTStationView::SetupLines`; `SetupReady` (the preview made in the last 2 min: 1 name, 2 platforms) turns that
-  button into its confirm step. The platform panel's Autodetect (`Server_AutodetectPlatform`) proposes the whole
+- **Preview and apply:** the depot bar under the station name (first tab of the station menu) has Rename station
+  (`Server_SetUpStation` mode 0 previews the name, 1 renames). The lines come back in `FSTStationView::SetupLines`;
+  `SetupReady` (1 while a name preview from the last 2 min can be applied) turns the button into its confirm step.
+  Platforms are set one at a time (0.15.1: the station-wide Autodetect button is gone; `/st setup` and the migration
+  still set every platform). The platform panel's Autodetect (`Server_AutodetectPlatform`) proposes the whole
   station (items are shared out between platforms serving the same machines) and applies only that platform, at once.
   Applying is an Edit change (admin-gated with Only admins change SmartTrains).
 - **Staged naming:** naming every station in one frame froze the IB server for about 18 s per migration preview

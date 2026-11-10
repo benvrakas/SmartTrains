@@ -40,7 +40,7 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_SetTrain(AFGTrain* Train, ESTTrainAction Action, int32 Edit);
 
-	// Station set-up: Mode 0 previews the name, 1 renames, 2 previews the platforms, 3 sets the platforms.
+	// Station name from its factory: Mode 0 previews it, 1 renames the station.
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_SetUpStation(AFGTrainStationIdentifier* Station, uint8 Mode, int32 Edit);
 

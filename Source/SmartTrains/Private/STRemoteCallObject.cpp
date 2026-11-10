@@ -363,7 +363,7 @@ void USTRemoteCallObject::Server_SetStation_Implementation(AFGTrainStationIdenti
 
 bool USTRemoteCallObject::Server_SetUpStation_Validate(AFGTrainStationIdentifier* Station, uint8 Mode, int32 Edit)
 {
-	return Mode <= 3;
+	return Mode <= 1;
 }
 
 void USTRemoteCallObject::Server_SetUpStation_Implementation(AFGTrainStationIdentifier* Station, uint8 Mode, int32 Edit)
@@ -374,14 +374,13 @@ void USTRemoteCallObject::Server_SetUpStation_Implementation(AFGTrainStationIden
 	{
 		return;
 	}
-	const bool bApply = Mode == 1 || Mode == 3;
+	const bool bApply = Mode == 1;
 	if (bApply && !Allowed(*this, *Subsystem, STAccess::EChange::Edit, TEXT("set up stations")))
 	{
 		Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
 		return;
 	}
-	const bool bName = Mode <= 1;
-	Subsystem->SetUpStation(Station, bApply, bName, !bName, FString::Printf(TEXT("station menu (%s)"), *GetPlayerName()));
+	Subsystem->SetUpStation(Station, bApply, true, false, FString::Printf(TEXT("station menu (%s)"), *GetPlayerName()));
 	Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
 }
 

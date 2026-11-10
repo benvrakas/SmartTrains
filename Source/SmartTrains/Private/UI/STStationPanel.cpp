@@ -20,13 +20,6 @@ void USTStationPanel::BuildContent(UVerticalBox* Root)
 	MakeText(Root, LOCTEXT("DepotHint", "Managed trains with nothing to do wait at the nearest depot. With no depot they keep running their last trip."), 10);
 	mLines = MakeText(Root, LOCTEXT("Loading", "Asking the server..."), 10, true, FMargin(0.f, 6.f, 0.f, 0.f));
 	mNetwork = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 6.f, 0.f, 0.f));
-	MakeHeading(Root, LOCTEXT("SetUpHeading", "Set up from its factory"));
-	MakeText(Root, LOCTEXT("SetUpHint", "Follows the belts and pipes to the machines. Each button shows what it would do first; click it again to do it."), 10);
-	mRename = MakeButton(Root, FText::GetEmpty(), [this]() { SendSetUp(mSetupReady == 1 ? 1 : 0); });
-	mAutodetect = MakeButton(Root, FText::GetEmpty(), [this]() { SendSetUp(mSetupReady == 2 ? 3 : 2); });
-	mSetUpLines = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 4.f, 0.f, 0.f));
-	ShowSetUp(TArray<FString>(), 0);
-
 }
 
 AFGTrainStationIdentifier* USTStationPanel::GetStation() const
@@ -67,7 +60,7 @@ void USTStationPanel::SendStation(bool bNewDepot)
 	mDepot->SetText(GetDepotText(bDepot));
 }
 
-void USTStationPanel::SendSetUp(uint8 Mode)
+void USTStationPanel::SendRename(bool bApply)
 {
 	USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
 	AFGTrainStationIdentifier* Station = GetStation();
@@ -75,12 +68,12 @@ void USTStationPanel::SendSetUp(uint8 Mode)
 	{
 		return;
 	}
-	static const TCHAR* Names[] = {TEXT("rename preview"), TEXT("rename"), TEXT("autodetect preview"), TEXT("autodetect platforms")};
-	UE_LOG(LogSmartTrains, Log, TEXT("Station menu: %s for %s"), Names[FMath::Min<int32>(Mode, 3)], *STLayout::Name(Station));
-	RCO->Server_SetUpStation(Station, Mode, RCO->NextEdit());
+	UE_LOG(LogSmartTrains, Log, TEXT("Station menu: %s for %s"), bApply ? TEXT("rename") : TEXT("rename preview"), *STLayout::Name(Station));
+	RCO->Server_SetUpStation(Station, bApply ? 1 : 0, RCO->NextEdit());
 	if (mSetUpLines)
 	{
 		mSetUpLines->SetText(LOCTEXT("SetUpAsking", "Tracing belts and pipes..."));
+		mSetUpLines->SetVisibility(ESlateVisibility::Visible);
 	}
 }
 
@@ -92,8 +85,6 @@ void USTStationPanel::ShowSetUp(const TArray<FString>& Lines, uint8 Ready)
 	}
 	mSetupReady = Ready;
 	mRename->SetText(Ready == 1 ? LOCTEXT("RenameConfirm", "Confirm: rename the station") : LOCTEXT("Rename", "Rename station from its factory..."));
-	mAutodetect->SetText(Ready == 2 ? LOCTEXT("AutodetectConfirm", "Confirm: set every platform like this")
-		: LOCTEXT("Autodetect", "Autodetect all platforms..."));
 	if (mSetUpLines)
 	{
 		SetLines(mSetUpLines, Lines);
@@ -127,6 +118,10 @@ void USTStationPanel::Refresh(USTRemoteCallObject* RCO)
 void USTStationDepotBar::BuildContent(UVerticalBox* Root)
 {
 	mDepot = MakeButton(Root, GetDepotText(false), [this]() { SendStation(!bDepot); });
+	// Shows the name it would give first; a second click renames.
+	mRename = MakeButton(Root, FText::GetEmpty(), [this]() { SendRename(mSetupReady == 1); }, FMargin(0.f, 4.f, 0.f, 0.f));
+	mSetUpLines = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 4.f, 0.f, 0.f));
+	ShowSetUp(TArray<FString>(), 0);
 }
 
 bool USTStationDepotBar::OnShown()
