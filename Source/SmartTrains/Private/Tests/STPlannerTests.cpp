@@ -152,13 +152,6 @@ struct FSTTestAccess
 		return Subsystem.FindTrainState(Train);
 	}
 
-	static void SetGroupTrains(ASTSubsystem& Subsystem, UClass* Item, int32 Least, int32 Most)
-	{
-		FSTGroupConfig& Config = Subsystem.mGroupConfigs.AddDefaulted_GetRef();
-		Config.Item = Item;
-		Config.MinTrains = Least;
-		Config.MaxTrains = Most;
-	}
 
 	static void LinkSupplyChain(TArray<FSTNode>& Nodes)
 	{
@@ -1136,68 +1129,6 @@ bool FSTLongTripUnderWayTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// Homes are shared out in proportion to need (D'Hondt): with 4 trains for groups needing 3 and 1, the first gets 3.
-// A train keeps its home while that group still wants it, one that stays keeps it regardless, and a group's most
-// trains is a cap.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTGroupHomesTest, "SmartTrains.Groups.Homes", TestFlags)
-bool FSTGroupHomesTest::RunTest(const FString& Parameters)
-{
-	UClass* Iron = USTTestSolid::StaticClass();
-	UClass* Coal = USTTestSolidB::StaticClass();
-	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-	// Homes exist only with the 0.10 dispatcher.
-	FSTTestAccess::Settings(*Subsystem).bItemGroups = true;
-	TArray<AFGTrain*> Trains;
-	for (int32 Index = 0; Index < 4; ++Index)
-	{
-		Trains.Add(NewObject<AFGTrain>(GetTransientPackage()));
-		FSTTestAccess::AddManaged(*Subsystem, Trains.Last());
-	}
-	FSTTestAccess::AddGroup(*Subsystem, Coal, 1.0, Trains);
-	FSTTestAccess::AddGroup(*Subsystem, Iron, 3.0, Trains);
-	auto Homes = [&](UClass* Item)
-	{
-		int32 Count = 0;
-		for (AFGTrain* Train : Trains)
-		{
-			Count += FSTTestAccess::State(*Subsystem, Train)->HomeItem.Get() == Item ? 1 : 0;
-		}
-		return Count;
-	};
-	Subsystem->AllocateHomes();
-	TestEqual(TEXT("iron (needs 3) gets 3 homes"), Homes(Iron), 3);
-	TestEqual(TEXT("coal (needs 1) gets 1"), Homes(Coal), 1);
-	AFGTrain* CoalTrain = nullptr;
-	for (AFGTrain* Train : Trains)
-	{
-		CoalTrain = FSTTestAccess::State(*Subsystem, Train)->HomeItem.Get() == Coal ? Train : CoalTrain;
-	}
-	Subsystem->AllocateHomes();
-	TestEqual(TEXT("allocating again moves no train"), FSTTestAccess::State(*Subsystem, CoalTrain)->HomeItem.Get(), Coal);
-	// Coal's need rises: a train moves over, the coal train keeps its home.
-	FSTTestAccess::Groups(*Subsystem)[0].Needed = 3.0;
-	Subsystem->AllocateHomes();
-	TestEqual(TEXT("equal needs share 2 and 2"), Homes(Coal), 2);
-	TestEqual(TEXT("the coal train stays in coal"), FSTTestAccess::State(*Subsystem, CoalTrain)->HomeItem.Get(), Coal);
-	// Iron's need goes; a train that stays keeps its home.
-	AFGTrain* Stayer = nullptr;
-	for (AFGTrain* Train : Trains)
-	{
-		Stayer = !Stayer && FSTTestAccess::State(*Subsystem, Train)->HomeItem.Get() == Iron ? Train : Stayer;
-	}
-	FSTTestAccess::State(*Subsystem, Stayer)->bHomeStay = true;
-	FSTTestAccess::Groups(*Subsystem)[1].Needed = 0.0;
-	Subsystem->AllocateHomes();
-	TestEqual(TEXT("the staying train keeps iron"), FSTTestAccess::State(*Subsystem, Stayer)->HomeItem.Get(), Iron);
-	TestEqual(TEXT("the rest go to coal"), Homes(Coal), 3);
-	// A cap of 1 on coal: the others have no home and take any work.
-	FSTTestAccess::SetGroupTrains(*Subsystem, Coal, 0, 1);
-	Subsystem->AllocateHomes();
-	TestEqual(TEXT("coal capped at 1"), Homes(Coal), 1);
-	TestEqual(TEXT("two trains without a home"), Homes(nullptr), 2);
-	return true;
-}
-
 // A group is short only while it has fewer trains than it wants and no train that fits it is idle: idle trains that
 // fit mean there is too little work, not too few trains (the case that showed "short" with trains at the depot).
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTGroupShortfallTest, "SmartTrains.Groups.Shortfall", TestFlags)
@@ -1205,12 +1136,9 @@ bool FSTGroupShortfallTest::RunTest(const FString& Parameters)
 {
 	UClass* Iron = USTTestSolid::StaticClass();
 	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-	// Homes exist only with the 0.10 dispatcher.
-	FSTTestAccess::Settings(*Subsystem).bItemGroups = true;
 	AFGTrain* Train = NewObject<AFGTrain>(GetTransientPackage());
 	FSTTestAccess::AddManaged(*Subsystem, Train);
 	FSTTestAccess::AddGroup(*Subsystem, Iron, 3.0, {Train});
-	Subsystem->AllocateHomes();
 	TestEqual(TEXT("wants 3 (3.0 needed)"), Subsystem->GetGroupTarget(FSTTestAccess::Groups(*Subsystem)[0]), 3);
 	TestEqual(TEXT("its one train is idle: not short"), Subsystem->GetGroupShortfall(FSTTestAccess::Groups(*Subsystem)[0]), 0);
 	FSTTrainState* State = FSTTestAccess::State(*Subsystem, Train);
@@ -1221,90 +1149,7 @@ bool FSTGroupShortfallTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("its one train is busy: 2 short"), Subsystem->GetGroupShortfall(FSTTestAccess::Groups(*Subsystem)[0]), 2);
 	FSTTestAccess::Groups(*Subsystem)[0].Needed = 2.1;
 	TestEqual(TEXT("2.1 needed wants 2"), Subsystem->GetGroupTarget(FSTTestAccess::Groups(*Subsystem)[0]), 2);
-	FSTTestAccess::SetGroupTrains(*Subsystem, Iron, 0, 1);
-	TestEqual(TEXT("a cap of 1 wants 1"), Subsystem->GetGroupTarget(FSTTestAccess::Groups(*Subsystem)[0]), 1);
-	TestEqual(TEXT("and isn't short"), Subsystem->GetGroupShortfall(FSTTestAccess::Groups(*Subsystem)[0]), 0);
-	return true;
-}
-
-// With a home item set, a trip starts with that item's moves even when another item's trip would score more; without
-// it the planner takes the better one.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTHomeItemFirstTest, "SmartTrains.Groups.HomeItemFirst", TestFlags)
-bool FSTHomeItemFirstTest::RunTest(const FString& Parameters)
-{
-	UClass* Iron = USTTestSolid::StaticClass();
-	UClass* Coal = USTTestSolidB::StaticClass();
-	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
-	AFGTrainStationIdentifier* IronMine = FSTTestAccess::MakeStation();
-	AFGTrainStationIdentifier* IronUser = FSTTestAccess::MakeStation();
-	AFGTrainStationIdentifier* CoalMine = FSTTestAccess::MakeStation();
-	AFGTrainStationIdentifier* CoalUser = FSTTestAccess::MakeStation();
-	const TArray<AFGTrainStationIdentifier*> All = {Start, IronMine, IronUser, CoalMine, CoalUser};
-	// Coal is near, iron far: on score alone the train takes coal.
-	for (AFGTrainStationIdentifier* From : All)
-	{
-		for (AFGTrainStationIdentifier* To : All)
-		{
-			const bool bNear = (From == Start && To == CoalMine) || (From == CoalMine && To == CoalUser);
-			FSTTestAccess::SetTrip(*Subsystem, From, To, bNear ? 30.f : 600.f);
-		}
-	}
-	TArray<FSTNode> Nodes = {
-		FSTTestAccess::Node(IronMine, Iron, ESTRole::Supply, 4800, 4800, 1), FSTTestAccess::Node(IronUser, Iron, ESTRole::Demand, 0, 4800, 1),
-		FSTTestAccess::Node(CoalMine, Coal, ESTRole::Supply, 4800, 4800, 1), FSTTestAccess::Node(CoalUser, Coal, ESTRole::Demand, 0, 4800, 1)};
-	for (FSTNode& Node : Nodes)
-	{
-		Node.Rate = 1.0;
-	}
-	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
-	FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
-	FSTTestAccess::ServeAll(Planner);
-	TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Iron, true, 4800.0, 48), FSTTestAccess::Platform(Iron, false, 0.0, 0),
-		FSTTestAccess::Platform(Coal, true, 4800.0, 48), FSTTestAccess::Platform(Coal, false, 0.0, 0)};
-	for (FSTTestAccess::FPlatformInfo& Platform : Platforms)
-	{
-		Platform.Slots = 48;
-	}
-	FSTTestAccess::FCarInfo Car = FSTTestAccess::Car();
-	Car.Slots = 32;
-	FSTTestAccess::FCarPlatforms CarPlatforms;
-	CarPlatforms.Add(IronMine, {{0}});
-	CarPlatforms.Add(IronUser, {{1}});
-	CarPlatforms.Add(CoalMine, {{2}});
-	CarPlatforms.Add(CoalUser, {{3}});
-	FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, Platforms, CarPlatforms);
-	FSTTestAccess::BuildMoves(Planner);
-	auto Delivered = [](const FSTPlanResult& Result, UClass* Item)
-	{
-		int32 Moved = 0;
-		for (const TArray<FSTPlanCarStep>& Stop : Result.Steps)
-		{
-			for (const FSTPlanCarStep& Step : Stop)
-			{
-				for (const TPair<UClass*, int32>& Each : Step.Unloaded)
-				{
-					Moved += Each.Key == Item ? Each.Value : 0;
-				}
-			}
-		}
-		return Moved;
-	};
-	TArray<FSTPlanStop> Free;
-	const FSTPlanResult Any = Planner.Improve(Free, 0);
-	if (TestTrue(TEXT("a trip is found"), Any.bValid && Free.Num() > 0))
-	{
-		TestTrue(TEXT("on score alone it delivers coal"), Delivered(Any, Coal) > 0);
-	}
-	TArray<FSTPlanStop> Home;
-	Planner.SetOnlyItem(Iron);
-	const FSTPlanResult HomeResult = Planner.Improve(Home, 0);
-	Planner.SetOnlyItem(nullptr);
-	if (TestTrue(TEXT("a home trip is found"), HomeResult.bValid && Home.Num() > 0))
-	{
-		TestTrue(TEXT("with iron as its home it delivers iron"), Delivered(HomeResult, Iron) > 0);
-		TestEqual(TEXT("and only iron while the home item is set"), Delivered(HomeResult, Coal), 0);
-	}
+	TestEqual(TEXT("and is 1 short"), Subsystem->GetGroupShortfall(FSTTestAccess::Groups(*Subsystem)[0]), 1);
 	return true;
 }
 

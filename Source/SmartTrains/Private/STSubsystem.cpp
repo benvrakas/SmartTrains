@@ -1404,7 +1404,7 @@ TArray<FString> ASTSubsystem::DescribeTrain(const AFGTrain* Train) const
 		State && State->bKeepVanilla ? TEXT(", keep vanilla") : TEXT("")));
 	if (State && State->bManaged)
 	{
-		Lines.Add(DescribeHome(*State));
+		Lines.Add(DescribeWork(*State));
 	}
 	if (State && State->bHasJob)
 	{

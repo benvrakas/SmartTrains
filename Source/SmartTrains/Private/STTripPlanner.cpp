@@ -1491,8 +1491,7 @@ FSTPlanResult FSTTripPlanner::Improve(TArray<FSTPlanStop>& InOutStops, int32 Fir
 		FSTPlanResult BestResult;
 		for (int32 Index = 0; Index < mMoves.Num(); ++Index)
 		{
-			// While a home item is set, only its moves and deliveries of cargo on board (a home trip's start).
-			if (Used.Contains(Index) || (mOnlyItem && mMoves[Index].From != INDEX_NONE && mMoves[Index].Item != mOnlyItem))
+			if (Used.Contains(Index))
 			{
 				continue;
 			}

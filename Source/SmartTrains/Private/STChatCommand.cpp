@@ -209,8 +209,7 @@ namespace
 		TEXT("/st setup format <text> | words <loads> <unloads several> <unloads one> [both] | default   (how stations are named)"),
 		TEXT("/st train [manage|unmanage] [keepvanilla on|off]"),
 		TEXT("/st snapshot   (the next dispatch round's planning inputs to a file in the server's Saved/SmartTrains/Snapshots, for replay tests; admin only)"),
-		TEXT("/st group   (item groups) | /st group <item> [trains <least> <most>]   (0 0: automatic)"),
-		TEXT("/st train stay on|off   (keep its home group)"),
+		TEXT("/st group [item]   (per item: the flow plan's routes, trains needed and working on it)"),
 		TEXT("/st job <item> from <station> to <station>   (a test job for the train you drive or look at)"),
 		TEXT("/st migrate   (opens the migration window)"),
 		TEXT("/st migrate preview [tracelimit 5000] [allitems] | apply all [confirm] | apply stations 1,2 trains 3 | undo"),
@@ -561,10 +560,6 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			{
 				Subsystem->SetTrainKeepVanilla(Train, IsOn(Arguments[++Index]), Who);
 			}
-			else if (Word == TEXT("stay") && Index + 1 < Arguments.Num())
-			{
-				Subsystem->SetTrainHomeStay(Train, IsOn(Arguments[++Index]), Who);
-			}
 		}
 		Send(Sender, Subsystem->DescribeTrain(Train));
 		return EExecutionStatus::COMPLETED;
@@ -583,36 +578,19 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 
 	if (Verb == TEXT("group"))
 	{
-		// /st group <item words> [trains <least> <most>]
-		const int32 TrainsAt = Arguments.IndexOfByPredicate([](const FString& Word) { return Word.Equals(TEXT("trains"), ESearchCase::IgnoreCase); });
-		const int32 ItemEnd = TrainsAt != INDEX_NONE ? TrainsAt : Arguments.Num();
-		if (ItemEnd <= 1)
+		// /st group [item words]
+		if (Arguments.Num() <= 1)
 		{
 			Send(Sender, Subsystem->DescribeGroups());
 			return EExecutionStatus::COMPLETED;
 		}
-		const FString ItemName = FString::Join(TArray<FString>(Arguments.GetData() + 1, ItemEnd - 1), TEXT(" "));
+		const FString ItemName = FString::Join(TArray<FString>(Arguments.GetData() + 1, Arguments.Num() - 1), TEXT(" "));
 		TSubclassOf<UFGItemDescriptor> Item;
 		FString Error;
 		if (!FindItem(ItemName, Item, Error) || !Item)
 		{
-			Sender->SendChatMessage(Error.IsEmpty() ? TEXT("Name an item, e.g. /st group sulfur trains 2 4.") : Error, FLinearColor::Red);
+			Sender->SendChatMessage(Error.IsEmpty() ? TEXT("Name an item, e.g. /st group sulfur.") : Error, FLinearColor::Red);
 			return EExecutionStatus::UNCOMPLETED;
-		}
-		if (TrainsAt != INDEX_NONE)
-		{
-			if (TrainsAt + 2 >= Arguments.Num())
-			{
-				Sender->SendChatMessage(TEXT("Use /st group <item> trains <least> <most> (0 0: automatic)."), FLinearColor::Red);
-				return EExecutionStatus::BAD_ARGUMENTS;
-			}
-			if (!Allowed(Sender, *Subsystem, STAccess::EChange::Edit, TEXT("change group settings")))
-			{
-				return EExecutionStatus::UNCOMPLETED;
-			}
-			FString Result;
-			const bool bDone = Subsystem->SetGroupTrains(Item.Get(), FCString::Atoi(*Arguments[TrainsAt + 1]), FCString::Atoi(*Arguments[TrainsAt + 2]), Who, Result);
-			Sender->SendChatMessage(Result, bDone ? FLinearColor::White : FLinearColor::Red);
 		}
 		const FSTGroup* Group = Subsystem->FindGroup(Item.Get());
 		if (!Group)
@@ -631,13 +609,6 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		{
 			Sender->SendChatMessage(FString::Printf(TEXT("  %s -> %s: %s/min, %.2f trains"), *STLayout::Name(Route.From.Get()), *STLayout::Name(Route.To.Get()),
 				*STNames::Amount(Item, Route.Flow * 60.0), Route.Trains));
-		}
-		for (const TWeakObjectPtr<AFGTrain>& Train : Group->Homes)
-		{
-			if (const FSTTrainState* State = Subsystem->FindTrainState(Train.Get()))
-			{
-				Sender->SendChatMessage(FString::Printf(TEXT("  %s: %s"), *STLayout::Name(Train.Get()), *Subsystem->DescribeHome(*State)));
-			}
 		}
 		return EExecutionStatus::COMPLETED;
 	}

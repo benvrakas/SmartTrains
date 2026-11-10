@@ -407,7 +407,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		FSTMonitorRow& Row = View.Trains.AddDefaulted_GetRef();
 		// The name the game shows; with job names on it already says the trip.
 		Row.Title = STLayout::Name(State.Train.Get());
-		Row.Details.Add(Subsystem.DescribeHome(State));
+		Row.Details.Add(Subsystem.DescribeWork(State));
 		const bool bDocked = State.Train->IsDocked();
 		if (!State.bHasJob)
 		{
@@ -418,8 +418,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		}
 		else
 		{
-			const bool bLent = State.HomeItem && State.Job.GroupItem && State.Job.GroupItem != State.HomeItem;
-			Row.Verdict = State.Job.bPark ? TEXT("Going to park") : (bLent ? TEXT("Lent out") : (bDocked ? TEXT("At a stop") : TEXT("Driving")));
+			Row.Verdict = State.Job.bPark ? TEXT("Going to park") : (bDocked ? TEXT("At a stop") : TEXT("Driving"));
 			if (!Subsystem.mSettings.bJobNames)
 			{
 				Row.Details.Add(State.Job.Summary);
@@ -831,7 +830,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		Short += Missing > 0 ? 1 : 0;
 		Row.Verdict = Missing > 0 ? TEXT("Short of trains") : (Group.Routes.Num() == 0 ? TEXT("No flows now") : (Working > 0 ? TEXT("Running") : TEXT("Nothing to move now")));
 		Row.Severity = Missing > 0 ? 2 : 0;
-		Row.Columns.Add(FString::Printf(TEXT("%d / %.1f"), Group.Homes.Num(), Group.Needed));
+		Row.Columns.Add(FString::Printf(TEXT("%.1f"), Group.Needed));
 		Row.Columns.Add(FString::FromInt(Working));
 		Row.Columns.Add(FString::FromInt(Group.Routes.Num()));
 		for (const FSTFlowRoute& Route : Group.Routes)
@@ -839,15 +838,12 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			Row.Details.Add(FString::Printf(TEXT("%s -> %s: %s/min, %.2f trains."), *STLayout::Name(Route.From.Get()), *STLayout::Name(Route.To.Get()),
 				*STNames::Amount(Group.Item.Get(), Route.Flow * 60.0), Route.Trains));
 		}
-		if (const FSTGroupConfig* Config = Subsystem.FindGroupConfig(Group.Item.Get()))
+		for (const FSTTrainState& State : Subsystem.mTrains)
 		{
-			Row.Details.Add(FString::Printf(TEXT("Trains set by a player: at least %d, at most %s."), Config->MinTrains, Config->MaxTrains > 0 ? *FString::FromInt(Config->MaxTrains) : TEXT("any")));
-		}
-		for (const TWeakObjectPtr<AFGTrain>& Train : Group.Homes)
-		{
-			const FSTTrainState* State = Subsystem.mTrains.FindByPredicate([&](const FSTTrainState& Each) { return Each.Train.Get() == Train.Get(); });
-			Row.Details.Add(FString::Printf(TEXT("%s: %s"), *STLayout::Name(Train.Get()),
-				State && State->bHasJob ? *State->Job.Summary : *FString(Subsystem.mIdleReasons.FindRef(Train.Get()))));
+			if (State.bManaged && State.bHasJob && !State.Job.bPark && State.Job.GroupItem.Get() == Group.Item.Get())
+			{
+				Row.Details.Add(FString::Printf(TEXT("%s: %s"), *STLayout::Name(State.Train.Get()), *State.Job.Summary));
+			}
 		}
 		if (Missing > 0)
 		{

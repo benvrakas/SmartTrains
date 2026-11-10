@@ -173,24 +173,6 @@ struct SMARTTRAINS_API FSTNamingConfig
 	FString MixedWord;
 };
 
-// A player's settings for one item's group (Docs/Architecture.md, "Groups"). Without one, the group takes the trains it
-// needs.
-USTRUCT()
-struct SMARTTRAINS_API FSTGroupConfig
-{
-	GENERATED_BODY()
-
-	UPROPERTY(SaveGame)
-	TSubclassOf<UFGItemDescriptor> Item;
-
-	// Fewest and most trains whose home it is (0: automatic).
-	UPROPERTY(SaveGame)
-	int32 MinTrains = 0;
-
-	UPROPERTY(SaveGame)
-	int32 MaxTrains = 0;
-};
-
 // What one car loads or unloads at one stop of a job.
 USTRUCT()
 struct SMARTTRAINS_API FSTCarWork
@@ -277,11 +259,11 @@ struct SMARTTRAINS_API FSTJob
 	UPROPERTY(SaveGame)
 	bool bPark = false;
 
-	// The item group the trip was planned for: the train's home group, or the one it was lent to.
+	// The item the trip unloads most of, in car loads.
 	UPROPERTY(SaveGame)
 	TSubclassOf<UFGItemDescriptor> GroupItem;
 
-	// The consumer station the trip was built around (consumer-anchored trips); re-plans only add deliveries there.
+	// The consumer station the trip was built around; re-plans only add deliveries there.
 	UPROPERTY(SaveGame)
 	TObjectPtr<AFGTrainStationIdentifier> AnchorStation = nullptr;
 
@@ -372,13 +354,6 @@ struct SMARTTRAINS_API FSTTrainState
 	bool bReplanFresh = false;
 	// Runtime only: when the trip was last planned again because a parked train couldn't leave a station it needs.
 	double LastRerouted = -1000.0;
-	// Its home group's item (null: none) and the player's Stay in this group: allocation doesn't move it.
-	UPROPERTY(SaveGame)
-	TSubclassOf<UFGItemDescriptor> HomeItem;
-
-	UPROPERTY(SaveGame)
-	bool bHomeStay = false;
-
 	// Runtime only: docking state at the last check, when the current dock began, and where.
 	bool bWasDocked = false;
 	double DockedAt = 0.0;

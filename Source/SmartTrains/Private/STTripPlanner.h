@@ -96,9 +96,6 @@ public:
 
 	// Adds moves by regret insertion while the trip's score rises; returns the final result.
 	FSTPlanResult Improve(TArray<FSTPlanStop>& InOutStops, int32 FirstMovable) const;
-	// While set, Improve only adds moves of Item and deliveries of cargo already on board (a home group's trip, which
-	// other work may join afterwards); null: any move.
-	void SetOnlyItem(UClass* Item) { mOnlyItem = Item; }
 	// While set, Improve only adds moves delivering to Station (a trip built around one consumer); null: any move.
 	void SetOnlyStation(const AFGTrainStationIdentifier* Station) { mOnlyStation = Station; }
 	// The stations the current train's moves deliver to, each once.
@@ -231,7 +228,6 @@ private:
 	// Rejection reason -> how often it came up for the current train.
 	mutable TMap<FString, int32> mProblems;
 	bool bFcc = false;
-	UClass* mOnlyItem = nullptr;
 	const AFGTrainStationIdentifier* mOnlyStation = nullptr;
 	// Automation tests: every station counts as on the train's track network (they have no world).
 	bool bServeAll = false;

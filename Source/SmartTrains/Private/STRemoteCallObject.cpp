@@ -386,7 +386,7 @@ void USTRemoteCallObject::Server_SetUpStation_Implementation(AFGTrainStationIden
 
 bool USTRemoteCallObject::Server_SetTrain_Validate(AFGTrain* Train, ESTTrainAction Action, int32 Edit)
 {
-	return Action <= ESTTrainAction::StayOff;
+	return Action <= ESTTrainAction::KeepVanillaOff;
 }
 
 void USTRemoteCallObject::Server_SetTrain_Implementation(AFGTrain* Train, ESTTrainAction Action, int32 Edit)
@@ -416,10 +416,6 @@ void USTRemoteCallObject::Server_SetTrain_Implementation(AFGTrain* Train, ESTTra
 	case ESTTrainAction::KeepVanillaOn:
 	case ESTTrainAction::KeepVanillaOff:
 		Subsystem->SetTrainKeepVanilla(Train, Action == ESTTrainAction::KeepVanillaOn, Cause);
-		break;
-	case ESTTrainAction::StayOn:
-	case ESTTrainAction::StayOff:
-		Subsystem->SetTrainHomeStay(Train, Action == ESTTrainAction::StayOn, Cause);
 		break;
 	}
 	Client_Train(Subsystem->MakeTrainView(Train, mAppliedEdit));

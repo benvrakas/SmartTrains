@@ -68,13 +68,11 @@ Setting a role switches the platform to load (supply) or unload (demand).
   `/st emptycars all confirm` does it for every managed train. A managed train's trip is planned again. Logged as
   `EMPTY <train> by <player>: removed ...`.
 
-## Item groups
+## Item groups (readout)
 
-- `/st group`: every item group: home trains and trains needed, trains working on it now, routes, and `[short N]` when
+- `/st group`: every item the flow plan routes: trains needed, trains working on it now, routes, and `[short N]` when
   it lacks trains while every train that fits it is busy.
-- `/st group <item>`: one group: its routes (supplier, consumer, rate, trains needed) and what each home train does.
-- `/st group <item> trains <least> <most>`: limits on its home trains (`0 0` = automatic). Saved per item.
-- `/st train stay on|off`: the train you drive or look at keeps its home group (the share-out doesn't move it).
+- `/st group <item>`: one item's routes (supplier, consumer, rate, trains needed).
 
 ## Snapshots
 

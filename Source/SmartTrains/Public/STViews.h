@@ -96,10 +96,6 @@ struct SMARTTRAINS_API FSTTrainView
 	UPROPERTY()
 	TArray<FString> Lines;
 
-	// Stay in this group: the train keeps its home group.
-	UPROPERTY()
-	bool bHomeStay = false;
-
 	UPROPERTY()
 	int32 AppliedEdit = 0;
 };
@@ -277,8 +273,6 @@ enum class ESTTrainAction : uint8
 	Unmanage,
 	KeepVanillaOn,
 	KeepVanillaOff,
-	StayOn,
-	StayOff,
 };
 
 // One row of the throughput monitor: an item, station, platform or train, or an overview tile.

@@ -579,11 +579,11 @@ void USTMonitorWindow::ShowItems(const FSTMonitorView& View)
 
 void USTMonitorWindow::ShowGroups(const FSTMonitorView& View)
 {
-	AddCell(AddLine(FMargin(0.f, 0.f, 0.f, 8.f)), MakeCell(TEXT("Each item the flow plan moves is a group of its suppliers and consumers. Every managed train has a home "
-		"group, shared out by what the groups need; it takes its group's work first and is lent to other work when its group has none. "
-		"Homes: home trains / trains needed. Working: trains moving the item now, home or lent. Short only while no train that fits has time for it."), 10, MonitorDim, true), 0.f);
+	AddCell(AddLine(FMargin(0.f, 0.f, 0.f, 8.f)), MakeCell(TEXT("Each item the flow plan moves, with its routes (supplier, consumer, rate) and the trains they need. "
+		"Trips are planned around consumers, not groups: this is a readout. Needed: trains the routes call for. Working: trains moving the item now. "
+		"Short only while no train that fits has time for it."), 10, MonitorDim, true), 0.f);
 	const TArray<float> Widths = {100.f, 80.f, 70.f};
-	AddHeader({{LOCTEXT("ColGroup", "Group"), 0.f}, {LOCTEXT("ColStatus", "Status"), 150.f}, {LOCTEXT("ColHomes", "Homes"), Widths[0]},
+	AddHeader({{LOCTEXT("ColGroup", "Item"), 0.f}, {LOCTEXT("ColStatus", "Status"), 150.f}, {LOCTEXT("ColNeeded", "Needed"), Widths[0]},
 		{LOCTEXT("ColWorking", "Working"), Widths[1]}, {LOCTEXT("ColRoutes", "Routes"), Widths[2]}});
 	for (const FSTMonitorRow& Row : View.Groups)
 	{

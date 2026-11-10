@@ -308,10 +308,9 @@ FSTTrainView ASTSubsystem::MakeTrainView(const AFGTrain* Train, int32 AppliedEdi
 	{
 		View.CannotManage = TEXT("it has no locomotive that can dock");
 	}
-	View.bHomeStay = State && State->bHomeStay;
 	if (State && State->bManaged)
 	{
-		View.Lines.Add(DescribeHome(*State));
+		View.Lines.Add(DescribeWork(*State));
 	}
 	if (!View.bManaged)
 	{

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.0 (beta)
+
+**Item groups as a dispatcher are gone.** Consumer-anchored trips (0.12.0) delivered more, so the old way is removed.
+
+- Removed: home groups, lending, **Stay in its home group** (locomotive menu and `/st train stay`), per-item train
+  limits (`/st group <item> trains`) and the **Item groups (0.10 dispatcher)** setting. Saved homes and limits are
+  dropped on load.
+- `/st group` and the monitor's **Groups** tab stay as a readout: each item's routes in the flow plan, the trains
+  they need, the trains moving it now, and whether it is short of trains.
+
 ## 0.12.0 (beta)
 
 **Every trip is built around one consumer.** Like a DynamicTimeTable group per factory, made automatic.

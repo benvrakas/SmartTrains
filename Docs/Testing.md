@@ -134,7 +134,7 @@ tests are compiled only where `WITH_DEV_AUTOMATION_TESTS` is on, so not into the
 server by `/st snapshot`) is loaded and each free train in it is planned again: moves (`BuildMoves`, which needs no
 live train), regret insertion, simulation. Every plan must be valid; the plans are listed in the report. The editor
 has no game items, so each snapshot item gets one of 48 stand-in classes (`STReplayItems.h`) with its form and stack
-size set on the class default. Not replayed: home groups (the replay plans every train as lent), waiting room (no track), Auto Trains. `fixture-two-stations.json`
+size set on the class default. Not replayed: the consumer choice (the replay plans each train with every move), waiting room (no track), Auto Trains. `fixture-two-stations.json`
 is a hand-made example.
 
 The editor's game classes are stubs: inventories report no slot sizes. The tests therefore give a fluid a 2,400 m3

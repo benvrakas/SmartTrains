@@ -87,9 +87,8 @@ struct FSTFlowRoute
 	FString GetKey() const { return MakeKey(From.Get(), To.Get(), Item.Get()); }
 };
 
-// An item group (Docs/Architecture.md, "Groups"): the suppliers and consumers of one item that the flow plan links, and
-// the trains whose home it is. Rebuilt from every flow plan; homes and the player's settings are saved with the trains
-// and in FSTGroupConfig.
+// An item group (Docs/Architecture.md, "Groups"): the flow plan's routes of one item and the managed trains that fit
+// them, a readout of how many trains the item needs. Rebuilt from every flow plan, not saved.
 struct FSTGroup
 {
 	TWeakObjectPtr<UClass> Item;
@@ -101,8 +100,6 @@ struct FSTGroup
 	double LastRouteAt = 0.0;
 	// Managed trains whose cars fit at least one of its routes.
 	TArray<TWeakObjectPtr<AFGTrain>> Fitting;
-	// Trains whose home it is.
-	TArray<TWeakObjectPtr<AFGTrain>> Homes;
 };
 
 // What fits when one train does one pickup and delivery (Docs/Architecture.md, "Fit model").
@@ -304,9 +301,7 @@ private:
 	void UpdateUnwantedCargo(FSTTrainState& State);
 	// Re-plans the rest of State's trip from where it is and what its cars hold; keeps stops already passed.
 	void ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner);
-	// Gives free trains trips (Docs/Architecture.md, "Groups"): home work first, then any work (lent), else they park.
-	void GroupRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes);
-	// Gives free trains trips built around one consumer station each (STGather.cpp; the default dispatcher).
+	// Gives free trains trips built around one consumer station each (STGather.cpp).
 	void GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes);
 	// Turns a planned trip into State's job (and, if bReserve, reserves it for the trains planned after it).
 	void CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve, UClass* GroupItem = nullptr,
@@ -417,39 +412,29 @@ private:
 	// When each train last had its turn in a dispatch round (Now()); runtime only.
 	TMap<TWeakObjectPtr<AFGTrain>, double> mPlanTurns;
 
-	// Players' group settings, by item.
-	UPROPERTY(SaveGame)
-	TArray<FSTGroupConfig> mGroupConfigs;
-
 	// The item groups of the last flow plan.
 	TArray<FSTGroup> mGroups;
 
 public:
 	// Groups (STGroups.cpp).
 	const FSTGroup* FindGroup(const UClass* Item) const;
-	const FSTGroupConfig* FindGroupConfig(const UClass* Item) const;
 	// "Copper Ingot".
 	static FString DescribeGroup(const FSTGroup& Group);
-	// Every flow plan: groups follow the plan's routes (kept for GroupKeepSeconds without any), then trains get homes.
+	// Every flow plan: groups follow the plan's routes (kept for GroupKeepSeconds without any).
 	void UpdateGroups(TArray<FSTFlowRoute>&& Routes);
-	// Gives every managed train a home among the groups it fits, in proportion to what they need (AllocateHomes).
-	void AllocateHomes();
-	// Trains a group wants as homes: ceil(needed - slack), within the player's limits.
+	// Trains a group's routes call for: ceil(needed - slack).
 	int32 GetGroupTarget(const FSTGroup& Group) const;
 	// Trains it lacks that no idle train could make up for: short only while every train that fits it is busy.
 	int32 GetGroupShortfall(const FSTGroup& Group) const;
-	// Trains whose current trip moves the group's item, home or lent.
+	// Trains whose current trip moves the group's item.
 	int32 CountWorkingFor(const FSTGroup& Group) const;
 	// One line per group, for /st group.
 	TArray<FString> DescribeGroups() const;
-	// What the train does for its group (empty when not managed).
-	FString DescribeHome(const FSTTrainState& State) const;
+	// What a managed train does: the consumer of its trip, or why it waits (empty when not managed).
+	FString DescribeWork(const FSTTrainState& State) const;
 	// Groups of Platform's items, or why it has none; groups at Station, its room to wait and its switch.
 	TArray<FString> DescribePlatformGroups(const AFGBuildableTrainPlatformCargo* Platform) const;
 	TArray<FString> DescribeStationGroups(const AFGTrainStationIdentifier* Station) const;
-	// Player settings: a train's Stay in this group; a group's fewest and most trains (0: automatic).
-	bool SetTrainHomeStay(AFGTrain* Train, bool bOn, const FString& Cause);
-	bool SetGroupTrains(UClass* Item, int32 MinTrains, int32 MaxTrains, const FString& Cause, FString& OutResult);
 
 private:
 

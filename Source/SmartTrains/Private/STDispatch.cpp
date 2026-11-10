@@ -843,15 +843,8 @@ void ASTSubsystem::DispatchRound()
 	{
 		return;
 	}
-	// Free trains: trips built around one consumer each (or, with Item groups on, home work first, then any work).
-	if (mSettings.bItemGroups)
-	{
-		GroupRound(Planner, Nodes);
-	}
-	else
-	{
-		GatherRound(Planner, Nodes);
-	}
+	// Free trains: trips built around one consumer each.
+	GatherRound(Planner, Nodes);
 	if (!mSettings.bObserveOnly)
 	{
 		ClearNeededBays();
@@ -1083,7 +1076,7 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	const TArray<FSTPlanStop> Kept = Stops;
 	const FSTPlanResult KeptResult = bKeptWorks ? Planner.Simulate(Stops) : FSTPlanResult();
 	// A trip built around one consumer only adds deliveries there; cargo for elsewhere waits for the next trip.
-	Planner.SetOnlyStation(!mSettings.bItemGroups ? State.Job.AnchorStation.Get() : nullptr);
+	Planner.SetOnlyStation(State.Job.AnchorStation.Get());
 	Result = Planner.Improve(Stops, 0);
 	Planner.SetOnlyStation(nullptr);
 	FSTTripPlanner::Trim(Stops, Result, 0);

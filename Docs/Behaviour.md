@@ -15,7 +15,7 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 | Inventory routing problem (IRP), maritime inventory routing flavour | whole planner | Platforms are inventories with rates and capacities. Trains are vehicles with compartments (cars). The planner decides when, where and how much to move, not just routes. |
 | Order-up-to level with minimum batch, like an (s, S) inventory policy | node targets, send-at | Demand platforms are served while below **target**. A pickup only goes when it fills the **send-at** share of the loading cars. |
 | Inventory forecast with a shortfall cost (stock-out integral) over a one-hour horizon | `STForecast` (0.7.0) | Each delivery or pickup is worth the drop in its node's forecast cost: the shortfall below target over the next hour, in car-load minutes, weighted by priority. Replaces urgency and fairness weights. |
-| Proportional allocation by highest averages (D'Hondt) | standard | `AllocateHomes` (0.10.0): home groups for the trains in proportion to what each item group needs. |
+| Proportional allocation by highest averages (D'Hondt) | standard | 0.10.0 to 0.12.0 only (removed in 0.13.0): home groups for the trains in proportion to what each item group needs. |
 | Rolling horizon (plan, act one step, plan again), as in model predictive control | `ReplanTrip` | Only the current trip is fixed. It is planned again after every stop and after any settings change, from the cargo really on board. |
 | Anytime planning with a time budget | `IsOverBudget`, 25 ms per round | Planning stops when the round's budget is used. Work left over waits for the next round. |
 
@@ -82,8 +82,8 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 
 ### Fleet behaviour
 
-16. **Dedicated trains join the groups** (seen). Without DynamicTimeTable the migration ticks every train. A former
-    shuttle gets a home group it fits and takes other work when that group has none.
+16. **Dedicated trains join the pool** (seen). Without DynamicTimeTable the migration ticks every train. A former
+    shuttle takes whichever consumer's trip pays best, often its old route when its cars line up only there.
 17. **Parking in a station, then making room** (seen). An idle train stops where its last stop ended, often inside
     a station. When a trip needs that station, the parked train is sent to a depot or the nearest unused station
     (log: "drive to Alclad Aluminum Sheet SRC (4680) and park (making room at Heavy Oil Residue SNK (640))").

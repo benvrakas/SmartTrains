@@ -37,11 +37,9 @@ them (see below).
   one-item consumer gets a plain shuttle trip. The train runs the trip worth the most per second, so trains whose cars
   line up and trains nearby win by themselves. After every stop the rest of the trip is planned again from what the
   cars really hold. With nothing worth a trip, it parks.
-- **Item groups (0.10 dispatcher)** in the Mods menu brings back the earlier way (home groups and lending) for
-  comparison.
-- **Short of trains** in the monitor means a group lacks trains and no train that fits it is idle: then more trains
-  help. Idle trains that fit mean there's too little to move, not too few trains. `/st group` and the monitor's Groups
-  tab show the groups, their trains and their flows.
+- **Short of trains** in the monitor means an item's routes call for more trains than are moving it and no train
+  that fits is idle: then more trains help. Idle trains that fit mean there's too little to move, not too few trains.
+  `/st group` and the monitor's Groups tab show each item's routes, trains needed and trains moving it.
 - **Recipes:** SmartTrains follows each platform's belts and pipes to its machines. Their recipes give the real rate
   of a full supplier or a starved consumer, and a consumer whose machines wait on another missing input counts its
   shortage less until that input arrives.

@@ -30,8 +30,7 @@ in the plan (`C:\Users\benvr\.claude\plans\smarttrains.md`); this file records h
 ## 0.12.0: consumer-anchored trips
 
 Code: `STGather.cpp` (`ASTSubsystem::GatherRound`), `FSTTripPlanner::SetOnlyStation` and `GetConsumerStations`. The
-default dispatcher; Item groups (Mods menu, `bItemGroups`) brings back 0.10's `GroupRound` for comparison and will be
-removed. Why: the user asked (2026-11-09) for as few rules as possible at close to the best efficiency. The IB logs
+only dispatcher since 0.13.0 (0.12.0 kept 0.10's item groups behind a switch for comparison). Why: the user asked (2026-11-09) for as few rules as possible at close to the best efficiency. The IB logs
 showed planner sophistication didn't move throughput (0.7.1's horizon planner ran the same trips per 30 min as
 0.6.10), and most bugs came from mechanisms interacting (services, homes, lending). The shape is the user's DTT setup
 (one group per pull-based station, "[supplier group] -> factory") made automatic.
@@ -51,7 +50,7 @@ The rules:
    there. Cargo for elsewhere stays on board and is a move (cargo on board) for the next trip. With nothing worth a
    trip the train settles (depot or in place).
 
-There are no homes (`AllocateHomes` clears them; the groups stay as a readout of the flow plan) and no lending. A
+There are no homes and no lending (the groups are only a readout of the flow plan). A
 consumer is served by whichever free train makes its trip pay best, so trains whose cars line up better and trains
 nearby win by themselves. Train-first turns can give a far train a consumer a nearer, later train would have served
 better; the reservations it makes lower that consumer's value for the others, and the next round corrects it.
@@ -125,43 +124,23 @@ window's Rename stations); never automatic.
 - **Console:** `SmartTrains.Setup [apply] [keepname]` (an `FAutoConsoleCommandWithWorldAndArgs`) runs the
   all-stations set-up from a dedicated server's console, for headless tests.
 
-## 0.10.0: item groups
+## 0.10.0: item groups (a readout since 0.13.0)
 
-Code: `STGroups.cpp`. Replaces the services of 0.9.x (fixed loops with their own trains and spacing), the roster and
-shuttles of 0.7.x, requests, repeats and the horizon search. Why: a service owned its trains, so a service train with
-nothing to move on its loop parked while other services were short of trains (the monitor said "short" with trains
-waiting at the depot), and needs that swung between flow plans (6.6 trains, then 0.2) moved trains back and forth.
+Code: `STGroups.cpp`. 0.10.0 replaced 0.9's services with item groups that owned home trains (D'Hondt share-out,
+`AllocateHomes`), planned home work first and lent idle trains out (`GroupRound`, `LEND`), with per-item least/most
+limits and a per-train Stay switch. 0.12.0 replaced that dispatcher with consumer-anchored trips, which delivered about
+19 % more car loads on the IB save copy; 0.13.0 removed homes, lending, the limits, Stay and the switch back.
+
+What is left is a readout of the flow plan:
 
 - **Groups** (`FSTGroup`, rebuilt from every flow plan by `UpdateGroups`, not saved): one per item the flow plan
-  routes. A group holds the item's routes (`FSTFlowRoute`: supplier, consumer, flow, round trip, trains needed, the
-  trains that fit it), the trains its routes need (`Needed`, smoothed: each plan moves it `NeededSmoothing` (0.35) of
-  the way to the new need), and the trains whose home it is. A station joins its item's group when the flow plan
-  routes it. A group whose routes leave the plan keeps its homes for `GroupKeepSeconds` (15 min), unless the player set
-  a least.
-- **Homes** (`AllocateHomes`, after every flow plan and every stay or trains setting): every managed train gets a home
-  group among those whose routes it fits (`FSTTrainState::HomeItem`, saved). Seats go one at a time to the group with
-  the highest `Needed / (seats + 1)` (the D'Hondt method), so with too few trains every group gets its share, and
-  spares spread the same way. First the trains that stay (`bHomeStay`), then each group's least; a group seats its own
-  trains first, then trains with no home, then others, preferring one that holds the item, then one that fits the
-  fewest groups. A group's most trains caps its seats. Trains no group seats have no home.
-- **Dispatching** (`GroupRound`, every dispatch round, after the re-plans): the free trains (`GetFreeAt`), the one
-  that waited longest for a turn first (`mPlanTurns`), then the soonest free. A train is set up (`BeginTrain`) only
-  when its turn comes, and the round goes on while it has planning time; its first train always gets at least
-  `MinTurnMs` (15 ms, `GiveTime`), so a big network where setting up a train takes several ms still gets trips (0.10.1).
-  On its turn a train tries home work first: `SetOnlyItem(home)` limits `Improve` to the home item's moves and
-  deliveries of cargo on board; if that trip moves the home item, `Improve` runs again without the limit (other work
-  may join it: a second item for the same factory, a load back), and it is committed if it is worth running (value
-  above `TrainSecondCost` × its time). Otherwise it plans with any move (lent); its job is tagged with the item it
-  mostly delivers (`FSTJob::GroupItem`), logged `LEND` when that isn't its home. A train with nothing anywhere gets an
-  IDLE reason and settles (`SettleIdle`: a free depot, else parked in place).
-- **Short** (`GetGroupShortfall`): the group's target (`GetGroupTarget`: ceil(needed − 0.15), within the player's
-  least and most) less its homes and the trains lent to it now, and only while no train that fits it is idle. Idle
-  fitting trains mean too little to move, not too few trains.
-- **Player settings**: `FSTGroupConfig` per item (saved): least and most home trains (`/st group <item> trains`). Per
-  train: Stay in its home group (locomotive menu, `/st train stay`).
-- **Readouts**: monitor Groups tab and Overview tiles, `/st group`, the train panel's home line, the platform and
-  station readouts' group lines. Logs: `GROUP <item> new|ends`, `GROUP <item>: N home trains (needs x); joins ...;
-  leaves ...`, `LEND`, `DISPATCH` (detailed log).
+  routes, with its routes (`FSTFlowRoute`: supplier, consumer, flow, round trip, trains needed, the trains that fit
+  it), the trains its routes need (`Needed`, smoothed: each plan moves it `NeededSmoothing` (0.35) of the way), and the
+  managed trains that fit them. A group whose routes leave the plan is kept for `GroupKeepSeconds` (15 min).
+- **Short** (`GetGroupShortfall`): ceil(needed - 0.15) (`GetGroupTarget`) less the trains working on the item now
+  (`CountWorkingFor`), and only while no train that fits it is idle. Idle fitting trains mean too little to move.
+- **Readouts:** monitor Groups tab and Overview tiles, `/st group [item]`, the platform and station readouts' group
+  lines. Logs: `GROUP <item> new|ends`.
 
 ## 0.9.1: congestion from Auto Trains
 
@@ -713,8 +692,8 @@ trips" (starvation; it points at the item's verdict). The item's details give th
 The window has six tabs:
 - **Overview:** tiles (item groups, groups short of trains, managed trains, busy share, idle trains, limited items,
   congested stations), what limits deliveries with each row's advice, the fleet lines and the idle reasons.
-- **Groups:** every item group with its home trains / trains needed, trains working on it now (home or lent) and
-  routes; details list its routes and what each home train does. Short groups first.
+- **Groups:** every item the flow plan routes, with trains needed, trains working on it now and routes; details
+  list its routes and the trains moving it. Short groups first.
 - **Items:** a table with icon, limit, supply and demand per minute, trains needed / fitting, and time below target.
   It can be filtered to items that need a look.
 - **Stations:** the docked share, arrivals and average lateness of every station with roles.

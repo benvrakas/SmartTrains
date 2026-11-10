@@ -44,8 +44,6 @@ namespace
 				LOCTEXT("JobNamesTip", "Renames each managed train to show what it is doing, e.g. \"ST: Iron Plate -> Steel Mill\". The original name comes back when this is turned off or the train is no longer managed.")},
 			{TEXT("LeaveAtOnce"), &FSTSettings::bLeaveAtOnce, LOCTEXT("LeaveAtOnce", "Trains leave stations at once"),
 				LOCTEXT("LeaveAtOnceTip", "Every stop is load/unload once: a train moves what it can in one transfer and leaves. A train with a trip also starts it at once instead of holding in the station while its next stop is busy or Auto Trains sees no way yet. Off: deliveries and pickups wait up to their longest wait, and trains hold in stations.")},
-			{TEXT("ItemGroups"), &FSTSettings::bItemGroups, LOCTEXT("ItemGroups", "Item groups (0.10 dispatcher)"),
-				LOCTEXT("ItemGroupsTip", "Off (default): every trip is built around one consumer station: a free train fills the cars that line up with its unloading platforms, from the suppliers that pay best, and unloads there. On: the 0.10 way, where each train has a home item group, takes its work first and is lent out otherwise. For comparing the two; it will be removed.")},
 			{TEXT("AdminsOnly"), &FSTSettings::bAdminsOnly, LOCTEXT("AdminsOnly", "Only admins change SmartTrains"),
 				LOCTEXT("AdminsOnlyTip", "In multiplayer, only the host (or, on a dedicated server, its admins) can change platform, station and train settings. Server settings, migration, test copies and backups are always admin only. On a dedicated server, change settings in game with /st set.")},
 		};
