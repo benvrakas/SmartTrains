@@ -394,6 +394,9 @@ private:
 	UPROPERTY(SaveGame)
 	int32 mNextJobId = 1;
 
+	// When each train last had its turn in a dispatch round (Now()); runtime only.
+	TMap<TWeakObjectPtr<AFGTrain>, double> mPlanTurns;
+
 	// Players' group settings, by item.
 	UPROPERTY(SaveGame)
 	TArray<FSTGroupConfig> mGroupConfigs;

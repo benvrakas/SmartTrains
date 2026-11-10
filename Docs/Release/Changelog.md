@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.1 (beta)
+
+- **Fixed: on a big network no train got a trip.** Each dispatch round set up every free train first (listing and
+  scoring all its moves, a few ms each), and on the IB save that used the round's planning time (25 ms) before any
+  train was planned, so every round ended with nothing. Trains are now set up only when their turn comes, the train
+  that waited longest for a turn goes first, and every round plans at least one train with planning time of its own.
+
 ## 0.10.0 (beta)
 
 **Services are replaced by item groups.** Trains no longer belong to fixed loops; they take work as it comes up.

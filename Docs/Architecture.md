@@ -44,8 +44,10 @@ waiting at the depot), and needs that swung between flow plans (6.6 trains, then
   spares spread the same way. First the trains that stay (`bHomeStay`), then each group's least; a group seats its own
   trains first, then trains with no home, then others, preferring one that holds the item, then one that fits the
   fewest groups. A group's most trains caps its seats. Trains no group seats have no home.
-- **Dispatching** (`GroupRound`, every dispatch round, after the re-plans): the free trains (`GetFreeAt`), soonest
-  free first. Home pass: `SetOnlyItem(home)` limits `Improve` to the home item's moves and deliveries of cargo on board;
+- **Dispatching** (`GroupRound`, every dispatch round, after the re-plans): the free trains (`GetFreeAt`), the one
+  that waited longest for a turn first (`mPlanTurns`), then the soonest free. A train is set up (`BeginTrain`) only
+  when its turn comes, and the round goes on while it has planning time; its first train always gets at least
+  `MinTurnMs` (15 ms, `GiveTime`), so a big network where setting up a train takes several ms still gets trips (0.10.1). Home pass: `SetOnlyItem(home)` limits `Improve` to the home item's moves and deliveries of cargo on board;
   if that trip moves the home item, `Improve` runs again without the limit (other work may join it: a second item for
   the same factory, a load back), and it is committed if it is worth running (value above `TrainSecondCost` × its
   time). Lend pass: every train still free plans with any move; its job is tagged with the item it mostly delivers

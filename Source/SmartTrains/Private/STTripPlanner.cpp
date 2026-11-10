@@ -138,6 +138,11 @@ void FSTTripPlanner::RaiseStopLimit(int32 Stops)
 	mMaxStops = FMath::Max(mMaxStops, Stops);
 }
 
+void FSTTripPlanner::GiveTime(double Milliseconds)
+{
+	mDeadline = FMath::Max(mDeadline, FPlatformTime::Seconds() + Milliseconds / 1000.0);
+}
+
 bool FSTTripPlanner::IsOverBudget() const
 {
 	return FPlatformTime::Seconds() > mDeadline;

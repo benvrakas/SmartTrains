@@ -134,6 +134,8 @@ public:
 
 	// True when this round's planning time is used up.
 	bool IsOverBudget() const;
+	// At least Milliseconds more planning time from now (a train whose turn it is).
+	void GiveTime(double Milliseconds);
 	// Milliseconds spent since the planner was made.
 	double GetElapsedMs() const;
 	// Why the last trip tried for the current train didn't work, empty if none failed.

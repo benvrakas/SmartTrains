@@ -27,6 +27,9 @@ namespace
 	constexpr double NeededSmoothing = 0.35;
 	// A train that left a station this recently doesn't start a trip with that station. [s]
 	constexpr double JustLeftAnchorSeconds = 60.0;
+	// The first train of every dispatch round gets at least this much planning time, so trains are planned even when
+	// setting them up takes the whole round's budget. [ms]
+	constexpr double MinTurnMs = 15.0;
 
 	// What a simulated trip loads and unloads of Item.
 	int32 CountMoved(const FSTPlanResult& Result, const UClass* Item)
@@ -419,11 +422,10 @@ void ASTSubsystem::GroupRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		AFGTrainStationIdentifier* Anchor = nullptr;
 		double FreeAt = 0.0;
 		bool bDocked = false;
-		bool bPlanned = false;
+		double LastTurn = -1.0e9;
 	};
 	TArray<FFree> Free;
-	TArray<TSharedPtr<FJsonValue>> SnapshotTrains;
-	for (int32 TrainIndex = 0; TrainIndex < mTrains.Num() && !Planner.IsOverBudget(); ++TrainIndex)
+	for (int32 TrainIndex = 0; TrainIndex < mTrains.Num(); ++TrainIndex)
 	{
 		FSTTrainState& State = mTrains[TrainIndex];
 		FFree Each;
@@ -435,26 +437,29 @@ void ASTSubsystem::GroupRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		const bool bJustLeftAnchor = State.LastStation.Get() == Each.Anchor && Time - State.LastDepartureAt < JustLeftAnchorSeconds
 			&& !(State.Phase == ESTTrainPhase::Parked && !State.Train->IsSelfDrivingEnabled());
 		Each.bDocked = (State.Train->IsDocked() && State.DockedStation.Get() == Each.Anchor) || bJustLeftAnchor;
-		if (Planner.BeginTrain(TrainIndex, Each.Anchor, Each.FreeAt, Each.bDocked))
-		{
-			if (bSnapshotNext)
-			{
-				SnapshotTrains.Add(MakeShared<FJsonValueObject>(Planner.DescribeForReplay()));
-			}
-			Free.Add(Each);
-		}
+		Each.LastTurn = mPlanTurns.FindRef(State.Train.Get());
+		Free.Add(Each);
 	}
 	if (bSnapshotNext)
 	{
 		bSnapshotNext = false;
+		TArray<TSharedPtr<FJsonValue>> SnapshotTrains;
+		for (const FFree& Each : Free)
+		{
+			if (Planner.BeginTrain(Each.TrainIndex, Each.Anchor, Each.FreeAt, Each.bDocked))
+			{
+				SnapshotTrains.Add(MakeShared<FJsonValueObject>(Planner.DescribeForReplay()));
+			}
+		}
 		WriteSnapshot(Nodes, Planner.GetBookings(), SnapshotTrains);
 	}
-	// The trains free soonest plan first.
-	Free.Sort([](const FFree& A, const FFree& B) { return A.FreeAt != B.FreeAt ? A.FreeAt < B.FreeAt : A.TrainIndex < B.TrainIndex; });
-	auto Resume = [&](const FFree& Each)
+	// Setting a train up lists and scores all its moves, a few ms each on a big network, so a round may only get to some
+	// of the free trains: those that waited longest for a turn go first (then the soonest free), and every round plans
+	// at least one, with time of its own.
+	Free.Sort([](const FFree& A, const FFree& B)
 	{
-		return Planner.ResumeTrain(Each.TrainIndex, Each.Anchor, Each.FreeAt, Each.bDocked) || Planner.BeginTrain(Each.TrainIndex, Each.Anchor, Each.FreeAt, Each.bDocked);
-	};
+		return A.LastTurn != B.LastTurn ? A.LastTurn < B.LastTurn : (A.FreeAt != B.FreeAt ? A.FreeAt < B.FreeAt : A.TrainIndex < B.TrainIndex);
+	});
 	// Worth running: what it gains in the forecasts beats the train's time.
 	auto Worth = [&](const FFree& Each, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result)
 	{
@@ -465,54 +470,58 @@ void ASTSubsystem::GroupRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		FSTTripPlanner::Trim(Stops, Result, 0);
 		Result = Planner.Simulate(Stops);
 	};
+	int32 Turns = 0;
 	int32 Home = 0;
 	int32 Lent = 0;
-	// Home work first: a trip that starts with the home group's moves (or delivers what the train carries), to which
-	// any other work may be added on the way.
-	for (FFree& Each : Free)
+	for (const FFree& Each : Free)
 	{
+		if (Turns > 0 && Planner.IsOverBudget())
+		{
+			break;
+		}
+		if (Turns == 0)
+		{
+			Planner.GiveTime(MinTurnMs);
+		}
+		++Turns;
 		FSTTrainState& State = mTrains[Each.TrainIndex];
+		mPlanTurns.Add(State.Train.Get(), Time);
+		if (!Planner.BeginTrain(Each.TrainIndex, Each.Anchor, Each.FreeAt, Each.bDocked))
+		{
+			continue;
+		}
+		// Home work first: a trip that starts with the home group's moves (or delivers what the train carries), to which
+		// any other work may be added on the way.
 		UClass* HomeItem = State.HomeItem.Get();
-		if (Planner.IsOverBudget() || !HomeItem || !Resume(Each))
+		if (HomeItem)
 		{
-			continue;
+			TArray<FSTPlanStop> Stops;
+			Planner.SetOnlyItem(HomeItem);
+			FSTPlanResult Result = Planner.Improve(Stops, 0);
+			Planner.SetOnlyItem(nullptr);
+			if (Result.bValid && CountMoved(Result, HomeItem) > 0)
+			{
+				Result = Planner.Improve(Stops, 0);
+				Finish(Stops, Result);
+				if (Worth(Each, Stops, Result) && CountMoved(Result, HomeItem) > 0)
+				{
+					++Home;
+					CommitTrip(State, Planner, Stops, Result, true, HomeItem);
+					continue;
+				}
+			}
 		}
-		TArray<FSTPlanStop> Stops;
-		Planner.SetOnlyItem(HomeItem);
-		FSTPlanResult Result = Planner.Improve(Stops, 0);
-		Planner.SetOnlyItem(nullptr);
-		if (!Result.bValid || CountMoved(Result, HomeItem) <= 0)
-		{
-			continue;
-		}
-		Result = Planner.Improve(Stops, 0);
-		Finish(Stops, Result);
-		if (Worth(Each, Stops, Result) && CountMoved(Result, HomeItem) > 0)
-		{
-			Each.bPlanned = true;
-			++Home;
-			CommitTrip(State, Planner, Stops, Result, true, HomeItem);
-		}
-	}
-	// Then any work: trains whose group has nothing now are lent to whatever is worth running.
-	for (FFree& Each : Free)
-	{
-		if (Each.bPlanned || Planner.IsOverBudget() || !Resume(Each))
-		{
-			continue;
-		}
-		FSTTrainState& State = mTrains[Each.TrainIndex];
+		// Then any work: a train whose group has nothing now is lent to whatever is worth running.
 		TArray<FSTPlanStop> Stops;
 		FSTPlanResult Result = Planner.Improve(Stops, 0);
 		Finish(Stops, Result);
 		if (Worth(Each, Stops, Result))
 		{
-			Each.bPlanned = true;
 			UClass* Item = MainItem(Result);
-			if (State.HomeItem && Item && Item != State.HomeItem.Get())
+			if (HomeItem && Item && Item != HomeItem)
 			{
 				++Lent;
-				UE_LOG(LogSmartTrains, Log, TEXT("LEND %s: its group %s has nothing to move now; lent to %s"), *STLayout::Name(State.Train), *STNames::Item(State.HomeItem),
+				UE_LOG(LogSmartTrains, Log, TEXT("LEND %s: its group %s has nothing to move now; lent to %s"), *STLayout::Name(State.Train), *STNames::Item(HomeItem),
 					*STNames::Item(Item));
 			}
 			CommitTrip(State, Planner, Stops, Result, true, Item);
@@ -525,14 +534,14 @@ void ASTSubsystem::GroupRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			UE_LOG(LogSmartTrains, Log, TEXT("%s carries cargo no trip wants now"), *STLayout::Name(State.Train));
 		}
 		const FString Problems = Planner.DescribeProblems();
-		NoteNoTrip(State, FString::Printf(TEXT("%s%s"), State.HomeItem ? *FString::Printf(TEXT("its group %s has nothing to move now, nor has any other it fits"),
-			*STNames::Item(State.HomeItem)) : TEXT("nothing it fits is worth running now"), Problems.IsEmpty() ? TEXT("") : *FString::Printf(TEXT("; trips tried were rejected: %s"), *Problems)));
+		NoteNoTrip(State, FString::Printf(TEXT("%s%s"), HomeItem ? *FString::Printf(TEXT("its group %s has nothing to move now, nor has any other it fits"),
+			*STNames::Item(HomeItem)) : TEXT("nothing it fits is worth running now"), Problems.IsEmpty() ? TEXT("") : *FString::Printf(TEXT("; trips tried were rejected: %s"), *Problems)));
 		if (!State.bHasJob && State.Phase != ESTTrainPhase::Parked && !(State.Train->IsPlayerDriven() && !State.Train->IsSelfDrivingEnabled()))
 		{
 			SettleIdle(State, TEXT("nothing to move"), false);
 		}
 	}
-	UE_LOG(LogSmartTrains, Verbose, TEXT("DISPATCH: %d free trains, %d home trips, %d lent, %.1f ms"), Free.Num(), Home, Lent, Planner.GetElapsedMs());
+	UE_LOG(LogSmartTrains, Verbose, TEXT("DISPATCH: %d free trains, %d planned (%d home trips, %d lent), %.1f ms"), Free.Num(), Turns, Home, Lent, Planner.GetElapsedMs());
 }
 
 //~ Readouts
