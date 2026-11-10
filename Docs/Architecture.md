@@ -47,12 +47,13 @@ waiting at the depot), and needs that swung between flow plans (6.6 trains, then
 - **Dispatching** (`GroupRound`, every dispatch round, after the re-plans): the free trains (`GetFreeAt`), the one
   that waited longest for a turn first (`mPlanTurns`), then the soonest free. A train is set up (`BeginTrain`) only
   when its turn comes, and the round goes on while it has planning time; its first train always gets at least
-  `MinTurnMs` (15 ms, `GiveTime`), so a big network where setting up a train takes several ms still gets trips (0.10.1). Home pass: `SetOnlyItem(home)` limits `Improve` to the home item's moves and deliveries of cargo on board;
-  if that trip moves the home item, `Improve` runs again without the limit (other work may join it: a second item for
-  the same factory, a load back), and it is committed if it is worth running (value above `TrainSecondCost` × its
-  time). Lend pass: every train still free plans with any move; its job is tagged with the item it mostly delivers
-  (`FSTJob::GroupItem`), logged `LEND` when that isn't its home. A train with nothing anywhere gets an IDLE reason and
-  settles (`SettleIdle`: a free depot, else parked in place).
+  `MinTurnMs` (15 ms, `GiveTime`), so a big network where setting up a train takes several ms still gets trips (0.10.1).
+  On its turn a train tries home work first: `SetOnlyItem(home)` limits `Improve` to the home item's moves and
+  deliveries of cargo on board; if that trip moves the home item, `Improve` runs again without the limit (other work
+  may join it: a second item for the same factory, a load back), and it is committed if it is worth running (value
+  above `TrainSecondCost` × its time). Otherwise it plans with any move (lent); its job is tagged with the item it
+  mostly delivers (`FSTJob::GroupItem`), logged `LEND` when that isn't its home. A train with nothing anywhere gets an
+  IDLE reason and settles (`SettleIdle`: a free depot, else parked in place).
 - **Short** (`GetGroupShortfall`): the group's target (`GetGroupTarget`: ceil(needed − 0.15), within the player's
   least and most) less its homes and the trains lent to it now, and only while no train that fits it is idle. Idle
   fitting trains mean too little to move, not too few trains.
