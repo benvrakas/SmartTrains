@@ -1230,6 +1230,36 @@ void ASTSubsystem::StepTraces()
 		const STTrace::FResult Result = STTrace::Trace(Config.Platform, Config.Role == ESTRole::Supply);
 		Cache.At = Time;
 		Cache.Machines = Result.MachineActors;
+		// Set-up hint: the platform's items no longer among what its machines make or use.
+		TArray<UClass*> Traced;
+		const EFreightCargoType CargoType = STLayout::GetPlatformCargoType(Config.Platform);
+		for (const STTrace::FFlow& Flow : Result.Flows)
+		{
+			if (Flow.Item && STLayout::ItemFitsCargoType(Flow.Item.Get(), CargoType))
+			{
+				Traced.AddUnique(Flow.Item.Get());
+			}
+		}
+		const bool bMatches = Traced.Num() == 0 || Config.Items.ContainsByPredicate([&Traced](const FSTItemRule& Rule) { return Traced.Contains(Rule.Item.Get()); });
+		if (bMatches)
+		{
+			mSetupHints.Remove(Config.Platform);
+		}
+		else
+		{
+			TArray<FString> Names;
+			for (UClass* Item : Traced)
+			{
+				Names.Add(STNames::Item(Item));
+			}
+			const FString Hint = FString::Printf(TEXT("its belts or pipes now carry %s, not what it is set to (%s): use Set up from its factory in the station menu"),
+				*FString::Join(Names, TEXT(", ")), *STNames::Settings(Config.Role, Config.Items));
+			if (mSetupHints.FindRef(Config.Platform) != Hint)
+			{
+				UE_LOG(LogSmartTrains, Log, TEXT("SETUP hint %s: %s"), *GetNameSafe(Config.Platform), *Hint);
+			}
+			mSetupHints.Add(Config.Platform, Hint);
+		}
 		UE_LOG(LogSmartTrains, Verbose, TEXT("TRACE %s: %d machines (%s)"), *GetNameSafe(Config.Platform), Result.Machines, *Result.Summary());
 		break;
 	}
@@ -1327,6 +1357,18 @@ TArray<FString> ASTSubsystem::DescribeStation(const AFGTrainStationIdentifier* S
 	const FSTStationConfig* Config = mStations.FindByPredicate([Station](const FSTStationConfig& Each) { return Each.Station == Station; });
 	Lines.Add(FString::Printf(TEXT("Station %s%s"), *STLayout::Name(Station), Config && Config->bDepot ? TEXT(" (depot)") : TEXT("")));
 	Lines.Append(DescribeStationGroups(Station));
+	{
+		int32 Number = 0;
+		for (const AFGBuildableTrainPlatform* Platform : STLayout::GetPlatforms(Building))
+		{
+			++Number;
+			const AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Platform);
+			if (const FString* Hint = Cargo ? mSetupHints.Find(const_cast<AFGBuildableTrainPlatformCargo*>(Cargo)) : nullptr)
+			{
+				Lines.Add(FString::Printf(TEXT("P%d: %s."), Number, **Hint));
+			}
+		}
+	}
 	FString Layout;
 	for (const AFGBuildableTrainPlatform* Platform : STLayout::GetPlatforms(Building))
 	{

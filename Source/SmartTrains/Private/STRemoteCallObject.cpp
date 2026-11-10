@@ -58,7 +58,7 @@ namespace
 
 	int32 Bytes(const FSTMigrationRow& Row)
 	{
-		int32 Total = 16 + Bytes(Row.Text) + Bytes(Row.Title) + Bytes(Row.Details) + Bytes(Row.Flag) + Bytes(Row.Users) + Bytes(Row.Note);
+		int32 Total = 16 + Bytes(Row.Text) + Bytes(Row.Title) + Bytes(Row.Details) + Bytes(Row.Flag) + Bytes(Row.Users) + Bytes(Row.Note) + Bytes(Row.NewName);
 		for (const FSTMigrationPlatformRow& Platform : Row.Platforms)
 		{
 			Total += 16 + 8 * Platform.Items.Num() + Bytes(Platform.Confidence) + Bytes(Platform.Note) + Bytes(Platform.Conflict);
@@ -358,6 +358,29 @@ void USTRemoteCallObject::Server_SetStation_Implementation(AFGTrainStationIdenti
 	{
 		Subsystem->SetStationDepot(Station, bDepot, Cause);
 	}
+	Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
+}
+
+bool USTRemoteCallObject::Server_SetUpStation_Validate(AFGTrainStationIdentifier* Station, uint8 Mode, int32 Edit)
+{
+	return Mode <= 2;
+}
+
+void USTRemoteCallObject::Server_SetUpStation_Implementation(AFGTrainStationIdentifier* Station, uint8 Mode, int32 Edit)
+{
+	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	if (!Subsystem || !IsValid(Station))
+	{
+		return;
+	}
+	const bool bApply = Mode != 0;
+	if (bApply && !Allowed(*this, *Subsystem, STAccess::EChange::Edit, TEXT("set up stations")))
+	{
+		Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
+		return;
+	}
+	Subsystem->SetUpStation(Station, bApply, Mode == 1, FString::Printf(TEXT("station menu (%s)"), *GetPlayerName()));
 	Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
 }
 

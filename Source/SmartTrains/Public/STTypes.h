@@ -148,6 +148,31 @@ struct SMARTTRAINS_API FSTStationConfig
 	bool bDepot = false;
 };
 
+// How the station set-up names stations (Docs/Architecture.md, "Station set-up"), per world. {area}, {product},
+// {role}, {n} and {rate} are filled in; empty ones and their brackets drop out.
+USTRUCT()
+struct SMARTTRAINS_API FSTNamingConfig
+{
+	GENERATED_BODY()
+
+	UPROPERTY(SaveGame)
+	FString Format = TEXT("{area} {product} {role} {n} ({rate})");
+
+	// {role} for a station that only loads, one that unloads several items (a factory's inputs), one that unloads one
+	// item, and one that does both.
+	UPROPERTY(SaveGame)
+	FString SupplyWord = TEXT("Out");
+
+	UPROPERTY(SaveGame)
+	FString FactoryWord = TEXT("In");
+
+	UPROPERTY(SaveGame)
+	FString ConsumerWord = TEXT("In");
+
+	UPROPERTY(SaveGame)
+	FString MixedWord;
+};
+
 // A player's settings for one item's group (Docs/Architecture.md, "Groups"). Without one, the group takes the trains it
 // needs.
 USTRUCT()
@@ -459,6 +484,13 @@ struct SMARTTRAINS_API FSTMigrationUndo
 	// Trains the migration put under management.
 	UPROPERTY(SaveGame)
 	TArray<TObjectPtr<AFGTrain>> Trains;
+
+	// Stations the migration renamed, and their names before.
+	UPROPERTY(SaveGame)
+	TArray<TObjectPtr<AFGTrainStationIdentifier>> RenamedStations;
+
+	UPROPERTY(SaveGame)
+	TArray<FString> OldNames;
 
 	UPROPERTY(SaveGame)
 	FString AppliedBy;

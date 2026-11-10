@@ -48,6 +48,9 @@ namespace STMigration
 		// Used only by dedicated trains: left vanilla.
 		bool bDedicatedOnly = false;
 		TArray<FString> Users;
+		// The name the station set-up gives it (STSetup::NameStation), and how it was worked out.
+		FString NewName;
+		FString NameNote;
 	};
 
 	struct FTrainProposal
@@ -70,6 +73,10 @@ namespace STMigration
 		FString CsvPath;
 		double MadeAt = 0.0;
 	};
+
+	// Platforms whose one item wasn't settled by their own stock share out the items their traces found, within groups
+	// of same-role platforms reaching a machine in common.
+	void ShareOutItems(FPreview& Preview);
 
 	// Gathers the evidence and builds a preview; writes the CSV report and returns chat lines.
 	// TraceLimit: buildings and belt segments each platform's connection trace may visit.

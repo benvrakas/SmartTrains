@@ -128,6 +128,10 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 		return Lines;
 	}
 	Lines.Append(DescribePlatformGroups(Platform));
+	if (const FString* Hint = mSetupHints.Find(const_cast<AFGBuildableTrainPlatformCargo*>(Platform)))
+	{
+		Lines.Add(TEXT("Check its settings: ") + *Hint + TEXT("."));
+	}
 	if (mSettings.bObserveOnly)
 	{
 		Lines.Add(TEXT("Observe only is on (Mods menu): rates are measured, but no jobs are given."));
@@ -360,6 +364,12 @@ FSTStationView ASTSubsystem::MakeStationView(const AFGTrainStationIdentifier* St
 	{
 		View.bDepot = Config->bDepot;
 	}
+	if (const TArray<FString>* Setup = mSetupLines.Find(const_cast<AFGTrainStationIdentifier*>(Station)))
+	{
+		View.SetupLines = *Setup;
+	}
+	const double* PreviewAt = mSetupPreviewAt.Find(const_cast<AFGTrainStationIdentifier*>(Station));
+	View.bSetupReady = PreviewAt && Now() - *PreviewAt < 120.0;
 	TArray<FString> Lines = DescribeStation(Station);
 	if (Lines.Num() > 0)
 	{

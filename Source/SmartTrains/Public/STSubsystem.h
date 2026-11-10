@@ -235,6 +235,23 @@ public:
 	// Set when /st testcopy or /st backup ran this session.
 	bool bMadeBackupThisSession = false;
 
+	//~ Station set-up (STStationSetup.cpp).
+	// How stations are named, saved with the world.
+	UPROPERTY(SaveGame)
+	FSTNamingConfig mNaming;
+	// Runtime only: per platform, why its settings no longer match what its belts or pipes carry (from StepTraces).
+	TMap<TWeakObjectPtr<AFGBuildableTrainPlatformCargo>, FString> mSetupHints;
+	// Runtime only: the last set-up preview per station, applied as shown when confirmed soon after.
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mSetupPreviewAt;
+	// Lines for the station menu's set-up section: a preview, or what the last apply did.
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, TArray<FString>> mSetupLines;
+	// Preview (bApply false) or apply the set-up of Station; bRename false keeps its name. Returns chat lines.
+	TArray<FString> SetUpStation(AFGTrainStationIdentifier* Station, bool bApply, bool bRename, const FString& Cause);
+	// Every station with cargo platforms; writes Saved/SmartTrains/StationSetup.csv. Returns chat lines.
+	TArray<FString> SetUpAllStations(bool bApply, bool bRename, const FString& Cause);
+	// /st setup format|words: changes mNaming. Returns false with OutMessage on bad input.
+	bool SetNaming(const TArray<FString>& Words, const FString& Cause, FString& OutMessage);
+
 	//~ Begin AActor
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;

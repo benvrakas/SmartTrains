@@ -20,6 +20,13 @@ void USTStationPanel::BuildContent(UVerticalBox* Root)
 	MakeText(Root, LOCTEXT("DepotHint", "Managed trains with nothing to do wait at the nearest depot. With no depot they keep running their last trip."), 10);
 	mLines = MakeText(Root, LOCTEXT("Loading", "Asking the server..."), 10, true, FMargin(0.f, 6.f, 0.f, 0.f));
 	mNetwork = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 6.f, 0.f, 0.f));
+	MakeHeading(Root, LOCTEXT("SetUpHeading", "Set up from its factory"));
+	MakeText(Root, LOCTEXT("SetUpHint", "Sets each platform's role and item from the machines its belts and pipes reach, and names the station from what the factory makes, its map area and its most per minute. Shows what it would do first."), 10);
+	mSetUp = MakeButton(Root, LOCTEXT("SetUpPreview", "Show set-up"), [this]() { SendSetUp(0); });
+	mSetUpApply = MakeButton(Root, LOCTEXT("SetUpApply", "Apply set-up"), [this]() { SendSetUp(1); });
+	mSetUpKeepName = MakeButton(Root, LOCTEXT("SetUpKeepName", "Apply, keep the station's name"), [this]() { SendSetUp(2); });
+	mSetUpLines = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 4.f, 0.f, 0.f));
+	ShowSetUp(TArray<FString>(), false);
 
 }
 
@@ -61,6 +68,38 @@ void USTStationPanel::SendStation(bool bNewDepot)
 	mDepot->SetText(GetDepotText(bDepot));
 }
 
+void USTStationPanel::SendSetUp(uint8 Mode)
+{
+	USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
+	AFGTrainStationIdentifier* Station = GetStation();
+	if (!RCO || !Station)
+	{
+		return;
+	}
+	UE_LOG(LogSmartTrains, Log, TEXT("Station menu: set-up %s for %s"), Mode == 0 ? TEXT("preview") : (Mode == 1 ? TEXT("apply") : TEXT("apply keeping the name")), *STLayout::Name(Station));
+	RCO->Server_SetUpStation(Station, Mode, RCO->NextEdit());
+	if (mSetUpLines)
+	{
+		mSetUpLines->SetText(LOCTEXT("SetUpAsking", "Tracing belts and pipes..."));
+	}
+}
+
+void USTStationPanel::ShowSetUp(const TArray<FString>& Lines, bool bReady)
+{
+	if (!mSetUp)
+	{
+		return;
+	}
+	const ESlateVisibility Apply = bReady ? ESlateVisibility::Visible : ESlateVisibility::Collapsed;
+	mSetUpApply->SetVisibility(Apply);
+	mSetUpKeepName->SetVisibility(Apply);
+	if (mSetUpLines)
+	{
+		SetLines(mSetUpLines, Lines);
+		mSetUpLines->SetVisibility(Lines.Num() > 0 ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+}
+
 FText USTStationPanel::GetDepotText(bool bOn) const
 {
 	return bOn ? LOCTEXT("DepotOn", "Depot: on") : LOCTEXT("DepotOff", "Depot: off");
@@ -80,6 +119,7 @@ void USTStationPanel::Refresh(USTRemoteCallObject* RCO)
 		{
 			SetLines(mNetwork, View->NetworkLines);
 		}
+		ShowSetUp(View->SetupLines, View->bSetupReady);
 	}
 }
 

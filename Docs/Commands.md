@@ -42,6 +42,20 @@ Setting a role switches the platform to load (supply) or unload (demand).
 
 - `/st station depot on|off`: idle managed trains park at the nearest depot.
 
+## Station set-up
+
+- `/st setup`: what the set-up would do for the station you look at: a role and an item per platform from the
+  machines its belts and pipes reach, and a name from the factory, the map area and the most per minute.
+- `/st setup apply`: sets it up like that. `/st setup apply keepname` sets the platforms and keeps the name.
+- `/st setup all`: the same for every station, as a report in the server's `Saved/SmartTrains/StationSetup-*.csv`
+  and the log (`SETUP` lines). `/st setup all apply [keepname]` applies it everywhere (admin only).
+- `/st setup format <text>`: how names are built, per world. `{area}`, `{product}`, `{role}`, `{n}` and `{rate}` are
+  filled in; empty ones drop out with their brackets. Default: `{area} {product} {role} {n} ({rate})`.
+- `/st setup words <loads> <unloads several items> <unloads one item> [both]`: the words for `{role}` (`-` for
+  none). Default `Out In In`, no word for a station that does both. Example: `/st setup words SRC RSC SNK`.
+- `/st setup default`: the default format and words again.
+- Server console: `SmartTrains.Setup [apply] [keepname]` runs `/st setup all`.
+
 ## Trains (drive or look at a train)
 
 - `/st train manage`: SmartTrains takes over its timetable. The old timetable and autopilot setting are saved.

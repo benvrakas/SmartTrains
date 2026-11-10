@@ -6,6 +6,7 @@
 #include "Buildables/FGBuildableResourceExtractor.h"
 #include "Buildables/FGBuildableResourceExtractorBase.h"
 #include "Buildables/FGBuildableSplitterSmart.h"
+#include "Buildables/FGBuildableTrainPlatform.h"
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "FGFactoryConnectionComponent.h"
 #include "FGFluidIntegrantInterface.h"
@@ -216,18 +217,7 @@ namespace
 
 		void Run(const AFGBuildableTrainPlatformCargo* Platform)
 		{
-			TInlineComponentArray<UFGFactoryConnectionComponent*> Belts;
-			Platform->GetComponents(Belts);
-			const EFactoryConnectionDirection Wanted = bUpstream ? EFactoryConnectionDirection::FCD_INPUT : EFactoryConnectionDirection::FCD_OUTPUT;
-			for (UFGFactoryConnectionComponent* Belt : Belts)
-			{
-				if (Belt && Belt->IsConnected() && Belt->GetDirection() == Wanted)
-				{
-					FStep Step;
-					Step.Belt = Belt;
-					Stack.Add(MoveTemp(Step));
-				}
-			}
+			SeedBelts(Platform);
 			for (UFGPipeConnectionComponent* Pipe : FSTPlatformAccess::GetPipeConnections(Platform, bUpstream))
 			{
 				if (!Result.PipeFluidHint)
@@ -238,7 +228,48 @@ namespace
 				Step.Pipe = Pipe;
 				Stack.Add(MoveTemp(Step));
 			}
-			Visited.Add(Platform);
+			Walk(Platform);
+		}
+
+		void RunFromMachine(const AActor* Machine)
+		{
+			SeedBelts(Machine);
+			// Upstream from a machine: the pipes that feed it (consumer side); downstream: those it fills.
+			const EPipeConnectionType Wanted = bUpstream ? EPipeConnectionType::PCT_CONSUMER : EPipeConnectionType::PCT_PRODUCER;
+			TInlineComponentArray<UFGPipeConnectionComponent*> Pipes;
+			Machine->GetComponents(Pipes);
+			for (UFGPipeConnectionComponent* Pipe : Pipes)
+			{
+				if (Pipe && Pipe->IsConnected() && Pipe->GetPipeConnectionType() == Wanted)
+				{
+					FStep Step;
+					Step.Pipe = Pipe;
+					Stack.Add(MoveTemp(Step));
+				}
+			}
+			Walk(Machine);
+		}
+
+	private:
+		void SeedBelts(const AActor* Start)
+		{
+			TInlineComponentArray<UFGFactoryConnectionComponent*> Belts;
+			Start->GetComponents(Belts);
+			const EFactoryConnectionDirection Wanted = bUpstream ? EFactoryConnectionDirection::FCD_INPUT : EFactoryConnectionDirection::FCD_OUTPUT;
+			for (UFGFactoryConnectionComponent* Belt : Belts)
+			{
+				if (Belt && Belt->IsConnected() && Belt->GetDirection() == Wanted)
+				{
+					FStep Step;
+					Step.Belt = Belt;
+					Stack.Add(MoveTemp(Step));
+				}
+			}
+		}
+
+		void Walk(const AActor* Start)
+		{
+			Visited.Add(Start);
 			while (Stack.Num() > 0)
 			{
 				FStep Step = Stack.Pop(EAllowShrinking::No);
@@ -260,7 +291,6 @@ namespace
 			Result.Nodes = Visited.Num();
 		}
 
-	private:
 		bool bUpstream;
 		int32 Limit;
 		STTrace::FResult& Result;
@@ -296,6 +326,17 @@ namespace
 			Labels.Add(Label(Machine));
 			Flow.Path = PathText(Labels);
 			Result.Flows.Add(MoveTemp(Flow));
+		}
+
+		// A train platform on the way: noted, and the walk ends there (it is another station's, or this one's).
+		bool StopAtPlatform(const AActor* Owner)
+		{
+			if (!Owner->IsA<AFGBuildableTrainPlatform>())
+			{
+				return false;
+			}
+			Result.PlatformActors.AddUnique(Owner);
+			return true;
 		}
 
 		// A machine's recipe: what it makes (upstream) or what it eats (downstream). Fluids and solids are kept apart by bWantFluid.
@@ -459,6 +500,10 @@ namespace
 			{
 				Visited.Add(Owner);
 			}
+			if (StopAtPlatform(Owner))
+			{
+				return;
+			}
 			if (ReadMachine(Owner, Step, false))
 			{
 				return;
@@ -612,6 +657,10 @@ namespace
 				AddUnique(Result.Notes, FString::Printf(TEXT("%s connects the wrong way round"), *Label(Owner)));
 				return;
 			}
+			if (StopAtPlatform(Owner))
+			{
+				return;
+			}
 			if (ReadMachine(Owner, Step, true))
 			{
 				return;
@@ -695,6 +744,16 @@ FString STTrace::FResult::Summary() const
 		Out += TEXT(" (") + FString::Join(Notes, TEXT("; ")) + TEXT(")");
 	}
 	return Out;
+}
+
+STTrace::FResult STTrace::TraceFromMachine(const AActor* Machine, bool bUpstream, int32 Limit)
+{
+	FResult Result;
+	if (Machine)
+	{
+		FTracer(bUpstream, FMath::Clamp(Limit, MinLimit, MaxLimit), Result).RunFromMachine(Machine);
+	}
+	return Result;
 }
 
 STTrace::FResult STTrace::Trace(const AFGBuildableTrainPlatformCargo* Platform, bool bLoadMode, int32 Limit)

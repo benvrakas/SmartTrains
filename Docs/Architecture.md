@@ -8,6 +8,7 @@ in the plan (`C:\Users\benvr\.claude\plans\smarttrains.md`); this file records h
 | File | What it does |
 |---|---|
 | `STTypes.h` | Saved data: platform settings (`FSTPlatformConfig`), station settings, train state and jobs, learned dock maps, trip and stay times, the migration undo record. |
+| `STStationSetup.*` | Station set-up: platform roles and items from what is attached, the factory's product and theoretical rate, and station names. |
 | `STGroups.cpp` | Item groups: groups from the flow plan, train homes, the dispatch round, group readouts and settings. |
 | `STSubsystem.h`, `STSubsystem.cpp` | `ASTSubsystem` (server only, saved with the world): settings API, train monitoring, docking events, learning, rate sampling, readouts. |
 | `STDispatch.cpp` | The rest of `ASTSubsystem`: supply/demand nodes, the fit model, dispatching, the flow plan, writing timetables. |
@@ -24,6 +25,75 @@ in the plan (`C:\Users\benvr\.claude\plans\smarttrains.md`); this file records h
 | `STRemoteCallObject.*` | Carries menu edits to the server and readouts back. |
 | `STAccess.*` | Who may change what (admin-gated controls). |
 | `UI/*` | The panels added to vanilla menus, and the controls they are built from. |
+
+## 0.11.0: station set-up
+
+Code: `STStationSetup.cpp` (namespace `STSetup` and `ASTSubsystem::SetUpStation`, `SetUpAllStations`, `SetNaming`).
+The player asked for it on 2026-11-09: build a station, connect it, and have SmartTrains set the platforms and name
+it from the factory, its map area and its rate. Only on request (station menu button, `/st setup`, the migration
+window's Rename stations); never automatic.
+
+- **Platforms** (`ProposeStation`): role from what is attached (`FSTPlatformAccess::CountConnections`): only inputs:
+  Supply; only outputs: Demand; both: its load mode; nothing: Off. Items from `STTrace::Trace` that fit the platform,
+  the largest traced flow first; platforms of one role reaching the same machines share the items out
+  (`STMigration::ShareOutItems`, moved out of the migration's private helpers). No machine reached: what it holds,
+  then the fluid in its pipes. The proposal is a `STMigration::FStationProposal`, so the migration preview and the
+  set-up share one shape. Applied with `SetPlatformConfig` (which also sets the load mode); platforms already set the
+  same are left alone, so nothing re-plans for them.
+- **Factory** (`AnalyzeFactory`), in two walks through machines (`STTrace::TraceFromMachine`, which stops at train
+  platforms, `FResult::PlatformActors`, so a factory ends at its stations), up to 600 machines each. One walk per
+  machine and direction is kept for the whole run (`FWalkCache`), so `/st setup all` and the migration preview walk
+  shared factories once. Machines are grouped by recipe and production boost (`FSetupMachineGroup`: runs per minute
+  from the machine's cycle time at its clock speed, products per run times its production boost (somersloops),
+  ingredients per run). Extractors are a group of their resource at `GetExtractionPerMinute` (node purity, tier and
+  clock included).
+  - **Product:** for a station that only loads, the item most of its platforms load. Otherwise, walking downstream
+    from its unloading platforms: what the machines make and don't use themselves, preferring what goes on to a train
+    platform, then the one made by the most machines. No machine makes it (power plants, storage): the item it
+    unloads most.
+  - **The factory for the rate** is the upstream walk from the machines making the product (for a station that only
+    loads, the machines its platforms reach), through their inputs to train platforms and extractors. A first version
+    walked every machine both ways, which merged whole refinery complexes joined by shared belts into one 600-machine
+    "factory" (IB save, 2026-11-10).
+  - **Rate:** the most of the product per minute, found by bisection: a target rate is shared out over the machine
+    groups making each item in proportion to the capacity they have left, recursively through the ingredients (depth
+    12), taking byproducts made earlier in the same step first (canister and water loops) and then what trains
+    bring. A share proportional to full capacity made the weakest recipe of a loop bind early (plastic and rubber
+    factories at a third of their rate on the IB save). What trains bring is each unloading platform's belts or pipes out of it (belt speed x 60 / item
+    spacing, pipe flow limit x 60), for the items it is set to. The target fails when a machine group would run over
+    its capacity or a train-fed item over its belts. The first failing one is the limit named in the readout.
+    Ingredients nothing in the factory makes and no train brings are assumed to arrive (noted). A station that only
+    loads is also capped by the belts or pipes into its platforms. Unloading into machines that make nothing (power
+    plants), the rate is the station's own belts or pipes; loading what no reached machine makes, it is unknown and
+    the name has no rate.
+- **Which item names a station:** what it loads (only loading); the one item it unloads, with
+  `FFactory::InputRate`, how much of it the factory uses at its most rate (its share of all trains bringing that
+  item, within its own belts), or its own belts when nothing is made (power plants); several unloaded items: the
+  factory's product and rate. A loading station's rate is its share of the factory: its belts or pipes into its
+  platforms against all loading platforms for the product that the factory's machines feed (`DownPlatforms`), so
+  two stations loading from one factory don't both claim all of it.
+- **Name** (`NameStation`): `FSTNamingConfig` (saved per world): `Format` with `{area}`, `{product}`, `{role}`,
+  `{n}`, `{rate}`; `{role}` from `SupplyWord` (only loads), `FactoryWord` (unloads several items: a factory's inputs),
+  `ConsumerWord` (unloads one item), `MixedWord` (both). Empty values drop out with their brackets
+  (`FormatName`).
+  - **Area:** `AFGWorldSettings::GetMinimapCaptureActor()->GetMapAreaTexture()->GetMapAreaForWorldLocation()`, the
+    game's fog-of-war areas, named by `UFGMapArea::GetUserSetAreaDisplayName` or `GetAreaDisplayName`; else a
+    `AFGVolumeMapArea` that contains the station (`mMapArea` by reflection). The name note says which one was used.
+    The texture learns the map's scale and offset when its capture actor starts; if the first lookup finds nothing,
+    `InitMapAreaTexture` is called once and the lookup tried again (dedicated servers, `SETUP map areas` log line).
+  - **Number** (`PickNumber`): the number the station's name already has, if no other station has it; else the
+    smallest from 1 that no other station's name has for the same area, product and role, with any rate
+    (`MatchesName`). Setting up again keeps names stable while only the rate changes.
+- **Preview and apply:** the station panel's Show set-up sends `Server_SetUpStation` mode 0; the lines come back in
+  `FSTStationView::SetupLines`, and `bSetupReady` (a preview in the last 2 min) shows Apply set-up (mode 1) and Apply,
+  keep the station's name (mode 2). Apply is an Edit change (admin-gated with Only admins change SmartTrains).
+- **Migration:** the preview names every station (`FStationProposal::NewName`, `NameNote`; a `name` row in the CSV,
+  a note under each station in the window). With Rename stations on, apply renames the ticked stations and the undo
+  record keeps the old names (`FSTMigrationUndo::RenamedStations`, `OldNames`).
+- **Hint:** `StepTraces` compares each traced platform's items with its settings; when none of its set items is on
+  its belts any more, `mSetupHints` holds a line for the platform readout and the station view (`SETUP hint` log).
+- **Console:** `SmartTrains.Setup [apply] [keepname]` (an `FAutoConsoleCommandWithWorldAndArgs`) runs the
+  all-stations set-up from a dedicated server's console, for headless tests.
 
 ## 0.10.0: item groups
 

@@ -1,5 +1,10 @@
 # In-game tests
 
+Automation tests for the station set-up names: `SmartTrains.Setup.Format` (filling the format, empty values and their
+brackets, rate formatting) and `SmartTrains.Setup.Number` (keeping a station's number, the smallest free one, rates
+ignored). Rates and products need a world: check them with `SmartTrains.Setup` on a test server and
+`D:\SFMod\TestEnv\compare-setup-names.py`, which compares the report with rates players wrote into station names.
+
 Test builds are installed locally (SmartTrains is not on SMR). Use a test copy (`/st testcopy`) or a creative world.
 
 ## M0: control and docking (0.1.0)

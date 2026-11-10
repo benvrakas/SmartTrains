@@ -204,6 +204,9 @@ namespace
 		TEXT("/st monitor [text]   (what limits throughput: supply, trains, fit or congestion; text prints it in chat)"),
 		TEXT("/st platform [supply|demand|off] [item, item...] [target %] [sendat %] [priority low|normal|high|critical] [rate n/min] | /st platform copy"),
 		TEXT("/st station [depot on|off]"),
+		TEXT("/st setup [apply] [keepname]   (platform roles, items and a name for the station you look at, from its factory)"),
+		TEXT("/st setup all [apply] [keepname]   (every station; report in Saved/SmartTrains; apply is admin only)"),
+		TEXT("/st setup format <text> | words <loads> <unloads several> <unloads one> [both] | default   (how stations are named)"),
 		TEXT("/st train [manage|unmanage] [keepvanilla on|off]"),
 		TEXT("/st snapshot   (the next dispatch round's planning inputs to a file in the server's Saved/SmartTrains/Snapshots, for replay tests; admin only)"),
 		TEXT("/st group   (item groups) | /st group <item> [trains <least> <most>]   (0 0: automatic)"),
@@ -479,6 +482,55 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			}
 		}
 		Send(Sender, Subsystem->DescribeStation(Station));
+		return EExecutionStatus::COMPLETED;
+	}
+
+	if (Verb == TEXT("setup"))
+	{
+		auto Has = [&Arguments](const TCHAR* Word)
+		{
+			return Arguments.ContainsByPredicate([Word](const FString& Each) { return Each.Equals(Word, ESearchCase::IgnoreCase); });
+		};
+		const FString Step = Arguments.Num() > 1 ? Arguments[1].ToLower() : FString();
+		if (Step == TEXT("format") || Step == TEXT("words") || Step == TEXT("default"))
+		{
+			if (!Allowed(Sender, *Subsystem, STAccess::EChange::Edit, TEXT("change how stations are named")))
+			{
+				return EExecutionStatus::UNCOMPLETED;
+			}
+			TArray<FString> Words = Arguments;
+			Words.RemoveAt(0);
+			FString Message;
+			const bool bDone = Subsystem->SetNaming(Words, Who, Message);
+			Sender->SendChatMessage(Message, bDone ? FLinearColor::White : FLinearColor::Red);
+			return bDone ? EExecutionStatus::COMPLETED : EExecutionStatus::BAD_ARGUMENTS;
+		}
+		const bool bApply = Has(TEXT("apply"));
+		const bool bRename = !Has(TEXT("keepname"));
+		if (Step == TEXT("all"))
+		{
+			if (bApply && !Allowed(Sender, *Subsystem, STAccess::EChange::Network, TEXT("set up every station")))
+			{
+				return EExecutionStatus::UNCOMPLETED;
+			}
+			Send(Sender, Subsystem->SetUpAllStations(bApply, bRename, Who));
+			return EExecutionStatus::COMPLETED;
+		}
+		AFGTrainStationIdentifier* Station = FindStation(Sender);
+		if (!Station)
+		{
+			Sender->SendChatMessage(TEXT("Look at a station or one of its platforms first (or /st setup all)."), FLinearColor::Red);
+			return EExecutionStatus::UNCOMPLETED;
+		}
+		if (bApply && !Allowed(Sender, *Subsystem, STAccess::EChange::Edit, TEXT("set up stations")))
+		{
+			return EExecutionStatus::UNCOMPLETED;
+		}
+		Send(Sender, Subsystem->SetUpStation(Station, bApply, bRename, Who));
+		if (!bApply)
+		{
+			Sender->SendChatMessage(TEXT("/st setup apply to set it up like this (add keepname to keep the station's name)."));
+		}
 		return EExecutionStatus::COMPLETED;
 	}
 

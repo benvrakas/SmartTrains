@@ -74,11 +74,13 @@ namespace
 				continue;
 			}
 			const float Clock = Manufacturer->GetCurrentPotential() > 0.f ? Manufacturer->GetCurrentPotential() : 1.f;
+			// Production boost (somersloops) multiplies what a cycle makes, not what it uses.
+			const float Boost = bProducts && Manufacturer->GetCurrentProductionBoost() > 0.f ? Manufacturer->GetCurrentProductionBoost() : 1.f;
 			const TArray<FItemAmount> Amounts = bProducts ? UFGRecipe::GetProducts(Recipe)
 				: UFGRecipe::GetIngredients(const_cast<AFGBuildableManufacturer*>(Manufacturer), Recipe);
 			for (const FItemAmount& Amount : Amounts)
 			{
-				PerSecond += Amount.ItemClass == Item ? Amount.Amount * Clock / Duration : 0.0;
+				PerSecond += Amount.ItemClass == Item ? Amount.Amount * Clock * Boost / Duration : 0.0;
 			}
 		}
 		return PerSecond;

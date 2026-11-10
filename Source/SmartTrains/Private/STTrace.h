@@ -38,6 +38,8 @@ namespace STTrace
 		int32 Machines = 0;
 		// The machines reached, for grouping platforms that serve the same machines.
 		TArray<TWeakObjectPtr<const AActor>> MachineActors;
+		// Train platforms reached (the walk stops at them).
+		TArray<TWeakObjectPtr<const AActor>> PlatformActors;
 		// Machine items stopped by a splitter or balancer filter on the way.
 		int32 Filtered = 0;
 		int32 Nodes = 0;
@@ -63,4 +65,8 @@ namespace STTrace
 	// Load platforms are traced upstream to what produces; unload platforms downstream to what consumes. Stops after
 	// Limit buildings and belt segments.
 	FResult Trace(const AFGBuildableTrainPlatformCargo* Platform, bool bLoadMode, int32 Limit = DefaultLimit);
+
+	// Walks from a machine's inputs upstream (bUpstream) or its outputs downstream to the next machines and train
+	// platforms (Docs/Architecture.md, "Station set-up").
+	FResult TraceFromMachine(const AActor* Machine, bool bUpstream, int32 Limit = DefaultLimit);
 }

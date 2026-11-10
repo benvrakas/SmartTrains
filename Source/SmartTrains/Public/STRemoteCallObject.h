@@ -40,6 +40,10 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_SetTrain(AFGTrain* Train, ESTTrainAction Action, int32 Edit);
 
+	// Station set-up: Mode 0 previews, 1 applies with the new name, 2 applies keeping the station's name.
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_SetUpStation(AFGTrainStationIdentifier* Station, uint8 Mode, int32 Edit);
+
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_Migrate(ESTMigrationStep Step, const TArray<FString>& Selection);
 

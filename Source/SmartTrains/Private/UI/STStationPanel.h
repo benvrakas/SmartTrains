@@ -26,6 +26,10 @@ protected:
 	AFGTrainStationIdentifier* GetStation() const;
 
 	void SendStation(bool bNewDepot);
+	// Station set-up: 0 preview, 1 apply, 2 apply keeping the name.
+	void SendSetUp(uint8 Mode);
+	// Shows the apply buttons only while a preview can be applied.
+	void ShowSetUp(const TArray<FString>& Lines, bool bReady);
 	// The depot button's text.
 	virtual FText GetDepotText(bool bOn) const;
 
@@ -37,6 +41,18 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mNetwork;
+
+	UPROPERTY()
+	TObjectPtr<USTButton> mSetUp;
+
+	UPROPERTY()
+	TObjectPtr<USTButton> mSetUpApply;
+
+	UPROPERTY()
+	TObjectPtr<USTButton> mSetUpKeepName;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> mSetUpLines;
 
 	bool bDepot = false;
 };

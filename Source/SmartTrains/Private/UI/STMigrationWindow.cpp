@@ -27,6 +27,7 @@
 TWeakObjectPtr<USTMigrationWindow> USTMigrationWindow::sOpen;
 int32 USTMigrationWindow::sTraceLimit = STTrace::DefaultLimit;
 bool USTMigrationWindow::sAllItems = false;
+bool USTMigrationWindow::sRename = false;
 USTMigrationWindow::ETab USTMigrationWindow::sTab = USTMigrationWindow::ETab::Overview;
 USTMigrationWindow::EFilter USTMigrationWindow::sStationFilter = USTMigrationWindow::EFilter::All;
 USTMigrationWindow::EFilter USTMigrationWindow::sTrainFilter = USTMigrationWindow::EFilter::All;
@@ -347,6 +348,18 @@ void USTMigrationWindow::BuildContent(UVerticalBox* Root)
 		ModeSlot->SetVerticalAlignment(VAlign_Center);
 	}
 	ShowItemsMode();
+	mRenameMode = MakeButton(nullptr, FText::GetEmpty(), [this]()
+	{
+		sRename = !sRename;
+		ShowRenameMode();
+	}, FMargin(0.f));
+	if (UHorizontalBoxSlot* RenameSlot = Options->AddChildToHorizontalBox(mRenameMode))
+	{
+		RenameSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		RenameSlot->SetVerticalAlignment(VAlign_Center);
+		RenameSlot->SetPadding(FMargin(6.f, 0.f, 0.f, 0.f));
+	}
+	ShowRenameMode();
 
 	UHorizontalBox* Beta = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
 	Root->AddChildToVerticalBox(Beta)->SetPadding(FMargin(0.f, 0.f, 0.f, 4.f));
@@ -415,6 +428,13 @@ void USTMigrationWindow::ShowItemsMode()
 		: LOCTEXT("OneItem", "Items per platform: one (recommended) - click for every traced item"));
 }
 
+void USTMigrationWindow::ShowRenameMode()
+{
+	mRenameMode->SetText(sRename
+		? LOCTEXT("RenameOn", "Rename stations: on (from factory, area and rate) - click to keep names")
+		: LOCTEXT("RenameOff", "Rename stations: off - click to rename from factory, area and rate"));
+}
+
 void USTMigrationWindow::SendPreview()
 {
 	ReadTraceLimit(mTraceLimit->GetText());
@@ -476,6 +496,10 @@ void USTMigrationWindow::ApplyTicked()
 	if (bApplyArmed)
 	{
 		Selection.Add(TEXT("confirm"));
+	}
+	if (sRename)
+	{
+		Selection.Add(TEXT("rename"));
 	}
 	bApplyArmed = false;
 	sTab = ETab::Result;
@@ -971,6 +995,10 @@ void USTMigrationWindow::AddStation(const FSTMigrationRow& Row)
 			{
 				AddPicker(Row.Number, Platform);
 			}
+		}
+		if (!Row.NewName.IsEmpty())
+		{
+			AddNote(FString::Printf(TEXT("New name (Rename stations on): %s"), *Row.NewName), MigrationDim, 96.f);
 		}
 		if (!Row.Users.IsEmpty())
 		{

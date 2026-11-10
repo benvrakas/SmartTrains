@@ -124,6 +124,14 @@ struct SMARTTRAINS_API FSTStationView
 	UPROPERTY()
 	TArray<FString> NetworkLines;
 
+	// Station set-up: the last preview, or what the last apply changed.
+	UPROPERTY()
+	TArray<FString> SetupLines;
+
+	// A preview was made in the last two minutes and can be applied as shown.
+	UPROPERTY()
+	bool bSetupReady = false;
+
 	UPROPERTY()
 	bool bBetaTools = false;
 
@@ -208,6 +216,10 @@ struct SMARTTRAINS_API FSTMigrationRow
 	// Stations: the trains or groups that use them. Trains: their route.
 	UPROPERTY()
 	FString Users;
+
+	// Stations: the station set-up name (empty: kept), used when Rename stations is on.
+	UPROPERTY()
+	FString NewName;
 
 	// Trains: why they are ticked or not.
 	UPROPERTY()

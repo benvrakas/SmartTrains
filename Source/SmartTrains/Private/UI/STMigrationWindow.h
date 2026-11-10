@@ -67,6 +67,7 @@ private:
 	void SendPreview();
 	void ReadTraceLimit(const FString& Text);
 	void ShowItemsMode();
+	void ShowRenameMode();
 	void ApplyTicked();
 	void RestoreGameInput();
 
@@ -120,6 +121,9 @@ private:
 	UPROPERTY()
 	TObjectPtr<USTButton> mItemsMode;
 
+	UPROPERTY()
+	TObjectPtr<USTButton> mRenameMode;
+
 	struct FTabWidgets
 	{
 		TWeakObjectPtr<USTButton> Button;
@@ -140,6 +144,8 @@ private:
 	// Trace limit and items mode for this session's previews; the open tab and filters.
 	static int32 sTraceLimit;
 	static bool sAllItems;
+	// Apply also renames the ticked stations (station set-up names).
+	static bool sRename;
 	static ETab sTab;
 	static EFilter sStationFilter;
 	static EFilter sTrainFilter;

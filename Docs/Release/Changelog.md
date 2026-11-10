@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.11.0 (beta)
+
+**Station set-up from the factory.** Build a station and its platforms, connect them, and let SmartTrains set it up.
+
+- **Show set-up** in the station menu: per platform a role from what is attached (belts or pipes only into it: it
+  loads; only out of it: it unloads; nothing: off) and its item from the machines its belts and pipes reach (one per
+  platform; platforms serving the same machines share the items out). Then a name from what the factory makes, the
+  map area it stands in, a number and its most per minute, e.g. "Grass Fields Modular Frame In 1 (288)".
+- **The rate** is the factory's theoretical most with trains bringing all it needs, limited by the weakest link apart
+  from the trains: usually the belts out of an unloading platform (two Mk5 belts of plastic into an AI Limiter
+  factory fix its output), else the machines (clock speed and somersloop boost counted, miners and wells at their node
+  purity). Byproducts such as empty canisters feed the recipes that need them. The readout says which link limits.
+- **Names:** a station that loads is named by what it loads; a station unloading one item by that item and how much
+  of it the factory can use ("Southern Forest Heavy Oil Residue In 1 (600)"); a station unloading several items by
+  what the factory makes. Two stations loading from one factory each get their share.
+- On a copy of a large save, 33 of the 52 stations whose names carried a rate got the same rate within 10 %; most of
+  the others were labelled with their belts' capacity rather than what their machines make.
+- **Apply set-up** sets it up as shown; **Apply, keep the station's name** only sets the platforms. Nothing changes
+  until you click.
+- `/st setup [apply] [keepname]` does the same in chat, `/st setup all [apply]` for every station, with a report.
+  `/st setup format` and `/st setup words` choose how names look (for example `SRC`, `RSC`, `SNK`), per world.
+- **Migration window:** the preview shows each station's new name, and **Rename stations** renames the ticked
+  stations when applying. Undo puts the names back.
+- **Hint:** when a platform's belts or pipes now carry something else than it is set to (a new recipe or belt), its
+  readout and the station menu say so.
+- The connection trace now stops at other train platforms instead of walking through them.
+- **Recipe rates count production boost** (somersloops): a boosted machine makes twice as much, so a full supplier
+  behind boosted machines offers twice the recipe rate in the flow plan (it counted the plain recipe before).
+
 ## 0.10.2 (beta)
 
 - **Fixed: the monitor window could lose rows on a big network.** The view sent to a player's game is trimmed to fit
