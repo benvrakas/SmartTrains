@@ -231,25 +231,6 @@ namespace
 			Walk(Platform);
 		}
 
-		void RunFromMachine(const AActor* Machine)
-		{
-			SeedBelts(Machine);
-			// Upstream from a machine: the pipes that feed it (consumer side); downstream: those it fills.
-			const EPipeConnectionType Wanted = bUpstream ? EPipeConnectionType::PCT_CONSUMER : EPipeConnectionType::PCT_PRODUCER;
-			TInlineComponentArray<UFGPipeConnectionComponent*> Pipes;
-			Machine->GetComponents(Pipes);
-			for (UFGPipeConnectionComponent* Pipe : Pipes)
-			{
-				if (Pipe && Pipe->IsConnected() && Pipe->GetPipeConnectionType() == Wanted)
-				{
-					FStep Step;
-					Step.Pipe = Pipe;
-					Stack.Add(MoveTemp(Step));
-				}
-			}
-			Walk(Machine);
-		}
-
 	private:
 		void SeedBelts(const AActor* Start)
 		{
@@ -746,13 +727,179 @@ FString STTrace::FResult::Summary() const
 	return Out;
 }
 
-STTrace::FResult STTrace::TraceFromMachine(const AActor* Machine, bool bUpstream, int32 Limit)
+STTrace::FFlood STTrace::Flood(const TArray<const AActor*>& Starts, bool bUpstream, int32 Limit)
 {
-	FResult Result;
-	if (Machine)
+	FFlood Result;
+	// One position of the walk: a belt or pipe connection to follow, and the machine the walk last passed (the one that
+	// feeds what comes next downstream, or is fed by it upstream).
+	struct FItem
 	{
-		FTracer(bUpstream, FMath::Clamp(Limit, MinLimit, MaxLimit), Result).RunFromMachine(Machine);
+		UFGFactoryConnectionComponent* Belt = nullptr;
+		UFGFactoryConnectionComponent* Arrive = nullptr;
+		UFGPipeConnectionComponent* Pipe = nullptr;
+		const AActor* Machine = nullptr;
+	};
+	TArray<FItem> Stack;
+	TSet<const AActor*> Visited;
+	const EFactoryConnectionDirection Out = bUpstream ? EFactoryConnectionDirection::FCD_INPUT : EFactoryConnectionDirection::FCD_OUTPUT;
+	const EFactoryConnectionDirection Facing = bUpstream ? EFactoryConnectionDirection::FCD_OUTPUT : EFactoryConnectionDirection::FCD_INPUT;
+	const EPipeConnectionType MachinePipe = bUpstream ? EPipeConnectionType::PCT_CONSUMER : EPipeConnectionType::PCT_PRODUCER;
+	const EPipeConnectionType WrongPipe = bUpstream ? EPipeConnectionType::PCT_CONSUMER : EPipeConnectionType::PCT_PRODUCER;
+	// A machine's connections on the walking side.
+	auto SeedMachine = [&](const AActor* Machine)
+	{
+		TInlineComponentArray<UFGFactoryConnectionComponent*> Belts;
+		Machine->GetComponents(Belts);
+		for (UFGFactoryConnectionComponent* Belt : Belts)
+		{
+			if (Belt && Belt->IsConnected() && Belt->GetDirection() == Out)
+			{
+				Stack.Add({Belt, nullptr, nullptr, Machine});
+			}
+		}
+		TInlineComponentArray<UFGPipeConnectionComponent*> Pipes;
+		Machine->GetComponents(Pipes);
+		for (UFGPipeConnectionComponent* Pipe : Pipes)
+		{
+			if (Pipe && Pipe->IsConnected() && Pipe->GetPipeConnectionType() == MachinePipe)
+			{
+				Stack.Add({nullptr, nullptr, Pipe, Machine});
+			}
+		}
+	};
+	auto IsMachine = [](const AActor* Actor) { return Actor->IsA<AFGBuildableManufacturer>() || Actor->IsA<AFGBuildableResourceExtractorBase>(); };
+	// Reached Owner from Item: a platform ends the walk there, a machine joins and the walk goes on through it.
+	auto Reach = [&](const AActor* Owner, const FItem& Item) -> bool
+	{
+		if (Owner->IsA<AFGBuildableTrainPlatform>())
+		{
+			Result.Platforms.AddUnique(Owner);
+			if (Item.Machine)
+			{
+				Result.PlatformsByMachine.FindOrAdd(Item.Machine).AddUnique(Owner);
+			}
+			return true;
+		}
+		if (IsMachine(Owner))
+		{
+			Result.Machines.Add(Owner);
+			SeedMachine(Owner);
+			return true;
+		}
+		return false;
+	};
+	for (const AActor* Start : Starts)
+	{
+		if (Start && !Visited.Contains(Start))
+		{
+			Visited.Add(Start);
+			Result.Machines.Add(Start);
+			SeedMachine(Start);
+		}
 	}
+	while (Stack.Num() > 0)
+	{
+		if (Visited.Num() >= Limit)
+		{
+			Result.bCut = true;
+			break;
+		}
+		const FItem Item = Stack.Pop(EAllowShrinking::No);
+		if (Item.Belt || Item.Arrive)
+		{
+			UFGFactoryConnectionComponent* Neighbour = Item.Arrive ? Item.Arrive : Item.Belt->GetConnection();
+			AFGBuildable* Owner = Neighbour ? Neighbour->GetOuterBuildable() : nullptr;
+			if (!Owner || (Neighbour->GetDirection() != Facing && Neighbour->GetDirection() != EFactoryConnectionDirection::FCD_ANY) || Visited.Contains(Owner))
+			{
+				continue;
+			}
+			Visited.Add(Owner);
+			if (Reach(Owner, Item))
+			{
+				continue;
+			}
+			// Modular Load Balancers: every module of the group, out of all its connections on the walking side.
+			if (IsBalancer(Owner))
+			{
+				for (AFGBuildable* Module : GetBalancerGroup(Owner))
+				{
+					Visited.Add(Module);
+					TInlineComponentArray<UFGFactoryConnectionComponent*> Connections;
+					Module->GetComponents(Connections);
+					for (UFGFactoryConnectionComponent* Connection : Connections)
+					{
+						if (Connection && Connection != Neighbour && Connection->IsConnected() && Connection->GetDirection() == Out)
+						{
+							Stack.Add({Connection, nullptr, nullptr, Item.Machine});
+						}
+					}
+				}
+				continue;
+			}
+			// Belts and lifts: their other end, or through the floor hole a lift ends in.
+			if (AFGBuildableConveyorBase* Conveyor = Cast<AFGBuildableConveyorBase>(Owner))
+			{
+				UFGFactoryConnectionComponent* Other = Conveyor->GetConnection0() == Neighbour ? Conveyor->GetConnection1() : Conveyor->GetConnection0();
+				if (Other && Other->IsConnected())
+				{
+					Stack.Add({Other, nullptr, nullptr, Item.Machine});
+				}
+				else if (AFGBuildableConveyorLift* Lift = Cast<AFGBuildableConveyorLift>(Conveyor))
+				{
+					for (AFGBuildablePassthrough* Hole : Lift->GetSnappedPassthroughs())
+					{
+						for (UFGFactoryConnectionComponent* Far : {Hole ? Hole->GetTopSnappedConnection<UFGFactoryConnectionComponent>() : nullptr,
+							Hole ? Hole->GetBottomSnappedConnection<UFGFactoryConnectionComponent>() : nullptr})
+						{
+							if (Far && Far->GetOuterBuildable() != Lift)
+							{
+								Stack.Add({nullptr, Far, nullptr, Item.Machine});
+							}
+						}
+					}
+				}
+				continue;
+			}
+			// Splitters, mergers, storage and the rest: on through every connection on the walking side.
+			TInlineComponentArray<UFGFactoryConnectionComponent*> Connections;
+			Owner->GetComponents(Connections);
+			for (UFGFactoryConnectionComponent* Connection : Connections)
+			{
+				const EFactoryConnectionDirection Direction = Connection ? Connection->GetDirection() : EFactoryConnectionDirection::FCD_ANY;
+				if (Connection && Connection != Neighbour && Connection->IsConnected() && (Direction == Out || Direction == EFactoryConnectionDirection::FCD_ANY))
+				{
+					Stack.Add({Connection, nullptr, nullptr, Item.Machine});
+				}
+			}
+		}
+		else if (Item.Pipe)
+		{
+			UFGPipeConnectionComponentBase* Neighbour = Item.Pipe->GetConnection();
+			AActor* Owner = Neighbour ? Neighbour->GetOwner() : nullptr;
+			// A machine reached through the wrong side of a pipe (its input while walking upstream) isn't marked: another
+			// path may reach it the right way.
+			if (!Owner || Visited.Contains(Owner) || (IsMachine(Owner) && Neighbour->GetPipeConnectionType() == WrongPipe))
+			{
+				continue;
+			}
+			Visited.Add(Owner);
+			if (Reach(Owner, Item))
+			{
+				continue;
+			}
+			if (IFGFluidIntegrantInterface* Integrant = Cast<IFGFluidIntegrantInterface>(Owner))
+			{
+				for (UFGPipeConnectionComponent* Connection : Integrant->GetPipeConnections())
+				{
+					if (Connection && Connection != Neighbour && Connection->IsConnected())
+					{
+						Stack.Add({nullptr, nullptr, Connection, Item.Machine});
+					}
+				}
+			}
+		}
+	}
+	Result.Nodes = Visited.Num();
 	return Result;
 }
 

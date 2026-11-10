@@ -66,7 +66,19 @@ namespace STTrace
 	// Limit buildings and belt segments.
 	FResult Trace(const AFGBuildableTrainPlatformCargo* Platform, bool bLoadMode, int32 Limit = DefaultLimit);
 
-	// Walks from a machine's inputs upstream (bUpstream) or its outputs downstream to the next machines and train
-	// platforms (Docs/Architecture.md, "Station set-up").
-	FResult TraceFromMachine(const AActor* Machine, bool bUpstream, int32 Limit = DefaultLimit);
+	// What a flood fill through a factory reached: its machines (the starts first) and the train platforms where it
+	// stopped, with the machine the walk last passed before each.
+	struct FFlood
+	{
+		TArray<const AActor*> Machines;
+		TArray<const AActor*> Platforms;
+		TMap<const AActor*, TArray<const AActor*>> PlatformsByMachine;
+		int32 Nodes = 0;
+		// Stopped at Limit buildings and belt segments.
+		bool bCut = false;
+	};
+
+	// One walk from Starts through belts, pipes and machines, downstream (outputs to inputs) or upstream, visiting each
+	// building once and stopping at train platforms (Docs/Architecture.md, "Station set-up").
+	FFlood Flood(const TArray<const AActor*>& Starts, bool bUpstream, int32 Limit);
 }

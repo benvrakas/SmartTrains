@@ -154,6 +154,8 @@ private:
 	bool bInputTaken = false;
 	// Applying without a test copy or backup takes a second click.
 	bool bApplyArmed = false;
+	// A preview was asked for and hasn't come back yet (FPlatformTime seconds when asked; 0: none).
+	double mPreviewSentAt = 0.0;
 	int32 mShownSerial = -1;
 
 	static TWeakObjectPtr<USTMigrationWindow> sOpen;

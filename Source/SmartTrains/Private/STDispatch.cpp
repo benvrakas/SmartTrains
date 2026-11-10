@@ -242,7 +242,7 @@ void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 			Node.bStarved |= Config.Role == ESTRole::Demand && ItemStats && ItemStats->EmptySeconds > 30.0;
 		}
 	}
-	// Machines and recipe rates, from the traces of each node's platforms.
+	// Machines and recipe rates, from the machines each node's platforms reached when they were set up.
 	for (FSTNode& Node : OutNodes)
 	{
 		if (!Node.Item || Node.bAnyItem)
@@ -251,11 +251,14 @@ void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 		}
 		for (const TWeakObjectPtr<AFGBuildableTrainPlatformCargo>& Platform : Node.Platforms)
 		{
-			if (const FTraceCache* Cache = mTraces.Find(Platform))
+			if (const FSTPlatformConfig* Config = FindPlatformConfig(Platform.Get()))
 			{
-				for (const TWeakObjectPtr<const AActor>& Machine : Cache->Machines)
+				for (const TObjectPtr<AActor>& Machine : Config->Machines)
 				{
-					Node.Machines.AddUnique(Machine);
+					if (IsValid(Machine))
+					{
+						Node.Machines.AddUnique(Machine.Get());
+					}
 				}
 			}
 		}

@@ -54,7 +54,12 @@ Setting a role switches the platform to load (supply) or unload (demand).
 - `/st setup words <loads> <unloads several items> <unloads one item> [both]`: the words for `{role}` (`-` for
   none). Default `Out In In`, no word for a station that does both. Example: `/st setup words SRC RSC SNK`.
 - `/st setup default`: the default format and words again.
-- Server console: `SmartTrains.Setup [apply] [keepname]` runs `/st setup all`.
+- Server console: `SmartTrains.Setup [apply] [keepname]` runs `/st setup all`. `SmartTrains.MigratePreview` runs the
+  migration preview.
+- `/st setup all` and the migration preview's station names are worked out a few stations at a time (about 15 ms
+  every 0.05 s), so the server keeps running; the report and the names follow when they are done.
+- Belts and pipes are only traced when you press Autodetect, run `/st setup` or the migration. Press Autodetect again
+  after rebuilding a factory, so its recipe rates follow.
 - Server console: `SmartTrains.EmptyCars` deletes the cargo of every managed train, as `/st emptycars all confirm`
   (no undo; for tests that start from empty trains on a dedicated server).
 

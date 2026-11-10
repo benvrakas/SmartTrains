@@ -139,6 +139,9 @@ public:
 
 	// Sets Platform's role and items, switching its load/unload setting to match; Off puts its own setting back.
 	void SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, ESTRole NewRole, const TArray<FSTItemRule>& Items, const FString& Cause);
+	// Keeps the machines Platform's trace reached (for its recipe rate); only Autodetect, station set-up and the
+	// migration trace platforms.
+	void SetPlatformMachines(AFGBuildableTrainPlatformCargo* Platform, const TArray<TWeakObjectPtr<const AActor>>& Machines);
 	void SetStationDepot(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Cause);
 
 	// Starts or ends management of Train. Starting saves its timetable; ending puts it back and lets it drive on.
@@ -236,16 +239,32 @@ public:
 	// How stations are named, saved with the world.
 	UPROPERTY(SaveGame)
 	FSTNamingConfig mNaming;
-	// Runtime only: per platform, why its settings no longer match what its belts or pipes carry (from StepTraces).
-	TMap<TWeakObjectPtr<AFGBuildableTrainPlatformCargo>, FString> mSetupHints;
-	// Runtime only: the last set-up preview per station, applied as shown when confirmed soon after.
+	// Runtime only: the last set-up preview per station and what it covered (1 name, 2 platforms, 3 both).
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mSetupPreviewAt;
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, uint8> mSetupPreviewMode;
+	// Steps the staged station naming of the migration preview and of /st setup all.
+	FTimerHandle mSetupTimer;
 	// Lines for the station menu's set-up section: a preview, or what the last apply did.
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, TArray<FString>> mSetupLines;
-	// Preview (bApply false) or apply the set-up of Station; bRename false keeps its name. Returns chat lines.
-	TArray<FString> SetUpStation(AFGTrainStationIdentifier* Station, bool bApply, bool bRename, const FString& Cause);
-	// Every station with cargo platforms; writes Saved/SmartTrains/StationSetup.csv. Returns chat lines.
+	// Preview (bApply false) or apply the set-up of Station: its name (bRename) and/or its platforms. Returns lines.
+	TArray<FString> SetUpStation(AFGTrainStationIdentifier* Station, bool bApply, bool bRename, bool bPlatforms, const FString& Cause);
+	// Sets one platform's role and items from what it is connected to. Returns what it did.
+	FString AutodetectPlatform(AFGBuildableTrainPlatformCargo* Platform, const FString& Cause);
+	// Starts the set-up of every station with cargo platforms, a few per step; the report goes to
+	// Saved/SmartTrains/StationSetup-*.csv. Returns chat lines.
 	TArray<FString> SetUpAllStations(bool bApply, bool bRename, const FString& Cause);
+	// One step of SetUpAllStations; true when it is done (or none runs).
+	bool StepSetupAll(double BudgetMs);
+	// Runs the staged set-up steps until they are done.
+	void StartSetupSteps();
+	// Saves from before 0.14.0 kept no machines per platform: each platform with a role is traced once, a few per step,
+	// after loading. True when done.
+	bool StepMachineFill(double BudgetMs);
+	// Set once every platform of a save from before 0.14.0 has had its one trace.
+	UPROPERTY(SaveGame)
+	bool bMachinesFilled = false;
+	// Runtime only: platforms still to trace for the fill-in.
+	TArray<TWeakObjectPtr<AFGBuildableTrainPlatformCargo>> mMachineFillQueue;
 	// /st setup format|words: changes mNaming. Returns false with OutMessage on bad input.
 	bool SetNaming(const TArray<FString>& Words, const FString& Cause, FString& OutMessage);
 
@@ -284,16 +303,6 @@ private:
 	// /st snapshot: the next dispatch round writes every free train's planning inputs to a file for replay tests.
 	bool bSnapshotNext = false;
 	void WriteSnapshot(const TArray<FSTNode>& Nodes, const TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& Bookings, const TArray<TSharedPtr<class FJsonValue>>& Trains) const;
-	// Traces one platform's belts or pipes to its machines (STTrace), each again after a while. [1 s]
-	void StepTraces();
-	// Machines behind each traced platform, and when it was traced (Now()).
-	struct FTraceCache
-	{
-		double At = -1.0e9;
-		TArray<TWeakObjectPtr<const AActor>> Machines;
-	};
-	TMap<TWeakObjectPtr<AFGBuildableTrainPlatformCargo>, FTraceCache> mTraces;
-	int32 mTraceNext = 0;
 	// Hands out trips to free trains, and re-plans trips under way that asked for it (STDispatch.cpp).
 	void Dispatch();
 	void DispatchRound();

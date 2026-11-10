@@ -24,6 +24,7 @@
 #include "Misc/DateTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "TimerManager.h"
 #include "Resources/FGExtractableResourceInterface.h"
 #include "SmartTrains.h"
 #include "STLayout.h"
@@ -33,10 +34,8 @@
 
 namespace
 {
-	// Most machines one factory analysis walks to.
-	constexpr int32 MaxFactoryMachines = 600;
-	// Buildings and belt segments one walk from a machine may visit.
-	constexpr int32 MachineTraceLimit = 3000;
+	// Buildings and belt segments one flood fill through a factory may visit.
+	constexpr int32 FactoryFloodLimit = 50000;
 	// Recipe chains deeper than this are cut off in the rate search (loops of recipes).
 	constexpr int32 MaxRecipeDepth = 12;
 	// Steps of the rate search.
@@ -311,6 +310,7 @@ namespace
 			}
 			if (SetupIsSetTo(Subsystem, Cargo, Platform.Role, Platform.Items))
 			{
+				Subsystem.SetPlatformMachines(Cargo, Platform.Machines);
 				continue;
 			}
 			TArray<FSTItemRule> Rules;
@@ -320,6 +320,7 @@ namespace
 			}
 			const FString Before = SetupSettingsOf(Subsystem, Cargo);
 			Subsystem.SetPlatformConfig(Cargo, Platform.Role, Rules, Cause + TEXT(" (station set-up)"));
+			Subsystem.SetPlatformMachines(Cargo, Platform.Machines);
 			const FString After = SetupSettingsOf(Subsystem, Cargo);
 			Done.Add(FString::Printf(TEXT("P%d: %s -> %s"), Platform.Index + 1, *Before, *After));
 			UE_LOG(LogSmartTrains, Log, TEXT("SETUP %s P%d: %s -> %s (%s)"), *STLayout::Name(Station), Platform.Index + 1, *Before, *After, *Platform.Evidence);
@@ -460,63 +461,9 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 
 //~ Factory
 
-STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const STMigration::FStationProposal& Proposal, FWalkCache* Cache)
+STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const STMigration::FStationProposal& Proposal)
 {
-	FWalkCache Local;
-	FWalkCache& Walks = Cache ? *Cache : Local;
 	FFactory Factory;
-	auto LinksOf = [&Walks](const AActor* Machine) -> const FMachineLinks&
-	{
-		if (const FMachineLinks* Found = Walks.Find(Machine))
-		{
-			return *Found;
-		}
-		FMachineLinks Links;
-		const STTrace::FResult Down = STTrace::TraceFromMachine(Machine, false, MachineTraceLimit);
-		Links.Down = Down.MachineActors;
-		Links.DownPlatforms = Down.PlatformActors;
-		Links.bFeedsPlatform = Down.PlatformActors.Num() > 0;
-		if (Machine->IsA<AFGBuildableManufacturer>())
-		{
-			const STTrace::FResult Up = STTrace::TraceFromMachine(Machine, true, MachineTraceLimit);
-			Links.Up = Up.MachineActors;
-			Links.UpPlatforms = Up.PlatformActors;
-		}
-		return Walks.Add(Machine, MoveTemp(Links));
-	};
-	// Breadth-first through machines from Seeds, following Next of each; at most MaxFactoryMachines.
-	auto Walk = [&](const TArray<const AActor*>& Seeds, bool bUpstream, bool& bOutCut)
-	{
-		TArray<const AActor*> Order;
-		TSet<const AActor*> Seen;
-		auto Add = [&](const AActor* Machine)
-		{
-			if (!Machine || Seen.Contains(Machine))
-			{
-				return;
-			}
-			if (Seen.Num() >= MaxFactoryMachines)
-			{
-				bOutCut = true;
-				return;
-			}
-			Seen.Add(Machine);
-			Order.Add(Machine);
-		};
-		for (const AActor* Seed : Seeds)
-		{
-			Add(Seed);
-		}
-		for (int32 Next = 0; Next < Order.Num(); ++Next)
-		{
-			const FMachineLinks& Links = LinksOf(Order[Next]);
-			for (const TWeakObjectPtr<const AActor>& Each : bUpstream ? Links.Up : Links.Down)
-			{
-				Add(Each.Get());
-			}
-		}
-		return Order;
-	};
 	auto GroupsOf = [](const TArray<const AActor*>& Machines)
 	{
 		TMap<FString, FSetupMachineGroup> GroupMap;
@@ -546,11 +493,11 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 	const bool bAnyDemand = Proposal.Platforms.ContainsByPredicate([](const STMigration::FPlatformProposal& Each) { return Each.Role == ESTRole::Demand && Each.Items.Num() > 0; });
 	bool bCut = false;
 
-	// The product. A station that only loads: what it loads. Otherwise: downstream from its unloading platforms, what the
-	// machines make and don't use themselves, preferring what goes on to a train platform, then the one made by the most
-	// machines.
+	// The product. A station that only loads: what it loads. Otherwise: downstream from its unloading platforms (one
+	// flood fill through belts, pipes and machines), what the machines make and don't use themselves, preferring what
+	// goes on to a train platform, then the one made by the most machines.
 	UClass* Product = nullptr;
-	TArray<const AActor*> Downstream;
+	STTrace::FFlood Down;
 	if (bAnySupply && !bAnyDemand)
 	{
 		Product = SetupMostCommonItem(Proposal, ESTRole::Supply);
@@ -564,12 +511,16 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 			{
 				for (const TWeakObjectPtr<const AActor>& Each : Platform.Machines)
 				{
-					Seeds.AddUnique(Each.Get());
+					if (Each.IsValid())
+					{
+						Seeds.AddUnique(Each.Get());
+					}
 				}
 			}
 		}
-		Downstream = Walk(Seeds, false, bCut);
-		const TArray<FSetupMachineGroup> Groups = GroupsOf(Downstream);
+		Down = STTrace::Flood(Seeds, false, FactoryFloodLimit);
+		bCut |= Down.bCut;
+		const TArray<FSetupMachineGroup> Groups = GroupsOf(Down.Machines);
 		TMap<UClass*, int32> Makers;
 		TSet<UClass*> Used;
 		for (const FSetupMachineGroup& Group : Groups)
@@ -584,18 +535,15 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 			}
 		}
 		TSet<UClass*> ToPlatforms;
-		for (const AActor* Machine : Downstream)
+		for (const TPair<const AActor*, TArray<const AActor*>>& Pair : Down.PlatformsByMachine)
 		{
-			if (LinksOf(Machine).bFeedsPlatform)
+			TMap<FString, FSetupMachineGroup> One;
+			SetupAddMachine(Pair.Key, One);
+			for (const TPair<FString, FSetupMachineGroup>& Each : One)
 			{
-				TMap<FString, FSetupMachineGroup> One;
-				SetupAddMachine(Machine, One);
-				for (const TPair<FString, FSetupMachineGroup>& Each : One)
+				for (const TPair<UClass*, double>& Made : Each.Value.Products)
 				{
-					for (const TPair<UClass*, double>& Made : Each.Value.Products)
-					{
-						ToPlatforms.Add(Made.Key);
-					}
+					ToPlatforms.Add(Made.Key);
 				}
 			}
 		}
@@ -631,14 +579,17 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 			{
 				for (const TWeakObjectPtr<const AActor>& Each : Platform.Machines)
 				{
-					MakerSeeds.AddUnique(Each.Get());
+					if (Each.IsValid())
+					{
+						MakerSeeds.AddUnique(Each.Get());
+					}
 				}
 			}
 		}
 	}
 	else
 	{
-		for (const AActor* Machine : Downstream)
+		for (const AActor* Machine : Down.Machines)
 		{
 			if (MakesItem(Machine, Product))
 			{
@@ -646,22 +597,21 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 			}
 		}
 	}
-	const TArray<const AActor*> Machines = Walk(MakerSeeds, true, bCut);
+	const STTrace::FFlood Up = STTrace::Flood(MakerSeeds, true, FactoryFloodLimit);
+	bCut |= Up.bCut;
+	const TArray<const AActor*>& Machines = Up.Machines;
 	TSet<const AFGBuildableTrainPlatformCargo*> InputPlatforms;
-	for (const AActor* Machine : Machines)
+	for (const AActor* Each : Up.Platforms)
 	{
-		for (const TWeakObjectPtr<const AActor>& Each : LinksOf(Machine).UpPlatforms)
+		if (const AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Each))
 		{
-			if (const AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Each.Get()))
-			{
-				InputPlatforms.Add(Cargo);
-			}
+			InputPlatforms.Add(Cargo);
 		}
 	}
 	Factory.Machines = Machines.Num();
 	if (bCut)
 	{
-		Factory.Notes.Add(FString::Printf(TEXT("more than %d machines are connected; the rate counts the first %d"), MaxFactoryMachines, MaxFactoryMachines));
+		Factory.Notes.Add(FString::Printf(TEXT("the factory is larger than %d buildings and belts; the rate counts what was reached"), FactoryFloodLimit));
 	}
 	TArray<FSetupMachineGroup> Groups = GroupsOf(Machines);
 	TMap<UClass*, TArray<int32>> Producers;
@@ -914,18 +864,16 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 		FString Text;
 		const double Into = OwnThroughput(Product, false, Text);
 		double AllInto = 0.0;
-		TSet<const AActor*> Fed;
-		for (int32 Index = 0; Index < Machines.Num(); ++Index)
+		TArray<const AActor*> Makers;
+		for (const AActor* Machine : Machines)
 		{
-			if (MakesItem(Machines[Index], Product))
+			if (MakesItem(Machine, Product))
 			{
-				for (const TWeakObjectPtr<const AActor>& Each : LinksOf(Machines[Index]).DownPlatforms)
-				{
-					Fed.Add(Each.Get());
-				}
+				Makers.Add(Machine);
 			}
 		}
-		for (const AActor* Each : Fed)
+		const STTrace::FFlood Fed = STTrace::Flood(Makers, false, FactoryFloodLimit);
+		for (const AActor* Each : Fed.Platforms)
 		{
 			const AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Each);
 			if (!Cargo)
@@ -1150,7 +1098,7 @@ int32 STSetup::PickNumber(const FString& Format, const FString& Area, const FStr
 	return 0;
 }
 
-void STSetup::NameStation(const ASTSubsystem& Subsystem, STMigration::FStationProposal& Proposal, TSet<FString>& Taken, FWalkCache* Cache)
+void STSetup::NameStation(const ASTSubsystem& Subsystem, STMigration::FStationProposal& Proposal, TSet<FString>& Taken)
 {
 	const AFGTrainStationIdentifier* Station = Proposal.Station.Get();
 	const AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
@@ -1158,7 +1106,7 @@ void STSetup::NameStation(const ASTSubsystem& Subsystem, STMigration::FStationPr
 	{
 		return;
 	}
-	const FFactory Factory = AnalyzeFactory(Subsystem, Proposal, Cache);
+	const FFactory Factory = AnalyzeFactory(Subsystem, Proposal);
 	if (!Factory.Product)
 	{
 		Proposal.NameNote = TEXT("no product found (nothing attached, or no item on its platforms): name kept");
@@ -1231,7 +1179,7 @@ TArray<FString> STSetup::Describe(const STMigration::FStationProposal& Proposal)
 
 //~ Subsystem
 
-TArray<FString> ASTSubsystem::SetUpStation(AFGTrainStationIdentifier* Station, bool bApply, bool bRename, const FString& Cause)
+TArray<FString> ASTSubsystem::SetUpStation(AFGTrainStationIdentifier* Station, bool bApply, bool bRename, bool bPlatforms, const FString& Cause)
 {
 	TArray<FString> Lines;
 	if (!IsValid(Station))
@@ -1240,66 +1188,154 @@ TArray<FString> ASTSubsystem::SetUpStation(AFGTrainStationIdentifier* Station, b
 		return Lines;
 	}
 	STMigration::FStationProposal Proposal = STSetup::ProposeStation(*this, Station);
-	TSet<FString> Taken;
-	for (const AFGTrainStationIdentifier* Other : SetupStations(GetWorld()))
+	if (bRename)
 	{
-		if (Other != Station)
+		TSet<FString> Taken;
+		for (const AFGTrainStationIdentifier* Other : SetupStations(GetWorld()))
 		{
-			Taken.Add(StationNameOf(Other));
+			if (Other != Station)
+			{
+				Taken.Add(StationNameOf(Other));
+			}
+		}
+		STSetup::NameStation(*this, Proposal, Taken);
+	}
+	// A preview shows what the action changes: the name (rename), the platforms (autodetect), or both.
+	for (const FString& Line : STSetup::Describe(Proposal))
+	{
+		const bool bNameLine = Line.StartsWith(TEXT("Name:")) || Line.StartsWith(TEXT("  "));
+		if ((bNameLine && bRename) || (!bNameLine && bPlatforms))
+		{
+			Lines.Add(Line);
 		}
 	}
-	STSetup::NameStation(*this, Proposal, Taken);
-	Lines = STSetup::Describe(Proposal);
-	UE_LOG(LogSmartTrains, Log, TEXT("SETUP %s %s (%s): %s"), bApply ? TEXT("apply") : TEXT("preview"), *STLayout::Name(Station), *Cause, *FString::Join(Lines, TEXT(" | ")));
+	UE_LOG(LogSmartTrains, Log, TEXT("SETUP %s%s%s %s (%s): %s"), bApply ? TEXT("apply") : TEXT("preview"), bRename ? TEXT(" name") : TEXT(""), bPlatforms ? TEXT(" platforms") : TEXT(""),
+		*STLayout::Name(Station), *Cause, *FString::Join(Lines, TEXT(" | ")));
 	if (bApply)
 	{
+		if (!bPlatforms)
+		{
+			Proposal.Platforms.Reset();
+		}
 		const TArray<FString> Done = ApplySetupProposal(*this, Proposal, bRename, Cause);
 		Lines.Reset();
-		Lines.Add(Done.Num() > 0 ? FString::Printf(TEXT("Set up: %d change%s."), Done.Num(), Done.Num() == 1 ? TEXT("") : TEXT("s")) : FString(TEXT("Set up: nothing to change.")));
+		Lines.Add(Done.Num() > 0 ? FString::Printf(TEXT("Done: %d change%s."), Done.Num(), Done.Num() == 1 ? TEXT("") : TEXT("s")) : FString(TEXT("Nothing to change.")));
 		Lines.Append(Done);
 		mSetupPreviewAt.Remove(Station);
-		for (const STMigration::FPlatformProposal& Platform : Proposal.Platforms)
-		{
-			mSetupHints.Remove(Platform.Platform.Get());
-		}
+		mSetupPreviewMode.Remove(Station);
 	}
 	else
 	{
 		mSetupPreviewAt.Add(Station, Now());
+		mSetupPreviewMode.Add(Station, (bRename ? 1 : 0) | (bPlatforms ? 2 : 0));
 	}
 	mSetupLines.Add(Station, Lines);
 	return Lines;
 }
 
+FString ASTSubsystem::AutodetectPlatform(AFGBuildableTrainPlatformCargo* Platform, const FString& Cause)
+{
+	AFGTrainStationIdentifier* Station = STLayout::GetIdentifier(STLayout::FindStation(Platform));
+	if (!Station)
+	{
+		return TEXT("This platform isn't part of a station.");
+	}
+	STMigration::FStationProposal Proposal = STSetup::ProposeStation(*this, Station);
+	const STMigration::FPlatformProposal* Own = Proposal.Platforms.FindByPredicate([Platform](const STMigration::FPlatformProposal& Each) { return Each.Platform.Get() == Platform; });
+	if (!Own)
+	{
+		return TEXT("This platform can't be set up.");
+	}
+	const STMigration::FPlatformProposal Kept = *Own;
+	Proposal.Platforms = {Kept};
+	const TArray<FString> Done = ApplySetupProposal(*this, Proposal, false, Cause);
+	TArray<FString> Items;
+	for (const TSubclassOf<UFGItemDescriptor>& Item : Kept.Items)
+	{
+		Items.Add(STNames::Item(Item));
+	}
+	const FString Found = FString::Printf(TEXT("%s%s%s"), STNames::Role(Kept.Role), Items.Num() > 0 ? TEXT(" ") : TEXT(""), *FString::Join(Items, TEXT(", ")));
+	const FString Message = Kept.Role != ESTRole::Off && Kept.Items.Num() == 0 ? FString::Printf(TEXT("Autodetect: %s, but no item found (%s); left as it was."), STNames::Role(Kept.Role), *Kept.Evidence)
+		: Done.Num() > 0 ? FString::Printf(TEXT("Autodetect: %s (%s)."), *Found, *Kept.Evidence) : FString::Printf(TEXT("Autodetect: already %s."), *Found);
+	UE_LOG(LogSmartTrains, Log, TEXT("SETUP platform %s P%d: %s (%s)"), *STLayout::Name(Station), Kept.Index + 1, *Message, *Cause);
+	return Message;
+}
+
+namespace
+{
+	// /st setup all, a few stations per step so the server keeps running (StepSetupAll).
+	struct FSetupAllJob
+	{
+		TArray<TWeakObjectPtr<AFGTrainStationIdentifier>> Stations;
+		int32 Next = 0;
+		TSet<FString> Taken;
+		FString Report;
+		bool bApply = false;
+		bool bRename = true;
+		FString Cause;
+		int32 Done = 0;
+		int32 Renamed = 0;
+		int32 Changes = 0;
+		double StartedAt = 0.0;
+	};
+	TMap<TWeakObjectPtr<UWorld>, FSetupAllJob> GSetupAll;
+}
+
 TArray<FString> ASTSubsystem::SetUpAllStations(bool bApply, bool bRename, const FString& Cause)
 {
 	TArray<FString> Lines;
-	const TArray<AFGTrainStationIdentifier*> Stations = SetupStations(GetWorld());
-	TSet<FString> Taken;
-	for (const AFGTrainStationIdentifier* Station : Stations)
+	if (GSetupAll.Contains(GetWorld()))
 	{
-		Taken.Add(StationNameOf(Station));
+		Lines.Add(TEXT("A set-up of every station is already running; its report follows in the log (SETUP lines)."));
+		return Lines;
 	}
-	FString Report = TEXT("station,old name,new name,how,platforms\n");
-	int32 Renamed = 0;
-	int32 Changes = 0;
-	int32 Done = 0;
-	const double Started = FPlatformTime::Seconds();
-	STSetup::FWalkCache Walks;
-	for (AFGTrainStationIdentifier* Station : Stations)
+	FSetupAllJob& Job = GSetupAll.Add(GetWorld());
+	for (AFGTrainStationIdentifier* Station : SetupStations(GetWorld()))
 	{
+		Job.Stations.Add(Station);
+		Job.Taken.Add(StationNameOf(Station));
+	}
+	Job.Report = TEXT("station,old name,new name,how,platforms\n");
+	Job.bApply = bApply;
+	Job.bRename = bRename;
+	Job.Cause = Cause;
+	Job.StartedAt = FPlatformTime::Seconds();
+	StartSetupSteps();
+	Lines.Add(FString::Printf(TEXT("Station set-up %s for %d stations started, a few per moment so the server keeps running. The report goes to Saved/SmartTrains (SETUP lines in the log)."),
+		bApply ? TEXT("apply") : TEXT("preview"), Job.Stations.Num()));
+	UE_LOG(LogSmartTrains, Log, TEXT("SETUP %s (%s)"), *Lines[0], *Cause);
+	return Lines;
+}
+
+bool ASTSubsystem::StepSetupAll(double BudgetMs)
+{
+	FSetupAllJob* Job = GSetupAll.Find(GetWorld());
+	if (!Job)
+	{
+		return true;
+	}
+	const double Until = FPlatformTime::Seconds() + BudgetMs / 1000.0;
+	bool bFirst = true;
+	while (Job->Next < Job->Stations.Num() && (bFirst || FPlatformTime::Seconds() < Until))
+	{
+		bFirst = false;
+		AFGTrainStationIdentifier* Station = Job->Stations[Job->Next++].Get();
+		if (!IsValid(Station))
+		{
+			continue;
+		}
 		STMigration::FStationProposal Proposal = STSetup::ProposeStation(*this, Station);
 		if (!Proposal.Platforms.ContainsByPredicate([](const STMigration::FPlatformProposal& Each) { return Each.bCargo; }))
 		{
 			continue;
 		}
-		++Done;
+		++Job->Done;
 		const FString Old = StationNameOf(Station);
-		Taken.Remove(Old);
-		STSetup::NameStation(*this, Proposal, Taken, &Walks);
+		Job->Taken.Remove(Old);
+		STSetup::NameStation(*this, Proposal, Job->Taken);
 		if (Proposal.NewName.IsEmpty())
 		{
-			Taken.Add(Old);
+			Job->Taken.Add(Old);
 		}
 		const TArray<FString> Described = STSetup::Describe(Proposal);
 		TArray<FString> PlatformLines;
@@ -1310,21 +1346,73 @@ TArray<FString> ASTSubsystem::SetUpAllStations(bool bApply, bool bRename, const 
 				PlatformLines.Add(Line);
 			}
 		}
-		Report += FString::Printf(TEXT("%s,%s,%s,%s,%s\n"), *SetupCsv(STLayout::Name(Station)), *SetupCsv(Old), *SetupCsv(Proposal.NewName), *SetupCsv(Proposal.NameNote),
+		Job->Report += FString::Printf(TEXT("%s,%s,%s,%s,%s\n"), *SetupCsv(STLayout::Name(Station)), *SetupCsv(Old), *SetupCsv(Proposal.NewName), *SetupCsv(Proposal.NameNote),
 			*SetupCsv(FString::Join(PlatformLines, TEXT(" | "))));
-		UE_LOG(LogSmartTrains, Log, TEXT("SETUP %s %s: %s"), bApply ? TEXT("apply") : TEXT("preview"), *Old, *FString::Join(Described, TEXT(" | ")));
-		Renamed += !Proposal.NewName.IsEmpty() && Proposal.NewName != Old ? 1 : 0;
-		if (bApply)
+		UE_LOG(LogSmartTrains, Log, TEXT("SETUP %s %s: %s"), Job->bApply ? TEXT("apply") : TEXT("preview"), *Old, *FString::Join(Described, TEXT(" | ")));
+		Job->Renamed += !Proposal.NewName.IsEmpty() && Proposal.NewName != Old ? 1 : 0;
+		if (Job->bApply)
 		{
-			Changes += ApplySetupProposal(*this, Proposal, bRename, Cause).Num();
+			Job->Changes += ApplySetupProposal(*this, Proposal, Job->bRename, Job->Cause).Num();
 		}
 	}
+	if (Job->Next < Job->Stations.Num())
+	{
+		return false;
+	}
 	const FString Path = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("SmartTrains"), FString::Printf(TEXT("StationSetup-%s.csv"), *FDateTime::Now().ToString(TEXT("%Y%m%d-%H%M%S"))));
-	const bool bWritten = FFileHelper::SaveStringToFile(Report, *Path);
-	Lines.Add(FString::Printf(TEXT("Station set-up %s: %d stations, %d new names%s, %.1f s. Report %s %s."), bApply ? TEXT("applied") : TEXT("preview"), Done, Renamed,
-		bApply ? *FString::Printf(TEXT(", %d changes"), Changes) : TEXT(""), FPlatformTime::Seconds() - Started, bWritten ? TEXT("written to") : TEXT("NOT written to"), *Path));
-	UE_LOG(LogSmartTrains, Log, TEXT("SETUP %s (%s)"), *Lines[0], *Cause);
-	return Lines;
+	const bool bWritten = FFileHelper::SaveStringToFile(Job->Report, *Path);
+	UE_LOG(LogSmartTrains, Log, TEXT("SETUP Station set-up %s: %d stations, %d new names%s, %.1f s. Report %s %s. (%s)"), Job->bApply ? TEXT("applied") : TEXT("preview"), Job->Done,
+		Job->Renamed, Job->bApply ? *FString::Printf(TEXT(", %d changes"), Job->Changes) : TEXT(""), FPlatformTime::Seconds() - Job->StartedAt,
+		bWritten ? TEXT("written to") : TEXT("NOT written to"), *Path, *Job->Cause);
+	GSetupAll.Remove(GetWorld());
+	return true;
+}
+
+bool ASTSubsystem::StepMachineFill(double BudgetMs)
+{
+	if (bMachinesFilled || mMachineFillQueue.Num() == 0)
+	{
+		return true;
+	}
+	const double Until = FPlatformTime::Seconds() + BudgetMs / 1000.0;
+	do
+	{
+		AFGBuildableTrainPlatformCargo* Platform = mMachineFillQueue.Pop(EAllowShrinking::No).Get();
+		const FSTPlatformConfig* Config = Platform ? FindPlatformConfig(Platform) : nullptr;
+		if (Config && (Config->Role == ESTRole::Supply || Config->Role == ESTRole::Demand) && Config->Machines.Num() == 0)
+		{
+			SetPlatformMachines(Platform, STTrace::Trace(Platform, Config->Role == ESTRole::Supply).MachineActors);
+		}
+	}
+	while (mMachineFillQueue.Num() > 0 && FPlatformTime::Seconds() < Until);
+	if (mMachineFillQueue.Num() > 0)
+	{
+		return false;
+	}
+	bMachinesFilled = true;
+	UE_LOG(LogSmartTrains, Log, TEXT("SETUP platforms set up before 0.14.0 traced once; from now on only Autodetect, /st setup and the migration trace platforms"));
+	return true;
+}
+
+void ASTSubsystem::StartSetupSteps()
+{
+	FTimerManager& Timers = GetWorldTimerManager();
+	if (Timers.IsTimerActive(mSetupTimer))
+	{
+		return;
+	}
+	Timers.SetTimer(mSetupTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
+	{
+		// Each step takes about this long, at least one station. [ms]
+		constexpr double StepMs = 15.0;
+		const bool bNamesDone = STMigration::StepNaming(this, GetWorld(), StepMs);
+		const bool bAllDone = StepSetupAll(StepMs);
+		const bool bFillDone = StepMachineFill(StepMs);
+		if (bNamesDone && bAllDone && bFillDone)
+		{
+			GetWorldTimerManager().ClearTimer(mSetupTimer);
+		}
+	}), 0.05f, FTimerManagerTimerParameters{.bLoop = true, .bMaxOncePerFrame = true});
 }
 
 bool ASTSubsystem::SetNaming(const TArray<FString>& Words, const FString& Cause, FString& OutMessage)
@@ -1409,6 +1497,24 @@ namespace
 	FAutoConsoleCommandWithWorldAndArgs GEmptyCarsCommand(TEXT("SmartTrains.EmptyCars"),
 		TEXT("Deletes the cargo of every managed train (no undo), as /st emptycars all confirm."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&RunEmptyCarsCommand));
+
+	// SmartTrains.MigratePreview: the migration preview from the server console (names follow a few stations per step).
+	void RunMigratePreviewCommand(const TArray<FString>& Args, UWorld* World)
+	{
+		ASTSubsystem* Subsystem = ASTSubsystem::Get(World);
+		if (!Subsystem)
+		{
+			UE_LOG(LogSmartTrains, Warning, TEXT("SmartTrains.MigratePreview: no SmartTrains subsystem in this world"));
+			return;
+		}
+		const double Started = FPlatformTime::Seconds();
+		const TArray<FString> Lines = STMigration::Preview(Subsystem, World);
+		UE_LOG(LogSmartTrains, Log, TEXT("SmartTrains.MigratePreview: %s (%.1f s)"), Lines.Num() > 0 ? *Lines[0] : TEXT("no lines"), FPlatformTime::Seconds() - Started);
+	}
+
+	FAutoConsoleCommandWithWorldAndArgs GMigratePreviewCommand(TEXT("SmartTrains.MigratePreview"),
+		TEXT("Runs the migration preview, as /st migrate preview."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&RunMigratePreviewCommand));
 
 	FAutoConsoleCommandWithWorldAndArgs GSetupCommand(TEXT("SmartTrains.Setup"),
 		TEXT("Station set-up for every station: preview (default) or apply [keepname]. Report in Saved/SmartTrains."),

@@ -142,6 +142,14 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 		}
 	});
 	AddToLine(Tools, mPaste, true, FMargin(0.f));
+	MakeButton(mMain, LOCTEXT("Autodetect", "Autodetect from its belts and pipes"), [this]()
+	{
+		if (USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this))
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: autodetect %s"), *GetNameSafe(GetPlatform()));
+			RCO->Server_AutodetectPlatform(GetPlatform(), RCO->NextEdit());
+		}
+	}, FMargin(0.f, 4.f, 0.f, 2.f));
 	mCopyToStation = MakeButton(mMain, LOCTEXT("CopyToStation", "Copy to the station's other platforms"), [this]()
 	{
 		USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);

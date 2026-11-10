@@ -39,7 +39,6 @@ namespace
 	// How long a move that moved nothing isn't planned again for that train. [min]
 	constexpr double NoProgressMinutes = 10.0;
 	// A platform's machines are traced again after this long. [s]
-	constexpr double TraceRefreshSeconds = 600.0;
 	// An unloading platform that takes less than this share of what was planned counts as slow draining for SlowDrainMinutes.
 	constexpr double SlowDrainShare = 0.5;
 	constexpr double SlowDrainMinutes = 30.0;
@@ -109,6 +108,26 @@ void ASTSubsystem::BeginPlay()
 			Dispatch();
 		}
 	}), 1.f, true, 5.f);
+	// A save from before 0.14.0: its platforms' machines are traced once.
+	if (!bMachinesFilled)
+	{
+		for (const FSTPlatformConfig& Config : mPlatforms)
+		{
+			if (IsValid(Config.Platform) && (Config.Role == ESTRole::Supply || Config.Role == ESTRole::Demand) && Config.Machines.Num() == 0)
+			{
+				mMachineFillQueue.Add(Config.Platform);
+			}
+		}
+		if (mMachineFillQueue.Num() > 0)
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("SETUP %d platforms set up before 0.14.0: tracing each once for its recipe rate, a few at a time"), mMachineFillQueue.Num());
+			StartSetupSteps();
+		}
+		else
+		{
+			bMachinesFilled = true;
+		}
+	}
 	int32 Managed = 0;
 	for (const FSTTrainState& State : mTrains)
 	{
@@ -1208,68 +1227,24 @@ void ASTSubsystem::SamplePlatforms()
 			It.RemoveCurrent();
 		}
 	}
-	StepTraces();
 }
 
-void ASTSubsystem::StepTraces()
+void ASTSubsystem::SetPlatformMachines(AFGBuildableTrainPlatformCargo* Platform, const TArray<TWeakObjectPtr<const AActor>>& Machines)
 {
-	const double Time = Now();
-	for (int32 Tries = 0; Tries < mPlatforms.Num(); ++Tries)
+	FSTPlatformConfig* Config = FindPlatformConfig(Platform);
+	if (!Config)
 	{
-		mTraceNext = (mTraceNext + 1) % mPlatforms.Num();
-		const FSTPlatformConfig& Config = mPlatforms[mTraceNext];
-		if ((Config.Role != ESTRole::Supply && Config.Role != ESTRole::Demand) || !IsValid(Config.Platform))
-		{
-			continue;
-		}
-		FTraceCache& Cache = mTraces.FindOrAdd(Config.Platform);
-		if (Time - Cache.At < TraceRefreshSeconds)
-		{
-			continue;
-		}
-		const STTrace::FResult Result = STTrace::Trace(Config.Platform, Config.Role == ESTRole::Supply);
-		Cache.At = Time;
-		Cache.Machines = Result.MachineActors;
-		// Set-up hint: the platform's items no longer among what its machines make or use.
-		TArray<UClass*> Traced;
-		const EFreightCargoType CargoType = STLayout::GetPlatformCargoType(Config.Platform);
-		for (const STTrace::FFlow& Flow : Result.Flows)
-		{
-			if (Flow.Item && STLayout::ItemFitsCargoType(Flow.Item.Get(), CargoType))
-			{
-				Traced.AddUnique(Flow.Item.Get());
-			}
-		}
-		const bool bMatches = Traced.Num() == 0 || Config.Items.ContainsByPredicate([&Traced](const FSTItemRule& Rule) { return Traced.Contains(Rule.Item.Get()); });
-		if (bMatches)
-		{
-			mSetupHints.Remove(Config.Platform);
-		}
-		else
-		{
-			TArray<FString> Names;
-			for (UClass* Item : Traced)
-			{
-				Names.Add(STNames::Item(Item));
-			}
-			const FString Hint = FString::Printf(TEXT("its belts or pipes now carry %s, not what it is set to (%s): use Set up from its factory in the station menu"),
-				*FString::Join(Names, TEXT(", ")), *STNames::Settings(Config.Role, Config.Items));
-			if (mSetupHints.FindRef(Config.Platform) != Hint)
-			{
-				UE_LOG(LogSmartTrains, Log, TEXT("SETUP hint %s: %s"), *GetNameSafe(Config.Platform), *Hint);
-			}
-			mSetupHints.Add(Config.Platform, Hint);
-		}
-		UE_LOG(LogSmartTrains, Verbose, TEXT("TRACE %s: %d machines (%s)"), *GetNameSafe(Config.Platform), Result.Machines, *Result.Summary());
-		break;
+		return;
 	}
-	for (auto It = mTraces.CreateIterator(); It; ++It)
+	Config->Machines.Reset();
+	for (const TWeakObjectPtr<const AActor>& Machine : Machines)
 	{
-		if (!It.Key().IsValid())
+		if (Machine.IsValid())
 		{
-			It.RemoveCurrent();
+			Config->Machines.AddUnique(const_cast<AActor*>(Machine.Get()));
 		}
 	}
+	UE_LOG(LogSmartTrains, Verbose, TEXT("PLATFORM %s: %d machines kept for its recipe rate"), *GetNameSafe(Platform), Config->Machines.Num());
 }
 
 double ASTSubsystem::GetMeasuredRate(const AFGBuildableTrainPlatformCargo* Platform, TSubclassOf<UFGItemDescriptor> Item, bool* bKnown) const
@@ -1357,18 +1332,6 @@ TArray<FString> ASTSubsystem::DescribeStation(const AFGTrainStationIdentifier* S
 	const FSTStationConfig* Config = mStations.FindByPredicate([Station](const FSTStationConfig& Each) { return Each.Station == Station; });
 	Lines.Add(FString::Printf(TEXT("Station %s%s"), *STLayout::Name(Station), Config && Config->bDepot ? TEXT(" (depot)") : TEXT("")));
 	Lines.Append(DescribeStationGroups(Station));
-	{
-		int32 Number = 0;
-		for (const AFGBuildableTrainPlatform* Platform : STLayout::GetPlatforms(Building))
-		{
-			++Number;
-			const AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Platform);
-			if (const FString* Hint = Cargo ? mSetupHints.Find(const_cast<AFGBuildableTrainPlatformCargo*>(Cargo)) : nullptr)
-			{
-				Lines.Add(FString::Printf(TEXT("P%d: %s."), Number, **Hint));
-			}
-		}
-	}
 	FString Layout;
 	for (const AFGBuildableTrainPlatform* Platform : STLayout::GetPlatforms(Building))
 	{

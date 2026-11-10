@@ -21,11 +21,11 @@ them (see below).
   - Each item gets a target and a priority (demand), or a **Least per visit** (supply, 50 % by default): a train
     only picks up there when it can load at least that share of what its cars there carry.
   - **Copy**, **Paste** and **Copy to the station's other platforms** carry every setting of the platform.
-- **Set up a station from its factory:** build the station and its platforms, connect the belts and pipes, open the
-  station menu and click **Show set-up**. SmartTrains follows the belts and pipes to the machines and shows, per
-  platform, whether it loads or unloads and which item, and a station name made of what the factory makes, its map
-  area, a number and its most per minute, e.g. "Grass Fields Modular Frame In 1 (288)". **Apply set-up** sets it up
-  like that (or **Apply, keep the station's name**). The rate is the factory's theoretical most, limited by its
+- **Set up a station from its factory:** build the station and its platforms, connect the belts and pipes, and open
+  the station menu. **Autodetect all platforms** follows the belts and pipes to the machines and sets each platform
+  to load or unload its item; **Rename station from its factory** names it from what the factory makes, its map area,
+  a number and its most per minute, e.g. "Grass Fields Modular Frame In 1 (288)". Each shows what it would do first;
+  click again to do it. A platform's own menu has **Autodetect** for that platform alone. The rate is the factory's theoretical most, limited by its
   weakest link apart from the trains: the belts out of its unloading platforms, or its machines. `/st setup all`
   does every station, and the migration window can rename stations the same way. The name format and words are
   yours to choose (`/st setup format`, `/st setup words`).

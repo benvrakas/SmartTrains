@@ -127,6 +127,11 @@ struct SMARTTRAINS_API FSTPlatformConfig
 	bool bHasOriginalLoadMode = false;
 
 	// Who last changed the settings, for the log and readouts.
+	// The machines its belts or pipes reached when it was last set up from them (Autodetect, station set-up or the
+	// migration): their recipes give its theoretical rate.
+	UPROPERTY(SaveGame)
+	TArray<TObjectPtr<AActor>> Machines;
+
 	UPROPERTY(SaveGame)
 	FString EditedBy;
 

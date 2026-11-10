@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.14.0 (beta)
+
+- **Fixed: the migration preview froze the server** for about 18 s per click on a large save (the station names of
+  0.11.0 were all worked out in one go), and nothing else, platform menus included, was answered meanwhile ("Waiting
+  for the server"). The preview now comes at once and the names follow a few stations at a time; the window shows them
+  when they are ready. The Preview button ignores clicks while a preview is on its way. `/st setup all` works the
+  same way.
+- **Station menu:** two buttons instead of Show set-up / Apply: **Rename station from its factory...** and
+  **Autodetect all platforms...**. Each shows what it would do; click it again to do it.
+- **Platform menu:** **Autodetect from its belts and pipes** sets that platform's role and item from what it is
+  connected to, at once.
+- Server console: `SmartTrains.MigratePreview` runs the migration preview (for tests on a dedicated server).
+- **Much faster station analysis:** the walk through a factory now visits each belt and building once. Naming all
+  112 stations of a large save takes about 3 s instead of 30, and the slowest station 0.2 s instead of 15.
+- **No background traces any more.** Platforms remember the machines their belts and pipes reached when they were
+  set up (Autodetect, station set-up or the migration), saved with the world, and their recipe rates come from those.
+  After rebuilding a factory, press Autodetect again. A save from before 0.14.0 has its platforms traced once after
+  loading, a few at a time.
+  The "belts now carry something else" hint of 0.11.0 is gone with the background trace.
+
 ## 0.13.0 (beta)
 
 **Item groups as a dispatcher are gone.** Consumer-anchored trips (0.12.0) delivered more, so the old way is removed.

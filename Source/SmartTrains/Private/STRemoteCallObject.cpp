@@ -363,7 +363,7 @@ void USTRemoteCallObject::Server_SetStation_Implementation(AFGTrainStationIdenti
 
 bool USTRemoteCallObject::Server_SetUpStation_Validate(AFGTrainStationIdentifier* Station, uint8 Mode, int32 Edit)
 {
-	return Mode <= 2;
+	return Mode <= 3;
 }
 
 void USTRemoteCallObject::Server_SetUpStation_Implementation(AFGTrainStationIdentifier* Station, uint8 Mode, int32 Edit)
@@ -374,14 +374,48 @@ void USTRemoteCallObject::Server_SetUpStation_Implementation(AFGTrainStationIden
 	{
 		return;
 	}
-	const bool bApply = Mode != 0;
+	const bool bApply = Mode == 1 || Mode == 3;
 	if (bApply && !Allowed(*this, *Subsystem, STAccess::EChange::Edit, TEXT("set up stations")))
 	{
 		Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
 		return;
 	}
-	Subsystem->SetUpStation(Station, bApply, Mode == 1, FString::Printf(TEXT("station menu (%s)"), *GetPlayerName()));
+	const bool bName = Mode <= 1;
+	Subsystem->SetUpStation(Station, bApply, bName, !bName, FString::Printf(TEXT("station menu (%s)"), *GetPlayerName()));
 	Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
+}
+
+bool USTRemoteCallObject::Server_AutodetectPlatform_Validate(AFGBuildableTrainPlatformCargo* Platform, int32 Edit)
+{
+	return true;
+}
+
+void USTRemoteCallObject::Server_AutodetectPlatform_Implementation(AFGBuildableTrainPlatformCargo* Platform, int32 Edit)
+{
+	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	if (!Subsystem || !IsValid(Platform))
+	{
+		return;
+	}
+	if (Allowed(*this, *Subsystem, STAccess::EChange::Edit, TEXT("change platform settings")))
+	{
+		Client_Message(Subsystem->AutodetectPlatform(Platform, FString::Printf(TEXT("platform menu (%s)"), *GetPlayerName())), false);
+	}
+	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
+}
+
+void USTRemoteCallObject::PushMigrationView(const TArray<FString>& Lines)
+{
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	if (!Subsystem || !GetWorld())
+	{
+		return;
+	}
+	FSTMigrationView View = STMigration::MakeView(Subsystem, GetWorld());
+	View.Lines = Lines;
+	View.Serial = ++mMigrationSerial;
+	SendMigration(MoveTemp(View));
 }
 
 bool USTRemoteCallObject::Server_SetTrain_Validate(AFGTrain* Train, ESTTrainAction Action, int32 Edit)
@@ -443,6 +477,7 @@ void USTRemoteCallObject::Server_Migrate_Implementation(ESTMigrationStep Step, c
 		break;
 	case ESTMigrationStep::Preview:
 		Lines = STMigration::Preview(Subsystem, World, STMigration::ParseTraceLimit(Selection), STMigration::ParseOneItem(Selection));
+		STMigration::SetRequester(World, this);
 		// The rows show the stations and trains; keep only the summary and notes.
 		Lines.RemoveAll([](const FString& Line)
 		{

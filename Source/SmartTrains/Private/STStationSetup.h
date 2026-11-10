@@ -31,28 +31,16 @@ namespace STSetup
 		TArray<FString> Notes;
 	};
 
-	// What one machine connects to (two connection traces), kept for one set-up run so factories shared by several
-	// stations are walked once.
-	struct FMachineLinks
-	{
-		TArray<TWeakObjectPtr<const AActor>> Down;
-		TArray<TWeakObjectPtr<const AActor>> Up;
-		TArray<TWeakObjectPtr<const AActor>> UpPlatforms;
-		TArray<TWeakObjectPtr<const AActor>> DownPlatforms;
-		bool bFeedsPlatform = false;
-	};
-	using FWalkCache = TMap<const AActor*, FMachineLinks>;
-
 	// Roles and items for Station's cargo platforms: role from what is attached, items from the connection trace.
 	STMigration::FStationProposal ProposeStation(const ASTSubsystem& Subsystem, AFGTrainStationIdentifier* Station);
 
-	// The factory behind a proposed station: machines reached through its platforms and on through machines, until other
-	// train platforms or the machine limit.
-	FFactory AnalyzeFactory(const ASTSubsystem& Subsystem, const STMigration::FStationProposal& Proposal, FWalkCache* Cache = nullptr);
+	// The factory behind a proposed station: machines reached through its platforms and on through machines (flood
+	// fills), until other train platforms.
+	FFactory AnalyzeFactory(const ASTSubsystem& Subsystem, const STMigration::FStationProposal& Proposal);
 
 	// Fills Proposal.NewName and NameNote. Taken: names of other stations (and names given earlier in the same run);
 	// the new name is added to it.
-	void NameStation(const ASTSubsystem& Subsystem, STMigration::FStationProposal& Proposal, TSet<FString>& Taken, FWalkCache* Cache = nullptr);
+	void NameStation(const ASTSubsystem& Subsystem, STMigration::FStationProposal& Proposal, TSet<FString>& Taken);
 
 	// The game's map area at Location ("Grass Fields"), or empty; OutSource says how it was found.
 	FString GetMapArea(const UWorld* World, const FVector& Location, FString& OutSource);

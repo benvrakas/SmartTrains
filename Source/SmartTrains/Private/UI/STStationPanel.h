@@ -26,10 +26,10 @@ protected:
 	AFGTrainStationIdentifier* GetStation() const;
 
 	void SendStation(bool bNewDepot);
-	// Station set-up: 0 preview, 1 apply, 2 apply keeping the name.
+	// Station set-up: 0 preview the name, 1 rename, 2 preview the platforms, 3 set the platforms.
 	void SendSetUp(uint8 Mode);
-	// Shows the apply buttons only while a preview can be applied.
-	void ShowSetUp(const TArray<FString>& Lines, bool bReady);
+	// Shows the lines and turns a button into its confirm step while its preview can be applied (Ready: 1 name, 2 platforms).
+	void ShowSetUp(const TArray<FString>& Lines, uint8 Ready);
 	// The depot button's text.
 	virtual FText GetDepotText(bool bOn) const;
 
@@ -43,18 +43,17 @@ protected:
 	TObjectPtr<UTextBlock> mNetwork;
 
 	UPROPERTY()
-	TObjectPtr<USTButton> mSetUp;
+	TObjectPtr<USTButton> mRename;
 
 	UPROPERTY()
-	TObjectPtr<USTButton> mSetUpApply;
-
-	UPROPERTY()
-	TObjectPtr<USTButton> mSetUpKeepName;
+	TObjectPtr<USTButton> mAutodetect;
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mSetUpLines;
 
 	bool bDepot = false;
+	// The preview each button may confirm now (1 name, 2 platforms).
+	uint8 mSetupReady = 0;
 };
 
 // Depot switch added under the station name on the station menu's first tab (Widget_TrainStationNew, VerticalBox_0).

@@ -7,6 +7,7 @@
 #include "FGRailroadTimeTable.h"
 #include "FGTrain.h"
 #include "FGTrainStationIdentifier.h"
+#include "HAL/FileManager.h"
 #include "HAL/PlatformFileManager.h"
 #include "Misc/DateTime.h"
 #include "Misc/FileHelper.h"
@@ -15,6 +16,7 @@
 #include "STBridges.h"
 #include "STLayout.h"
 #include "STSubsystem.h"
+#include "STRemoteCallObject.h"
 #include "STStationSetup.h"
 #include "STTrace.h"
 
@@ -378,6 +380,125 @@ void STMigration::ShareOutItems(FPreview& Preview)
 		++Changed;
 	}
 	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION shared out items: %d platforms changed"), Changed);
+}
+
+namespace
+{
+	// Station names for the last preview, worked out a few stations per step (StepNaming) so the server keeps running.
+	struct FNamingState
+	{
+		double MadeAt = -1.0;
+		int32 Next = 0;
+		TSet<FString> Taken;
+		TWeakObjectPtr<USTRemoteCallObject> Requester;
+		double StartedAt = 0.0;
+		// The longest one station took, and which. [s]
+		double LongestSeconds = 0.0;
+		FString Longest;
+	};
+	TMap<TWeakObjectPtr<UWorld>, FNamingState> GNaming;
+}
+
+void STMigration::SetRequester(UWorld* World, USTRemoteCallObject* Requester)
+{
+	if (FNamingState* State = GNaming.Find(World))
+	{
+		State->Requester = Requester;
+	}
+}
+
+bool STMigration::IsNaming(UWorld* World)
+{
+	const FPreview* Preview = GPreviews.Find(World);
+	const FNamingState* State = GNaming.Find(World);
+	return Preview && State && State->MadeAt == Preview->MadeAt && State->Next < Preview->Stations.Num();
+}
+
+bool STMigration::StepNaming(ASTSubsystem* Subsystem, UWorld* World, double BudgetMs)
+{
+	FPreview* Preview = GPreviews.Find(World);
+	FNamingState* State = GNaming.Find(World);
+	if (!Subsystem || !Preview || !State)
+	{
+		return true;
+	}
+	// A new preview starts the names again.
+	if (State->MadeAt != Preview->MadeAt)
+	{
+		const TWeakObjectPtr<USTRemoteCallObject> Requester = State->Requester;
+		*State = FNamingState();
+		State->MadeAt = Preview->MadeAt;
+		State->Requester = Requester;
+		State->StartedAt = FPlatformTime::Seconds();
+		if (AFGRailroadSubsystem* Railroad = AFGRailroadSubsystem::Get(World))
+		{
+			TArray<AFGTrainStationIdentifier*> All;
+			Railroad->GetAllTrainStations(All);
+			for (const AFGTrainStationIdentifier* Identifier : All)
+			{
+				if (IsValid(Identifier))
+				{
+					State->Taken.Add(Identifier->GetStationName().ToString());
+				}
+			}
+		}
+	}
+	if (State->Next >= Preview->Stations.Num())
+	{
+		return true;
+	}
+	const double Until = FPlatformTime::Seconds() + BudgetMs / 1000.0;
+	bool bFirst = true;
+	while (State->Next < Preview->Stations.Num() && (bFirst || FPlatformTime::Seconds() < Until))
+	{
+		bFirst = false;
+		FStationProposal& Station = Preview->Stations[State->Next++];
+		const FString Old = Station.Station.IsValid() ? Station.Station->GetStationName().ToString() : FString();
+		State->Taken.Remove(Old);
+		const double StationStart = FPlatformTime::Seconds();
+		STSetup::NameStation(*Subsystem, Station, State->Taken);
+		const double Took = FPlatformTime::Seconds() - StationStart;
+		if (Took > State->LongestSeconds)
+		{
+			State->LongestSeconds = Took;
+			State->Longest = Old;
+		}
+		if (Station.NewName.IsEmpty())
+		{
+			State->Taken.Add(Old);
+		}
+	}
+	if (State->Next < Preview->Stations.Num())
+	{
+		return false;
+	}
+	// Done: the names go to the log and the report, and to the window that asked for the preview.
+	FString Report;
+	int32 Renamed = 0;
+	for (int32 Index = 0; Index < Preview->Stations.Num(); ++Index)
+	{
+		const FStationProposal& Station = Preview->Stations[Index];
+		const FString Old = STLayout::Name(Station.Station.Get());
+		Report += FString::Printf(TEXT("name,%d,%s,,,,%s,%s,,,\n"), Index + 1, *Csv(Old), *Csv(Station.NewName), *Csv(Station.NameNote));
+		if (!Station.NewName.IsEmpty() && Station.NewName != Old)
+		{
+			++Renamed;
+			UE_LOG(LogSmartTrains, Verbose, TEXT("MIGRATION S%d %s: name %s (%s)"), Index + 1, *Old, *Station.NewName, *Station.NameNote);
+		}
+	}
+	if (!Preview->CsvPath.IsEmpty())
+	{
+		FFileHelper::SaveStringToFile(Report, *Preview->CsvPath, FFileHelper::EEncodingOptions::AutoDetect, &IFileManager::Get(), FILEWRITE_Append);
+	}
+	const FString Summary = FString::Printf(TEXT("Station names ready: %d of %d stations would get a new name with Rename stations on (%.1f s)."), Renamed, Preview->Stations.Num(),
+		FPlatformTime::Seconds() - State->StartedAt);
+	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION naming: the longest station took %.0f ms (%s)"), State->LongestSeconds * 1000.0, *State->Longest);
+	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION %s"), *Summary);
+	if (USTRemoteCallObject* Requester = State->Requester.Get())
+	{
+		Requester->PushMigrationView({Summary});
+	}
+	return true;
 }
 
 TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int32 TraceLimit, bool bOneItem)
@@ -792,28 +913,10 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 		UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION %d platforms keep their setting by hand"), Used);
 	}
 
-	// Names from the station set-up: factory product, map area, number and rate.
-	{
-		STSetup::FWalkCache Walks;
-		TSet<FString> Taken;
-		for (const AFGTrainStationIdentifier* Identifier : Stations)
-		{
-			if (IsValid(Identifier))
-			{
-				Taken.Add(Identifier->GetStationName().ToString());
-			}
-		}
-		for (FStationProposal& Station : Preview.Stations)
-		{
-			const FString Old = Station.Station.IsValid() ? Station.Station->GetStationName().ToString() : FString();
-			Taken.Remove(Old);
-			STSetup::NameStation(*Subsystem, Station, Taken, &Walks);
-			if (Station.NewName.IsEmpty())
-			{
-				Taken.Add(Old);
-			}
-		}
-	}
+	// Names from the station set-up (factory product, map area, number and rate) come a few stations per step
+	// (StepNaming), so the server keeps running; the window gets them when they are ready.
+	GNaming.FindOrAdd(World).MadeAt = -1.0;
+	Subsystem->StartSetupSteps();
 
 	// The report.
 	FString Report = TEXT("Kind,Number,Station or train,Platform,Role,Items,Evidence,Flag or note,Used by,Confidence,Connection trace\n");
@@ -829,11 +932,6 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World, int
 				*Csv(FString::Join(Station.Users, TEXT("; "))), *Platform.Confidence, *Csv(Platform.TraceText));
 		}
 		Lines.Add(FString::Printf(TEXT("S%d %s"), Index + 1, *StationText(Station)));
-		if (!Station.NewName.IsEmpty() && Station.NewName != STLayout::Name(Station.Station.Get()))
-		{
-			Lines.Add(FString::Printf(TEXT("   name: %s (%s)"), *Station.NewName, *Station.NameNote));
-		}
-		Report += FString::Printf(TEXT("name,%d,%s,,,,%s,%s,,,\n"), Index + 1, *Csv(STLayout::Name(Station.Station.Get())), *Csv(Station.NewName), *Csv(Station.NameNote));
 	}
 	int32 Ticked = 0;
 	for (int32 Index = 0; Index < Preview.Trains.Num(); ++Index)
@@ -930,6 +1028,11 @@ TArray<FString> STMigration::Apply(ASTSubsystem* Subsystem, UWorld* World, const
 	int32 PlatformsSet = 0;
 	int32 Renamed = 0;
 	const bool bRename = Selection.ContainsByPredicate([](const FString& Word) { return Word.Equals(TEXT("rename"), ESearchCase::IgnoreCase); });
+	// Names still being worked out are finished first.
+	if (bRename)
+	{
+		StepNaming(Subsystem, World, 1.0e9);
+	}
 	for (int32 Index : Stations)
 	{
 		if (!Preview->Stations.IsValidIndex(Index))
@@ -970,6 +1073,7 @@ TArray<FString> STMigration::Apply(ASTSubsystem* Subsystem, UWorld* World, const
 				Rule.Item = Item;
 			}
 			Subsystem->SetPlatformConfig(Cargo, Platform.Role, Rules, Cause + TEXT(" (migration)"));
+			Subsystem->SetPlatformMachines(Cargo, Platform.Machines);
 			++PlatformsSet;
 		}
 		// Applied: its platforms' settings by hand are done with.

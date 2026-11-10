@@ -525,7 +525,7 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		{
 			return EExecutionStatus::UNCOMPLETED;
 		}
-		Send(Sender, Subsystem->SetUpStation(Station, bApply, bRename, Who));
+		Send(Sender, Subsystem->SetUpStation(Station, bApply, bRename, true, Who));
 		if (!bApply)
 		{
 			Sender->SendChatMessage(TEXT("/st setup apply to set it up like this (add keepname to keep the station's name)."));

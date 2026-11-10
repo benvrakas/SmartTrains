@@ -21,12 +21,11 @@ void USTStationPanel::BuildContent(UVerticalBox* Root)
 	mLines = MakeText(Root, LOCTEXT("Loading", "Asking the server..."), 10, true, FMargin(0.f, 6.f, 0.f, 0.f));
 	mNetwork = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 6.f, 0.f, 0.f));
 	MakeHeading(Root, LOCTEXT("SetUpHeading", "Set up from its factory"));
-	MakeText(Root, LOCTEXT("SetUpHint", "Sets each platform's role and item from the machines its belts and pipes reach, and names the station from what the factory makes, its map area and its most per minute. Shows what it would do first."), 10);
-	mSetUp = MakeButton(Root, LOCTEXT("SetUpPreview", "Show set-up"), [this]() { SendSetUp(0); });
-	mSetUpApply = MakeButton(Root, LOCTEXT("SetUpApply", "Apply set-up"), [this]() { SendSetUp(1); });
-	mSetUpKeepName = MakeButton(Root, LOCTEXT("SetUpKeepName", "Apply, keep the station's name"), [this]() { SendSetUp(2); });
+	MakeText(Root, LOCTEXT("SetUpHint", "Follows the belts and pipes to the machines. Each button shows what it would do first; click it again to do it."), 10);
+	mRename = MakeButton(Root, FText::GetEmpty(), [this]() { SendSetUp(mSetupReady == 1 ? 1 : 0); });
+	mAutodetect = MakeButton(Root, FText::GetEmpty(), [this]() { SendSetUp(mSetupReady == 2 ? 3 : 2); });
 	mSetUpLines = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 4.f, 0.f, 0.f));
-	ShowSetUp(TArray<FString>(), false);
+	ShowSetUp(TArray<FString>(), 0);
 
 }
 
@@ -76,7 +75,8 @@ void USTStationPanel::SendSetUp(uint8 Mode)
 	{
 		return;
 	}
-	UE_LOG(LogSmartTrains, Log, TEXT("Station menu: set-up %s for %s"), Mode == 0 ? TEXT("preview") : (Mode == 1 ? TEXT("apply") : TEXT("apply keeping the name")), *STLayout::Name(Station));
+	static const TCHAR* Names[] = {TEXT("rename preview"), TEXT("rename"), TEXT("autodetect preview"), TEXT("autodetect platforms")};
+	UE_LOG(LogSmartTrains, Log, TEXT("Station menu: %s for %s"), Names[FMath::Min<int32>(Mode, 3)], *STLayout::Name(Station));
 	RCO->Server_SetUpStation(Station, Mode, RCO->NextEdit());
 	if (mSetUpLines)
 	{
@@ -84,15 +84,16 @@ void USTStationPanel::SendSetUp(uint8 Mode)
 	}
 }
 
-void USTStationPanel::ShowSetUp(const TArray<FString>& Lines, bool bReady)
+void USTStationPanel::ShowSetUp(const TArray<FString>& Lines, uint8 Ready)
 {
-	if (!mSetUp)
+	if (!mRename)
 	{
 		return;
 	}
-	const ESlateVisibility Apply = bReady ? ESlateVisibility::Visible : ESlateVisibility::Collapsed;
-	mSetUpApply->SetVisibility(Apply);
-	mSetUpKeepName->SetVisibility(Apply);
+	mSetupReady = Ready;
+	mRename->SetText(Ready == 1 ? LOCTEXT("RenameConfirm", "Confirm: rename the station") : LOCTEXT("Rename", "Rename station from its factory..."));
+	mAutodetect->SetText(Ready == 2 ? LOCTEXT("AutodetectConfirm", "Confirm: set every platform like this")
+		: LOCTEXT("Autodetect", "Autodetect all platforms..."));
 	if (mSetUpLines)
 	{
 		SetLines(mSetUpLines, Lines);
@@ -119,7 +120,7 @@ void USTStationPanel::Refresh(USTRemoteCallObject* RCO)
 		{
 			SetLines(mNetwork, View->NetworkLines);
 		}
-		ShowSetUp(View->SetupLines, View->bSetupReady);
+		ShowSetUp(View->SetupLines, View->SetupReady);
 	}
 }
 

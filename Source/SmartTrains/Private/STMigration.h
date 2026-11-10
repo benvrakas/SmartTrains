@@ -9,6 +9,7 @@ class AFGBuildableTrainPlatformCargo;
 class AFGTrain;
 class AFGTrainStationIdentifier;
 class ASTSubsystem;
+class USTRemoteCallObject;
 class UWorld;
 
 // The migration tool: proposes platform roles and managed trains from the current setup (Docs/Migration.md).
@@ -77,6 +78,13 @@ namespace STMigration
 	// Platforms whose one item wasn't settled by their own stock share out the items their traces found, within groups
 	// of same-role platforms reaching a machine in common.
 	void ShareOutItems(FPreview& Preview);
+
+	// Names the last preview's stations, a few per call (about BudgetMs); true when done or none are pending.
+	bool StepNaming(ASTSubsystem* Subsystem, UWorld* World, double BudgetMs);
+	// The window that asked for the last preview gets the names when they are ready.
+	void SetRequester(UWorld* World, USTRemoteCallObject* Requester);
+	// True while the last preview's station names are still being worked out.
+	bool IsNaming(UWorld* World);
 
 	// Gathers the evidence and builds a preview; writes the CSV report and returns chat lines.
 	// TraceLimit: buildings and belt segments each platform's connection trace may visit.

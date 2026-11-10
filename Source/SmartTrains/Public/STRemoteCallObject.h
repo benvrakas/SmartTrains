@@ -40,9 +40,13 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_SetTrain(AFGTrain* Train, ESTTrainAction Action, int32 Edit);
 
-	// Station set-up: Mode 0 previews, 1 applies with the new name, 2 applies keeping the station's name.
+	// Station set-up: Mode 0 previews the name, 1 renames, 2 previews the platforms, 3 sets the platforms.
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_SetUpStation(AFGTrainStationIdentifier* Station, uint8 Mode, int32 Edit);
+
+	// Sets one platform's role and items from what it is connected to.
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_AutodetectPlatform(AFGBuildableTrainPlatformCargo* Platform, int32 Edit);
 
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_Migrate(ESTMigrationStep Step, const TArray<FString>& Selection);
@@ -105,6 +109,8 @@ public:
 
 	// Sends View to this player with Client_MigrationStart and Client_MigrationRows.
 	void SendMigration(FSTMigrationView View);
+	// Sends the current migration view with Lines, as an answer to no request (staged station names ready).
+	void PushMigrationView(const TArray<FString>& Lines);
 
 	//~ Local side.
 

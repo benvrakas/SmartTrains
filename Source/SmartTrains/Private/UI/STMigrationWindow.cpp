@@ -437,6 +437,14 @@ void USTMigrationWindow::ShowRenameMode()
 
 void USTMigrationWindow::SendPreview()
 {
+	// The server is still working on the last one: another click would queue a second preview behind it.
+	if (mPreviewSentAt > 0.0 && FPlatformTime::Seconds() - mPreviewSentAt < 120.0)
+	{
+		mStatus->SetText(LOCTEXT("PreviewPending", "Preview requested; the server is still working it out."));
+		return;
+	}
+	mPreviewSentAt = FPlatformTime::Seconds();
+	mStatus->SetText(LOCTEXT("PreviewAsked", "Working out the preview..."));
 	ReadTraceLimit(mTraceLimit->GetText());
 	TArray<FString> Words = {TEXT("tracelimit"), FString::FromInt(sTraceLimit)};
 	if (sAllItems)
@@ -567,6 +575,7 @@ void USTMigrationWindow::Refresh(USTRemoteCallObject* RCO)
 		return;
 	}
 	mShownSerial = View.Serial;
+	mPreviewSentAt = 0.0;
 
 	// A fresh preview starts from its proposals and opens the stations that need a look; after other steps the
 	// player's ticks on the same rows are kept.

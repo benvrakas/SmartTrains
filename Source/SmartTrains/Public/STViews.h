@@ -124,9 +124,9 @@ struct SMARTTRAINS_API FSTStationView
 	UPROPERTY()
 	TArray<FString> SetupLines;
 
-	// A preview was made in the last two minutes and can be applied as shown.
+	// A preview was made in the last two minutes and can be applied as shown: 1 the name, 2 the platforms.
 	UPROPERTY()
-	bool bSetupReady = false;
+	uint8 SetupReady = 0;
 
 	UPROPERTY()
 	bool bBetaTools = false;

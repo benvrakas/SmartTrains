@@ -69,10 +69,14 @@ window's Rename stations); never automatic.
   then the fluid in its pipes. The proposal is a `STMigration::FStationProposal`, so the migration preview and the
   set-up share one shape. Applied with `SetPlatformConfig` (which also sets the load mode); platforms already set the
   same are left alone, so nothing re-plans for them.
-- **Factory** (`AnalyzeFactory`), in two walks through machines (`STTrace::TraceFromMachine`, which stops at train
-  platforms, `FResult::PlatformActors`, so a factory ends at its stations), up to 600 machines each. One walk per
-  machine and direction is kept for the whole run (`FWalkCache`), so `/st setup all` and the migration preview walk
-  shared factories once. Machines are grouped by recipe and production boost (`FSetupMachineGroup`: runs per minute
+- **Factory** (`AnalyzeFactory`), in flood fills (`STTrace::Flood`): one walk from a set of machines through belts,
+  pipes, splitters, storage and machines, downstream or upstream, that visits each building once and stops at train
+  platforms (noting the machine it last passed before each, `PlatformsByMachine`), up to 50,000 buildings and belts.
+  The first version started a separate trace from every machine, so a manifold feeding hundreds of machines was
+  walked hundreds of times: one station (RockPow- Sulfur SNK) took 15.6 s on the VM, now 35-160 ms, and naming all
+  112 stations of the IB save takes about 3 s. A machine reached through the wrong side of a pipe (its input while
+  walking upstream) is not marked visited, since another path may reach it the right way (marking it lost the
+  refineries of every fluid factory in the first flood version). Machines are grouped by recipe and production boost (`FSetupMachineGroup`: runs per minute
   from the machine's cycle time at its clock speed, products per run times its production boost (somersloops),
   ingredients per run). Extractors are a group of their resource at `GetExtractionPerMinute` (node purity, tier and
   clock included).
@@ -113,14 +117,27 @@ window's Rename stations); never automatic.
   - **Number** (`PickNumber`): the number the station's name already has, if no other station has it; else the
     smallest from 1 that no other station's name has for the same area, product and role, with any rate
     (`MatchesName`). Setting up again keeps names stable while only the rate changes.
-- **Preview and apply:** the station panel's Show set-up sends `Server_SetUpStation` mode 0; the lines come back in
-  `FSTStationView::SetupLines`, and `bSetupReady` (a preview in the last 2 min) shows Apply set-up (mode 1) and Apply,
-  keep the station's name (mode 2). Apply is an Edit change (admin-gated with Only admins change SmartTrains).
+- **Preview and apply:** the station panel has Rename station (`Server_SetUpStation` mode 0 previews the name, 1
+  renames) and Autodetect all platforms (2 previews the platforms, 3 sets them). The lines come back in
+  `FSTStationView::SetupLines`; `SetupReady` (the preview made in the last 2 min: 1 name, 2 platforms) turns that
+  button into its confirm step. The platform panel's Autodetect (`Server_AutodetectPlatform`) proposes the whole
+  station (items are shared out between platforms serving the same machines) and applies only that platform, at once.
+  Applying is an Edit change (admin-gated with Only admins change SmartTrains).
+- **Staged naming:** naming every station in one frame froze the IB server for about 18 s per migration preview
+  (2026-11-10; the player clicked Preview three times and every other request, platform menus included, waited 55 s).
+  The migration preview now leaves `NewName` empty and `STMigration::StepNaming` names a few stations per call;
+  `/st setup all` does the same (`StepSetupAll`). Both run from one timer (`mSetupTimer`, every 0.05 s, about 15 ms,
+  at least one station; `bMaxOncePerFrame`, so a slow step doesn't make the timer catch up within the same frame).
+  When the preview's names are done the window that asked for it
+  gets a fresh view (`USTRemoteCallObject::PushMigrationView`); an apply with Rename stations finishes them first.
 - **Migration:** the preview names every station (`FStationProposal::NewName`, `NameNote`; a `name` row in the CSV,
   a note under each station in the window). With Rename stations on, apply renames the ticked stations and the undo
   record keeps the old names (`FSTMigrationUndo::RenamedStations`, `OldNames`).
-- **Hint:** `StepTraces` compares each traced platform's items with its settings; when none of its set items is on
-  its belts any more, `mSetupHints` holds a line for the platform readout and the station view (`SETUP hint` log).
+- **Machines kept:** whatever sets a platform from its trace (Autodetect, station set-up, the migration) keeps the
+  machines that trace reached in `FSTPlatformConfig::Machines` (saved), through `SetPlatformMachines`. Nothing traces
+  platforms in the background any more (the user, 2026-11-10: once a factory is built its theoretical rate doesn't
+  change); Autodetect again after rebuilding a factory. A save from before 0.14.0 (`bMachinesFilled` false) has each
+  platform with a role traced once after loading (`StepMachineFill`, on the set-up timer).
 - **Console:** `SmartTrains.Setup [apply] [keepname]` (an `FAutoConsoleCommandWithWorldAndArgs`) runs the
   all-stations set-up from a dedicated server's console, for headless tests.
 
@@ -180,8 +197,9 @@ fix exposed the next problem through how they interacted. 0.8.0 replaces them wi
 
 ### Recipe rates and supply chain
 
-- `StepTraces` (every second, one platform; each again after `TraceRefreshSeconds`, 10 minutes) runs the migration's
-  connection trace (`STTrace::Trace`) and keeps the machines it reaches (`mTraces`).
+- The machines come from `FSTPlatformConfig::Machines`, kept when the platform was set up from its belts and pipes
+  (Autodetect, station set-up, migration). Until 0.14.0 a background trace (`StepTraces`, one platform a second, each
+  again after 10 minutes) kept them, not saved.
 - `BuildNodes` gives each node the union of its platforms' machines and `RecipeRate`: what their recipes make (supply)
   or use (demand) of the item at their clock speed (manufacturers only; extractors count 0).
 - The flow plan uses the recipe rate where a measurement is only a lower bound: a starved consumer (before: measured x
