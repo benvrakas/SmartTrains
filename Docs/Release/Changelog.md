@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.2 (beta)
+
+- **Fixed: the monitor window could lose rows on a big network.** The view sent to a player's game is trimmed to fit
+  one network message, but the Groups tab (like the Services tab before it) wasn't counted, so the view could be
+  larger than measured while other tabs lost rows. On the IB server 25 rows were left out. The Groups tab is now
+  counted and trimmed like the others: details of its least urgent groups go first, short groups stay.
+
 ## 0.10.1 (beta)
 
 - **Fixed: on a big network no train got a trip.** Each dispatch round set up every free train first (listing and

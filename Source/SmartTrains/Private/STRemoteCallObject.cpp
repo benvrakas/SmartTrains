@@ -85,7 +85,9 @@ namespace
 	// number of rows dropped.
 	int32 FitMonitor(FSTMonitorView& View)
 	{
-		TArray<TArray<FSTMonitorRow>*> Lists = {&View.Trains, &View.Platforms, &View.Stations, &View.Items};
+		// Details go first, from the end of each list (its least urgent rows), in this order; then whole rows of the
+		// longest list.
+		TArray<TArray<FSTMonitorRow>*> Lists = {&View.Trains, &View.Platforms, &View.Stations, &View.Groups, &View.Items};
 		auto Total = [&]()
 		{
 			int32 Sum = Bytes(View.Summary) + Bytes(View.Idle) + Bytes(View.Tiles);
