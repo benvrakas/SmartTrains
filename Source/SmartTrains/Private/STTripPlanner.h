@@ -98,7 +98,7 @@ public:
 	FSTPlanResult Improve(TArray<FSTPlanStop>& InOutStops, int32 FirstMovable) const;
 	// While set, Improve only adds moves delivering to Station (a trip built around one consumer); null: any move.
 	void SetOnlyStation(const AFGTrainStationIdentifier* Station) { mOnlyStation = Station; }
-	// The stations the current train can deliver to with a move worth a trip by itself (or cargo on board), the best first.
+	// The stations the current train's moves deliver to, each once.
 	TArray<const AFGTrainStationIdentifier*> GetConsumerStations() const;
 	// The current train's cars and start only (no moves): enough to simulate given stops.
 	bool PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bInAnchorDocked);
