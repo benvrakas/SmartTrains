@@ -6,6 +6,10 @@
   what Apply sets and cycles on click: **platforms only**, **platforms and names**, **names only**. Names only renames
   the ticked stations and leaves their platforms as they are. The New name column shows while names are included.
   Chat: `/st migrate apply all namesonly`.
+- **Fixed: the station menu's depot and rename buttons ran off the menu** and their preview text covered the power
+  graph (0.15.1, 0.15.2). They are now one row under the station's name, **SmartTrains depot** and **Rename from
+  factory...**; the first click shows the new name on the button ("Rename to: ..."), the second renames. A name that
+  wouldn't change says "Name is up to date" instead of asking to confirm.
 
 ## 0.15.2 (beta)
 

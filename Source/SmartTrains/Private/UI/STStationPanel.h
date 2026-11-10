@@ -53,8 +53,8 @@ protected:
 	uint8 mSetupReady = 0;
 };
 
-// Depot switch and Rename station added under the station name on the station menu's first tab (Widget_TrainStationNew,
-// VerticalBox_0).
+// Depot switch and Rename from factory, side by side under the station name on the station menu's first tab
+// (Widget_TrainStationNew, VerticalBox_0). One row: that box doesn't push the rest of the menu down.
 UCLASS()
 class USTStationDepotBar : public USTStationPanel
 {
