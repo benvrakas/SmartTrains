@@ -33,9 +33,6 @@ struct SMARTTRAINS_API FSTPlatformView
 	UPROPERTY()
 	TArray<FSTItemRule> Items;
 
-	UPROPERTY()
-	ESTRequest Request = ESTRequest::Auto;
-
 	// One readout per entry of Items: stock, rate, batch or target.
 	UPROPERTY()
 	TArray<FString> ItemLines;
@@ -71,8 +68,6 @@ struct SMARTTRAINS_API FSTPlatformSettings
 	UPROPERTY()
 	TArray<FSTItemRule> Items;
 
-	UPROPERTY()
-	ESTRequest Request = ESTRequest::Auto;
 };
 
 USTRUCT()
@@ -101,12 +96,9 @@ struct SMARTTRAINS_API FSTTrainView
 	UPROPERTY()
 	TArray<FString> Lines;
 
-	// Stay in this service; Keep out of services.
+	// Stay in this group: the train keeps its home group.
 	UPROPERTY()
-	bool bServiceStay = false;
-
-	UPROPERTY()
-	bool bServiceReserve = false;
+	bool bHomeStay = false;
 
 	UPROPERTY()
 	int32 AppliedEdit = 0;
@@ -275,8 +267,6 @@ enum class ESTTrainAction : uint8
 	KeepVanillaOff,
 	StayOn,
 	StayOff,
-	ReserveOn,
-	ReserveOff,
 };
 
 // One row of the throughput monitor: an item, station, platform or train, or an overview tile.
@@ -328,10 +318,11 @@ struct SMARTTRAINS_API FSTMonitorView
 	UPROPERTY()
 	TArray<FString> Summary;
 
-	// Per item, the ones that limit deliveries first. Columns: supply, demand, trains, below target.
+	// Item groups, short ones first. Columns: home trains / needed, working now, routes.
 	UPROPERTY()
-	TArray<FSTMonitorRow> Services;
+	TArray<FSTMonitorRow> Groups;
 
+	// Per item, the ones that limit deliveries first. Columns: supply, demand, trains, below target.
 	UPROPERTY()
 	TArray<FSTMonitorRow> Items;
 

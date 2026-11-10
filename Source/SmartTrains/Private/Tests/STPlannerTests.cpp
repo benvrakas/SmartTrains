@@ -1,4 +1,4 @@
-// Automation tests for the trip planner, the flow plan and the assignment (Docs/Testing.md, "Automated tests").
+// Automation tests for the trip planner, the flow plan and the item groups (Docs/Testing.md, "Automated tests").
 // Run in the editor: Tools/BuildScripts/test-smarttrains.bat, or "Automation RunTests SmartTrains" in its console.
 
 #include "CoreMinimal.h"
@@ -89,16 +89,6 @@ struct FSTTestAccess
 		return Planner.FirstFreeArrival(Station, Arrive, Stay);
 	}
 
-	static void BuildRoster(ASTSubsystem& Subsystem, TArray<FSTRosterRoute> Routes)
-	{
-		Subsystem.BuildRoster(MoveTemp(Routes));
-	}
-
-	static const TMap<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& GetRoster(const ASTSubsystem& Subsystem)
-	{
-		return Subsystem.mRoster;
-	}
-
 	static void AddManaged(ASTSubsystem& Subsystem, AFGTrain* Train)
 	{
 		FSTTrainState& State = Subsystem.mTrains.AddDefaulted_GetRef();
@@ -140,44 +130,39 @@ struct FSTTestAccess
 		return Planner.mMoves.Num();
 	}
 
-	static bool MergeLoops(const ASTSubsystem& Subsystem, FSTService& Into, const FSTService& Other)
+	// A group of Item needing Needed trains, fitted by Fitting, as the flow plan would make it.
+	static void AddGroup(ASTSubsystem& Subsystem, UClass* Item, double Needed, const TArray<AFGTrain*>& Fitting)
 	{
-		return Subsystem.MergeLoops(Into, Other);
+		FSTGroup& Group = Subsystem.mGroups.AddDefaulted_GetRef();
+		Group.Item = Item;
+		Group.Needed = Needed;
+		for (AFGTrain* Train : Fitting)
+		{
+			Group.Fitting.Add(Train);
+		}
 	}
 
-	static int32 GetServiceTarget(const ASTSubsystem& Subsystem, const FSTService& Service)
+	static TArray<FSTGroup>& Groups(ASTSubsystem& Subsystem)
 	{
-		return Subsystem.GetServiceTarget(Service);
+		return Subsystem.mGroups;
+	}
+
+	static FSTTrainState* State(ASTSubsystem& Subsystem, const AFGTrain* Train)
+	{
+		return Subsystem.FindTrainState(Train);
+	}
+
+	static void SetGroupTrains(ASTSubsystem& Subsystem, UClass* Item, int32 Least, int32 Most)
+	{
+		FSTGroupConfig& Config = Subsystem.mGroupConfigs.AddDefaulted_GetRef();
+		Config.Item = Item;
+		Config.MinTrains = Least;
+		Config.MaxTrains = Most;
 	}
 
 	static void LinkSupplyChain(TArray<FSTNode>& Nodes)
 	{
 		ASTSubsystem::LinkSupplyChain(Nodes);
-	}
-
-	static void AddServiceConfig(ASTSubsystem& Subsystem, const FSTServiceConfig& Config)
-	{
-		Subsystem.mServiceConfigs.Add(Config);
-	}
-
-	// Gives Train a repeat of its last trip (looping it, moving nothing, when bLoop).
-	static void SetRepeating(ASTSubsystem& Subsystem, const AFGTrain* Train, bool bLoop)
-	{
-		for (FSTTrainState& State : Subsystem.mTrains)
-		{
-			if (State.Train == Train)
-			{
-				State.bHasJob = true;
-				State.Job = FSTJob();
-				State.Job.bRepeat = true;
-				State.Job.bLoop = bLoop;
-			}
-		}
-	}
-
-	static bool IsShuttleRoute(const ASTSubsystem& Subsystem, const AFGTrain* Train, const FSTRosterRoute& Route)
-	{
-		return Subsystem.IsShuttleRoute(Train, Route.From.Get(), Route.To.Get(), Route.Item.Get());
 	}
 
 	static double GetTiedShare(const FSTTripPlanner& Planner, const TArray<TPair<UClass*, double>>& Cargo)
@@ -617,27 +602,10 @@ bool FSTQueueTrainsTest::RunTest(const FString& Parameters)
 	TestTrue(FString::Printf(TEXT("behind two trains the trip works (%s)"), *Two.Problem), Two.bValid);
 	const FSTPlanResult Three = Try(3);
 	TestFalse(TEXT("behind three trains the trip would queue"), Three.bValid);
-	// The rest of a trip under way keeps its stop and waits: its cargo is on board (a service cycle used to be dropped
-	// after its first pickup when the next station was busy, 2026-11-09).
+	// The rest of a trip under way keeps its stop and waits: its cargo is on board (a trip used to be dropped after its first
+	// pickup when the next station was busy, 2026-11-09).
 	const FSTPlanResult UnderWay = Try(3, true);
 	TestTrue(FString::Printf(TEXT("a trip under way may wait behind three trains (%s)"), *UnderWay.Problem), UnderWay.bValid);
-	return true;
-}
-
-// The exact assignment beats the greedy choice.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTAssignmentTest, "SmartTrains.Planner.Assignment", TestFlags)
-bool FSTAssignmentTest::RunTest(const FString& Parameters)
-{
-	// Greedy takes 10 + 1 = 11; the best is 9 + 9 = 18.
-	const TArray<int32> Assigned = STAssignment::Solve({{10.0, 9.0}, {9.0, 1.0}});
-	TestEqual(TEXT("two rows"), Assigned.Num(), 2);
-	if (Assigned.Num() == 2)
-	{
-		TestEqual(TEXT("row 1 takes column 2"), Assigned[0], 1);
-		TestEqual(TEXT("row 2 takes column 1"), Assigned[1], 0);
-	}
-	const TArray<int32> Nothing = STAssignment::Solve({{0.0}, {-1.0}});
-	TestTrue(TEXT("rows with nothing worth more than 0 get nothing"), Nothing.Num() == 2 && Nothing[0] == INDEX_NONE && Nothing[1] == INDEX_NONE);
 	return true;
 }
 
@@ -655,254 +623,6 @@ bool FSTMinCostFlowTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("sends all the consumer takes"), Flow.Solve(0, 1), 8.0);
 	TestEqual(TEXT("the cheap route is full"), Flow.GetFlow(Cheap), 5.0);
 	TestEqual(TEXT("the dear route takes the rest"), Flow.GetFlow(Dear), 3.0);
-	return true;
-}
-
-// A request: the car that fits the requesting platform holds another item, so the trip empties it first (at a consumer
-// of that item, or at a sink when none takes it), then picks up and delivers, even less than a batch; its car loads
-// nothing else.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTRequestEmptiesCarTest, "SmartTrains.Planner.RequestEmptiesCar", TestFlags)
-bool FSTRequestEmptiesCarTest::RunTest(const FString& Parameters)
-{
-	UClass* Wanted = USTTestSolid::StaticClass();
-	UClass* Other = USTTestSolidB::StaticClass();
-	for (int32 Case = 0; Case < 2; ++Case)
-	{
-		const bool bSinkOnly = Case == 1;
-		ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-		AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
-		AFGTrainStationIdentifier* Dump = FSTTestAccess::MakeStation();
-		AFGTrainStationIdentifier* Source = FSTTestAccess::MakeStation();
-		AFGTrainStationIdentifier* Drop = FSTTestAccess::MakeStation();
-		const TArray<AFGTrainStationIdentifier*> Stations = {Start, Dump, Source, Drop};
-		for (AFGTrainStationIdentifier* From : Stations)
-		{
-			for (AFGTrainStationIdentifier* To : Stations)
-			{
-				if (From != To)
-				{
-					FSTTestAccess::SetTrip(*Subsystem, From, To, 60.f);
-				}
-			}
-		}
-		TArray<AFGBuildableTrainPlatformCargo*> Objects;
-		for (int32 Index = 0; Index < 3; ++Index)
-		{
-			Objects.Add(NewObject<AFGBuildableTrainPlatformCargo>(GetTransientPackage()));
-		}
-		FSTNode DumpNode = FSTTestAccess::Node(Dump, bSinkOnly ? nullptr : Other, ESTRole::Demand, 0, 5000, 0);
-		DumpNode.bAnyItem = bSinkOnly;
-		DumpNode.Platforms = {Objects[0]};
-		// A fifth of a load at a supplier that wants a full one.
-		FSTNode SourceNode = FSTTestAccess::Node(Source, Wanted, ESTRole::Supply, 200, 1000, 0);
-		SourceNode.SendAtPercent = 100.f;
-		SourceNode.Platforms = {Objects[1]};
-		FSTNode DropNode = FSTTestAccess::Node(Drop, Wanted, ESTRole::Demand, 0, 1000, 0);
-		DropNode.Platforms = {Objects[2]};
-		TArray<FSTNode> Nodes = {DumpNode, SourceNode, DropNode};
-		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
-		TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Other, false, 0.0, 0), FSTTestAccess::Platform(Wanted, true, 200.0, 2),
-			FSTTestAccess::Platform(Wanted, false, 0.0, 0)};
-		if (bSinkOnly)
-		{
-			Platforms[0].Items.Reset();
-			Platforms[0].bAnyItem = true;
-		}
-		for (int32 Index = 0; Index < Platforms.Num(); ++Index)
-		{
-			Platforms[Index].Platform = Objects[Index];
-			Platforms[Index].Slots = 10;
-		}
-		FSTTestAccess::FCarInfo Car = FSTTestAccess::Car(Other, 1000.0);
-		Car.Slots = 10;
-		FSTTestAccess::FCarPlatforms CarPlatforms;
-		CarPlatforms.Add(Dump, {{0}});
-		CarPlatforms.Add(Source, {{1}});
-		CarPlatforms.Add(Drop, {{2}});
-		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
-		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, Platforms, CarPlatforms);
-		FSTTestAccess::ServeAll(Planner);
-
-		const TCHAR* Where = bSinkOnly ? TEXT("sink") : TEXT("consumer");
-		TArray<FSTPlanStop> Stops;
-		FSTPlanResult Result;
-		bool bDelivers = false;
-		FString Why;
-		TArray<int32> Cars;
-		const bool bPlanned = Planner.PlanRequest({2, Objects[2]}, Stops, Result, bDelivers, Cars, Why);
-		TestTrue(FString::Printf(TEXT("%s: a request trip is found (%s)"), Where, *Why), bPlanned);
-		TestTrue(FString::Printf(TEXT("%s: it delivers"), Where), bDelivers);
-		if (bPlanned && Stops.Num() == 3)
-		{
-			TestTrue(FString::Printf(TEXT("%s: the car is emptied first"), Where), Stops[0].Station == Dump);
-			TestTrue(FString::Printf(TEXT("%s: then the pickup"), Where), Stops[1].Station == Source);
-			TestEqual(FString::Printf(TEXT("%s: all of the other item is unloaded"), Where), FSTTripPlanner::CountUnloaded(Stops, Result, Other, Dump), 1000);
-			TestTrue(FString::Printf(TEXT("%s: the wanted item reaches the platform, less than a batch"), Where),
-				FSTTripPlanner::CountUnloadedInto(Result, Wanted, Objects[2]) > 0);
-			TestTrue(FString::Printf(TEXT("%s: the request car loads only the wanted item"), Where), Planner.KeepsRequestCars(Stops, Result, Cars, Wanted));
-			TestFalse(FString::Printf(TEXT("%s: an emptying-only check rejects its pickup"), Where), Planner.KeepsRequestCars(Stops, Result, Cars, nullptr));
-		}
-		else
-		{
-			AddError(FString::Printf(TEXT("%s: expected 3 stops, got %d"), Where, Stops.Num()));
-		}
-	}
-	return true;
-}
-
-// A request empties the car by whatever is soonest: two near consumers that take it all beat a far sink, and a near
-// sink beats two far consumers.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTRequestSoonestEmptyingTest, "SmartTrains.Planner.RequestSoonestEmptying", TestFlags)
-bool FSTRequestSoonestEmptyingTest::RunTest(const FString& Parameters)
-{
-	UClass* Wanted = USTTestSolid::StaticClass();
-	UClass* Other = USTTestSolidB::StaticClass();
-	for (int32 Case = 0; Case < 2; ++Case)
-	{
-		const bool bSinkNear = Case == 1;
-		ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-		AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
-		AFGTrainStationIdentifier* First = FSTTestAccess::MakeStation();
-		AFGTrainStationIdentifier* Second = FSTTestAccess::MakeStation();
-		AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
-		AFGTrainStationIdentifier* Source = FSTTestAccess::MakeStation();
-		AFGTrainStationIdentifier* Drop = FSTTestAccess::MakeStation();
-		const TArray<AFGTrainStationIdentifier*> Stations = {Start, First, Second, Sink, Source, Drop};
-		auto IsFar = [&](const AFGTrainStationIdentifier* Station) { return bSinkNear ? (Station == First || Station == Second) : Station == Sink; };
-		for (AFGTrainStationIdentifier* From : Stations)
-		{
-			for (AFGTrainStationIdentifier* To : Stations)
-			{
-				if (From != To)
-				{
-					FSTTestAccess::SetTrip(*Subsystem, From, To, IsFar(From) || IsFar(To) ? 600.f : 60.f);
-				}
-			}
-		}
-		TArray<AFGBuildableTrainPlatformCargo*> Objects;
-		for (int32 Index = 0; Index < 5; ++Index)
-		{
-			Objects.Add(NewObject<AFGBuildableTrainPlatformCargo>(GetTransientPackage()));
-		}
-		FSTNode FirstNode = FSTTestAccess::Node(First, Other, ESTRole::Demand, 0, 100000, 0);
-		FirstNode.Platforms = {Objects[0]};
-		FSTNode SecondNode = FSTTestAccess::Node(Second, Other, ESTRole::Demand, 0, 100000, 0);
-		SecondNode.Platforms = {Objects[1]};
-		FSTNode SinkNode = FSTTestAccess::Node(Sink, nullptr, ESTRole::Demand, 0, 100000, 0);
-		SinkNode.bAnyItem = true;
-		SinkNode.Platforms = {Objects[2]};
-		FSTNode SourceNode = FSTTestAccess::Node(Source, Wanted, ESTRole::Supply, 1000, 1000, 0);
-		SourceNode.Platforms = {Objects[3]};
-		FSTNode DropNode = FSTTestAccess::Node(Drop, Wanted, ESTRole::Demand, 0, 1000, 0);
-		DropNode.Platforms = {Objects[4]};
-		TArray<FSTNode> Nodes = {FirstNode, SecondNode, SinkNode, SourceNode, DropNode};
-		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
-		TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Other, false, 0.0, 0), FSTTestAccess::Platform(Other, false, 0.0, 0),
-			FSTTestAccess::Platform(Other, false, 0.0, 0), FSTTestAccess::Platform(Wanted, true, 1000.0, 10), FSTTestAccess::Platform(Wanted, false, 0.0, 0)};
-		Platforms[2].Items.Reset();
-		Platforms[2].bAnyItem = true;
-		for (int32 Index = 0; Index < Platforms.Num(); ++Index)
-		{
-			Platforms[Index].Platform = Objects[Index];
-			// The consumers take half the load each (2 slots of 500); the sink and the rest take it all.
-			Platforms[Index].Slots = Index < 2 ? 2 : 10;
-		}
-		FSTTestAccess::FCarInfo Car = FSTTestAccess::Car(Other, 2000.0);
-		Car.Slots = 10;
-		FSTTestAccess::FCarPlatforms CarPlatforms;
-		// Near the sink, the car doesn't line up with the consumers of what it holds, so the sink may take it.
-		for (int32 Index = bSinkNear ? 2 : 0; Index < 5; ++Index)
-		{
-			CarPlatforms.Add(Stations[Index + 1], {{Index}});
-		}
-		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
-		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, Platforms, CarPlatforms);
-		FSTTestAccess::ServeAll(Planner);
-
-		const TCHAR* Where = bSinkNear ? TEXT("near sink") : TEXT("near consumers");
-		TArray<int32> Cars;
-		TArray<FSTPlanStop> Stops;
-		FSTPlanResult Result;
-		bool bDelivers = false;
-		FString Why;
-		TestTrue(FString::Printf(TEXT("%s: a request trip is found (%s)"), Where, *Why), Planner.PlanRequest({4, Objects[4]}, Stops, Result, bDelivers, Cars, Why) && bDelivers);
-		const bool bUsesSink = Stops.ContainsByPredicate([Sink](const FSTPlanStop& Stop) { return Stop.Station == Sink; });
-		if (bSinkNear)
-		{
-			TestEqual(TEXT("near sink: one stop at the sink, then the pickup and the delivery"), Stops.Num(), 3);
-			TestTrue(TEXT("near sink: the sink empties the car"), bUsesSink);
-		}
-		else
-		{
-			TestEqual(TEXT("near consumers: two consumers, then the pickup and the delivery"), Stops.Num(), 4);
-			TestFalse(TEXT("near consumers: the far sink isn't used"), bUsesSink);
-		}
-		TestTrue(FString::Printf(TEXT("%s: the wanted item reaches the platform"), Where), FSTTripPlanner::CountUnloaded(Stops, Result, Wanted, Drop) > 0);
-	}
-	return true;
-}
-
-// Two platforms of one station ask: one trip serves both, each with the car that stops beside it.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTRequestMergeTest, "SmartTrains.Planner.RequestMerge", TestFlags)
-bool FSTRequestMergeTest::RunTest(const FString& Parameters)
-{
-	UClass* Wanted = USTTestSolid::StaticClass();
-	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
-	AFGTrainStationIdentifier* Source = FSTTestAccess::MakeStation();
-	AFGTrainStationIdentifier* Drop = FSTTestAccess::MakeStation();
-	for (AFGTrainStationIdentifier* From : {Start, Source, Drop})
-	{
-		for (AFGTrainStationIdentifier* To : {Start, Source, Drop})
-		{
-			if (From != To)
-			{
-				FSTTestAccess::SetTrip(*Subsystem, From, To, 60.f);
-			}
-		}
-	}
-	TArray<AFGBuildableTrainPlatformCargo*> Objects;
-	for (int32 Index = 0; Index < 4; ++Index)
-	{
-		Objects.Add(NewObject<AFGBuildableTrainPlatformCargo>(GetTransientPackage()));
-	}
-	FSTNode SourceNode = FSTTestAccess::Node(Source, Wanted, ESTRole::Supply, 2000, 2000, 0);
-	SourceNode.Platforms = {Objects[0], Objects[1]};
-	FSTNode DropNode = FSTTestAccess::Node(Drop, Wanted, ESTRole::Demand, 0, 2000, 0);
-	DropNode.Platforms = {Objects[2], Objects[3]};
-	TArray<FSTNode> Nodes = {SourceNode, DropNode};
-	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
-	TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Wanted, true, 1000.0, 10), FSTTestAccess::Platform(Wanted, true, 1000.0, 10),
-		FSTTestAccess::Platform(Wanted, false, 0.0, 0), FSTTestAccess::Platform(Wanted, false, 0.0, 0)};
-	for (int32 Index = 0; Index < Platforms.Num(); ++Index)
-	{
-		Platforms[Index].Platform = Objects[Index];
-		Platforms[Index].Slots = 10;
-	}
-	FSTTestAccess::FCarInfo First = FSTTestAccess::Car();
-	First.Slots = 10;
-	FSTTestAccess::FCarInfo Second = FSTTestAccess::Car();
-	Second.Slots = 10;
-	FSTTestAccess::FCarPlatforms CarPlatforms;
-	CarPlatforms.Add(Source, {{0, 1}});
-	CarPlatforms.Add(Drop, {{2, 3}});
-	FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
-	FSTTestAccess::SetTrain(Planner, Start, true, false, {First, Second}, Platforms, CarPlatforms);
-	FSTTestAccess::ServeAll(Planner);
-
-	TArray<FSTPlanStop> Stops;
-	FSTPlanResult Result;
-	bool bDelivers = false;
-	TArray<int32> Cars;
-	FString Why;
-	TestTrue(FString::Printf(TEXT("the first request is planned (%s)"), *Why), Planner.PlanRequest({1, Objects[2]}, Stops, Result, bDelivers, Cars, Why) && bDelivers);
-	TestTrue(TEXT("the first request uses the car beside its platform"), Cars == TArray<int32>{0});
-	TArray<int32> More;
-	const bool bAdded = Planner.AddRequest(Stops, Result, {1, Objects[3]}, Cars, More, [](const TArray<FSTPlanStop>&, const FSTPlanResult&) { return true; });
-	TestTrue(TEXT("the second request joins the trip"), bAdded);
-	TestEqual(TEXT("in the same two stops"), Stops.Num(), 2);
-	TestTrue(TEXT("with the other car"), More == TArray<int32>{1});
-	TestTrue(TEXT("both platforms get the item"), FSTTripPlanner::CountUnloadedInto(Result, Wanted, Objects[2]) > 0 && FSTTripPlanner::CountUnloadedInto(Result, Wanted, Objects[3]) > 0);
 	return true;
 }
 
@@ -936,160 +656,6 @@ bool FSTForecastTest::RunTest(const FString& Parameters)
 	Using.Rate = 1.0;
 	TestEqual(TEXT("falls below its target of 500 after 300 s"), STForecast::Deadline(Using, {}, Now, Car), Now + 300.0, 0.01);
 	TestEqual(TEXT("a delivery of 200 then puts it off by 200 s"), STForecast::Deadline(Using, {{Now + 100.0, 200.0}}, Now, Car), Now + 500.0, 0.01);
-	return true;
-}
-
-// The roster shares the flow plan's routes out over trains that fit them, no train above one train's worth, once a route
-// has been in three flow plans; duties stay while the routes hardly change, and a new route doesn't move the others.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTRosterTest, "SmartTrains.Planner.Roster", TestFlags)
-bool FSTRosterTest::RunTest(const FString& Parameters)
-{
-	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-	TArray<AFGTrain*> Trains;
-	for (int32 Index = 0; Index < 3; ++Index)
-	{
-		Trains.Add(NewObject<AFGTrain>(GetTransientPackage()));
-	}
-	auto Route = [&](double Needed, const TArray<int32>& Fitting)
-	{
-		FSTRosterRoute Each;
-		Each.From = FSTTestAccess::MakeStation();
-		Each.To = FSTTestAccess::MakeStation();
-		Each.Item = USTTestSolid::StaticClass();
-		Each.Trains = Needed;
-		for (const int32 Index : Fitting)
-		{
-			Each.Fitting.Add(Trains[Index]);
-		}
-		return Each;
-	};
-	TArray<FSTRosterRoute> Routes = {Route(1.4, {0, 1, 2}), Route(0.6, {1, 2}), Route(0.3, {2})};
-	const TMap<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Roster = FSTTestAccess::GetRoster(*Subsystem);
-	FSTTestAccess::BuildRoster(*Subsystem, Routes);
-	TestEqual(TEXT("a route seen once isn't on the roster yet"), Roster.Num(), 0);
-	FSTTestAccess::BuildRoster(*Subsystem, Routes);
-	FSTTestAccess::BuildRoster(*Subsystem, Routes);
-	double Assigned = 0.0;
-	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : Roster)
-	{
-		TestTrue(TEXT("no train is given more than one train's worth"), Pair.Value.Load <= 1.0 + 1e-6);
-		Assigned += Pair.Value.Load;
-	}
-	TestEqual(TEXT("all 2.3 trains' worth of routes fit on 3 trains"), Assigned, 2.3, 1e-6);
-	const FSTRosterDuty* Third = Roster.Find(Trains[2]);
-	TestTrue(TEXT("the route only the third train fits is on it"), Third && Third->Routes.Contains(2));
-
-	TMap<TWeakObjectPtr<AFGTrain>, TArray<int32>> Before;
-	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : Roster)
-	{
-		Before.Add(Pair.Key, Pair.Value.Routes);
-	}
-	Routes[0].Trains = 1.5;
-	FSTTestAccess::BuildRoster(*Subsystem, Routes);
-	bool bSame = Roster.Num() == Before.Num();
-	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : Roster)
-	{
-		const TArray<int32>* Old = Before.Find(Pair.Key);
-		bSame &= Old && *Old == Pair.Value.Routes;
-	}
-	TestTrue(TEXT("a small change keeps every duty"), bSame);
-
-	// A small new route that only the first train fits: the others keep their duties.
-	TArray<FSTRosterRoute> More = Routes;
-	More.Add(Route(0.05, {0}));
-	TMap<TWeakObjectPtr<AFGTrain>, double> Loads;
-	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : Roster)
-	{
-		Loads.Add(Pair.Key, Pair.Value.Load);
-	}
-	for (int32 Plan = 0; Plan < 3; ++Plan)
-	{
-		FSTTestAccess::BuildRoster(*Subsystem, More);
-	}
-	const FSTRosterDuty* Second = Roster.Find(Trains[1]);
-	const FSTRosterDuty* Last = Roster.Find(Trains[2]);
-	TestTrue(TEXT("a new route leaves the other trains' duties as they were"), Second && Last && FMath::IsNearlyEqual(Second->Load, Loads.FindRef(Trains[1]))
-		&& FMath::IsNearlyEqual(Last->Load, Loads.FindRef(Trains[2])));
-	return true;
-}
-
-// A route that keeps a whole train busy gets a shuttle (a whole train running only it) that other trains leave its route
-// to; a small route shares a train. The shuttle stays while the route needs half a train, and goes below that.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTRosterShuttleTest, "SmartTrains.Planner.RosterShuttle", TestFlags)
-bool FSTRosterShuttleTest::RunTest(const FString& Parameters)
-{
-	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-	TArray<AFGTrain*> Trains;
-	for (int32 Index = 0; Index < 3; ++Index)
-	{
-		Trains.Add(NewObject<AFGTrain>(GetTransientPackage()));
-		FSTTestAccess::AddManaged(*Subsystem, Trains.Last());
-	}
-	// Each train carries 9600 per trip; the second carries only 3200 because one car fits.
-	TArray<AFGTrainStationIdentifier*> Stations;
-	for (int32 Index = 0; Index < 4; ++Index)
-	{
-		Stations.Add(FSTTestAccess::MakeStation());
-	}
-	auto Route = [&](int32 Which, double PerTrip, UClass* Item = USTTestSolid::StaticClass())
-	{
-		FSTRosterRoute Each;
-		Each.From = Stations[2 * Which];
-		Each.To = Stations[2 * Which + 1];
-		Each.Item = Item;
-		Each.RoundTrip = 600.0;
-		Each.Flow = PerTrip / Each.RoundTrip;
-		for (int32 Index = 0; Index < Trains.Num(); ++Index)
-		{
-			Each.Fitting.Add(Trains[Index]);
-			Each.Capacity.Add(Index == 1 ? 3200 : 9600);
-			Each.Whole.Add(Index != 1);
-		}
-		Each.Trains = PerTrip / ((9600.0 + 3200.0 + 9600.0) / 3.0);
-		return Each;
-	};
-	TArray<FSTRosterRoute> Routes = {Route(0, 9600.0), Route(1, 2000.0, USTTestSolidB::StaticClass())};
-	const TMap<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Roster = FSTTestAccess::GetRoster(*Subsystem);
-	for (int32 Plan = 0; Plan < 3; ++Plan)
-	{
-		FSTTestAccess::BuildRoster(*Subsystem, Routes);
-	}
-	TWeakObjectPtr<AFGTrain> Shuttle;
-	int32 Shuttles = 0;
-	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : Roster)
-	{
-		if (Pair.Value.bShuttle)
-		{
-			Shuttle = Pair.Key;
-			++Shuttles;
-			TestEqual(TEXT("a shuttle runs one route"), Pair.Value.Routes.Num(), 1);
-		}
-	}
-	TestEqual(TEXT("the big route gets one shuttle"), Shuttles, 1);
-	TestTrue(TEXT("the shuttle is a train whose cars all fit"), Shuttle.IsValid() && Shuttle.Get() != Trains[1]);
-	TestFalse(TEXT("the shuttle plans its route"), FSTTestAccess::IsShuttleRoute(*Subsystem, Shuttle.Get(), Routes[0]));
-	TestTrue(TEXT("other trains leave the shuttle's route to it"), FSTTestAccess::IsShuttleRoute(*Subsystem, Trains[1], Routes[0]));
-	TestFalse(TEXT("the small route has no shuttle"), FSTTestAccess::IsShuttleRoute(*Subsystem, Trains[1], Routes[1]));
-	const bool bSmallShared = Roster.FilterByPredicate([](const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair) { return !Pair.Value.bShuttle && Pair.Value.Load > 0.0; }).Num() > 0;
-	TestTrue(TEXT("the small route shares a train"), bSmallShared);
-
-	auto ShuttleOf = [&]()
-	{
-		const FSTRosterDuty* Duty = Roster.Find(Shuttle);
-		return Duty && Duty->bShuttle;
-	};
-	Routes[0] = Route(0, 5760.0);
-	FSTTestAccess::BuildRoster(*Subsystem, Routes);
-	TestTrue(TEXT("the shuttle stays while its route needs more than half of it"), ShuttleOf());
-	Routes[0] = Route(0, 3840.0);
-	FSTTestAccess::BuildRoster(*Subsystem, Routes);
-	TestTrue(TEXT("one plan needing less doesn't end the service yet"), ShuttleOf());
-	for (int32 Plan = 0; Plan < 6; ++Plan)
-	{
-		FSTTestAccess::BuildRoster(*Subsystem, Routes);
-	}
-	TestFalse(TEXT("the shuttle goes when its route keeps needing less than half of it"), ShuttleOf());
-	TestFalse(TEXT("then any train may plan the route"), FSTTestAccess::IsShuttleRoute(*Subsystem, Trains[1], Routes[0]));
 	return true;
 }
 
@@ -1150,73 +716,6 @@ bool FSTQueueLookAheadTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// Shuttles are per item: two routes of one item that each need 0.6 of a train get one shuttle running both, and other
-// trains leave both to it.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTShuttlePerItemTest, "SmartTrains.Planner.ShuttlePerItem", TestFlags)
-bool FSTShuttlePerItemTest::RunTest(const FString& Parameters)
-{
-	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-	TArray<AFGTrain*> Trains;
-	for (int32 Index = 0; Index < 3; ++Index)
-	{
-		Trains.Add(NewObject<AFGTrain>(GetTransientPackage()));
-		FSTTestAccess::AddManaged(*Subsystem, Trains.Last());
-	}
-	TArray<AFGTrainStationIdentifier*> Stations;
-	for (int32 Index = 0; Index < 4; ++Index)
-	{
-		Stations.Add(FSTTestAccess::MakeStation());
-	}
-	auto Route = [&](int32 Which, double PerTrip)
-	{
-		FSTRosterRoute Each;
-		Each.From = Stations[2 * Which];
-		Each.To = Stations[2 * Which + 1];
-		Each.Item = USTTestSolid::StaticClass();
-		Each.RoundTrip = 600.0;
-		Each.Flow = PerTrip / Each.RoundTrip;
-		for (AFGTrain* Train : Trains)
-		{
-			Each.Fitting.Add(Train);
-			Each.Capacity.Add(9600);
-			Each.Whole.Add(true);
-		}
-		Each.Trains = PerTrip / 9600.0;
-		return Each;
-	};
-	TArray<FSTRosterRoute> Routes = {Route(0, 5760.0), Route(1, 5760.0)};
-	const TMap<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Roster = FSTTestAccess::GetRoster(*Subsystem);
-	for (int32 Plan = 0; Plan < 3; ++Plan)
-	{
-		FSTTestAccess::BuildRoster(*Subsystem, Routes);
-	}
-	TWeakObjectPtr<AFGTrain> Shuttle;
-	int32 Shuttles = 0;
-	for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : Roster)
-	{
-		if (Pair.Value.bShuttle)
-		{
-			Shuttle = Pair.Key;
-			++Shuttles;
-			TestEqual(TEXT("the shuttle runs both routes of the item"), Pair.Value.Routes.Num(), 2);
-		}
-	}
-	TestEqual(TEXT("the item gets one shuttle"), Shuttles, 1);
-	AFGTrain* Other = Trains[0] == Shuttle.Get() ? Trains[1] : Trains[0];
-	TestTrue(TEXT("other trains leave the first route to it"), FSTTestAccess::IsShuttleRoute(*Subsystem, Other, Routes[0]));
-	TestTrue(TEXT("and the second"), FSTTestAccess::IsShuttleRoute(*Subsystem, Other, Routes[1]));
-	FSTTestAccess::SetRepeating(*Subsystem, Shuttle.Get(), true);
-	TestFalse(TEXT("a shuttle looping its last trip leaves its routes to others"), FSTTestAccess::IsShuttleRoute(*Subsystem, Other, Routes[0]));
-	Routes = {Route(0, 1920.0), Route(1, 1920.0)};
-	for (int32 Plan = 0; Plan < 7; ++Plan)
-	{
-		FSTTestAccess::BuildRoster(*Subsystem, Routes);
-	}
-	const FSTRosterDuty* Duty = Roster.Find(Shuttle);
-	TestFalse(TEXT("the shuttle goes when the item needs less than half of it"), Duty && Duty->bShuttle);
-	return true;
-}
-
 // A car doesn't load less than a twentieth of a car of an item: on the server such pickups mostly moved nothing.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTSmallLoadTest, "SmartTrains.Planner.SmallLoad", TestFlags)
 bool FSTSmallLoadTest::RunTest(const FString& Parameters)
@@ -1247,8 +746,6 @@ bool FSTSmallLoadTest::RunTest(const FString& Parameters)
 		FSTPlanStop Load;
 		Load.Station = Source;
 		Load.LoadItems.Add(Ingot);
-		// Past the batch rule, so only the least load decides.
-		Load.NoBatchItems.Add(Ingot);
 		FSTPlanStop Unload;
 		Unload.Station = Sink;
 		Unload.UnloadItems.Add(Ingot);
@@ -1310,55 +807,6 @@ bool FSTSinkNeededTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("ingots the car can deliver to a consumer don't go into the sink"), Dump(true, true));
 	TestTrue(TEXT("ingots the car can never unload at their consumer may, so the car is freed"), Dump(true, false));
 	TestTrue(TEXT("ingots no consumer takes may"), Dump(false, false));
-	return true;
-}
-
-// Service settings: a pinned item keeps a service train though it needs less than one; a pooled one gets none.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTServiceSettingsTest, "SmartTrains.Planner.ServiceSettings", TestFlags)
-bool FSTServiceSettingsTest::RunTest(const FString& Parameters)
-{
-	auto Shuttles = [](bool bPinned, bool bPooled, double PerTrip)
-	{
-		ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-		TArray<AFGTrain*> Trains;
-		for (int32 Index = 0; Index < 3; ++Index)
-		{
-			Trains.Add(NewObject<AFGTrain>(GetTransientPackage()));
-			FSTTestAccess::AddManaged(*Subsystem, Trains.Last());
-		}
-		FSTServiceConfig Config;
-		Config.Item = USTTestSolid::StaticClass();
-		Config.bPinned = bPinned;
-		Config.bPooled = bPooled;
-		FSTTestAccess::AddServiceConfig(*Subsystem, Config);
-		FSTRosterRoute Route;
-		Route.From = FSTTestAccess::MakeStation();
-		Route.To = FSTTestAccess::MakeStation();
-		Route.Item = USTTestSolid::StaticClass();
-		Route.RoundTrip = 600.0;
-		Route.Flow = PerTrip / Route.RoundTrip;
-		for (AFGTrain* Train : Trains)
-		{
-			Route.Fitting.Add(Train);
-			Route.Capacity.Add(9600);
-			Route.Whole.Add(true);
-		}
-		Route.Trains = PerTrip / 9600.0;
-		for (int32 Plan = 0; Plan < 3; ++Plan)
-		{
-			FSTTestAccess::BuildRoster(*Subsystem, {Route});
-		}
-		int32 Count = 0;
-		for (const TPair<TWeakObjectPtr<AFGTrain>, FSTRosterDuty>& Pair : FSTTestAccess::GetRoster(*Subsystem))
-		{
-			Count += Pair.Value.bShuttle ? 1 : 0;
-		}
-		return Count;
-	};
-	TestEqual(TEXT("a small route gets no service by itself"), Shuttles(false, false, 2000.0), 0);
-	TestEqual(TEXT("pinned, it gets one"), Shuttles(true, false, 2000.0), 1);
-	TestEqual(TEXT("a big route gets one"), Shuttles(false, false, 9600.0), 1);
-	TestEqual(TEXT("pooled, even a big route gets none"), Shuttles(false, true, 9600.0), 0);
 	return true;
 }
 
@@ -1645,134 +1093,10 @@ bool FSTReplaySnapshotsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// Service cars: each flow gets the cars that line up with its supply and demand platforms; a car carries flows one
-// after another when their stretches of the loop don't overlap.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTServiceCarsTest, "SmartTrains.Services.Cars", TestFlags)
-bool FSTServiceCarsTest::RunTest(const FString& Parameters)
-{
-	UClass* Ingot = USTTestSolid::StaticClass();
-	UClass* Concrete = USTTestSolidB::StaticClass();
-	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
-	AFGTrainStationIdentifier* Mine = FSTTestAccess::MakeStation();
-	AFGTrainStationIdentifier* Quarry = FSTTestAccess::MakeStation();
-	AFGTrainStationIdentifier* Factory = FSTTestAccess::MakeStation();
-	AFGTrainStationIdentifier* Other = FSTTestAccess::MakeStation();
-	{
-		// Two cars: ingots from the mine in either, concrete from the quarry only in car 2; at the factory car 1 meets
-		// the ingot platform and car 2 the concrete one.
-		TArray<FSTNode> Nodes;
-		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
-		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
-		TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Ingot, true, 0.0, 0), FSTTestAccess::Platform(Ingot, true, 0.0, 0),
-			FSTTestAccess::Platform(Concrete, true, 0.0, 0), FSTTestAccess::Platform(Ingot, false, 0.0, 0), FSTTestAccess::Platform(Concrete, false, 0.0, 0)};
-		FSTTestAccess::FCarInfo Car = FSTTestAccess::Car();
-		Car.Slots = 32;
-		FSTTestAccess::FCarPlatforms CarPlatforms;
-		CarPlatforms.Add(Mine, {{0, 1}});
-		CarPlatforms.Add(Quarry, {{INDEX_NONE, 2}});
-		CarPlatforms.Add(Factory, {{3, 4}});
-		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car, Car}, Platforms, CarPlatforms);
-		FSTPlanStop A;
-		A.Station = Mine;
-		A.LoadItems.Add(Ingot);
-		FSTPlanStop B;
-		B.Station = Quarry;
-		B.LoadItems.Add(Concrete);
-		FSTPlanStop C;
-		C.Station = Factory;
-		C.UnloadItems = {Ingot, Concrete};
-		const TArray<double> PerTrain = Planner.AllocateServiceCars({A, B, C}, {{Mine, Factory, Ingot, 1.0}, {Quarry, Factory, Concrete, 1.0}});
-		TestTrue(FString::Printf(TEXT("both inputs get a car (%.0f, %.0f)"), PerTrain[0], PerTrain[1]), PerTrain[0] > 0.0 && PerTrain[1] > 0.0);
-	}
-	{
-		// One car, two flows one after the other along the loop: it carries both.
-		TArray<FSTNode> Nodes;
-		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
-		FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
-		TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Ingot, true, 0.0, 0), FSTTestAccess::Platform(Ingot, false, 0.0, 0),
-			FSTTestAccess::Platform(Concrete, true, 0.0, 0), FSTTestAccess::Platform(Concrete, false, 0.0, 0)};
-		FSTTestAccess::FCarInfo Car = FSTTestAccess::Car();
-		Car.Slots = 32;
-		FSTTestAccess::FCarPlatforms CarPlatforms;
-		CarPlatforms.Add(Mine, {{0}});
-		CarPlatforms.Add(Factory, {{1}});
-		CarPlatforms.Add(Quarry, {{2}});
-		CarPlatforms.Add(Other, {{3}});
-		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, Platforms, CarPlatforms);
-		FSTPlanStop A;
-		A.Station = Mine;
-		A.LoadItems.Add(Ingot);
-		FSTPlanStop B;
-		B.Station = Factory;
-		B.UnloadItems.Add(Ingot);
-		FSTPlanStop C;
-		C.Station = Quarry;
-		C.LoadItems.Add(Concrete);
-		FSTPlanStop D;
-		D.Station = Other;
-		D.UnloadItems.Add(Concrete);
-		const TArray<double> PerTrain = Planner.AllocateServiceCars({A, B, C, D}, {{Mine, Factory, Ingot, 1.0}, {Quarry, Other, Concrete, 1.0}});
-		TestTrue(FString::Printf(TEXT("one car carries both, one after the other (%.0f, %.0f)"), PerTrain[0], PerTrain[1]), PerTrain[0] > 0.0 && PerTrain[1] > 0.0);
-	}
-	return true;
-}
-
-// Merging loops: the second loop's stops go into the first so every flow still picks up before it drops.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTServiceMergeTest, "SmartTrains.Services.Merge", TestFlags)
-bool FSTServiceMergeTest::RunTest(const FString& Parameters)
-{
-	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-	TArray<AFGTrainStationIdentifier*> Stations;
-	for (int32 Index = 0; Index < 4; ++Index)
-	{
-		Stations.Add(FSTTestAccess::MakeStation());
-	}
-	for (AFGTrainStationIdentifier* From : Stations)
-	{
-		for (AFGTrainStationIdentifier* To : Stations)
-		{
-			if (From != To)
-			{
-				FSTTestAccess::SetTrip(*Subsystem, From, To, 100.f);
-			}
-		}
-	}
-	auto Loop = [&](int32 Pick, int32 Drop, UClass* Item)
-	{
-		FSTService Service;
-		FSTServiceStop& From = Service.Stops.AddDefaulted_GetRef();
-		From.Station = Stations[Pick];
-		From.LoadItems.Add(Item);
-		FSTServiceStop& To = Service.Stops.AddDefaulted_GetRef();
-		To.Station = Stations[Drop];
-		To.UnloadItems.Add(Item);
-		FSTServiceFlow& Flow = Service.Flows.AddDefaulted_GetRef();
-		Flow.From = Stations[Pick];
-		Flow.To = Stations[Drop];
-		Flow.Item = Item;
-		return Service;
-	};
-	FSTService Merged = Loop(0, 1, USTTestSolid::StaticClass());
-	TestTrue(TEXT("two loops merge"), FSTTestAccess::MergeLoops(*Subsystem, Merged, Loop(2, 3, USTTestSolidB::StaticClass())));
-	TestEqual(TEXT("into four stops"), Merged.Stops.Num(), 4);
-	for (const FSTServiceFlow& Flow : Merged.Flows)
-	{
-		const int32 Pick = Merged.Stops.IndexOfByPredicate([&](const FSTServiceStop& Stop) { return Stop.Station == Flow.From; });
-		const int32 Drop = Merged.Stops.IndexOfByPredicate([&](const FSTServiceStop& Stop) { return Stop.Station == Flow.To; });
-		TestTrue(TEXT("each flow picks up before it drops"), Pick != INDEX_NONE && Drop != INDEX_NONE && Pick < Drop);
-	}
-	FSTService Shared = Loop(0, 1, USTTestSolid::StaticClass());
-	TestTrue(TEXT("a loop sharing the supplier merges into a milk run"), FSTTestAccess::MergeLoops(*Subsystem, Shared, Loop(0, 2, USTTestSolid::StaticClass())));
-	TestEqual(TEXT("with three stops"), Shared.Stops.Num(), 3);
-	return true;
-}
-
-// A merged service loop may have up to 8 stops, more than a trip may (the "Most stops per trip" setting, at least 6).
-// Its cycles are simulated with the service's limit, or the trains of an 8-stop service never get a cycle ("nothing to
-// move this cycle (too many stops)", service S9 on the IB save, 2026-11-09).
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTServiceLongLoopTest, "SmartTrains.Services.LongLoop", TestFlags)
-bool FSTServiceLongLoopTest::RunTest(const FString& Parameters)
+// The rest of a trip under way is checked against its own length, not the "Most stops per trip" setting: the re-plan
+// after a stop must not drop a trip that is already longer (service S9 on the IB save, 2026-11-09).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTLongTripUnderWayTest, "SmartTrains.Planner.LongTripUnderWay", TestFlags)
+bool FSTLongTripUnderWayTest::RunTest(const FString& Parameters)
 {
 	UClass* Ingot = USTTestSolid::StaticClass();
 	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
@@ -1804,30 +1128,179 @@ bool FSTServiceLongLoopTest::RunTest(const FString& Parameters)
 	const FSTPlanResult Plain = Planner.Simulate(Stops);
 	TestFalse(TEXT("an 8-stop trip is over the trip stop limit"), Plain.bValid);
 	Planner.RaiseStopLimit(8);
-	const FSTPlanResult Service = Planner.Simulate(Stops);
-	if (TestTrue(FString::Printf(TEXT("with the service's stop limit the 8-stop cycle works (%s)"), *Service.Problem), Service.bValid))
+	const FSTPlanResult UnderWay = Planner.Simulate(Stops);
+	if (TestTrue(FString::Printf(TEXT("the rest of a trip under way may keep its 8 stops (%s)"), *UnderWay.Problem), UnderWay.bValid))
 	{
-		TestTrue(TEXT("and moves cargo"), Service.Moved > 0);
+		TestTrue(TEXT("and moves cargo"), UnderWay.Moved > 0);
 	}
 	return true;
 }
 
-// Trains a service asks for: ceil(needed - slack), at least one, within the player's limits; a service whose flows are
-// gone for now asks for none beyond the player's least, so its trains work elsewhere until it retires or its flows
-// come back.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTServiceTargetTest, "SmartTrains.Services.Target", TestFlags)
-bool FSTServiceTargetTest::RunTest(const FString& Parameters)
+// Homes are shared out in proportion to need (D'Hondt): with 4 trains for groups needing 3 and 1, the first gets 3.
+// A train keeps its home while that group still wants it, one that stays keeps it regardless, and a group's most
+// trains is a cap.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTGroupHomesTest, "SmartTrains.Groups.Homes", TestFlags)
+bool FSTGroupHomesTest::RunTest(const FString& Parameters)
 {
+	UClass* Iron = USTTestSolid::StaticClass();
+	UClass* Coal = USTTestSolidB::StaticClass();
 	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-	FSTService Service;
-	Service.Needed = 2.1;
-	TestEqual(TEXT("2.1 trains needed: 2"), FSTTestAccess::GetServiceTarget(*Subsystem, Service), 2);
-	Service.Needed = 0.2;
-	TestEqual(TEXT("a small need still gets one train"), FSTTestAccess::GetServiceTarget(*Subsystem, Service), 1);
-	Service.MissingPlans = 1;
-	TestEqual(TEXT("flows gone: no trains"), FSTTestAccess::GetServiceTarget(*Subsystem, Service), 0);
-	Service.MinTrains = 1;
-	TestEqual(TEXT("flows gone, the player's least kept"), FSTTestAccess::GetServiceTarget(*Subsystem, Service), 1);
+	TArray<AFGTrain*> Trains;
+	for (int32 Index = 0; Index < 4; ++Index)
+	{
+		Trains.Add(NewObject<AFGTrain>(GetTransientPackage()));
+		FSTTestAccess::AddManaged(*Subsystem, Trains.Last());
+	}
+	FSTTestAccess::AddGroup(*Subsystem, Coal, 1.0, Trains);
+	FSTTestAccess::AddGroup(*Subsystem, Iron, 3.0, Trains);
+	auto Homes = [&](UClass* Item)
+	{
+		int32 Count = 0;
+		for (AFGTrain* Train : Trains)
+		{
+			Count += FSTTestAccess::State(*Subsystem, Train)->HomeItem.Get() == Item ? 1 : 0;
+		}
+		return Count;
+	};
+	Subsystem->AllocateHomes();
+	TestEqual(TEXT("iron (needs 3) gets 3 homes"), Homes(Iron), 3);
+	TestEqual(TEXT("coal (needs 1) gets 1"), Homes(Coal), 1);
+	AFGTrain* CoalTrain = nullptr;
+	for (AFGTrain* Train : Trains)
+	{
+		CoalTrain = FSTTestAccess::State(*Subsystem, Train)->HomeItem.Get() == Coal ? Train : CoalTrain;
+	}
+	Subsystem->AllocateHomes();
+	TestEqual(TEXT("allocating again moves no train"), FSTTestAccess::State(*Subsystem, CoalTrain)->HomeItem.Get(), Coal);
+	// Coal's need rises: a train moves over, the coal train keeps its home.
+	FSTTestAccess::Groups(*Subsystem)[0].Needed = 3.0;
+	Subsystem->AllocateHomes();
+	TestEqual(TEXT("equal needs share 2 and 2"), Homes(Coal), 2);
+	TestEqual(TEXT("the coal train stays in coal"), FSTTestAccess::State(*Subsystem, CoalTrain)->HomeItem.Get(), Coal);
+	// Iron's need goes; a train that stays keeps its home.
+	AFGTrain* Stayer = nullptr;
+	for (AFGTrain* Train : Trains)
+	{
+		Stayer = !Stayer && FSTTestAccess::State(*Subsystem, Train)->HomeItem.Get() == Iron ? Train : Stayer;
+	}
+	FSTTestAccess::State(*Subsystem, Stayer)->bHomeStay = true;
+	FSTTestAccess::Groups(*Subsystem)[1].Needed = 0.0;
+	Subsystem->AllocateHomes();
+	TestEqual(TEXT("the staying train keeps iron"), FSTTestAccess::State(*Subsystem, Stayer)->HomeItem.Get(), Iron);
+	TestEqual(TEXT("the rest go to coal"), Homes(Coal), 3);
+	// A cap of 1 on coal: the others have no home and take any work.
+	FSTTestAccess::SetGroupTrains(*Subsystem, Coal, 0, 1);
+	Subsystem->AllocateHomes();
+	TestEqual(TEXT("coal capped at 1"), Homes(Coal), 1);
+	TestEqual(TEXT("two trains without a home"), Homes(nullptr), 2);
+	return true;
+}
+
+// A group is short only while it has fewer trains than it wants and no train that fits it is idle: idle trains that
+// fit mean there is too little work, not too few trains (the case that showed "short" with trains at the depot).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTGroupShortfallTest, "SmartTrains.Groups.Shortfall", TestFlags)
+bool FSTGroupShortfallTest::RunTest(const FString& Parameters)
+{
+	UClass* Iron = USTTestSolid::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrain* Train = NewObject<AFGTrain>(GetTransientPackage());
+	FSTTestAccess::AddManaged(*Subsystem, Train);
+	FSTTestAccess::AddGroup(*Subsystem, Iron, 3.0, {Train});
+	Subsystem->AllocateHomes();
+	TestEqual(TEXT("wants 3 (3.0 needed)"), Subsystem->GetGroupTarget(FSTTestAccess::Groups(*Subsystem)[0]), 3);
+	TestEqual(TEXT("its one train is idle: not short"), Subsystem->GetGroupShortfall(FSTTestAccess::Groups(*Subsystem)[0]), 0);
+	FSTTrainState* State = FSTTestAccess::State(*Subsystem, Train);
+	State->bHasJob = true;
+	State->Job.Legs.AddDefaulted();
+	FSTCarWork& Work = State->Job.Legs[0].Work.AddDefaulted_GetRef();
+	Work.Item = Iron;
+	TestEqual(TEXT("its one train is busy: 2 short"), Subsystem->GetGroupShortfall(FSTTestAccess::Groups(*Subsystem)[0]), 2);
+	FSTTestAccess::Groups(*Subsystem)[0].Needed = 2.1;
+	TestEqual(TEXT("2.1 needed wants 2"), Subsystem->GetGroupTarget(FSTTestAccess::Groups(*Subsystem)[0]), 2);
+	FSTTestAccess::SetGroupTrains(*Subsystem, Iron, 0, 1);
+	TestEqual(TEXT("a cap of 1 wants 1"), Subsystem->GetGroupTarget(FSTTestAccess::Groups(*Subsystem)[0]), 1);
+	TestEqual(TEXT("and isn't short"), Subsystem->GetGroupShortfall(FSTTestAccess::Groups(*Subsystem)[0]), 0);
+	return true;
+}
+
+// With a home item set, a trip starts with that item's moves even when another item's trip would score more; without
+// it the planner takes the better one.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTHomeItemFirstTest, "SmartTrains.Groups.HomeItemFirst", TestFlags)
+bool FSTHomeItemFirstTest::RunTest(const FString& Parameters)
+{
+	UClass* Iron = USTTestSolid::StaticClass();
+	UClass* Coal = USTTestSolidB::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* IronMine = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* IronUser = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* CoalMine = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* CoalUser = FSTTestAccess::MakeStation();
+	const TArray<AFGTrainStationIdentifier*> All = {Start, IronMine, IronUser, CoalMine, CoalUser};
+	// Coal is near, iron far: on score alone the train takes coal.
+	for (AFGTrainStationIdentifier* From : All)
+	{
+		for (AFGTrainStationIdentifier* To : All)
+		{
+			const bool bNear = (From == Start && To == CoalMine) || (From == CoalMine && To == CoalUser);
+			FSTTestAccess::SetTrip(*Subsystem, From, To, bNear ? 30.f : 600.f);
+		}
+	}
+	TArray<FSTNode> Nodes = {
+		FSTTestAccess::Node(IronMine, Iron, ESTRole::Supply, 4800, 4800, 1), FSTTestAccess::Node(IronUser, Iron, ESTRole::Demand, 0, 4800, 1),
+		FSTTestAccess::Node(CoalMine, Coal, ESTRole::Supply, 4800, 4800, 1), FSTTestAccess::Node(CoalUser, Coal, ESTRole::Demand, 0, 4800, 1)};
+	for (FSTNode& Node : Nodes)
+	{
+		Node.Rate = 1.0;
+	}
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+	FSTTestAccess::ServeAll(Planner);
+	TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Iron, true, 4800.0, 48), FSTTestAccess::Platform(Iron, false, 0.0, 0),
+		FSTTestAccess::Platform(Coal, true, 4800.0, 48), FSTTestAccess::Platform(Coal, false, 0.0, 0)};
+	for (FSTTestAccess::FPlatformInfo& Platform : Platforms)
+	{
+		Platform.Slots = 48;
+	}
+	FSTTestAccess::FCarInfo Car = FSTTestAccess::Car();
+	Car.Slots = 32;
+	FSTTestAccess::FCarPlatforms CarPlatforms;
+	CarPlatforms.Add(IronMine, {{0}});
+	CarPlatforms.Add(IronUser, {{1}});
+	CarPlatforms.Add(CoalMine, {{2}});
+	CarPlatforms.Add(CoalUser, {{3}});
+	FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, Platforms, CarPlatforms);
+	FSTTestAccess::BuildMoves(Planner);
+	auto Delivered = [](const FSTPlanResult& Result, UClass* Item)
+	{
+		int32 Moved = 0;
+		for (const TArray<FSTPlanCarStep>& Stop : Result.Steps)
+		{
+			for (const FSTPlanCarStep& Step : Stop)
+			{
+				for (const TPair<UClass*, int32>& Each : Step.Unloaded)
+				{
+					Moved += Each.Key == Item ? Each.Value : 0;
+				}
+			}
+		}
+		return Moved;
+	};
+	TArray<FSTPlanStop> Free;
+	const FSTPlanResult Any = Planner.Improve(Free, 0);
+	if (TestTrue(TEXT("a trip is found"), Any.bValid && Free.Num() > 0))
+	{
+		TestTrue(TEXT("on score alone it delivers coal"), Delivered(Any, Coal) > 0);
+	}
+	TArray<FSTPlanStop> Home;
+	Planner.SetOnlyItem(Iron);
+	const FSTPlanResult HomeResult = Planner.Improve(Home, 0);
+	Planner.SetOnlyItem(nullptr);
+	if (TestTrue(TEXT("a home trip is found"), HomeResult.bValid && Home.Num() > 0))
+	{
+		TestTrue(TEXT("with iron as its home it delivers iron"), Delivered(HomeResult, Iron) > 0);
+		TestEqual(TEXT("and only iron while the home item is set"), Delivered(HomeResult, Coal), 0);
+	}
 	return true;
 }
 

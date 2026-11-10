@@ -14,7 +14,7 @@ namespace STForecast
 	// at a consumer: little, so it only decides between otherwise equal trips (production nobody needs isn't worth a
 	// train; the server log of 2026-11-07 had most suppliers full). [min]
 	constexpr double LostLoadMinutes = 0.25;
-	// Horizon planner: most stops in a train's plan (several trips).
+	// Most stops in a trip at least, whatever the Most stops per trip setting says (several pickups and drops).
 	constexpr int32 HorizonStops = 6;
 	// What a second of a train's time costs against the forecast cost a trip removes: a trip's score is its value less
 	// this times its duration. [car-load minutes per second]

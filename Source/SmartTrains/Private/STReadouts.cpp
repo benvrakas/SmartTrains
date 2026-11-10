@@ -26,10 +26,6 @@ int32 ASTSubsystem::CopyPlatformToStation(AFGBuildableTrainPlatformCargo* Platfo
 		if (Other && Other != Platform && STLayout::GetPlatformCargoType(Other) == Type && STLayout::CanMoveCargo(Other))
 		{
 			SetPlatformConfig(Other, Copy.Role, Copy.Items, Cause);
-			if (FSTPlatformConfig* Config = FindPlatformConfig(Other))
-			{
-				Config->Request = Copy.Request;
-			}
 			++Copied;
 		}
 	}
@@ -50,7 +46,7 @@ FString ASTSubsystem::DescribeItemRule(const AFGBuildableTrainPlatformCargo* Pla
 	const int32 Stock = Inventory ? Inventory->GetNumItems(Rule.Item) : 0;
 	const int32 Capacity = STLayout::GetCapacity(Inventory, Rule.Item);
 	const FString Goal = Config.Role == ESTRole::Supply
-		? FString::Printf(TEXT("send at %.0f%% of a load"), STNames::SendAtPercent(Rule.SendAtPercent))
+		? FString::Printf(TEXT("least per visit %.0f%% of a load"), STNames::SendAtPercent(Rule.SendAtPercent))
 		: FString::Printf(TEXT("target %.0f%%"), Rule.TargetPercent);
 	// Priority counts only where cargo is delivered.
 	const FString Priority = Config.Role == ESTRole::Supply ? FString() : FString::Printf(TEXT(", %s priority"), STNames::Priority(Rule.Priority));
@@ -78,7 +74,6 @@ FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCa
 	}
 	View.Role = Config->Role;
 	View.Items = Config->Items;
-	View.Request = Config->Request;
 	View.EditedBy = Config->EditedBy;
 	for (const FSTItemRule& Rule : Config->Items)
 	{
@@ -113,23 +108,6 @@ FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCa
 			}
 		}
 	}
-	if (Config->Role == ESTRole::Demand)
-	{
-		for (const FSTTrainState& State : mTrains)
-		{
-			for (const FSTRequestClaim& Claim : State.Requests)
-			{
-				if (Claim.Platform == Platform)
-				{
-					View.Lines.Add(FString::Printf(TEXT("Request: %s"), *DescribeRequest(State, Claim)));
-				}
-			}
-		}
-		if (const FSTRequestNote* Note = mRequestNotes.Find(Platform))
-		{
-			View.Lines.Add(FString::Printf(TEXT("Request (%s): %s"), *STNames::Item(Note->Item.Get()), *Note->Text));
-		}
-	}
 	if (const TArray<FString>* History = Identifier ? mHistory.Find(const_cast<AFGTrainStationIdentifier*>(Identifier)) : nullptr)
 	{
 		for (const FString& Line : *History)
@@ -141,14 +119,6 @@ FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCa
 	return View;
 }
 
-FString ASTSubsystem::DescribeRequest(const FSTTrainState& State, const FSTRequestClaim& Claim) const
-{
-	const bool bBringing = State.bHasJob && State.Job.bRequest && JobDelivers(State.Job, Claim, State.Job.Leg);
-	const TCHAR* Doing = bBringing ? TEXT("is bringing")
-		: (State.bHasJob && State.Job.bRequest ? TEXT("is emptying a car to bring") : TEXT("waits for its next trip to bring"));
-	return FString::Printf(TEXT("%s %s %s into %s"), *STLayout::Name(State.Train), Doing, *STNames::Item(Claim.Item), *STLayout::DescribePlatform(Claim.Platform));
-}
-
 TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCargo* Platform) const
 {
 	TArray<FString> Lines;
@@ -157,7 +127,7 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 	{
 		return Lines;
 	}
-	Lines.Append(DescribePlatformServices(Platform));
+	Lines.Append(DescribePlatformGroups(Platform));
 	if (mSettings.bObserveOnly)
 	{
 		Lines.Add(TEXT("Observe only is on (Mods menu): rates are measured, but no jobs are given."));
@@ -257,8 +227,8 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 				}
 			}
 			Fitting += bFits ? 1 : 0;
-			// Free: no job, or only repeating its last one.
-			FreeFitting += bFits && (!State.bHasJob || State.Job.bRepeat) ? 1 : 0;
+			// Free: no job.
+			FreeFitting += bFits && !State.bHasJob ? 1 : 0;
 		}
 		if (Serving == 0)
 		{
@@ -334,11 +304,10 @@ FSTTrainView ASTSubsystem::MakeTrainView(const AFGTrain* Train, int32 AppliedEdi
 	{
 		View.CannotManage = TEXT("it has no locomotive that can dock");
 	}
-	View.bServiceStay = State && State->bServiceStay;
-	View.bServiceReserve = State && State->bServiceReserve;
+	View.bHomeStay = State && State->bHomeStay;
 	if (State && State->bManaged)
 	{
-		View.Lines.Add(DescribeServiceRole(*State));
+		View.Lines.Add(DescribeHome(*State));
 	}
 	if (!View.bManaged)
 	{

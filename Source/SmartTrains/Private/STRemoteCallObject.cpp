@@ -182,31 +182,6 @@ bool USTRemoteCallObject::Server_SetPlatform_Validate(AFGBuildableTrainPlatformC
 	return Items.Num() <= MaxItems && Role <= ESTRole::Sink;
 }
 
-bool USTRemoteCallObject::Server_SetPlatformRequest_Validate(AFGBuildableTrainPlatformCargo* Platform, ESTRequest Request, int32 Edit)
-{
-	return Request <= ESTRequest::Off;
-}
-
-void USTRemoteCallObject::Server_SetPlatformRequest_Implementation(AFGBuildableTrainPlatformCargo* Platform, ESTRequest Request, int32 Edit)
-{
-	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
-	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
-	if (!Subsystem || !IsValid(Platform))
-	{
-		UE_LOG(LogSmartTrains, Warning, TEXT("Server_SetPlatformRequest from %s: %s"), *GetPlayerName(), Subsystem ? TEXT("platform gone") : TEXT("no subsystem"));
-		return;
-	}
-	if (Allowed(*this, *Subsystem, STAccess::EChange::Edit, TEXT("change platform settings")))
-	{
-		FString Error;
-		if (!Subsystem->SetPlatformRequest(Platform, Request, FString::Printf(TEXT("platform menu (%s)"), *GetPlayerName()), Error))
-		{
-			Client_Message(Error, true);
-		}
-	}
-	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
-}
-
 void USTRemoteCallObject::Server_SetPlatform_Implementation(AFGBuildableTrainPlatformCargo* Platform, ESTRole Role, const TArray<FSTItemRule>& Items, int32 Edit)
 {
 	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
@@ -271,12 +246,10 @@ void USTRemoteCallObject::Server_CopyPlatformSettings_Implementation(AFGBuildabl
 	Slot.bValid = true;
 	Slot.Role = ESTRole::Off;
 	Slot.Items.Reset();
-	Slot.Request = ESTRequest::Auto;
 	if (const FSTPlatformConfig* Config = Subsystem->FindPlatformConfig(Platform))
 	{
 		Slot.Role = Config->Role;
 		Slot.Items = Config->Items;
-		Slot.Request = Config->Request;
 	}
 	const FString Summary = STNames::Settings(Slot.Role, Slot.Items);
 	UE_LOG(LogSmartTrains, Log, TEXT("CLIPBOARD %s copied %s from %s (%s)"), *GetPlayerName(), *Summary, *Platform->GetName(), bFromGameKey ? TEXT("game key") : TEXT("panel"));
@@ -331,10 +304,6 @@ void USTRemoteCallObject::Server_PastePlatformSettings_Implementation(AFGBuildab
 		}
 	}
 	Subsystem->SetPlatformConfig(Platform, Slot.Role, Slot.Items, Cause);
-	if (FSTPlatformConfig* Config = Subsystem->FindPlatformConfig(Platform))
-	{
-		Config->Request = Slot.Request;
-	}
 	Client_Message(FString::Printf(TEXT("Pasted SmartTrains settings: %s."), *STNames::Settings(Slot.Role, Slot.Items)), false);
 	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
 }
@@ -392,7 +361,7 @@ void USTRemoteCallObject::Server_SetStation_Implementation(AFGTrainStationIdenti
 
 bool USTRemoteCallObject::Server_SetTrain_Validate(AFGTrain* Train, ESTTrainAction Action, int32 Edit)
 {
-	return Action <= ESTTrainAction::ReserveOff;
+	return Action <= ESTTrainAction::StayOff;
 }
 
 void USTRemoteCallObject::Server_SetTrain_Implementation(AFGTrain* Train, ESTTrainAction Action, int32 Edit)
@@ -425,11 +394,7 @@ void USTRemoteCallObject::Server_SetTrain_Implementation(AFGTrain* Train, ESTTra
 		break;
 	case ESTTrainAction::StayOn:
 	case ESTTrainAction::StayOff:
-		Subsystem->SetTrainServiceFlags(Train, true, Action == ESTTrainAction::StayOn, Cause);
-		break;
-	case ESTTrainAction::ReserveOn:
-	case ESTTrainAction::ReserveOff:
-		Subsystem->SetTrainServiceFlags(Train, false, Action == ESTTrainAction::ReserveOn, Cause);
+		Subsystem->SetTrainHomeStay(Train, Action == ESTTrainAction::StayOn, Cause);
 		break;
 	}
 	Client_Train(Subsystem->MakeTrainView(Train, mAppliedEdit));

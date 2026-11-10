@@ -27,18 +27,6 @@ enum class ESTRole : uint8
 	Sink,
 };
 
-// Whether a demand platform has a train emptied for it when no trip serves it.
-UENUM()
-enum class ESTRequest : uint8
-{
-	// When the platform's stock and deliveries on the way would fall below its target before a train that can carry the
-	// item now could bring it.
-	Auto,
-	// Until the platform's stock and deliveries on the way reach 90 % of its capacity.
-	On,
-	Off,
-};
-
 // How urgent a platform item is.
 UENUM()
 enum class ESTPriority : uint8
@@ -65,7 +53,6 @@ enum class ESTTrainPhase : uint8
 namespace STNames
 {
 	SMARTTRAINS_API const TCHAR* Role(ESTRole Role);
-	SMARTTRAINS_API const TCHAR* Request(ESTRequest Request);
 	// True for roles whose platforms managed trains unload at (Demand, Sink).
 	SMARTTRAINS_API bool Unloads(ESTRole Role);
 	SMARTTRAINS_API const TCHAR* Priority(ESTPriority Priority);
@@ -132,10 +119,6 @@ struct SMARTTRAINS_API FSTPlatformConfig
 	UPROPERTY(SaveGame)
 	TArray<FSTItemRule> Items;
 
-	// Demand: when a train is emptied for this platform.
-	UPROPERTY(SaveGame)
-	ESTRequest Request = ESTRequest::Auto;
-
 	// Load/unload setting the platform had before it got a role, put back when the role is removed.
 	UPROPERTY(SaveGame)
 	bool bOriginalLoadMode = false;
@@ -163,140 +146,24 @@ struct SMARTTRAINS_API FSTStationConfig
 	// Idle managed trains park here.
 	UPROPERTY(SaveGame)
 	bool bDepot = false;
-
-	// Pool tag from 0.1.0 to 0.3.0; no longer used, only logged and cleared on load.
-	UPROPERTY(SaveGame)
-	FString Pool;
 };
 
-// One stop of a service loop: the station and what its cars load and unload there.
+// A player's settings for one item's group (Docs/Architecture.md, "Groups"). Without one, the group takes the trains it
+// needs.
 USTRUCT()
-struct SMARTTRAINS_API FSTServiceStop
+struct SMARTTRAINS_API FSTGroupConfig
 {
 	GENERATED_BODY()
-
-	UPROPERTY(SaveGame)
-	TObjectPtr<AFGTrainStationIdentifier> Station = nullptr;
-
-	UPROPERTY(SaveGame)
-	TArray<TSubclassOf<UFGItemDescriptor>> LoadItems;
-
-	UPROPERTY(SaveGame)
-	TArray<TSubclassOf<UFGItemDescriptor>> UnloadItems;
-};
-
-// A flow-plan route a service carries, and what one of its trains carries of it per loop.
-USTRUCT()
-struct SMARTTRAINS_API FSTServiceFlow
-{
-	GENERATED_BODY()
-
-	UPROPERTY(SaveGame)
-	TObjectPtr<AFGTrainStationIdentifier> From = nullptr;
-
-	UPROPERTY(SaveGame)
-	TObjectPtr<AFGTrainStationIdentifier> To = nullptr;
 
 	UPROPERTY(SaveGame)
 	TSubclassOf<UFGItemDescriptor> Item;
 
-	// [/s]
-	UPROPERTY(SaveGame)
-	double Flow = 0.0;
-
-	UPROPERTY(SaveGame)
-	double PerTrain = 0.0;
-};
-
-// A service: a loop made from the flow plan and the trains running it as a looping timetable (Docs/Architecture.md,
-// "Services").
-USTRUCT()
-struct SMARTTRAINS_API FSTService
-{
-	GENERATED_BODY()
-
-	UPROPERTY(SaveGame)
-	int32 Id = 0;
-
-	// The car layout its trains share (STLayout::GetLayoutKey).
-	UPROPERTY(SaveGame)
-	FString Layout;
-
-	UPROPERTY(SaveGame)
-	TArray<FSTServiceStop> Stops;
-
-	UPROPERTY(SaveGame)
-	TArray<FSTServiceFlow> Flows;
-
-	UPROPERTY(SaveGame)
-	TArray<TObjectPtr<AFGTrain>> Trains;
-
-	// One loop with stays. [s]
-	UPROPERTY(SaveGame)
-	double CycleSeconds = 0.0;
-
-	// Trains its flows need.
-	UPROPERTY(SaveGame)
-	double Needed = 0.0;
-
-	// When a train last left its first stop (Now()).
-	UPROPERTY(SaveGame)
-	double LastDeparture = -1.0e9;
-
-	UPROPERTY(SaveGame)
-	double CreatedAt = 0.0;
-
-	UPROPERTY(SaveGame)
-	int32 Version = 1;
-
-	// Flow plans in a row without its flows.
-	UPROPERTY(SaveGame)
-	int32 MissingPlans = 0;
-
-	// Player settings: no automatic changes to its stops; spacing; fewest and most trains (0: automatic).
-	UPROPERTY(SaveGame)
-	bool bLocked = false;
-
-	UPROPERTY(SaveGame)
-	float SpacingMinutes = 0.f;
-
+	// Fewest and most trains whose home it is (0: automatic).
 	UPROPERTY(SaveGame)
 	int32 MinTrains = 0;
 
 	UPROPERTY(SaveGame)
 	int32 MaxTrains = 0;
-};
-
-// A player's settings for one item's service (Docs/Architecture.md, "Services"). Without one, services are automatic.
-USTRUCT()
-struct SMARTTRAINS_API FSTServiceConfig
-{
-	GENERATED_BODY()
-
-	UPROPERTY(SaveGame)
-	TSubclassOf<UFGItemDescriptor> Item;
-
-	// Keep a service train even when the flow plan needs less than one.
-	UPROPERTY(SaveGame)
-	bool bPinned = false;
-
-	// Never give this item a service; pool trains carry it.
-	UPROPERTY(SaveGame)
-	bool bPooled = false;
-
-	// Only these trains run the service (empty: any train whose cars all fit).
-	UPROPERTY(SaveGame)
-	TArray<TObjectPtr<AFGTrain>> Trains;
-
-	// Minutes between the service's pickups; 0: its round trip divided over its trains.
-	UPROPERTY(SaveGame)
-	float RhythmMinutes = 0.f;
-
-	// Its flows only run in loops of their own, never merged with other items' loops.
-	UPROPERTY(SaveGame)
-	bool bDedicated = false;
-
-	bool IsDefault() const { return !bPinned && !bPooled && !bDedicated && Trains.Num() == 0 && RhythmMinutes <= 0.f; }
 };
 
 // What one car loads or unloads at one stop of a job.
@@ -351,30 +218,12 @@ struct SMARTTRAINS_API FSTJobLeg
 	UPROPERTY(SaveGame)
 	double PlannedArrival = 0.0;
 
-	//~ One item for the whole stop, from 0.1.0 to 0.3.0 saves; turned into Work on load (ConvertOldWork).
-	UPROPERTY(SaveGame)
-	TSubclassOf<UFGItemDescriptor> Item;
-
-	UPROPERTY(SaveGame)
-	bool bLoad = false;
-
-	UPROPERTY(SaveGame)
-	TArray<TObjectPtr<AFGRailroadVehicle>> Cars;
-
-	UPROPERTY(SaveGame)
-	int32 PlannedAmount = 0;
-
-	UPROPERTY(SaveGame)
-	int32 MovedAmount = 0;
-
 	// Items loaded (bLoad) or unloaded here, each once.
 	TArray<UClass*> GetItems(bool bWantLoad) const;
 	// Total planned or moved amount of the loads or unloads here.
 	int32 GetPlanned(bool bWantLoad) const;
 	int32 GetMoved(bool bWantLoad) const;
 	bool HasWork() const { return Work.Num() > 0; }
-	// Turns the old one-item fields into Work entries, one per car.
-	void ConvertOldWork();
 };
 
 // A managed train's work: stops in order, written into its timetable.
@@ -403,46 +252,13 @@ struct SMARTTRAINS_API FSTJob
 	UPROPERTY(SaveGame)
 	bool bPark = false;
 
-	// A run of the train's last job again, because nothing new was worth it: reserves nothing, and the train counts as
-	// free for new trips.
+	// The item group the trip was planned for: the train's home group, or the one it was lent to.
 	UPROPERTY(SaveGame)
-	bool bRepeat = false;
-
-	// A repeat that runs the last job's stops without moving anything, because no depot is free.
-	UPROPERTY(SaveGame)
-	bool bLoop = false;
-
-	// Planned for a platform's request: empties a car (and picks up and delivers when it can).
-	UPROPERTY(SaveGame)
-	bool bRequest = false;
-
-	// A cycle of this service (0: not a service cycle).
-	UPROPERTY(SaveGame)
-	int32 ServiceId = 0;
+	TSubclassOf<UFGItemDescriptor> GroupItem;
 
 	// One line for logs and readouts.
 	UPROPERTY(SaveGame)
 	FString Summary;
-};
-
-// A demand platform's request a train is serving (Docs/Architecture.md, "Requests").
-USTRUCT()
-struct SMARTTRAINS_API FSTRequestClaim
-{
-	GENERATED_BODY()
-
-	UPROPERTY(SaveGame)
-	TObjectPtr<AFGTrainStationIdentifier> Station = nullptr;
-
-	UPROPERTY(SaveGame)
-	TObjectPtr<AFGBuildableTrainPlatformCargo> Platform = nullptr;
-
-	UPROPERTY(SaveGame)
-	TSubclassOf<UFGItemDescriptor> Item;
-
-	// The cars that bring it: they unload other items and then load only Item.
-	UPROPERTY(SaveGame)
-	TArray<TObjectPtr<AFGRailroadVehicle>> Cars;
 };
 
 // SmartTrains' state for one train.
@@ -466,17 +282,9 @@ struct SMARTTRAINS_API FSTTrainState
 	UPROPERTY(SaveGame)
 	bool bManaged = false;
 
-	// The last finished job that moved cargo, to run again when nothing new is worth it.
-	UPROPERTY(SaveGame)
-	FSTJob LastWorkJob;
-
 	// Never managed and never proposed by the migration tool.
 	UPROPERTY(SaveGame)
 	bool bKeepVanilla = false;
-
-	// Pool tag from 0.1.0 to 0.3.0; no longer used, only logged and cleared on load.
-	UPROPERTY(SaveGame)
-	FString Pool;
 
 	UPROPERTY(SaveGame)
 	ESTTrainPhase Phase = ESTTrainPhase::Idle;
@@ -522,10 +330,6 @@ struct SMARTTRAINS_API FSTTrainState
 	UPROPERTY(SaveGame)
 	double UnwantedCargoSince = 0.0;
 
-	// Requests this train serves until it has delivered them; it gets no other trips meanwhile.
-	UPROPERTY(SaveGame)
-	TArray<FSTRequestClaim> Requests;
-
 	// Runtime only: moves that moved nothing at their station lately.
 	TArray<FSTNoProgress> NoProgress;
 
@@ -539,25 +343,12 @@ struct SMARTTRAINS_API FSTTrainState
 	bool bReplanFresh = false;
 	// Runtime only: when the trip was last planned again because a parked train couldn't leave a station it needs.
 	double LastRerouted = -1000.0;
-	// Runtime only: when a waiting train last tried to repeat its last trip, and why the last try was refused (logged
-	// when it changes).
-	double LastRepeatTry = -1000.0;
-	FString LastRepeatRefusal;
-
-	// Its service (0: none), the one before, and the player's settings: stay in this service; keep out of services.
+	// Its home group's item (null: none) and the player's Stay in this group: allocation doesn't move it.
 	UPROPERTY(SaveGame)
-	int32 ServiceId = 0;
+	TSubclassOf<UFGItemDescriptor> HomeItem;
 
 	UPROPERTY(SaveGame)
-	int32 LastServiceId = 0;
-
-	UPROPERTY(SaveGame)
-	bool bServiceStay = false;
-
-	UPROPERTY(SaveGame)
-	bool bServiceReserve = false;
-	// Runtime only: it left a stop of a request trip, so its request cars are checked before the pickup.
-	bool bRequestRecheck = false;
+	bool bHomeStay = false;
 
 	// Runtime only: docking state at the last check, when the current dock began, and where.
 	bool bWasDocked = false;

@@ -12,16 +12,6 @@ const TCHAR* STNames::Role(ESTRole Role)
 	}
 }
 
-const TCHAR* STNames::Request(ESTRequest Request)
-{
-	switch (Request)
-	{
-	case ESTRequest::On: return TEXT("On");
-	case ESTRequest::Off: return TEXT("Off");
-	default: return TEXT("Automatic");
-	}
-}
-
 bool STNames::Unloads(ESTRole Role)
 {
 	return Role == ESTRole::Demand || Role == ESTRole::Sink;
@@ -178,24 +168,4 @@ int32 FSTJobLeg::GetMoved(bool bWantLoad) const
 		Total += Each.bLoad == bWantLoad ? Each.MovedAmount : 0;
 	}
 	return Total;
-}
-
-void FSTJobLeg::ConvertOldWork()
-{
-	if (Work.Num() > 0 || !Item)
-	{
-		return;
-	}
-	const int32 Count = FMath::Max(1, Cars.Num());
-	for (const TObjectPtr<AFGRailroadVehicle>& Car : Cars)
-	{
-		FSTCarWork& Each = Work.AddDefaulted_GetRef();
-		Each.Car = Car;
-		Each.Item = Item;
-		Each.bLoad = bLoad;
-		Each.PlannedAmount = PlannedAmount / Count;
-	}
-	Item = nullptr;
-	Cars.Reset();
-	PlannedAmount = 0;
 }

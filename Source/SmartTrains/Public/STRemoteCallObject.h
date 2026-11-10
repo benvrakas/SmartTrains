@@ -22,10 +22,6 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_SetPlatform(AFGBuildableTrainPlatformCargo* Platform, ESTRole Role, const TArray<FSTItemRule>& Items, int32 Edit);
 
-	// Sets when a train is emptied for a demand platform.
-	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_SetPlatformRequest(AFGBuildableTrainPlatformCargo* Platform, ESTRequest Request, int32 Edit);
-
 	// Gives every platform of the same cargo type in Platform's station Platform's settings.
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_CopyPlatformToStation(AFGBuildableTrainPlatformCargo* Platform, int32 Edit);

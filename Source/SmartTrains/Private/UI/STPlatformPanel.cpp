@@ -41,16 +41,6 @@ namespace
 		}
 	}
 
-	FText RequestHint(ESTRequest Request)
-	{
-		switch (Request)
-		{
-		case ESTRequest::On: return LOCTEXT("HintRequestOn", "On: until it and the deliveries on the way are 90% full, and no train has an empty car that lines up with it, a train that holds other cargo is emptied first and sent for it.");
-		case ESTRequest::Off: return LOCTEXT("HintRequestOff", "Off: it only gets trains with room for its items.");
-		default: return LOCTEXT("HintRequestAuto", "Automatic: when it will fall below its target soon (Mods menu: Request a train this early), too little is on the way and no train has an empty car that lines up with it, a train that holds other cargo is emptied first and sent for it.");
-		}
-	}
-
 	template <typename EnumType>
 	EnumType StepEnum(EnumType Value, int32 Step, int32 Count)
 	{
@@ -122,9 +112,6 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 	mRoleButton = MakeButton(mMain, FText::GetEmpty(), [this]() { StepRole(1); }, FMargin(0.f, 6.f, 0.f, 2.f));
 	mRoleButton->OnRightClick = [this]() { StepRole(-1); };
 	mRoleHint = MakeText(mMain, RoleHint(ESTRole::Off), 10);
-	mRequestButton = MakeButton(mMain, FText::GetEmpty(), [this]() { StepRequest(1); }, FMargin(0.f, 6.f, 0.f, 2.f));
-	mRequestButton->OnRightClick = [this]() { StepRequest(-1); };
-	mRequestHint = MakeText(mMain, RequestHint(ESTRequest::Auto), 10);
 
 	mItemsLabel = MakeText(mMain, LOCTEXT("ItemsLabel", "Items"), 13, false, FMargin(0.f, 8.f, 0.f, 2.f));
 	mNoItems = MakeText(mMain, LOCTEXT("NoItems", "No items yet. Add the item this platform supplies or demands."), 10);
@@ -197,7 +184,6 @@ bool USTPlatformPanel::OnShown()
 	bHasSettings = false;
 	mLastEdit = 0;
 	mRole = ESTRole::Off;
-	mRequest = ESTRequest::Auto;
 	mItems.Reset();
 	mItemLines.Reset();
 	mRowItems.Reset();
@@ -243,7 +229,6 @@ void USTPlatformPanel::Refresh(USTRemoteCallObject* RCO)
 	if (View->AppliedEdit >= mLastEdit)
 	{
 		mRole = View->Role;
-		mRequest = View->Request;
 		mItems = View->Items;
 		mItemLines = View->ItemLines;
 		bHasSettings = true;
@@ -277,21 +262,6 @@ void USTPlatformPanel::SendEdit(const TCHAR* What)
 void USTPlatformPanel::StepRole(int32 Step)
 {
 	SetRole(StepEnum(mRole, Step, static_cast<int32>(ESTRole::Sink) + 1));
-}
-
-void USTPlatformPanel::StepRequest(int32 Step)
-{
-	USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
-	AFGBuildableTrainPlatformCargo* Platform = GetPlatform();
-	if (!bHasSettings || mRole != ESTRole::Demand || !RCO || !Platform)
-	{
-		return;
-	}
-	mRequest = StepEnum(mRequest, Step, static_cast<int32>(ESTRequest::Off) + 1);
-	mLastEdit = RCO->NextEdit();
-	UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: request on %s -> %s (edit %d)"), *Platform->GetName(), STNames::Request(mRequest), mLastEdit);
-	RCO->Server_SetPlatformRequest(Platform, mRequest, mLastEdit);
-	RefreshEditor();
 }
 
 void USTPlatformPanel::SetRole(ESTRole NewRole)
@@ -376,13 +346,6 @@ void USTPlatformPanel::RefreshEditor()
 	mRoleButton->SetText(FText::Format(LOCTEXT("RoleButton", "Role: {0}"), FText::FromString(STNames::Role(mRole))));
 	mRoleButton->SetIsEnabled(bHasSettings);
 	mRoleHint->SetText(RoleHint(mRole));
-	const bool bDemand = mRole == ESTRole::Demand;
-	mRequestButton->SetText(FText::Format(LOCTEXT("RequestButton", "Request a train: {0}"), FText::FromString(STNames::Request(mRequest))));
-	mRequestButton->SetIsEnabled(bHasSettings);
-	// Requests ended in 0.8.0: the horizon planner empties cars for short platforms itself. The saved setting stays.
-	mRequestButton->SetVisibility(ESlateVisibility::Collapsed);
-	mRequestHint->SetText(RequestHint(mRequest));
-	mRequestHint->SetVisibility(ESlateVisibility::Collapsed);
 	const bool bHasItems = mRole == ESTRole::Supply || mRole == ESTRole::Demand;
 	mItemsLabel->SetVisibility(bHasItems ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	mItemBox->SetVisibility(bHasItems ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);

@@ -27,15 +27,6 @@ struct FSTPlanStop
 	AFGTrainStationIdentifier* Station = nullptr;
 	TArray<UClass*> LoadItems;
 	TArray<UClass*> UnloadItems;
-	// Items loaded here for a request: no minimum batch.
-	TArray<UClass*> NoBatchItems;
-};
-
-// A demand platform asking for a train: its demand node and the platform.
-struct FSTRequestTarget
-{
-	int32 Node = INDEX_NONE;
-	const AFGBuildableTrainPlatformCargo* Platform = nullptr;
 };
 
 // What one car does at one stop of a simulated trip.
@@ -105,51 +96,14 @@ public:
 
 	// Adds moves by regret insertion while the trip's score rises; returns the final result.
 	FSTPlanResult Improve(TArray<FSTPlanStop>& InOutStops, int32 FirstMovable) const;
-	// While on, Improve only adds deliveries of cargo already on board (a shuttle emptying before its route).
-	void SetDeliveriesOnly(bool bOn) { bDeliveriesOnly = bOn; }
-	// A train switching services may dump cargo that isn't its new service's into sinks, at the cargo's value.
-	void SetSwitching(bool bOn) { bSwitching = bOn; }
+	// While set, Improve only adds moves of Item and deliveries of cargo already on board (a home group's trip, which
+	// other work may join afterwards); null: any move.
+	void SetOnlyItem(UClass* Item) { mOnlyItem = Item; }
 	// The current train's cars and start only (no moves): enough to simulate given stops.
 	bool PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bInAnchorDocked);
-	// More planning time for this planner (the service designer). [ms]
-	void RaiseBudget(double Milliseconds);
-	// A flow a service loop carries: what one train carries of it per loop comes from AllocateServiceCars.
-	struct FFlowRef
-	{
-		const AFGTrainStationIdentifier* From = nullptr;
-		const AFGTrainStationIdentifier* To = nullptr;
-		UClass* Item = nullptr;
-		double Flow = 0.0;
-	};
-	// Per flow (same order): what the current train carries of it per loop of Stops. Each car carries one flow at a time,
-	// from a stop where it lines up with a supply platform of the item to one where it lines up with a demand platform;
-	// a car may carry several flows one after another. Every flow gets a car first, then the busiest take the rest.
-	TArray<double> AllocateServiceCars(const TArray<FSTPlanStop>& Stops, const TArray<FFlowRef>& Flows) const;
-
-	// A trip for Target's request (Docs/Architecture.md, "Requests"): stops that empty the cars that line up with its
-	// platform of other items, whatever empties them soonest, then a pickup (no minimum batch) and the delivery if they
-	// fit in one trip. bOutDelivers: the trip delivers; otherwise it only empties cars. OutCars: the cars it uses.
-	// Returns false with OutWhy if the current train can't serve it.
-	bool PlanRequest(const FSTRequestTarget& Target, TArray<FSTPlanStop>& OutStops, FSTPlanResult& OutResult, bool& bOutDelivers, TArray<int32>& OutCars,
-		FString& OutWhy) const;
-	// Adds Target's pickup and delivery to a request trip, with cars not in Taken, where KeepsOthers still holds; the
-	// soonest ending way. Returns false if none works.
-	bool AddRequest(TArray<FSTPlanStop>& InOutStops, FSTPlanResult& InOutResult, const FSTRequestTarget& Target, const TArray<int32>& Taken, TArray<int32>& OutCars,
-		TFunctionRef<bool(const TArray<FSTPlanStop>&, const FSTPlanResult&)> KeepsOthers) const;
-	// True if Cars load nothing in Stops but Item at stops where Item is loaded for a request (Item null: nothing).
-	bool KeepsRequestCars(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, const TArray<int32>& Cars, UClass* Item) const;
-	// What a simulated trip unloads of Item at the stops at Station (any station if null).
 	// The current train's planning inputs (cars, platforms, dock maps, start), for /st snapshot.
 	TSharedRef<class FJsonObject> DescribeForReplay() const;
 	const TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& GetBookings() const { return mBookings; }
-	// A booking at Station by a train Filter accepts (not this one) starts within Window of Time.
-	bool IsBookedNear(const AFGTrainStationIdentifier* Station, double Time, double Window, TFunctionRef<bool(int32)> Filter) const;
-	static int32 CountUnloaded(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, UClass* Item, const AFGTrainStationIdentifier* Station);
-	// What a simulated trip unloads of Item into Platform; OutStop: the first stop that does.
-	static int32 CountUnloadedInto(const FSTPlanResult& Result, UClass* Item, const AFGBuildableTrainPlatformCargo* Platform, int32* OutStop = nullptr);
-	// The current train's car index of Car (INDEX_NONE if not one of its freight cars), and the car at Index.
-	int32 FindCar(const AFGRailroadVehicle* Car) const;
-	AFGFreightWagon* GetCar(int32 Index) const;
 
 	// Drops items that move nothing and stops left with nothing to do, from FirstMovable on.
 	static void Trim(TArray<FSTPlanStop>& InOutStops, const FSTPlanResult& Result, int32 FirstMovable);
@@ -161,9 +115,6 @@ public:
 	// after it.
 	void Reserve(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result);
 
-	// Takes a trip Reserve added back out: amounts, events and bookings.
-	void Unreserve(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result);
-
 	// Takes the planned amounts of Legs (from index From on) out of the node reservations, before they are re-planned.
 	void Release(const TArray<FSTJobLeg>& Legs, int32 From);
 
@@ -174,7 +125,7 @@ public:
 	void RaiseTripLimit(double Seconds);
 	// Back to the setting's limit, or AtLeast if that is longer.
 	void ResetTripLimit(double AtLeast);
-	// Lets the current train's trip have at least Stops stops (a service's whole loop, the rest of a trip under way);
+	// Lets the current train's trip have at least Stops stops (the rest of a trip under way);
 	// reset by BeginTrain, ResumeTrain and PrepareCars.
 	void RaiseStopLimit(int32 Stops);
 	// Lets the current train's trip wait for a busy station beyond the queue and waiting-room limits (the rest of a trip
@@ -221,15 +172,6 @@ private:
 	// The current train, if it is a live one.
 	const AFGTrain* TrainNow() const;
 	FString TrainName() const;
-	// A supplier for a request, with the current train's cars that line up with its loader and the requesting platform.
-	struct FRequestSource
-	{
-		AFGTrainStationIdentifier* Station = nullptr;
-		float Seconds = 0.f;
-		TArray<int32> Cars;
-	};
-	// The nearest suppliers for Target with such cars, leaving out cars in Taken; empty with OutWhy if none.
-	TArray<FRequestSource> FindRequestSources(const FSTRequestTarget& Target, const TArray<int32>& Taken, FString& OutWhy) const;
 	// True if car Index of the current train stops beside a platform passing Test at Station, whichever way it docks.
 	bool CarFitsAt(int32 Index, const AFGTrainStationIdentifier* Station, TFunctionRef<bool(const FPlatformInfo&)> Test) const;
 	// True if the current train can serve Station (same track network); always true in the automation tests.
@@ -283,8 +225,7 @@ private:
 	// Rejection reason -> how often it came up for the current train.
 	mutable TMap<FString, int32> mProblems;
 	bool bFcc = false;
-	bool bDeliveriesOnly = false;
-	bool bSwitching = false;
+	UClass* mOnlyItem = nullptr;
 	// Automation tests: every station counts as on the train's track network (they have no world).
 	bool bServeAll = false;
 	int32 mMaxStops = 4;
@@ -331,10 +272,3 @@ private:
 	};
 	TMap<int32, FTrainSetup> mSetups;
 };
-
-namespace STAssignment
-{
-	// Assigns rows to columns (each at most once) for the largest total Value; returns each row's column, or
-	// INDEX_NONE where a row gets nothing worth more than 0. Hungarian method, O(rows^2 x columns).
-	TArray<int32> Solve(const TArray<TArray<double>>& Value);
-}

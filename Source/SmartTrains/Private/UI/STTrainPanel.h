@@ -41,9 +41,6 @@ private:
 	TObjectPtr<USTButton> mStay;
 
 	UPROPERTY()
-	TObjectPtr<USTButton> mReserve;
-
-	UPROPERTY()
 	TObjectPtr<UTextBlock> mStatus;
 
 	UPROPERTY()
@@ -53,5 +50,4 @@ private:
 	bool bEditLocked = false;
 	bool bManaged = false;
 	bool bStay = false;
-	bool bReserve = false;
 };

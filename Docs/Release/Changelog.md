@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.10.0 (beta)
+
+**Services are replaced by item groups.** Trains no longer belong to fixed loops; they take work as it comes up.
+
+- **Item groups:** every item the plan moves is a group of its suppliers and consumers, and a new station joins its
+  item's group by itself. Each managed train gets a **home group** its cars fit, shared out by what the groups need.
+  With too few trains every group gets its share, and spare trains spread the same way.
+- **Trips:** a free train takes its home group's work first and may add other work on the way (another item for the
+  same factory, a load back instead of running empty). When its group has nothing to move, it is **lent** to whatever
+  is worth running elsewhere (log `LEND`). Only with nothing anywhere does it park.
+- **Fixed: "short of trains" with trains waiting at the depot.** A service owned its trains, so a service train
+  with nothing to move on its loop parked while other services were short. On the IB save the monitor called 25
+  trains 11 to 18 short while service trains stood at Train Station 114 to 118. A group is now short only while it
+  lacks trains and no train that fits it is idle: idle trains that fit mean too little to move, not too few trains.
+- **Steadier:** a group's need is smoothed over flow plans, and trains keep their homes while their group still
+  wants them. Needs that swung from 6.6 trains to 0.2 between plans used to send trains across the map and back.
+- **Monitor:** the Services tab is now **Groups**: home trains and trains needed, trains working on it now (home or
+  lent), routes, and what each home train does. The Overview shows the groups short of trains, or says the idle
+  trains have nothing they fit to move.
+- **Commands:** `/st group` lists the groups, `/st group <item>` shows one, and `/st group <item> trains <least>
+  <most>` sets limits (saved per item, so they survive re-planning). `/st train stay on|off` keeps a train's home
+  group. The locomotive menu's **Stay in its home group** replaces **Stay in this service**.
+- **Removed:** service loops, spacing and loop locks (`/st service`), **Keep out of services** (switch a train's
+  management off instead), and code left from earlier versions: the roster and shuttles, platform requests (their
+  hidden button too), repeat and loop jobs, the unused horizon search and train assignment, and the conversions for
+  saves from 0.6.8 and older.
+- **Saves:** services, their settings and train service flags from 0.9.x are dropped; groups form from the first flow
+  plan after loading (about 30 s). Saves from 0.6.8 or older should be loaded once in 0.9.5 first.
+
 ## 0.9.5 (beta)
 
 - **Fixed: a service train clearing other cargo could be sent off on unrelated trips.** A train joining a service first

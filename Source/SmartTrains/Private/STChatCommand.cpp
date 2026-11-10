@@ -206,8 +206,8 @@ namespace
 		TEXT("/st station [depot on|off]"),
 		TEXT("/st train [manage|unmanage] [keepvanilla on|off]"),
 		TEXT("/st snapshot   (the next dispatch round's planning inputs to a file in the server's Saved/SmartTrains/Snapshots, for replay tests; admin only)"),
-		TEXT("/st service   (services) | /st service S3 [lock|unlock|spacing <minutes>|trains <least> <most>] | /st service <item> dedicated|auto"),
-		TEXT("/st train stay on|off   (stay in its service) | /st train reserve on|off   (keep out of services)"),
+		TEXT("/st group   (item groups) | /st group <item> [trains <least> <most>]   (0 0: automatic)"),
+		TEXT("/st train stay on|off   (keep its home group)"),
 		TEXT("/st job <item> from <station> to <station>   (a test job for the train you drive or look at)"),
 		TEXT("/st migrate   (opens the migration window)"),
 		TEXT("/st migrate preview [tracelimit 5000] [allitems] | apply all [confirm] | apply stations 1,2 trains 3 | undo"),
@@ -366,24 +366,6 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			Sender->SendChatMessage(Result, Copied < 0 ? FLinearColor::Red : FLinearColor::White);
 			return Copied < 0 ? EExecutionStatus::UNCOMPLETED : EExecutionStatus::COMPLETED;
 		}
-		if (Arguments.Num() >= 2 && Arguments[1].Equals(TEXT("request"), ESearchCase::IgnoreCase))
-		{
-			const FString Mode = Arguments.Num() >= 3 ? Arguments[2].ToLower() : FString();
-			const ESTRequest Wanted = Mode == TEXT("on") ? ESTRequest::On : (Mode == TEXT("off") ? ESTRequest::Off : ESTRequest::Auto);
-			if (Mode != TEXT("on") && Mode != TEXT("off") && Mode != TEXT("auto"))
-			{
-				Sender->SendChatMessage(TEXT("Use /st platform request auto|on|off"), FLinearColor::Red);
-				return EExecutionStatus::BAD_ARGUMENTS;
-			}
-			FString Error;
-			if (!Subsystem->SetPlatformRequest(Platform, Wanted, Who, Error))
-			{
-				Sender->SendChatMessage(Error, FLinearColor::Red);
-				return EExecutionStatus::UNCOMPLETED;
-			}
-			Send(Sender, Subsystem->DescribePlatform(Platform));
-			return EExecutionStatus::COMPLETED;
-		}
 		if (Arguments.Num() >= 2)
 		{
 			const TOptional<ESTRole> WantedRole = STNames::ParseRole(Arguments[1]);
@@ -527,9 +509,9 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			{
 				Subsystem->SetTrainKeepVanilla(Train, IsOn(Arguments[++Index]), Who);
 			}
-			else if ((Word == TEXT("stay") || Word == TEXT("reserve")) && Index + 1 < Arguments.Num())
+			else if (Word == TEXT("stay") && Index + 1 < Arguments.Num())
 			{
-				Subsystem->SetTrainServiceFlags(Train, Word == TEXT("stay"), IsOn(Arguments[++Index]), Who);
+				Subsystem->SetTrainHomeStay(Train, IsOn(Arguments[++Index]), Who);
 			}
 		}
 		Send(Sender, Subsystem->DescribeTrain(Train));
@@ -547,76 +529,64 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		return EExecutionStatus::COMPLETED;
 	}
 
-	if (Verb == TEXT("service") && Arguments.Num() >= 2 && Arguments[1].Len() > 1 && (Arguments[1][0] == TEXT('S') || Arguments[1][0] == TEXT('s'))
-		&& Arguments[1].RightChop(1).IsNumeric())
+	if (Verb == TEXT("group"))
 	{
-		const int32 Id = FCString::Atoi(*Arguments[1].RightChop(1));
-		if (Arguments.Num() >= 3)
+		// /st group <item words> [trains <least> <most>]
+		const int32 TrainsAt = Arguments.IndexOfByPredicate([](const FString& Word) { return Word.Equals(TEXT("trains"), ESearchCase::IgnoreCase); });
+		const int32 ItemEnd = TrainsAt != INDEX_NONE ? TrainsAt : Arguments.Num();
+		if (ItemEnd <= 1)
 		{
-			if (!Allowed(Sender, *Subsystem, STAccess::EChange::Edit, TEXT("change service settings")))
+			Send(Sender, Subsystem->DescribeGroups());
+			return EExecutionStatus::COMPLETED;
+		}
+		const FString ItemName = FString::Join(TArray<FString>(Arguments.GetData() + 1, ItemEnd - 1), TEXT(" "));
+		TSubclassOf<UFGItemDescriptor> Item;
+		FString Error;
+		if (!FindItem(ItemName, Item, Error) || !Item)
+		{
+			Sender->SendChatMessage(Error.IsEmpty() ? TEXT("Name an item, e.g. /st group sulfur trains 2 4.") : Error, FLinearColor::Red);
+			return EExecutionStatus::UNCOMPLETED;
+		}
+		if (TrainsAt != INDEX_NONE)
+		{
+			if (TrainsAt + 2 >= Arguments.Num())
+			{
+				Sender->SendChatMessage(TEXT("Use /st group <item> trains <least> <most> (0 0: automatic)."), FLinearColor::Red);
+				return EExecutionStatus::BAD_ARGUMENTS;
+			}
+			if (!Allowed(Sender, *Subsystem, STAccess::EChange::Edit, TEXT("change group settings")))
 			{
 				return EExecutionStatus::UNCOMPLETED;
 			}
 			FString Result;
-			const bool bDone = Subsystem->SetServiceSettings(Id, Arguments[2].ToLower(), Arguments.Num() >= 4 ? FCString::Atof(*Arguments[3]) : 0.f,
-				Arguments.Num() >= 5 ? FCString::Atof(*Arguments[4]) : 0.f, Who, Result);
+			const bool bDone = Subsystem->SetGroupTrains(Item.Get(), FCString::Atoi(*Arguments[TrainsAt + 1]), FCString::Atoi(*Arguments[TrainsAt + 2]), Who, Result);
 			Sender->SendChatMessage(Result, bDone ? FLinearColor::White : FLinearColor::Red);
+		}
+		const FSTGroup* Group = Subsystem->FindGroup(Item.Get());
+		if (!Group)
+		{
+			Sender->SendChatMessage(FString::Printf(TEXT("%s has no group now: the flow plan has no route for it a managed train fits."), *STNames::Item(Item)));
 			return EExecutionStatus::COMPLETED;
 		}
-		const FSTService* Service = Subsystem->FindService(Id);
-		if (!Service)
+		for (const FString& Line : Subsystem->DescribeGroups())
 		{
-			Sender->SendChatMessage(FString::Printf(TEXT("There is no service S%d."), Id), FLinearColor::Red);
-			return EExecutionStatus::UNCOMPLETED;
-		}
-		for (const FString& Line : Subsystem->DescribeServices())
-		{
-			if (Line.StartsWith(FString::Printf(TEXT("S%d "), Id)))
+			if (Line.StartsWith(ASTSubsystem::DescribeGroup(*Group) + TEXT(":")))
 			{
 				Sender->SendChatMessage(Line);
 			}
 		}
-		for (const TObjectPtr<AFGTrain>& Train : Service->Trains)
+		for (const FSTFlowRoute& Route : Group->Routes)
 		{
-			if (const FSTTrainState* State = Subsystem->FindTrainState(Train))
+			Sender->SendChatMessage(FString::Printf(TEXT("  %s -> %s: %s/min, %.2f trains"), *STLayout::Name(Route.From.Get()), *STLayout::Name(Route.To.Get()),
+				*STNames::Amount(Item, Route.Flow * 60.0), Route.Trains));
+		}
+		for (const TWeakObjectPtr<AFGTrain>& Train : Group->Homes)
+		{
+			if (const FSTTrainState* State = Subsystem->FindTrainState(Train.Get()))
 			{
-				Sender->SendChatMessage(FString::Printf(TEXT("  %s: %s"), *STLayout::Name(Train), *Subsystem->DescribeServiceRole(*State)));
+				Sender->SendChatMessage(FString::Printf(TEXT("  %s: %s"), *STLayout::Name(Train.Get()), *Subsystem->DescribeHome(*State)));
 			}
 		}
-		return EExecutionStatus::COMPLETED;
-	}
-
-	if (Verb == TEXT("service"))
-	{
-		// /st service <item words> <verb> [minutes]: the verb is the first known word after the item.
-		static const TArray<FString> Verbs = {TEXT("dedicated"), TEXT("auto")};
-		int32 VerbAt = INDEX_NONE;
-		for (int32 Index = 2; Index < Arguments.Num() && VerbAt == INDEX_NONE; ++Index)
-		{
-			VerbAt = Verbs.Contains(Arguments[Index].ToLower()) ? Index : INDEX_NONE;
-		}
-		if (VerbAt != INDEX_NONE)
-		{
-			if (!Allowed(Sender, *Subsystem, STAccess::EChange::Edit, TEXT("change service settings")))
-			{
-				return EExecutionStatus::UNCOMPLETED;
-			}
-			const FString ItemName = FString::Join(TArray<FString>(Arguments.GetData() + 1, VerbAt - 1), TEXT(" "));
-			TSubclassOf<UFGItemDescriptor> Item;
-			FString Error;
-			if (!FindItem(ItemName, Item, Error) || !Item)
-			{
-				Sender->SendChatMessage(Error.IsEmpty() ? TEXT("Name an item, e.g. /st service sulfur pin.") : Error, FLinearColor::Red);
-				return EExecutionStatus::UNCOMPLETED;
-			}
-			const FString Word = Arguments[VerbAt].ToLower();
-			const float Minutes = VerbAt + 1 < Arguments.Num() ? FCString::Atof(*Arguments[VerbAt + 1]) : 0.f;
-			AFGTrain* Train = Word == TEXT("add") || Word == TEXT("remove") ? FindTrain(Sender) : nullptr;
-			FString Result;
-			const bool bDone = Subsystem->SetService(Item.Get(), Word, Minutes, Train, Who, Result);
-			Sender->SendChatMessage(Result, bDone ? FLinearColor::White : FLinearColor::Red);
-		}
-		Send(Sender, Subsystem->DescribeServices());
 		return EExecutionStatus::COMPLETED;
 	}
 

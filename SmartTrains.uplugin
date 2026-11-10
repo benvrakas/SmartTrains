@@ -2,7 +2,7 @@
 	"FileVersion": 3,
 	"Version": 0,
 	"VersionName": "0.6.4",
-	"SemVersion": "0.9.5",
+	"SemVersion": "0.10.0",
 	"GameVersion": ">=513885",
 	"FriendlyName": "SmartTrains",
 	"Description": "Trains without fixed timetables: give freight platforms a role and items, and free trains move them from supply to demand by stock, rate and distance.",

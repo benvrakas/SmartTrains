@@ -52,7 +52,7 @@ namespace
 	FString Signature(const FSTMonitorView& View)
 	{
 		FString Text = FString::Join(View.Summary, TEXT("|")) + FString::Join(View.Idle, TEXT("|"));
-		for (const TArray<FSTMonitorRow>* Rows : {&View.Tiles, &View.Services, &View.Items, &View.Stations, &View.Platforms, &View.Trains})
+		for (const TArray<FSTMonitorRow>* Rows : {&View.Tiles, &View.Groups, &View.Items, &View.Stations, &View.Platforms, &View.Trains})
 		{
 			for (const FSTMonitorRow& Row : *Rows)
 			{
@@ -228,7 +228,7 @@ void USTMonitorWindow::BuildContent(UVerticalBox* Root)
 	Root->AddChildToVerticalBox(Bar)->SetPadding(FMargin(0.f, 10.f, 0.f, 0.f));
 	const TArray<TPair<ETab, FText>> Tabs = {
 		{ETab::Overview, LOCTEXT("TabOverview", "Overview")},
-		{ETab::Services, LOCTEXT("TabServices", "Services")},
+		{ETab::Groups, LOCTEXT("TabGroups", "Groups")},
 		{ETab::Items, LOCTEXT("TabItems", "Items")},
 		{ETab::Stations, LOCTEXT("TabStations", "Stations")},
 		{ETab::Platforms, LOCTEXT("TabPlatforms", "Platforms")},
@@ -290,15 +290,15 @@ void USTMonitorWindow::SelectTab(ETab Tab)
 void USTMonitorWindow::UpdateTabs(const FSTMonitorView& View)
 {
 	const TArray<int32> Counts = {
-		CountProblems(View.Items, 2) + CountProblems(View.Stations, 2) + CountProblems(View.Services, 2),
-		CountProblems(View.Services, 2),
+		CountProblems(View.Items, 2) + CountProblems(View.Stations, 2) + CountProblems(View.Groups, 2),
+		CountProblems(View.Groups, 2),
 		CountProblems(View.Items, 2),
 		CountProblems(View.Stations, 2),
 		View.Platforms.Num(),
 		CountProblems(View.Trains, 1),
 	};
 	const TArray<FText> Names = {
-		LOCTEXT("TabOverview", "Overview"), LOCTEXT("TabServices", "Services"), LOCTEXT("TabItems", "Items"), LOCTEXT("TabStations", "Stations"), LOCTEXT("TabPlatforms", "Platforms"),
+		LOCTEXT("TabOverview", "Overview"), LOCTEXT("TabGroups", "Groups"), LOCTEXT("TabItems", "Items"), LOCTEXT("TabStations", "Stations"), LOCTEXT("TabPlatforms", "Platforms"),
 		LOCTEXT("TabTrains", "Trains")};
 	for (int32 Index = 0; Index < mTabs.Num(); ++Index)
 	{
@@ -348,7 +348,7 @@ void USTMonitorWindow::ShowTab(const FSTMonitorView& View)
 	mContent->ClearChildren();
 	switch (sTab)
 	{
-	case ETab::Services: ShowServices(View); break;
+	case ETab::Groups: ShowGroups(View); break;
 	case ETab::Items: ShowItems(View); break;
 	case ETab::Stations: ShowStations(View); break;
 	case ETab::Platforms: ShowPlatforms(View); break;
@@ -577,20 +577,21 @@ void USTMonitorWindow::ShowItems(const FSTMonitorView& View)
 	}
 }
 
-void USTMonitorWindow::ShowServices(const FSTMonitorView& View)
+void USTMonitorWindow::ShowGroups(const FSTMonitorView& View)
 {
-	AddCell(AddLine(FMargin(0.f, 0.f, 0.f, 8.f)), MakeCell(TEXT("Each service is a loop SmartTrains made from the flow plan, run by trains of one car layout as a looping timetable. "
-		"Trains: assigned / needed. Spacing: time between its trains at its first stop. Loop: one round with stays."), 10, MonitorDim, true), 0.f);
-	const TArray<float> Widths = {100.f, 90.f, 80.f};
-	AddHeader({{LOCTEXT("ColService", "Service"), 0.f}, {LOCTEXT("ColStatus", "Status"), 150.f}, {LOCTEXT("ColTrainsNeeded", "Trains"), Widths[0]},
-		{LOCTEXT("ColSpacing", "Spacing"), Widths[1]}, {LOCTEXT("ColLoop", "Loop"), Widths[2]}});
-	for (const FSTMonitorRow& Row : View.Services)
+	AddCell(AddLine(FMargin(0.f, 0.f, 0.f, 8.f)), MakeCell(TEXT("Each item the flow plan moves is a group of its suppliers and consumers. Every managed train has a home "
+		"group, shared out by what the groups need; it takes its group's work first and is lent to other work when its group has none. "
+		"Homes: home trains / trains needed. Working: trains moving the item now, home or lent. Short only while no train that fits has time for it."), 10, MonitorDim, true), 0.f);
+	const TArray<float> Widths = {100.f, 80.f, 70.f};
+	AddHeader({{LOCTEXT("ColGroup", "Group"), 0.f}, {LOCTEXT("ColStatus", "Status"), 150.f}, {LOCTEXT("ColHomes", "Homes"), Widths[0]},
+		{LOCTEXT("ColWorking", "Working"), Widths[1]}, {LOCTEXT("ColRoutes", "Routes"), Widths[2]}});
+	for (const FSTMonitorRow& Row : View.Groups)
 	{
 		AddRow(Row, false, Widths, 0.f, 150.f);
 	}
-	if (View.Services.Num() == 0)
+	if (View.Groups.Num() == 0)
 	{
-		AddNote(LOCTEXT("NoServices", "No services yet: they form from the flow plan once platforms have roles and managed trains fit them."), MonitorDim);
+		AddNote(LOCTEXT("NoGroups", "No groups yet: they form from the flow plan once platforms have roles and managed trains fit them."), MonitorDim);
 	}
 }
 

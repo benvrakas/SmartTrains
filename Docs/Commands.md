@@ -52,18 +52,13 @@ Setting a role switches the platform to load (supply) or unload (demand).
   `/st emptycars all confirm` does it for every managed train. A managed train's trip is planned again. Logged as
   `EMPTY <train> by <player>: removed ...`.
 
-## Services
+## Item groups
 
-- `/st service`: every service (its loop with what each stop loads and drops, trains, spacing, loop time) and the flows
-  no service covers, with why.
-- `/st service S3`: one service and what each of its trains is doing.
-- `/st service S3 lock` / `unlock`: no automatic changes to its loop (and it stays while its flows are gone).
-- `/st service S3 spacing <minutes>`: at most one train leaving its first stop every that many minutes; `0` for the
-  loop time divided over its trains.
-- `/st service S3 trains <least> <most>`: limits on its trains (`0` = automatic).
-- `/st service <item> dedicated`: that item's flows only run in loops of their own; `auto` undoes it.
-- `/st train stay on|off`: the train you drive or look at stays in its service.
-- `/st train reserve on|off`: keeps it out of services (it parks when idle).
+- `/st group`: every item group: home trains and trains needed, trains working on it now, routes, and `[short N]` when
+  it lacks trains while every train that fits it is busy.
+- `/st group <item>`: one group: its routes (supplier, consumer, rate, trains needed) and what each home train does.
+- `/st group <item> trains <least> <most>`: limits on its home trains (`0 0` = automatic). Saved per item.
+- `/st train stay on|off`: the train you drive or look at keeps its home group (the share-out doesn't move it).
 
 ## Snapshots
 

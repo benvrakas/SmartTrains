@@ -156,49 +156,6 @@ void ASTSubsystem::PostLoadGame_Implementation(int32 SaveVersion, int32 GameVers
 	mClockBase = Saved - (World ? World->GetTimeSeconds() : 0.0);
 	mStartTime = Now();
 	UE_LOG(LogSmartTrains, Log, TEXT("Clock continues at %.0f s%s"), Saved, mClockAtSave > 0.0 ? TEXT("") : TEXT(" (save without a clock: latest saved train time)"));
-	for (FSTStationConfig& Config : mStations)
-	{
-		if (!Config.Pool.IsEmpty())
-		{
-			UE_LOG(LogSmartTrains, Log, TEXT("Station %s had pool tag '%s'; pool tags are gone, so it now serves every managed train"), *STLayout::Name(Config.Station), *Config.Pool);
-			Config.Pool.Reset();
-		}
-	}
-	// Before 0.6.9 a sink was a demand platform whose only item was "any item".
-	for (FSTPlatformConfig& Config : mPlatforms)
-	{
-		if (Config.Role == ESTRole::Demand && Config.Items.Num() == 1 && !Config.Items[0].Item)
-		{
-			Config.Role = ESTRole::Sink;
-			UE_LOG(LogSmartTrains, Log, TEXT("PLATFORM %s: demand for any item is now the Sink role"), IsValid(Config.Platform) ? *Config.Platform->GetName() : TEXT("?"));
-		}
-	}
-	// Requests whose platform, station or item is gone are dropped.
-	for (FSTTrainState& State : mTrains)
-	{
-		State.Requests.RemoveAll([](const FSTRequestClaim& Claim) { return !IsValid(Claim.Station) || !IsValid(Claim.Platform) || !Claim.Item; });
-	}
-	int32 Converted = 0;
-	for (FSTTrainState& State : mTrains)
-	{
-		for (FSTJobLeg& Leg : State.Job.Legs)
-		{
-			Converted += Leg.Item ? 1 : 0;
-			Leg.ConvertOldWork();
-		}
-	}
-	if (Converted > 0)
-	{
-		UE_LOG(LogSmartTrains, Log, TEXT("Converted %d job stops from an older save to per-car work"), Converted);
-	}
-	for (FSTTrainState& State : mTrains)
-	{
-		if (!State.Pool.IsEmpty())
-		{
-			UE_LOG(LogSmartTrains, Log, TEXT("Train %s had pool tag '%s'; pool tags are gone, so it now serves every station"), *STLayout::Name(State.Train), *State.Pool);
-			State.Pool.Reset();
-		}
-	}
 	PreSaveGame_Implementation(SaveVersion, GameVersion);
 	for (FSTTrainState& State : mTrains)
 	{
@@ -361,21 +318,6 @@ void ASTSubsystem::SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, E
 	}
 	bDispatchSoon = true;
 	bReplanAll = true;
-}
-
-bool ASTSubsystem::SetPlatformRequest(AFGBuildableTrainPlatformCargo* Platform, ESTRequest Request, const FString& Cause, FString& OutError)
-{
-	FSTPlatformConfig* Config = Platform ? FindPlatformConfig(Platform) : nullptr;
-	if (!Config || Config->Role != ESTRole::Demand)
-	{
-		OutError = TEXT("Only a demand platform asks for a train to be emptied for it.");
-		return false;
-	}
-	const ESTRequest Old = Config->Request;
-	Config->Request = Request;
-	Config->EditedBy = Cause;
-	UE_LOG(LogSmartTrains, Log, TEXT("PLATFORM %s: request %s -> %s by %s"), *Platform->GetName(), STNames::Request(Old), STNames::Request(Request), *Cause);
-	return true;
 }
 
 void ASTSubsystem::SetStationDepot(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Cause)
@@ -604,7 +546,7 @@ void ASTSubsystem::MonitorTrains()
 			UE_LOG(LogSmartTrains, Warning, TEXT("UNREACHABLE %s: the game finds no way to %s (%s for %.0f s, job %d); this train leaves it out for %.0f minutes. Check which way the station faces (a train arrives in its direction; a station built backwards reads as unreachable with signals), then the signals on the way in (a train may not pass a one-way signal from behind)."),
 				*STLayout::Name(Train), *STLayout::Name(Station), *StaticEnum<ESelfDrivingLocomotiveError>()->GetNameStringByValue(static_cast<int64>(Error)),
 				Time - State.SelfDrivingErrorSince, State.Job.Id, UnreachableMinutes);
-			if (State.Job.bPark || State.Job.bRepeat)
+			if (State.Job.bPark)
 			{
 				State.bHasJob = false;
 				State.Phase = ESTTrainPhase::Idle;
@@ -839,7 +781,7 @@ void ASTSubsystem::OnDocked(FSTTrainState& State, AFGTrainStationIdentifier* Sta
 	}
 	mDockStartAmounts.Add(Train, Amounts);
 	const double Late = Now() - Leg.PlannedArrival;
-	if (mThroughput && !State.Job.bPark && !State.Job.bRepeat)
+	if (mThroughput && !State.Job.bPark)
 	{
 		mThroughput->RecordArrival(Station, Late, Now());
 	}
@@ -855,7 +797,6 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 {
 	AFGTrain* Train = State.Train;
 	mPendingDockMaps.Remove(Train);
-	State.bRequestRecheck = State.bHasJob && State.Job.bRequest && State.Requests.Num() > 0;
 	State.LastStation = Station;
 	State.LastDepartureAt = Now();
 	if (!State.bHasJob)
@@ -891,10 +832,6 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 		FSTCarWork& Work = Leg.Work[Index];
 		const int32 Start = Before.IsValidIndex(Index) ? Before[Index] : 0;
 		Work.MovedAmount = FMath::Abs(CountInCar(Work.Car, Work.Item) - Start);
-		if (!Work.bLoad && Work.MovedAmount > 0)
-		{
-			mLastServed.Add(TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, UClass*>(Station, Work.Item.Get()), Now());
-		}
 		if (!Work.bLoad && Work.Platform && Work.PlannedAmount > 0 && Work.MovedAmount < SlowDrainShare * Work.PlannedAmount)
 		{
 			mSlowDrainUntil.Add(Work.Platform.Get(), Now() + SlowDrainMinutes * 60.0);
@@ -923,15 +860,7 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 			const FString Text = FString::Printf(TEXT("NOPROGRESS %s %s no %s at %s (%d planned) in %.0f s; not planned again for %.0f minutes. Platforms there: %s"), *STLayout::Name(Train),
 				Each.Key.Value ? TEXT("loaded") : TEXT("unloaded"), *STNames::Item(Each.Key.Key), *STLayout::Name(Station), Each.Value.Key, Stay, NoProgressMinutes,
 				*DescribeStationPlatforms(Station));
-			// A repeat run moving nothing is expected (nothing was worth a new trip); only the detailed log shows it.
-			if (State.Job.bRepeat)
-			{
-				UE_LOG(LogSmartTrains, Verbose, TEXT("%s"), *Text);
-			}
-			else
-			{
-				UE_LOG(LogSmartTrains, Log, TEXT("%s"), *Text);
-			}
+			UE_LOG(LogSmartTrains, Log, TEXT("%s"), *Text);
 		}
 	}
 	const FString Line = FString::Printf(TEXT("JOB %d %s: left %s after %.0f s: %s"), State.Job.Id, *STLayout::Name(Train), *STLayout::Name(Station), Stay,
@@ -945,11 +874,6 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 	State.Job.LegStartedAt = Now();
 	if (State.Job.Leg >= State.Job.Legs.Num())
 	{
-		FinishJob(State);
-	}
-	else if (State.Job.bRepeat)
-	{
-		// A repeat is looked at again at every stop: a new trip, or the rest of it again if it still has work.
 		FinishJob(State);
 	}
 	else if (!State.Job.bPark)
@@ -1402,7 +1326,7 @@ TArray<FString> ASTSubsystem::DescribeStation(const AFGTrainStationIdentifier* S
 	const AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
 	const FSTStationConfig* Config = mStations.FindByPredicate([Station](const FSTStationConfig& Each) { return Each.Station == Station; });
 	Lines.Add(FString::Printf(TEXT("Station %s%s"), *STLayout::Name(Station), Config && Config->bDepot ? TEXT(" (depot)") : TEXT("")));
-	Lines.Append(DescribeStationServices(Station));
+	Lines.Append(DescribeStationGroups(Station));
 	FString Layout;
 	for (const AFGBuildableTrainPlatform* Platform : STLayout::GetPlatforms(Building))
 	{
@@ -1438,7 +1362,7 @@ TArray<FString> ASTSubsystem::DescribeTrain(const AFGTrain* Train) const
 		State && State->bKeepVanilla ? TEXT(", keep vanilla") : TEXT("")));
 	if (State && State->bManaged)
 	{
-		Lines.Add(DescribeServiceRole(*State));
+		Lines.Add(DescribeHome(*State));
 	}
 	if (State && State->bHasJob)
 	{
@@ -1593,12 +1517,6 @@ TMap<UClass*, int32> ASTSubsystem::GetCargo(const AFGTrain* Train)
 		}
 	}
 	return Cargo;
-}
-
-double ASTSubsystem::GetLastServed(const AFGTrainStationIdentifier* Station, UClass* Item) const
-{
-	const double* Found = mLastServed.Find(TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, UClass*>(const_cast<AFGTrainStationIdentifier*>(Station), Item));
-	return Found ? *Found : mStartTime;
 }
 
 int32 ASTSubsystem::CountInCar(const AFGRailroadVehicle* Car, TSubclassOf<UFGItemDescriptor> Item)

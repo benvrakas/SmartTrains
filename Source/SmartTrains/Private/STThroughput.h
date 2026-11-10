@@ -38,7 +38,6 @@ private:
 		int32 Parking = 0;
 		int32 Idle = 0;
 		// Running their last job again: free for new trips.
-		int32 Repeating = 0;
 		// Of Idle: parked in a station that isn't a depot.
 		int32 ParkedOutside = 0;
 	};

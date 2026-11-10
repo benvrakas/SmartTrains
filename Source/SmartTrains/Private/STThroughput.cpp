@@ -14,9 +14,6 @@
 
 namespace
 {
-	// Monitor: requests shown are those due within this, at most this many. [s]
-	constexpr double RequestRowSeconds = 900.0;
-	constexpr int32 MaxRequestRows = 10;
 	// Share of time moving on trips or at stops from which the fleet counts as saturated.
 	constexpr double SaturatedShare = 0.85;
 	// Share of time trains stand still on trips from which the network counts as congested.
@@ -118,10 +115,6 @@ void FSTThroughput::Sample(const ASTSubsystem& Subsystem)
 			++Fleet.Idle;
 			const FSTStationConfig* Here = Subsystem.mStations.FindByPredicate([&](const FSTStationConfig& Each) { return Each.Station == State.LastStation.Get(); });
 			Fleet.ParkedOutside += State.Phase == ESTTrainPhase::Parked && !(Here && Here->bDepot) ? 1 : 0;
-		}
-		else if (State.Job.bRepeat)
-		{
-			++Fleet.Repeating;
 		}
 		else if (State.Job.bPark)
 		{
@@ -318,46 +311,39 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 	const double BusyShareNow = Managed > 0.0 ? Busy / Managed : 0.0;
 	const double StandingShareNow = Managed > 0.0 ? Standing / Managed : 0.0;
 	const double IdleShareNow = mFleet.Num() > 0 && mFleet.Last().Managed > 0
-		? static_cast<double>(mFleet.Last().Idle + mFleet.Last().Repeating) / mFleet.Last().Managed : 0.0;
+		? static_cast<double>(mFleet.Last().Idle) / mFleet.Last().Managed : 0.0;
 	if (mFleet.Num() > 0)
 	{
 		const FFleetSample& Last = mFleet.Last();
-		View.Summary.Add(FString::Printf(TEXT("%d managed trains: %d driving a trip (%d of them standing still), %d at a stop, %d repeating their last job (free for new trips), %d going to park, %d idle."),
-			Last.Managed, Last.Driving, Last.Standing, Last.Docked, Last.Repeating, Last.Parking, Last.Idle));
+		View.Summary.Add(FString::Printf(TEXT("%d managed trains: %d driving a trip (%d of them standing still), %d at a stop, %d going to park, %d idle."),
+			Last.Managed, Last.Driving, Last.Standing, Last.Docked, Last.Parking, Last.Idle));
 		View.Summary.Add(FString::Printf(TEXT("Busy on trips %s of the time over the last %d min (moving or at a stop); standing still on trips %s."), *Percent(BusyShareNow),
 			FMath::Max(1, View.WindowMinutes), *Percent(StandingShareNow)));
 		if (StandingShareNow >= StandingShare)
 		{
-			View.Summary.Add(TEXT("Congested: trains stand still on their trips much of the time, queueing for stations or held at signals. Fewer, fuller visits help (shuttles, stops that carry more); more trains would only queue too."));
+			View.Summary.Add(TEXT("Congested: trains stand still on their trips much of the time, queueing for stations or held at signals. Fewer, fuller visits help (stops that carry more); more trains would only queue too."));
 		}
 		else if (BusyShareNow >= SaturatedShare)
 		{
 			View.Summary.Add(TEXT("Fleet saturated: nearly every train is moving on a trip or at a stop all the time. Items waiting for trains (Trains busy elsewhere) need more trains; better planning can't make up for it."));
 		}
-		// Fleet by car layout: trains, what the services of that layout need, spares.
-		TMap<FString, int32> LayoutTrains;
-		TMap<FString, int32> LayoutNeeds;
-		for (const FSTTrainState& State : Subsystem.mTrains)
+		// Fleet against the groups: what they need, and the groups short of trains.
+		double Needed = 0.0;
+		TArray<FString> ShortGroups;
+		for (const FSTGroup& Group : Subsystem.mGroups)
 		{
-			if (State.bManaged && IsValid(State.Train))
+			Needed += Group.Needed;
+			const int32 Short = Subsystem.GetGroupShortfall(Group);
+			if (Short > 0)
 			{
-				++LayoutTrains.FindOrAdd(STLayout::GetLayoutKey(State.Train));
+				ShortGroups.Add(FString::Printf(TEXT("%s (%d)"), *ASTSubsystem::DescribeGroup(Group), Short));
 			}
 		}
-		for (const FSTService& Service : Subsystem.mNetworkServices)
+		if (Subsystem.mGroups.Num() > 0)
 		{
-			LayoutNeeds.FindOrAdd(Service.Layout) += Subsystem.GetServiceTarget(Service);
-		}
-		for (const TPair<FString, int32>& Pair : LayoutTrains)
-		{
-			const int32 Needs = LayoutNeeds.FindRef(Pair.Key);
-			View.Summary.Add(FString::Printf(TEXT("Layout %s: %d trains, its services need %d%s."), *Pair.Key, Pair.Value, Needs,
-				Needs > Pair.Value ? *FString::Printf(TEXT(": %d short, add trains like these"), Needs - Pair.Value)
-				: (Needs < Pair.Value ? *FString::Printf(TEXT(", %d spread over them as spares"), Pair.Value - Needs) : TEXT(""))));
-		}
-		for (int32 Index = 0; Index < Subsystem.mServiceUncovered.Num() && Index < 6; ++Index)
-		{
-			View.Summary.Add(TEXT("Not covered: ") + Subsystem.mServiceUncovered[Index]);
+			View.Summary.Add(FString::Printf(TEXT("%d item groups need %.1f trains in all; %d managed trains, %d idle now%s."), Subsystem.mGroups.Num(), Needed, Last.Managed, Last.Idle,
+				ShortGroups.Num() > 0 ? *FString::Printf(TEXT("; short of trains: %s, add trains whose cars fit them"), *FString::Join(ShortGroups, TEXT(", ")))
+				: (Last.Idle > 0 ? TEXT("; the idle trains have nothing they fit to move, so the groups are short of work, not trains") : TEXT(""))));
 		}
 		if (Last.ParkedOutside > 0)
 		{
@@ -421,38 +407,22 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		FSTMonitorRow& Row = View.Trains.AddDefaulted_GetRef();
 		// The name the game shows; with job names on it already says the trip.
 		Row.Title = STLayout::Name(State.Train.Get());
-		Row.Details.Add(Subsystem.DescribeServiceRole(State));
+		Row.Details.Add(Subsystem.DescribeHome(State));
 		const bool bDocked = State.Train->IsDocked();
 		if (!State.bHasJob)
 		{
 			const FString* Reason = Subsystem.mIdleReasons.Find(State.Train.Get());
-			Row.Verdict = Subsystem.FindService(State.ServiceId) ? TEXT("Waiting for its cycle") : TEXT("Parked or idle");
+			Row.Verdict = TEXT("Parked or idle");
 			Row.Severity = Reason ? 1 : 0;
 			Row.Details.Add(Reason ? *Reason : FString(TEXT("not planned yet")));
 		}
 		else
 		{
-			Row.Verdict = State.Job.bPark ? TEXT("Going to park") : (State.Job.ServiceId == 0 && Subsystem.FindService(State.ServiceId) ? TEXT("Clearing cargo")
-				: (bDocked ? TEXT("At a stop") : TEXT("Driving")));
+			const bool bLent = State.HomeItem && State.Job.GroupItem && State.Job.GroupItem != State.HomeItem;
+			Row.Verdict = State.Job.bPark ? TEXT("Going to park") : (bLent ? TEXT("Lent out") : (bDocked ? TEXT("At a stop") : TEXT("Driving")));
 			if (!Subsystem.mSettings.bJobNames)
 			{
 				Row.Details.Add(State.Job.Summary);
-			}
-		}
-		if (const FSTRosterDuty* Duty = Subsystem.mRoster.Find(State.Train.Get()))
-		{
-			Row.Details.Add(FString::Printf(TEXT("Roster: %s (%.0f%% of the train)."), *Subsystem.DescribeDuty(*Duty), Duty->Load * 100.0));
-		}
-		if (State.Requests.Num() > 0)
-		{
-			const bool bBringing = State.Requests.ContainsByPredicate([&](const FSTRequestClaim& Claim)
-			{
-				return State.bHasJob && State.Job.bRequest && ASTSubsystem::JobDelivers(State.Job, Claim, State.Job.Leg);
-			});
-			Row.Verdict = bBringing ? TEXT("Bringing a request") : TEXT("Emptying for a request");
-			for (const FSTRequestClaim& Claim : State.Requests)
-			{
-				Row.Details.Add(FString::Printf(TEXT("Request: %s."), *Subsystem.DescribeRequest(State, Claim)));
 			}
 		}
 		Row.Columns.Add(State.LastStation ? STLayout::Name(State.LastStation.Get()) : FString(TEXT("-")));
@@ -829,46 +799,6 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			}
 		}
 	}
-	// Requests: platforms a train is emptied for, and platforms that ask without a train yet.
-	for (const FSTTrainState& State : Subsystem.mTrains)
-	{
-		for (const FSTRequestClaim& Claim : State.Requests)
-		{
-			FSTMonitorRow& Row = View.Platforms.AddDefaulted_GetRef();
-			Row.Title = STLayout::DescribePlatform(Claim.Platform);
-			Row.Item = Claim.Item;
-			Row.Verdict = TEXT("Requested: train on it");
-			Row.Severity = 1;
-			Row.Columns = {STNames::Item(Claim.Item), TEXT("-")};
-			Row.Details.Add(FString::Printf(TEXT("%s."), *Subsystem.DescribeRequest(State, Claim)));
-		}
-	}
-	TArray<const FSTRequestNote*> Notes;
-	for (const TPair<const AFGBuildableTrainPlatformCargo*, FSTRequestNote>& Pair : Subsystem.mRequestNotes)
-	{
-		if (Pair.Value.Platform.IsValid() && Pair.Value.Kind != TEXT("covered") && Pair.Value.BelowAt <= Time + RequestRowSeconds)
-		{
-			Notes.Add(&Pair.Value);
-		}
-	}
-	Notes.Sort([](const FSTRequestNote& A, const FSTRequestNote& B) { return A.BelowAt < B.BelowAt; });
-	Notes.SetNum(FMath::Min(Notes.Num(), MaxRequestRows));
-	for (const FSTRequestNote* Each : Notes)
-	{
-		const FSTRequestNote& Note = *Each;
-		FSTMonitorRow& Row = View.Platforms.AddDefaulted_GetRef();
-		Row.Title = STLayout::DescribePlatform(Note.Platform.Get());
-		Row.Item = Note.Item.Get();
-		const bool bNoTrain = Note.Kind == TEXT("no train");
-		Row.Verdict = bNoTrain ? TEXT("Requested: no train") : (Note.Kind == TEXT("later") ? TEXT("Requested: train later") : TEXT("Requested: covered"));
-		Row.Severity = bNoTrain ? 2 : 0;
-		Row.Columns = {STNames::Item(Note.Item.Get()), TEXT("-")};
-		Row.Details.Add(Note.Text + TEXT("."));
-		if (bNoTrain)
-		{
-			Row.Advice = TEXT("No free train has a car that lines up with this platform and can be emptied: give it a train whose cars line up, or a sink or consumer for what they hold.");
-		}
-	}
 	AddUnreachable(Subsystem, View);
 	auto BySeverity = [](const FSTMonitorRow& A, const FSTMonitorRow& B)
 	{
@@ -891,61 +821,45 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		Limited += Row.Severity >= 2 ? 1 : 0;
 	}
 	int32 Short = 0;
-	for (const FSTService& Service : Subsystem.mNetworkServices)
+	for (const FSTGroup& Group : Subsystem.mGroups)
 	{
-		FSTMonitorRow& Row = View.Services.AddDefaulted_GetRef();
-		Row.Title = Subsystem.DescribeService(Service);
-		const int32 Target = Subsystem.GetServiceTarget(Service);
-		const bool bShort = Service.Trains.Num() < Target;
-		Short += bShort ? 1 : 0;
-		Row.Verdict = bShort ? TEXT("Short of trains") : (Service.bLocked ? TEXT("Locked") : TEXT("Running"));
-		Row.Severity = bShort ? 2 : 0;
-		Row.Columns.Add(FString::Printf(TEXT("%d / %.1f"), Service.Trains.Num(), Service.Needed));
-		Row.Columns.Add(FString::Printf(TEXT("%.1f min"), Subsystem.GetServiceSpacing(Service) / 60.0));
-		Row.Columns.Add(FString::Printf(TEXT("%.0f min"), Service.CycleSeconds / 60.0));
-		TArray<FString> Stops;
-		for (const FSTServiceStop& Stop : Service.Stops)
+		FSTMonitorRow& Row = View.Groups.AddDefaulted_GetRef();
+		Row.Title = ASTSubsystem::DescribeGroup(Group);
+		Row.Item = Group.Item.Get();
+		const int32 Missing = Subsystem.GetGroupShortfall(Group);
+		const int32 Working = Subsystem.CountWorkingFor(Group);
+		Short += Missing > 0 ? 1 : 0;
+		Row.Verdict = Missing > 0 ? TEXT("Short of trains") : (Group.Routes.Num() == 0 ? TEXT("No flows now") : (Working > 0 ? TEXT("Running") : TEXT("Nothing to move now")));
+		Row.Severity = Missing > 0 ? 2 : 0;
+		Row.Columns.Add(FString::Printf(TEXT("%d / %.1f"), Group.Homes.Num(), Group.Needed));
+		Row.Columns.Add(FString::FromInt(Working));
+		Row.Columns.Add(FString::FromInt(Group.Routes.Num()));
+		for (const FSTFlowRoute& Route : Group.Routes)
 		{
-			TArray<FString> Moves;
-			for (const TSubclassOf<UFGItemDescriptor>& Item : Stop.LoadItems)
-			{
-				Moves.Add(TEXT("+") + STNames::Item(Item));
-			}
-			for (const TSubclassOf<UFGItemDescriptor>& Item : Stop.UnloadItems)
-			{
-				Moves.Add(TEXT("-") + STNames::Item(Item));
-			}
-			Stops.Add(FString::Printf(TEXT("%s (%s)"), *STLayout::Name(Stop.Station.Get()), *FString::Join(Moves, TEXT(" "))));
+			Row.Details.Add(FString::Printf(TEXT("%s -> %s: %s/min, %.2f trains."), *STLayout::Name(Route.From.Get()), *STLayout::Name(Route.To.Get()),
+				*STNames::Amount(Group.Item.Get(), Route.Flow * 60.0), Route.Trains));
 		}
-		Row.Details.Add(TEXT("Loop: ") + FString::Join(Stops, TEXT(" -> ")));
-		Row.Details.Add(FString::Printf(TEXT("Car layout %s, version %d%s."), *Service.Layout, Service.Version,
-			Service.MinTrains > 0 || Service.MaxTrains > 0 ? *FString::Printf(TEXT(", trains %d to %d"), Service.MinTrains, Service.MaxTrains) : TEXT("")));
-		for (const TObjectPtr<AFGTrain>& Train : Service.Trains)
+		if (const FSTGroupConfig* Config = Subsystem.FindGroupConfig(Group.Item.Get()))
 		{
-			const FSTTrainState* State = Subsystem.mTrains.FindByPredicate([&](const FSTTrainState& Each) { return Each.Train == Train; });
+			Row.Details.Add(FString::Printf(TEXT("Trains set by a player: at least %d, at most %s."), Config->MinTrains, Config->MaxTrains > 0 ? *FString::FromInt(Config->MaxTrains) : TEXT("any")));
+		}
+		for (const TWeakObjectPtr<AFGTrain>& Train : Group.Homes)
+		{
+			const FSTTrainState* State = Subsystem.mTrains.FindByPredicate([&](const FSTTrainState& Each) { return Each.Train.Get() == Train.Get(); });
 			Row.Details.Add(FString::Printf(TEXT("%s: %s"), *STLayout::Name(Train.Get()),
 				State && State->bHasJob ? *State->Job.Summary : *FString(Subsystem.mIdleReasons.FindRef(Train.Get()))));
 		}
-		if (bShort)
+		if (Missing > 0)
 		{
-			Row.Advice = FString::Printf(TEXT("Needs %d trains of its layout, has %d: add trains like its own, or free some (Keep out of services off)."), Target,
-				Service.Trains.Num());
+			Row.Advice = FString::Printf(TEXT("Needs %d more train%s and every train that fits it is busy: add trains whose cars line up with its platforms."), Missing,
+				Missing == 1 ? TEXT("") : TEXT("s"));
 		}
 	}
-	for (const FString& Line : Subsystem.mServiceUncovered)
-	{
-		FSTMonitorRow& Row = View.Services.AddDefaulted_GetRef();
-		Row.Title = TEXT("Not covered");
-		Row.Verdict = TEXT("No service");
-		Row.Severity = 2;
-		Row.Details.Add(Line);
-	}
-	View.Services.Sort([](const FSTMonitorRow& A, const FSTMonitorRow& B) { return A.Severity != B.Severity ? A.Severity > B.Severity : A.Title < B.Title; });
+	View.Groups.Sort([](const FSTMonitorRow& A, const FSTMonitorRow& B) { return A.Severity != B.Severity ? A.Severity > B.Severity : A.Title < B.Title; });
 	const int32 ManagedNow = mFleet.Num() > 0 ? mFleet.Last().Managed : 0;
-	const int32 IdleNow = mFleet.Num() > 0 ? mFleet.Last().Idle + mFleet.Last().Repeating : 0;
-	AddTile(TEXT("Services"), FString::FromInt(Subsystem.mNetworkServices.Num()), 0);
-	AddTile(TEXT("Services short of trains"), FString::FromInt(Short), Short > 0 ? 2 : 0);
-	AddTile(TEXT("Flows not covered"), FString::FromInt(Subsystem.mServiceUncovered.Num()), Subsystem.mServiceUncovered.Num() > 0 ? 2 : 0);
+	const int32 IdleNow = mFleet.Num() > 0 ? mFleet.Last().Idle : 0;
+	AddTile(TEXT("Item groups"), FString::FromInt(Subsystem.mGroups.Num()), 0);
+	AddTile(TEXT("Groups short of trains"), FString::FromInt(Short), Short > 0 ? 2 : 0);
 	AddTile(TEXT("Managed trains"), FString::FromInt(ManagedNow), 0);
 	AddTile(TEXT("Busy on trips"), mFleet.Num() > 0 ? Percent(BusyShareNow) : FString(TEXT("-")), BusyShareNow >= BusyShare ? 1 : 0);
 	AddTile(TEXT("Waiting or parked"), FString::FromInt(IdleNow), 0);

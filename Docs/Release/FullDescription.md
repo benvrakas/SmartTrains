@@ -1,8 +1,8 @@
 ## SmartTrains
 
 Timetables that make themselves. Give your freight and fluid platforms a role and the items they handle. SmartTrains
-works out what has to move where, turns that into **services** (loops of stations, each run by a few trains as a real
-looping timetable) and keeps them adjusted as your factory grows. You don't plan a train per factory.
+works out what has to move where, groups the stations by item, and sends each train where its cars are needed most,
+trip by trip, as your factory grows. You don't plan a train per factory.
 
 **Beta.** Try it on a copy of your save first (`/st testcopy`).
 
@@ -14,30 +14,29 @@ them (see below).
 
 - **Platforms:** open a freight or fluid platform and click **Open SmartTrains settings**.
   - **Supply:** managed trains pick items up here.
-  - **Demand:** managed trains keep it stocked to a target. When it would run short and the only trains whose cars
-    line up with it hold other cargo, one of them is emptied first and sent.
+  - **Demand:** managed trains keep it stocked to a target.
   - **Sink:** managed trains unload cargo here that has nowhere else to go, any item: cargo a car can't unload at any
     consumer of it, and production nobody on the network uses.
   - **Off:** vanilla.
-  - Each item gets a target and a priority (demand), or a **Least per visit** (supply, 50 % by default): a service
-    skips that pickup for a cycle when it would load less than that share of what its cars there carry.
+  - Each item gets a target and a priority (demand), or a **Least per visit** (supply, 50 % by default): a train
+    only picks up there when it can load at least that share of what its cars there carry.
   - **Copy**, **Paste** and **Copy to the station's other platforms** carry every setting of the platform.
 - **Trains:** in the locomotive menu, switch **Managed by SmartTrains** on. SmartTrains writes its timetable; the
   game, or Auto Trains, drives it.
-- **Services:** every consumer station gets a gathering loop: its suppliers, then the station, on the car layout that
-  carries the most of what it needs. A factory's mixed inputs come in one loop, each car carrying the item whose
-  platforms it lines up with, and one train can drop different cars at different consumers. Loops of the same layout
-  merge when that saves trains (a train carrying something both ways instead of running back empty). Each service runs
-  as a looping timetable, with the trains its flows need spaced evenly around it. `/st service` and the monitor's
-  Services tab show them.
-- **Spare trains** are spread over the services of their layout as extra trains, so they keep carrying something.
-  Depots are optional, for trains no service can use.
-- **Changing jobs:** a train joining a service first clears cargo that isn't the service's: delivered, or dumped into
-  a sink on its way if those goods aren't needed soon. Goods a consumer needs are always delivered.
+- **Item groups:** every item the plan moves is a group of its suppliers and consumers. A new station joins its
+  item's group by itself. Each managed train gets a **home group** whose platforms its cars fit, shared out by what
+  the groups need, so with too few trains every group gets its share.
+- **Trips:** a free train takes its home group's work first: a pickup and delivery, and it may add other work on the
+  way (another item for the same factory, a load back instead of running empty). When its group has nothing to move,
+  it is **lent** to whatever work is worth running. Only with nothing anywhere does it park. After every stop the rest
+  of the trip is planned again from what the cars really hold.
+- **Short of trains** in the monitor means a group lacks trains and no train that fits it is idle: then more trains
+  help. Idle trains that fit mean there's too little to move, not too few trains. `/st group` and the monitor's Groups
+  tab show the groups, their trains and their flows.
 - **Recipes:** SmartTrains follows each platform's belts and pipes to its machines. Their recipes give the real rate
   of a full supplier or a starved consumer, and a consumer whose machines wait on another missing input counts its
   shortage less until that input arrives.
-- **Each cycle** loads what the stock forecasts call for, and only what the loop delivers.
+- **Each trip** loads what the stock forecasts call for, and only what the trip delivers.
 - **Fit:** train length, the order of the cars and the order of the platforms are checked for every trip. Push-pull
   trains, with a locomotive at each end, are handled both ways round.
 
@@ -50,7 +49,7 @@ them (see below).
   (measured from the track), and never more than **Most trains waiting before a station** (2), so trains don't queue
   across junctions. Switch **Trains leave stations at once** off for the old behaviour: deliveries and pickups wait
   up to their longest wait, and a train whose next station is busy waits in its station.
-- **Trains no service uses park** at the nearest free **depot** (a rail yard: switch it on under the station's name in the
+- **Trains with nothing to move park** at the nearest free **depot** (a rail yard: switch it on under the station's name in the
   station menu), one train per depot, or else where they are, and move when a trip needs that station. A depot may
   have sink or other platforms too: it is booked like any station, so a train coming to unload and a train coming to
   park never queue behind each other.
@@ -92,7 +91,7 @@ signalled network, above all on single track.
   - Platforms the trace can't settle get items from their stock, their timetables, or the routes of trains that
     stop there. Platforms whose belts reach the same machines share the items out between them.
   - Click a station to open its platforms, and change a platform's role or items by hand before applying.
-- **Monitor** (`/st monitor`): a window with Overview, Items, Stations, Platforms and Trains tabs. It shows per item
+- **Monitor** (`/st monitor`): a window with Overview, Groups, Items, Stations, Platforms and Trains tabs. It shows per item
   what limits deliveries, with advice:
   - not enough supply;
   - not enough trains;

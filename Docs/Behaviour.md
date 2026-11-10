@@ -1,6 +1,6 @@
 # SmartTrains: methods and emergent behaviour
 
-State: 0.4.0 beta. Architecture.md has the implementation details; this file lists the methods in one
+State: 0.10.0 beta (item groups). Architecture.md has the implementation details; this file lists the methods in one
 place and the behaviour that comes out of them working together.
 
 Status tags for behaviour: **seen** (in a test log), **designed** (intended, not yet seen), **risk** (possible
@@ -15,7 +15,7 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 | Inventory routing problem (IRP), maritime inventory routing flavour | whole planner | Platforms are inventories with rates and capacities. Trains are vehicles with compartments (cars). The planner decides when, where and how much to move, not just routes. |
 | Order-up-to level with minimum batch, like an (s, S) inventory policy | node targets, send-at | Demand platforms are served while below **target**. A pickup only goes when it fills the **send-at** share of the loading cars. |
 | Inventory forecast with a shortfall cost (stock-out integral) over a one-hour horizon | `STForecast` (0.7.0) | Each delivery or pickup is worth the drop in its node's forecast cost: the shortfall below target over the next hour, in car-load minutes, weighted by priority. Replaces urgency and fairness weights. |
-| Large neighbourhood search over all free trains (destroy one or two plans, rebuild in another order, keep if the network costs less) | Shaw (1998); Ropke and Pisinger (2006) | `HorizonRound` (0.7.0, setting Horizon planner). |
+| Proportional allocation by highest averages (D'Hondt) | standard | `AllocateHomes` (0.10.0): home groups for the trains in proportion to what each item group needs. |
 | Rolling horizon (plan, act one step, plan again), as in model predictive control | `ReplanTrip` | Only the current trip is fixed. It is planned again after every stop and after any settings change, from the cargo really on board. |
 | Anytime planning with a time budget | `IsOverBudget`, 25 ms per round | Planning stops when the round's budget is used. Work left over waits for the next round. |
 
@@ -25,8 +25,7 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 |---|---|---|
 | Discrete event simulation, car by car and stop by stop | own | `FSTTripPlanner::Simulate`: times from travel estimates and stays, then each car beside the platform it meets, with stock, production during the stay, reservations, slots and cargo type. |
 | Regret insertion for pickup and delivery | Ropke and Pisinger (2006), the insertion heuristics of ALNS | `Improve`: inserts the move with the largest regret (best place minus second best) while the trip's value per second rises. |
-| Hungarian method (Kuhn-Munkres), exact assignment | Kuhn (1955), Munkres (1957) | `STAssignment::Solve`: free trains to first moves, so a train doesn't take a move another could do almost as well. |
-| Minimum-cost flow by successive shortest paths with Bellman-Ford, one priority tier after another | Ford and Fulkerson; Busacker and Gowen | `STMinCostFlow`: the flow plan behind the fleet advice in `/st status`. |
+| Minimum-cost flow by successive shortest paths with Bellman-Ford, one priority tier after another | Ford and Fulkerson; Busacker and Gowen | `STMinCostFlow`: the flow plan behind the item groups and the fleet advice. |
 | Dijkstra on a directed graph of track exits | Dijkstra (1959) | `FSTTravel`: distances between stations, separately for departing forward, backing out (push-pull), and arriving at the far end (push-pull). |
 | Exponential moving averages | standard | Rates (window = **Rate window**), trip times and stays (weight 0.3, first sample taken as is). |
 | Observation overrides prediction | own | Dock maps: predicted from couplers and platform chains, replaced by what a real dock showed, per orientation and consist. |
@@ -62,8 +61,9 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 8. **No out-and-back to one station** (designed). Each station appears once per trip, so A → B → A is two trips.
 9. **Trains spread over suppliers** (designed). Reservations make a supplier look emptier to trains planned after
    it, so they pick other suppliers.
-10. **Global, not greedy, assignment** (designed). The Hungarian step may give a move to a train that is a bit
-    further away, because the nearer one is the only train that can do something else.
+10. **Home work first, then lent** (designed, 0.10.0). A train starts with its home group's work and may add other
+    work on the way; with nothing in its group it is lent to any work worth running, so a group's idle trains help
+    other groups at once.
 
 ### Inventory patterns
 
@@ -80,8 +80,8 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 
 ### Fleet behaviour
 
-16. **Dedicated trains join the pool** (seen). Without DynamicTimeTable the migration ticks every train. A former
-    shuttle takes any trip it fits, and comes back to its old route only when that route wins.
+16. **Dedicated trains join the groups** (seen). Without DynamicTimeTable the migration ticks every train. A former
+    shuttle gets a home group it fits and takes other work when that group has none.
 17. **Parking in a station, then making room** (seen). An idle train stops where its last stop ended, often inside
     a station. When a trip needs that station, the parked train is sent to a depot or the nearest unused station
     (log: "drive to Alclad Aluminum Sheet SRC (4680) and park (making room at Heavy Oil Residue SNK (640))").

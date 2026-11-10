@@ -46,8 +46,6 @@ struct FSTNode
 	// Demand ran dry a while ago, so its measured rate is only a lower bound.
 	bool bStarved = false;
 	ESTPriority Priority = ESTPriority::Normal;
-	// Demand: when a train is emptied for it (see ESTRequest).
-	ESTRequest Request = ESTRequest::Off;
 	float TargetPercent = 50.f;
 	float SendAtPercent = 0.f;
 	int32 TrackGraph = INDEX_NONE;
@@ -69,8 +67,8 @@ struct FSTNode
 	TSubclassOf<UFGItemDescriptor> WaitsOn;
 };
 
-// A route of the steady roster (Docs/Architecture.md, "Roster"): Item from From to To, from the flow plan.
-struct FSTRosterRoute
+// A route of the flow plan: Item from From to To, with the trains it needs and the managed trains that fit it.
+struct FSTFlowRoute
 {
 	TWeakObjectPtr<AFGTrainStationIdentifier> From;
 	TWeakObjectPtr<AFGTrainStationIdentifier> To;
@@ -81,41 +79,30 @@ struct FSTRosterRoute
 	double RoundTrip = 0.0;
 	// Share of trains it needs: flow x round trip / average load of the trains that fit.
 	double Trains = 0.0;
-	// Managed trains whose cars fit it at both ends, what each carries per trip, and whether all its freight cars fit.
+	// Managed trains whose cars fit it at both ends, and what each carries per trip.
 	TArray<TWeakObjectPtr<AFGTrain>> Fitting;
 	TArray<int32> Capacity;
-	TArray<bool> Whole;
 
 	static FString MakeKey(const void* From, const void* To, const void* Item) { return FString::Printf(TEXT("%p|%p|%p"), From, To, Item); }
 	FString GetKey() const { return MakeKey(From.Get(), To.Get(), Item.Get()); }
 };
 
-// A train's part of the roster: routes (indices into the roster) it runs in turn, the next one, and how much of the
-// train they need together.
-struct FSTRosterDuty
+// An item group (Docs/Architecture.md, "Groups"): the suppliers and consumers of one item that the flow plan links, and
+// the trains whose home it is. Rebuilt from every flow plan; homes and the player's settings are saved with the trains
+// and in FSTGroupConfig.
+struct FSTGroup
 {
-	TArray<int32> Routes;
-	// The share of a train each of Routes takes (they add up to Load).
-	TArray<double> Shares;
-	int32 Next = 0;
-	double Load = 0.0;
-	// The whole train runs its one route (a shuttle).
-	bool bShuttle = false;
-};
-
-// Why an asking platform has no request trip yet.
-struct FSTRequestNote
-{
-	TWeakObjectPtr<AFGBuildableTrainPlatformCargo> Platform;
 	TWeakObjectPtr<UClass> Item;
-	// "no train", "sooner" (a train that can carry it now comes first) or "later" (a train is emptied for it later).
-	FString Kind;
-	FString Text;
-	// When the platform falls below its target (game seconds).
-	double BelowAt = 0.0;
-	// The kind last logged and when, so a note flipping back and forth isn't logged every round.
-	FString LoggedKind;
-	double LoggedAt = -1.0e9;
+	// The flow plan's routes of the item.
+	TArray<FSTFlowRoute> Routes;
+	// Trains its routes need, smoothed over flow plans.
+	double Needed = 0.0;
+	// When the flow plan last had a route of it (Now()).
+	double LastRouteAt = 0.0;
+	// Managed trains whose cars fit at least one of its routes.
+	TArray<TWeakObjectPtr<AFGTrain>> Fitting;
+	// Trains whose home it is.
+	TArray<TWeakObjectPtr<AFGTrain>> Homes;
 };
 
 // What fits when one train does one pickup and delivery (Docs/Architecture.md, "Fit model").
@@ -156,8 +143,6 @@ public:
 	// Sets Platform's role and items, switching its load/unload setting to match; Off puts its own setting back.
 	void SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, ESTRole NewRole, const TArray<FSTItemRule>& Items, const FString& Cause);
 	void SetStationDepot(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Cause);
-	// Sets when a train is emptied for Platform (a demand platform); false with OutError if it isn't one.
-	bool SetPlatformRequest(AFGBuildableTrainPlatformCargo* Platform, ESTRequest Request, const FString& Cause, FString& OutError);
 
 	// Starts or ends management of Train. Starting saves its timetable; ending puts it back and lets it drive on.
 	// Returns false with OutWhy set if it can't be managed (kept vanilla, no locomotive).
@@ -216,13 +201,7 @@ public:
 	// True if Station is a dead end: a train in it can only leave the way trains come in.
 	bool IsDeadEnd(const AFGTrainStationIdentifier* Station) const;
 
-	// Services (Docs/Architecture.md, "Services"): the settings for Item, or null.
-	const FSTServiceConfig* FindServiceConfig(const UClass* Item) const;
-	// Changes Item's service settings. Verb: pin, unpin, pool, auto, rhythm (Minutes), add / remove (Train), clear.
-	bool SetService(UClass* Item, const FString& Verb, float Minutes, AFGTrain* Train, const FString& Cause, FString& OutResult);
-	// One line per running service and per item with settings.
-	TArray<FString> DescribeServices() const;
-	// /st snapshot: the next horizon round writes its planning inputs to a file.
+	// /st snapshot: the next dispatch round writes its planning inputs to a file.
 	void RequestSnapshot() { bSnapshotNext = true; }
 	// How many trains of TrainLength fit on the track before Station's way-in switch, waiting for it; -1 if not known yet.
 	int32 GetWaitingRoom(const AFGTrainStationIdentifier* Station, float TrainLength) const;
@@ -241,8 +220,6 @@ public:
 
 	const FSTSettings& GetSettings() const { return mSettings; }
 
-	// When a delivery of Item last reached Station (game seconds); the session start if none has yet.
-	double GetLastServed(const AFGTrainStationIdentifier* Station, UClass* Item) const;
 
 	// "car 1 unloads 1,200 Copper Ingot, car 3 unloads 600 Wire"; with bMoved, the moved amount of the planned one.
 	FString DescribeLeg(const AFGTrain* Train, const FSTJobLeg& Leg, bool bMoved) const;
@@ -290,7 +267,7 @@ private:
 	static void LinkSupplyChain(TArray<FSTNode>& Nodes);
 	// Samples every configured platform's stock and rates. [1 s]
 	void SamplePlatforms();
-	// /st snapshot: the next horizon round writes every free train's planning inputs to a file for replay tests.
+	// /st snapshot: the next dispatch round writes every free train's planning inputs to a file for replay tests.
 	bool bSnapshotNext = false;
 	void WriteSnapshot(const TArray<FSTNode>& Nodes, const TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& Bookings, const TArray<TSharedPtr<class FJsonValue>>& Trains) const;
 	// Traces one platform's belts or pipes to its machines (STTrace), each again after a while. [1 s]
@@ -310,30 +287,12 @@ private:
 	void UpdateUnwantedCargo(FSTTrainState& State);
 	// Re-plans the rest of State's trip from where it is and what its cars hold; keeps stops already passed.
 	void ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner);
-	// Horizon planner (Docs/Architecture.md, "Horizon planner"): plans every free train together, then searches for
-	// lower network forecast cost by planning one or two trains again, and commits the plans.
-	void HorizonRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes);
-	// Sum of every node's forecast cost with the events planned for it. [car-load minutes]
-	double GetNetworkCost(const TArray<FSTNode>& Nodes) const;
+	// Gives free trains trips (Docs/Architecture.md, "Groups"): home work first, then any work (lent), else they park.
+	void GroupRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes);
 	// Turns a planned trip into State's job (and, if bReserve, reserves it for the trains planned after it).
-	void CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve, int32 ServiceId = 0);
+	void CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve, UClass* GroupItem = nullptr);
 	// Records why a free train got no trip; logged when the reason changes.
 	void NoteNoTrip(const FSTTrainState& State, const FString& Reason);
-	// True if Platform (of demand node Node) asks for a train: its stock and its deliveries on the way fall below its
-	// target (On: 90 %) within the request horizon at its use rate. OutBelowAt: when (game seconds); OutWhy: for logs.
-	bool GetRequestNeed(const FSTNode& Node, const AFGBuildableTrainPlatformCargo* Platform, double& OutBelowAt, FString& OutWhy) const;
-	// When the soonest managed train with a car that fits from a supplier of Node's item and stops beside Platform, empty
-	// or holding the item (ComputeFit counting cargo), could deliver there, busy or not (game seconds; max if none).
-	// OutTrain: that train's name.
-	double GetFittingDelivery(const FSTNode& Node, const AFGBuildableTrainPlatformCargo* Platform, const TArray<FSTNode>& Nodes, FString* OutTrain) const;
-	// True if State's train has no job, runs a repeat, or heads for a depot without work: it may take a new trip now.
-	static bool IsFreeNow(const FSTTrainState& State);
-	// True if Job delivers Claim's item into Claim's platform at leg FromLeg or later.
-	static bool JobDelivers(const FSTJob& Job, const FSTRequestClaim& Claim, int32 FromLeg);
-	// True if a car of State's requests holds an item other than its request's.
-	static bool RequestCarsHoldOther(const FSTTrainState& State);
-	// "Train is emptying a car to bring Item into P2 of Station" (or bringing it, or waiting for its next trip).
-	FString DescribeRequest(const FSTTrainState& State, const FSTRequestClaim& Claim) const;
 	// Works out planned flows between suppliers and consumers.
 	void PlanFlows();
 	// One step of the travel distance search.
@@ -435,51 +394,39 @@ private:
 	UPROPERTY(SaveGame)
 	int32 mNextJobId = 1;
 
-	// Players' service settings, by item.
+	// Players' group settings, by item.
 	UPROPERTY(SaveGame)
-	TArray<FSTServiceConfig> mServiceConfigs;
+	TArray<FSTGroupConfig> mGroupConfigs;
 
-	// The network's services, and the next service number.
-	UPROPERTY(SaveGame)
-	TArray<FSTService> mNetworkServices;
-
-	UPROPERTY(SaveGame)
-	int32 mNextServiceId = 1;
-
-	// Flows the last design couldn't put in a service, with why.
-	TArray<FString> mServiceUncovered;
+	// The item groups of the last flow plan.
+	TArray<FSTGroup> mGroups;
 
 public:
-	// Services (STServices.cpp).
-	FSTService* FindService(int32 Id);
-	const FSTService* FindService(int32 Id) const;
-	// "S3 Sulfur: Crater Lake -> RockPow".
-	FString DescribeService(const FSTService& Service) const;
-	// Time between its trains leaving its first stop. [s]
-	double GetServiceSpacing(const FSTService& Service) const;
-	// One loop through Stops and back with stays; -1 if a leg can't be driven. [s]
-	double GetLoopSeconds(const TArray<FSTServiceStop>& Stops, bool bPushPull) const;
-	// Fills Flows' PerTrain for the train at TrainIndex's layout; Cycle and trains Needed. False if a flow can't be carried.
-	bool RateLoop(FSTTripPlanner& Planner, int32 TrainIndex, TArray<FSTServiceStop>& Stops, TArray<FSTServiceFlow>& Flows, double& OutCycle, double& OutNeeded) const;
-	// Every flow plan: keeps, makes, merges and ends services, then gives them trains.
-	void DesignServices(TArray<FSTRosterRoute>&& Routes);
-	// Other's stops into Into's loop; false if the result can't work as one loop.
-	bool MergeLoops(FSTService& Into, const FSTService& Other) const;
-	void AllocateServiceTrains(const TMap<FString, TArray<int32>>& Layouts);
-	// Every dispatch round: each free service train gets its next cycle (or clears foreign cargo first).
-	void RunServices(FSTTripPlanner& Planner, const TArray<FSTNode>& Nodes);
-	// A service train with no cycle now waits where it is.
-	void SettleServiceTrain(FSTTrainState& State, const TCHAR* Why);
-	// Trains a service gets: ceil(needed - slack), within its player limits.
-	int32 GetServiceTarget(const FSTService& Service) const;
-	// One line on what the train does for services (empty when not managed).
-	FString DescribeServiceRole(const FSTTrainState& State) const;
-	// Services serving Platform, or why none does; services calling at Station, its room to wait and its switch.
-	TArray<FString> DescribePlatformServices(const AFGBuildableTrainPlatformCargo* Platform) const;
-	TArray<FString> DescribeStationServices(const AFGTrainStationIdentifier* Station) const;
-	// Player settings: a train's Stay in this service (bStay) or Keep out of services; a service's lock, spacing, trains.
-	bool SetTrainServiceFlags(AFGTrain* Train, bool bStay, bool bOn, const FString& Cause);
-	bool SetServiceSettings(int32 Id, const FString& Verb, float First, float Second, const FString& Cause, FString& OutResult);
+	// Groups (STGroups.cpp).
+	const FSTGroup* FindGroup(const UClass* Item) const;
+	const FSTGroupConfig* FindGroupConfig(const UClass* Item) const;
+	// "Copper Ingot".
+	static FString DescribeGroup(const FSTGroup& Group);
+	// Every flow plan: groups follow the plan's routes (kept for GroupKeepSeconds without any), then trains get homes.
+	void UpdateGroups(TArray<FSTFlowRoute>&& Routes);
+	// Gives every managed train a home among the groups it fits, in proportion to what they need (AllocateHomes).
+	void AllocateHomes();
+	// Trains a group wants as homes: ceil(needed - slack), within the player's limits.
+	int32 GetGroupTarget(const FSTGroup& Group) const;
+	// Trains it lacks that no idle train could make up for: short only while every train that fits it is busy.
+	int32 GetGroupShortfall(const FSTGroup& Group) const;
+	// Trains whose current trip moves the group's item, home or lent.
+	int32 CountWorkingFor(const FSTGroup& Group) const;
+	// One line per group, for /st group.
+	TArray<FString> DescribeGroups() const;
+	// What the train does for its group (empty when not managed).
+	FString DescribeHome(const FSTTrainState& State) const;
+	// Groups of Platform's items, or why it has none; groups at Station, its room to wait and its switch.
+	TArray<FString> DescribePlatformGroups(const AFGBuildableTrainPlatformCargo* Platform) const;
+	TArray<FString> DescribeStationGroups(const AFGTrainStationIdentifier* Station) const;
+	// Player settings: a train's Stay in this group; a group's fewest and most trains (0: automatic).
+	bool SetTrainHomeStay(AFGTrain* Train, bool bOn, const FString& Cause);
+	bool SetGroupTrains(UClass* Item, int32 MinTrains, int32 MaxTrains, const FString& Cause, FString& OutResult);
 
 private:
 
@@ -497,36 +444,8 @@ private:
 	};
 	// Records Flow (items per second) on the planned route From -> To and adds its trains to Advice.
 	void AddPlannedRoute(const TArray<FSTNode>& Nodes, int32 From, int32 To, double Flow, float Time, FAdvice& Advice);
-	// Updates the roster from the flow plan's routes (Docs/Architecture.md, "Roster"): routes join once stable, keep
-	// their trains and shares while their trains needed hardly change, and take spare trains for what they need more.
-	void BuildRoster(TArray<FSTRosterRoute>&& Candidates);
-	// "Iron Plate A -> B, then Coal C -> D".
-	FString DescribeDuty(const FSTRosterDuty& Duty) const;
-	// The roster: routes from the last flow plan, and each rostered train's duty.
-	TArray<FSTRosterRoute> mRosterRoutes;
-	TMap<TWeakObjectPtr<AFGTrain>, FSTRosterDuty> mRoster;
 	// Routes of the flow plan being worked out.
-	TArray<FSTRosterRoute> mPendingRoster;
-	// Flow plans in a row each route has been in (by route key), for joining the roster.
-	TMap<FString, int32> mRouteSeen;
-	// A running service: its trains, the time between their pickups, what it needs, and its routes.
-	struct FServiceInfo
-	{
-		int32 Trains = 0;
-		double Headway = 0.0;
-		double Needed = 0.0;
-		TArray<FString> Routes;
-	};
-	TMap<TWeakObjectPtr<UClass>, FServiceInfo> mServices;
-	// Roster builds in a row each service needed fewer trains than it has; it shrinks after ServiceDropBuilds.
-	TMap<TWeakObjectPtr<UClass>, int32> mServiceLow;
-	// Shuttles per route key: only they plan that pickup and delivery, unless the supplier is full.
-	TMap<FString, TArray<TWeakObjectPtr<AFGTrain>>> mShuttles;
-	// True if a shuttle other than Train is running Item From -> To (it has no job, or its job still loads at From or
-	// unloads at To); a shuttle repeating or looping its last trip doesn't count.
-	bool IsShuttleRoute(const AFGTrain* Train, const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, const UClass* Item) const;
-	// The train's shuttle duty, or null.
-	const FSTRosterDuty* GetShuttleDuty(const AFGTrain* Train) const;
+	TArray<FSTFlowRoute> mPendingRoutes;
 	// Unloading platforms that took much less than planned, until when: their predicted room counts no drain.
 	TMap<TWeakObjectPtr<const AFGBuildableTrainPlatformCargo>, double> mSlowDrainUntil;
 	bool IsSlowDrain(const AFGBuildableTrainPlatformCargo* Platform) const;
@@ -540,8 +459,6 @@ private:
 	// Item count in the job's cars when the current dock began, per train.
 	// Per train: the amount of each work item in its car when the current dock began (index = work of the leg).
 	TMap<TWeakObjectPtr<AFGTrain>, TArray<int32>> mDockStartAmounts;
-	// When a delivery last reached each (station, item); runtime only.
-	TMap<TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, UClass*>, double> mLastServed;
 	double mStartTime = 0.0;
 	// Added to the world's time (which starts at 0 each session) to make Now(). [s]
 	double mClockBase = 0.0;
@@ -551,10 +468,6 @@ private:
 	bool bSettingsRead = false;
 	// Per free train: why it got no trip in the last round, logged when it changes and shown in its menu.
 	TMap<TWeakObjectPtr<AFGTrain>, FString> mIdleReasons;
-	// Per asking platform not served yet: why (shown in its readout and the monitor; logged when the kind changes).
-	TMap<const AFGBuildableTrainPlatformCargo*, FSTRequestNote> mRequestNotes;
-	// Fit checks of this round's requests (train, supplier, consumer, item), so each is worked out once.
-	mutable TMap<FString, FSTFit> mFitCache;
 	// When the planning time last ran out (for a throttled warning). [game s]
 	double mLastBudgetWarning = -1000.0;
 	// A dispatch round is running; trains that become idle in it are settled when it ends (mToSettle).
@@ -579,8 +492,6 @@ private:
 	bool IsNoProgress(const FSTTrainState& State, const AFGTrainStationIdentifier* Station, const UClass* Item, bool bLoad) const;
 	// Auto Trains' station queues: seconds until the last train there has left, and when it was asked. [s]
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, TPair<float, double>> mAtQueues;
-	// Stations that trips held this round wait for: a train parked there is moved out (ClearNeededBays).
-	TSet<TWeakObjectPtr<AFGTrainStationIdentifier>> mHeldFor;
 	// Auto Trains travel-time questions left this dispatch round (each is a search over the whole network).
 	mutable int32 mAtTravelCallsLeft = 0;
 	// Auto Trains' travel times between stations, and when they were asked. [s]
