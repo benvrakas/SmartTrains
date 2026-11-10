@@ -91,13 +91,11 @@ signalled network, above all on single track.
 
 ### Tools
 
-- **Migration** (`/st migrate`): reads your network and proposes roles, items and managed trains, with preview,
-  apply and undo.
+- **Migration** (`/st migrate`): sets up a whole network at once, with preview, apply and undo: every station's
+  platforms as Autodetect would, optionally every station's name, and which trains SmartTrains manages.
   - It traces belts and pipes back to the machines behind each platform, and follows splitters, smart splitters,
-    Modular Load Balancers and lifts.
-  - Platforms the trace can't settle get items from their stock, their timetables, or the routes of trains that
-    stop there. Platforms whose belts reach the same machines share the items out between them.
-  - Click a station to open its platforms, and change a platform's role or items by hand before applying.
+    Modular Load Balancers and lifts. Platforms whose belts reach the same machines share the items out.
+  - Change a platform afterwards in its own menu.
 - **Monitor** (`/st monitor`): a window with Overview, Groups, Items, Stations, Platforms and Trains tabs. It shows per item
   what limits deliveries, with advice:
   - not enough supply;
@@ -117,8 +115,7 @@ signalled network, above all on single track.
   into SmartTrains' planning.
 - **Freight Car Control** (highly recommended): skips cars at stops.
 - **Modular Stations.**
-- **DynamicTimeTable**: migration reads its station groups. Don't keep it installed with managed trains, as both mods
-  would write the same timetables.
+- **DynamicTimeTable**: don't keep it installed with managed trains, as both mods would write the same timetables.
 
 ### Multiplayer
 

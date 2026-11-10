@@ -1,19 +1,29 @@
 # Migration tool
 
-Converts an existing train network (vanilla timetables, DynamicTimeTable groups) to SmartTrains roles and managed
-trains, with a preview, a CSV report and undo. `/st migrate` opens it as a window; the chat steps below do the same
-without it.
+Sets up a whole existing network at once: every station's platforms (role and item, from the machines their belts and
+pipes reach), optionally every station's name, and which trains SmartTrains manages, with a preview, a CSV report and
+undo. `/st migrate` opens it as a window; the chat steps below do the same without it.
 
-## Evidence per cargo platform
+Since 0.15.0 it is the station set-up (Architecture.md, "Station set-up") run over every station, plus the trains.
+Until then it had its own evidence pipeline (load/unload switch, stock, timetable filters, route inference,
+DynamicTimeTable groups, platforms edited by hand in the window); the user agreed on 2026-11-10 that only the
+platforms' roles and items and the trains need migrating, and that the station set-up does the platforms better.
 
-| Source | Used for |
-|---|---|
-| Load/unload setting | Load → Supply, Unload → Demand. |
-| Connected belts and pipes (`FSTPlatformAccess::CountConnections`) | Nothing connected → left Off. Load with no input, or unload with no output → conflict. |
-| Connection trace (`STTrace`) | **Items: the source of truth.** From the machines behind the belts and pipes, even when the factory is empty or idle. |
-| Platform inventory | Items, only when the trace finds nothing (backup). |
-| Load filters (load-mode platforms) and unload filters (unload-mode platforms) of every timetable stop at the station | Items, only when the trace finds nothing (backup), if they fit the platform's cargo type. |
-| Fluid in the platform's pipes | Last resort for fluid platforms. |
+## What the preview proposes
+
+- **Stations:** for every station with cargo platforms, `STSetup::ProposeStation`: the role from what is attached
+  (belts or pipes only into the platform: Supply; only out: Demand; both: its load/unload switch; nothing: Off) and
+  one item per platform from the connection trace (below), shared out between platforms of one role that reach the
+  same machines. No machine reached: what the platform holds, then the fluid in its pipes. A platform left without an
+  item flags its station ("platform N: no item found"), and a flagged station isn't ticked by default.
+- **Names:** every station's set-up name (product, map area, number, rate), worked out a few stations at a time
+  after the preview appears (`StepNaming`). With **Rename stations** on (window) or `rename` (chat), apply renames the
+  ticked stations.
+- **Trains:** every train with a timetable that SmartTrains doesn't manage yet. Ticked when it has a locomotive that
+  can dock and isn't kept vanilla. A train that used to shuttle simply takes other trips when its route is stocked;
+  untick any you want to keep on its own timetable.
+- **DynamicTimeTable:** not read any more. If it is installed, the preview says to uninstall it before managing
+  trains, as both would write the same timetables.
 
 ### Connection trace
 
@@ -64,54 +74,12 @@ Not yet used:
 - rates measured beforehand. Rates are only measured for platforms that have a role, so after migrating, observe
   only mode gives them before trains are handed over.
 
-## Which trains and stations migrate
-
-- **Route inference** (last fallback): a platform still without items gets them from the routes of the trains that
-  stop at its station. A demand platform gets what their other stations supply. A supply platform gets what they
-  take. It repeats while it fills platforms, so items carry along chains of routes. Marked medium confidence, "inferred
-  from <train>'s route".
-- A train is **pull-based** when at least one of its stops is a member of a DynamicTimeTable group. Only those are
-  ticked.
-- Other trains are **dedicated** (e.g. a raw quartz shuttle between two fixed stations). Apply marks them *keep
-  vanilla* so later runs and the manage toggle leave them alone.
-- A station used only by dedicated trains is flagged and gets no roles. Otherwise managed trains could take its
-  items away from its shuttle.
-- A station used by both kinds is flagged; apply it by number to give it roles anyway.
-- A station no train uses is flagged.
-- Without DynamicTimeTable every train that can dock (and isn't set to keep vanilla) is ticked: it joins the managed
-  pool, and a train that used to shuttle on one route takes other trips when that route is stocked. Untick a train
-  to keep it on its own timetable. No station is flagged for that reason.
-
-## Changing a platform by hand
-
-In the migration window's Stations tab, click a station's name or `[+]` to open its platforms. Then:
-- click a platform's role to cycle it: supply, demand, off;
-- click `[items]` to pick its items: a search field and every item that fits the platform, its own items ticked
-  first. Clicking an item adds it, or removes a ticked one. A demand platform can also be a sink ("Any item").
-  `[done]` closes the picker.
-
-Each change goes to the server at once (`Server_MigratePlatform` -> `STMigration::SetPlatform`) and ticks the
-station. Applying the station gives the platform that setting. The platform shows confidence "by hand".
-
-Settings by hand are kept for the session and used again by later previews, until their station is applied.
-
-Pieces that can't move freight or fluid show as "Empty platform" and can't be set. These are Modular Stations' empty
-platforms, which are built on the cargo platform class. `STLayout::CanMoveCargo` is false for them: they have no
-inventory, or no belt or pipe connectors. Whether anything is attached doesn't count, so a station not yet connected
-to the factory can still be migrated. The same check refuses a role from the platform menu, a paste, `/st platform`
-and the copy to the station's other platforms. A station with only such pieces isn't listed.
-Changing the preview counts as an ordinary edit: with "Only admins change SmartTrains" on, only admins can.
-
-## DynamicTimeTable
-
-Read through `DynamicTimeTableSubsystem::GetStationGroups` by reflection (see Architecture.md). Its data is never
-changed. Groups whose members were all migrated are listed after apply, for the player to delete in DynamicTimeTable.
 
 ## Undo
 
-Apply stores each touched platform's previous settings and load/unload mode, and the trains it managed. Undo puts the
-platforms back and unmanages those trains, which restores their saved timetables and autopilot. Keep-vanilla marks
-stay.
+Apply stores each touched platform's previous settings and load/unload mode, the old names of renamed stations, and
+the trains it managed. Undo puts the platforms and names back and unmanages those trains, which restores their saved
+timetables and autopilot. Keep-vanilla marks stay.
 
 ## Testing flow
 

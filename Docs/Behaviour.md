@@ -146,12 +146,12 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
     platform says "trains held up" (deliveries on the way but late: congestion) or "no trips" (none sent: starvation). A verdict needs a minute of
     samples, and the thresholds are shares of the window, so a short quiet spell doesn't flip it.
 
-### Migration
+### Station set-up and migration
 
-33. **The trace decides items** (designed). Belts and pipes to machines win over stock and timetables. Those only
-    break ties or fill in when the trace finds nothing.
-34. **One item per platform by default** (designed). A platform fed by a multi-input machine gets the item it holds
-    most of, then one its timetables send, then the largest flow (marked "check it").
-35. **Route inference fills empty platforms** (designed). With no machine, no stock and no timetable filter, a
-    platform gets the items trains carry between it and the other stations on their routes. Only platforms nothing
-    else settled, marked medium confidence. A platform no route explains is flagged "no item found".
+33. **The trace decides items** (seen). The machines behind the belts and pipes decide; what a platform holds and the
+    fluid in its pipes only fill in when the trace reaches no machine. Timetables and train routes aren't used.
+34. **One item per platform** (designed). A platform fed by a multi-input machine gets the largest traced flow; the
+    platforms of one role reaching the same machines share the items out, so a factory's four input platforms get
+    its four inputs.
+35. **Direction from the belts** (designed). A platform with belts only going in loads, only coming out unloads,
+    whatever its load/unload switch said; with both, the switch decides.

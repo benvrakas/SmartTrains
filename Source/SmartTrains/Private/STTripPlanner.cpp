@@ -18,7 +18,8 @@
 namespace
 {
 	// Moves kept per train, best solo score first (cargo already on board is always kept).
-	constexpr int32 MaxMovesPerTrain = 24;
+	// Moves kept per consumer station for a train: its trip there may add any of them (cargo on board always stays).
+	constexpr int32 MaxMovesPerConsumer = 8;
 	// Least a car unloads at a stop, in car slots (or all it holds when that is less). [slots]
 	constexpr double MinUnloadSlots = 2.0;
 	// Value a stop costs, once plus once per other train booked at that station near the visit. [car-load minutes]
@@ -753,10 +754,13 @@ void FSTTripPlanner::BuildMoves()
 		UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: best moves alone: %s%s%s"), *TrainName(), *FString::Join(Best, TEXT("; ")),
 			Unscored.Num() > 0 ? TEXT("; scoring nothing alone: ") : TEXT(""), *FString::Join(TArray<FString>(Unscored.GetData(), FMath::Min(4, Unscored.Num())), TEXT("; ")));
 	}
-	int32 Kept = 0;
+	// The best few per consumer station: a trip is built around one consumer, and a move that scores nothing alone (a
+	// factory's second input, not short yet) may still pay on a trip going there anyway.
+	TMap<const AFGTrainStationIdentifier*, int32> PerConsumer;
 	for (const FSTPlanMove& Move : Moves)
 	{
-		if (Move.From == INDEX_NONE || Kept++ < MaxMovesPerTrain)
+		int32& Count = PerConsumer.FindOrAdd(mNodes[Move.To].Station.Get());
+		if (Move.From == INDEX_NONE || Count++ < MaxMovesPerConsumer)
 		{
 			mMoves.Add(Move);
 		}
@@ -880,14 +884,20 @@ bool FSTTripPlanner::ResumeTrain(int32 TrainIndex, const AFGTrainStationIdentifi
 
 TArray<const AFGTrainStationIdentifier*> FSTTripPlanner::GetConsumerStations() const
 {
-	TArray<const AFGTrainStationIdentifier*> Stations;
+	// Stations with a move worth a trip by itself (or cargo on board for them), the one with the best such move first.
+	TMap<const AFGTrainStationIdentifier*, double> Best;
 	for (const FSTPlanMove& Move : mMoves)
 	{
-		if (mNodes.IsValidIndex(Move.To) && mNodes[Move.To].Station.IsValid())
+		if (!mNodes.IsValidIndex(Move.To) || !mNodes[Move.To].Station.IsValid() || (Move.SoloScore <= 0.0 && Move.From != INDEX_NONE))
 		{
-			Stations.AddUnique(mNodes[Move.To].Station.Get());
+			continue;
 		}
+		double& Score = Best.FindOrAdd(mNodes[Move.To].Station.Get(), 0.0);
+		Score = FMath::Max(Score, Move.SoloScore);
 	}
+	TArray<const AFGTrainStationIdentifier*> Stations;
+	Best.GetKeys(Stations);
+	Stations.Sort([&Best](const AFGTrainStationIdentifier& A, const AFGTrainStationIdentifier& B) { return Best[&A] > Best[&B]; });
 	return Stations;
 }
 

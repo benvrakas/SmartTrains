@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.15.0 (beta)
+
+**The migration tool is the station set-up for every station, plus the trains.** Only the platforms' roles and items
+and the trains to manage need migrating, and the station set-up does the platforms better.
+
+- The preview sets every station's platforms as **Autodetect** does (direction from the belts and pipes, items from
+  the machines they reach), names them if **Rename stations** is on, and ticks every train that can dock.
+- Removed from the migration: DynamicTimeTable group reading (and "dedicated" trains kept vanilla), items from
+  timetable filters and train routes, editing platforms by hand in the window, the trace limit and "every traced
+  item" options. Change a platform afterwards in its own menu.
+- Undo puts back platforms, station names and managed trains, as before.
+
 ## 0.14.0 (beta)
 
 - **Fixed: the migration preview froze the server** for about 18 s per click on a large save (the station names of
