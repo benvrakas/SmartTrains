@@ -657,12 +657,15 @@ second after it opens, to check that.
   runs the same steps as `/st migrate`. Its rows are the preview's stations and trains, ticked as proposed. Apply
   sends the ticked numbers. Without a test copy or backup this session, Apply takes a second click (the chat
   command's `confirm`).
-  - It has tabs: Overview, Stations, Trains and Last result. A station "to check" has a flag, or a platform with a
-    conflict, no item, or low or unclear confidence.
+  - One toolbar (Preview, Apply ticked, Undo, Rename stations, and with beta tools Test copy and Backup) above three
+    tabs: Stations, Trains and Result (0.15.2; the Overview tab and the separate option rows are gone). The Stations
+    tab is a table with headings: tick, station (click to open its platforms), New name while Rename stations is on
+    (`FSTMigrationRow::NewName`; "stays" when the name doesn't change, "..." while names are still worked out), platforms
+    and status. A station "to check" has a flag, or a platform with a conflict, no item, or low or unclear confidence.
   - The view carries each station's platforms (`FSTMigrationPlatformRow`: number, role, items, confidence, note,
     conflict), so the window shows item icons.
   - Ticks, opened stations, the tab and the filters live in the window. A fresh preview resets the ticks to the
-    proposals and opens the Overview.
+    proposals and opens the Stations tab.
 
 ## Without Freight Car Control
 

@@ -18,13 +18,13 @@ struct FSTMigrationPlatformRow;
 struct FSTMigrationRow;
 struct FSTMigrationView;
 
-// Migration window opened by "/st migrate", in tabs:
-// - Overview: counts and what needs a look.
-// - Stations: one row per station, ticked to apply, opening to its platforms with role, item icons and confidence.
-//   A platform's role and items can be changed there by hand before applying.
+// Migration window opened by "/st migrate". One toolbar (Preview, Apply ticked, Undo, Rename stations, and with beta
+// tools Test copy and Backup) above three tabs:
+// - Stations: a table, one row per station (tick, station, new name while Rename stations is on, platforms, status);
+//   clicking a station opens its platforms with role, item icons and confidence.
 // - Trains: one row per train, ticked to be managed.
-// - Last result: what the last step said.
-// Preview, Apply ticked and Undo stay above the tabs. A full-screen popup; Close or Escape closes it.
+// - Result: what the last step said.
+// A full-screen popup; Close or Escape closes it.
 UCLASS()
 class USTMigrationWindow : public USTPanel
 {
@@ -47,7 +47,6 @@ protected:
 private:
 	enum class ETab : uint8
 	{
-		Overview,
 		Stations,
 		Trains,
 		Result,
@@ -73,11 +72,12 @@ private:
 	void UpdateTabs(const FSTMigrationView& View);
 	// Rebuilds the open tab from the latest view.
 	void ShowTab();
-	void ShowOverview(const FSTMigrationView& View);
 	void ShowStations(const FSTMigrationView& View);
 	void ShowTrains(const FSTMigrationView& View);
 	void ShowResult(const FSTMigrationView& View);
 	void AddFilterBar(bool bStations, int32 Shown, int32 Total);
+	// Column headings of the stations table.
+	void AddStationHeadings();
 	void AddStation(const FSTMigrationRow& Row);
 	// Sends a platform's role and items set by hand, and ticks its station.
 	// The item picker under a platform being changed: a search field and every item that fits, its items first.

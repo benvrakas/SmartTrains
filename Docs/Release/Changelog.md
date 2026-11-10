@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15.2 (beta)
+
+- **Migration window tidied up.** One toolbar instead of three rows: Preview, Apply ticked, Undo, **Rename stations
+  on/off**, and (with beta tools) Test copy and Backup. Three tabs: **Stations**, Trains and Result; the Overview tab
+  is gone (the tab names carry the counts, and the "To check" filter lists what needs a look).
+- **New name column:** while Rename stations is on, the Stations tab shows each station's new name next to its
+  current one ("stays" when it keeps its name, "..." while names are still being worked out). The table has column
+  headings, and clicking a station opens its platforms (the separate [+] column and "Close all" are gone).
+
 ## 0.15.1 (beta)
 
 - **Fixed: Autodetect could swap a factory's inputs between its platforms.** Where the belts of several platforms
