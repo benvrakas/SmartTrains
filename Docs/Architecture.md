@@ -9,6 +9,7 @@ in the plan (`C:\Users\benvr\.claude\plans\smarttrains.md`); this file records h
 |---|---|
 | `STTypes.h` | Saved data: platform settings (`FSTPlatformConfig`), station settings, train state and jobs, learned dock maps, trip and stay times, the migration undo record. |
 | `STStationSetup.*` | Station set-up: platform roles and items from what is attached, the factory's product and theoretical rate, and station names. |
+| `STGather.cpp` | The default dispatcher: trips built around one consumer station each. |
 | `STGroups.cpp` | Item groups: groups from the flow plan, train homes, the dispatch round, group readouts and settings. |
 | `STSubsystem.h`, `STSubsystem.cpp` | `ASTSubsystem` (server only, saved with the world): settings API, train monitoring, docking events, learning, rate sampling, readouts. |
 | `STDispatch.cpp` | The rest of `ASTSubsystem`: supply/demand nodes, the fit model, dispatching, the flow plan, writing timetables. |
@@ -25,6 +26,35 @@ in the plan (`C:\Users\benvr\.claude\plans\smarttrains.md`); this file records h
 | `STRemoteCallObject.*` | Carries menu edits to the server and readouts back. |
 | `STAccess.*` | Who may change what (admin-gated controls). |
 | `UI/*` | The panels added to vanilla menus, and the controls they are built from. |
+
+## 0.12.0: consumer-anchored trips
+
+Code: `STGather.cpp` (`ASTSubsystem::GatherRound`), `FSTTripPlanner::SetOnlyStation` and `GetConsumerStations`. The
+default dispatcher; Item groups (Mods menu, `bItemGroups`) brings back 0.10's `GroupRound` for comparison and will be
+removed. Why: the user asked (2026-11-09) for as few rules as possible at close to the best efficiency. The IB logs
+showed planner sophistication didn't move throughput (0.7.1's horizon planner ran the same trips per 30 min as
+0.6.10), and most bugs came from mechanisms interacting (services, homes, lending). The shape is the user's DTT setup
+(one group per pull-based station, "[supplier group] -> factory") made automatic.
+
+The rules:
+
+1. **Need.** The moves `BeginTrain` lists already are the need: a consumer below target at the rough arrival time (or
+   a nearly full supplier pushing), with a car that lines up at both ends.
+2. **Build.** For each consumer station the train can deliver to (`GetConsumerStations`), regret insertion runs with
+   only moves to that station (`SetOnlyStation`): pickups for the cars that line up with its platforms, from the
+   suppliers that pay best, while the trip's value per second rises. Each car carries one item, so a factory with
+   mixed inputs gets a gathering trip in its platform order; a one-item consumer gets a plain shuttle trip.
+3. **Choose.** The train runs the consumer's trip with the best score (value per second, the same objective as
+   since 0.8.0) that is worth running (value above `TrainSecondCost` x its time). Trains take turns as before (longest
+   waiting first, every round plans at least one).
+4. **After.** The job keeps its consumer (`FSTJob::AnchorStation`); re-plans after each stop only add deliveries
+   there. Cargo for elsewhere stays on board and is a move (cargo on board) for the next trip. With nothing worth a
+   trip the train settles (depot or in place).
+
+There are no homes (`AllocateHomes` clears them; the groups stay as a readout of the flow plan) and no lending. A
+consumer is served by whichever free train makes its trip pay best, so trains whose cars line up better and trains
+nearby win by themselves. Train-first turns can give a far train a consumer a nearer, later train would have served
+better; the reservations it makes lower that consumer's value for the others, and the next round corrects it.
 
 ## 0.11.0: station set-up
 

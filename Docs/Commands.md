@@ -55,6 +55,8 @@ Setting a role switches the platform to load (supply) or unload (demand).
   none). Default `Out In In`, no word for a station that does both. Example: `/st setup words SRC RSC SNK`.
 - `/st setup default`: the default format and words again.
 - Server console: `SmartTrains.Setup [apply] [keepname]` runs `/st setup all`.
+- Server console: `SmartTrains.EmptyCars` deletes the cargo of every managed train, as `/st emptycars all confirm`
+  (no undo; for tests that start from empty trains on a dedicated server).
 
 ## Trains (drive or look at a train)
 

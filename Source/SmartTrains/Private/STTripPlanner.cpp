@@ -878,6 +878,19 @@ bool FSTTripPlanner::ResumeTrain(int32 TrainIndex, const AFGTrainStationIdentifi
 	return true;
 }
 
+TArray<const AFGTrainStationIdentifier*> FSTTripPlanner::GetConsumerStations() const
+{
+	TArray<const AFGTrainStationIdentifier*> Stations;
+	for (const FSTPlanMove& Move : mMoves)
+	{
+		if (mNodes.IsValidIndex(Move.To) && mNodes[Move.To].Station.IsValid())
+		{
+			Stations.AddUnique(mNodes[Move.To].Station.Get());
+		}
+	}
+	return Stations;
+}
+
 FSTPlanResult FSTTripPlanner::Simulate(const TArray<FSTPlanStop>& Stops) const
 {
 	TSet<TPair<int32, int32>> Skips;
@@ -1480,6 +1493,11 @@ FSTPlanResult FSTTripPlanner::Improve(TArray<FSTPlanStop>& InOutStops, int32 Fir
 		{
 			// While a home item is set, only its moves and deliveries of cargo on board (a home trip's start).
 			if (Used.Contains(Index) || (mOnlyItem && mMoves[Index].From != INDEX_NONE && mMoves[Index].Item != mOnlyItem))
+			{
+				continue;
+			}
+			// While a consumer is set, only moves delivering there.
+			if (mOnlyStation && (!mNodes.IsValidIndex(mMoves[Index].To) || mNodes[mMoves[Index].To].Station.Get() != mOnlyStation))
 			{
 				continue;
 			}

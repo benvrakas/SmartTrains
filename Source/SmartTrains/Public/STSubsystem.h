@@ -306,8 +306,11 @@ private:
 	void ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner);
 	// Gives free trains trips (Docs/Architecture.md, "Groups"): home work first, then any work (lent), else they park.
 	void GroupRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes);
+	// Gives free trains trips built around one consumer station each (STGather.cpp; the default dispatcher).
+	void GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes);
 	// Turns a planned trip into State's job (and, if bReserve, reserves it for the trains planned after it).
-	void CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve, UClass* GroupItem = nullptr);
+	void CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve, UClass* GroupItem = nullptr,
+		AFGTrainStationIdentifier* Anchor = nullptr);
 	// Records why a free train got no trip; logged when the reason changes.
 	void NoteNoTrip(const FSTTrainState& State, const FString& Reason);
 	// Works out planned flows between suppliers and consumers.

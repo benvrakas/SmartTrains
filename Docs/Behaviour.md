@@ -1,6 +1,6 @@
 # SmartTrains: methods and emergent behaviour
 
-State: 0.10.0 beta (item groups). Architecture.md has the implementation details; this file lists the methods in one
+State: 0.12.0 beta (consumer-anchored trips). Architecture.md has the implementation details; this file lists the methods in one
 place and the behaviour that comes out of them working together.
 
 Status tags for behaviour: **seen** (in a test log), **designed** (intended, not yet seen), **risk** (possible
@@ -61,9 +61,11 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 8. **No out-and-back to one station** (designed). Each station appears once per trip, so A → B → A is two trips.
 9. **Trains spread over suppliers** (designed). Reservations make a supplier look emptier to trains planned after
    it, so they pick other suppliers.
-10. **Home work first, then lent** (designed, 0.10.0). A train starts with its home group's work and may add other
-    work on the way; with nothing in its group it is lent to any work worth running, so a group's idle trains help
-    other groups at once.
+10. **One consumer per trip** (seen, 0.12.0). Each trip ends at one consumer station; the train fills the cars that
+    line up there, from one or more suppliers (gathering trips for factories with several inputs). On the IB save copy
+    this delivered about 19 % more car loads in 20 minutes than 0.10's item groups (home groups and lending), from the
+    same start, full or emptied trains: 86 against 73 and 80 against 67. Trips that delivered cargo went from 31 to
+    52, each unloading fewer cars, since most consumers there take one item at one or two platforms.
 
 ### Inventory patterns
 

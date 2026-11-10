@@ -99,6 +99,10 @@ public:
 	// While set, Improve only adds moves of Item and deliveries of cargo already on board (a home group's trip, which
 	// other work may join afterwards); null: any move.
 	void SetOnlyItem(UClass* Item) { mOnlyItem = Item; }
+	// While set, Improve only adds moves delivering to Station (a trip built around one consumer); null: any move.
+	void SetOnlyStation(const AFGTrainStationIdentifier* Station) { mOnlyStation = Station; }
+	// The stations the current train's moves deliver to, each once.
+	TArray<const AFGTrainStationIdentifier*> GetConsumerStations() const;
 	// The current train's cars and start only (no moves): enough to simulate given stops.
 	bool PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bInAnchorDocked);
 	// The current train's planning inputs (cars, platforms, dock maps, start), for /st snapshot.
@@ -228,6 +232,7 @@ private:
 	mutable TMap<FString, int32> mProblems;
 	bool bFcc = false;
 	UClass* mOnlyItem = nullptr;
+	const AFGTrainStationIdentifier* mOnlyStation = nullptr;
 	// Automation tests: every station counts as on the train's track network (they have no world).
 	bool bServeAll = false;
 	int32 mMaxStops = 4;

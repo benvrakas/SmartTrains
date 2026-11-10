@@ -189,6 +189,19 @@ void ASTSubsystem::UpdateGroups(TArray<FSTFlowRoute>&& Routes)
 
 void ASTSubsystem::AllocateHomes()
 {
+	// Consumer-anchored trips have no homes.
+	if (!mSettings.bItemGroups)
+	{
+		for (FSTTrainState& State : mTrains)
+		{
+			State.HomeItem = nullptr;
+		}
+		for (FSTGroup& Group : mGroups)
+		{
+			Group.Homes.Reset();
+		}
+		return;
+	}
 	// Seats go one at a time to the group with the most need per seat (needed / (seats + 1), as in the D'Hondt method),
 	// so with too few trains every group gets its share, and with more than enough the spares spread the same way.
 	// Trains that stay and each group's least come first; a group's own trains are its first choice for a seat.
@@ -571,6 +584,15 @@ FString ASTSubsystem::DescribeHome(const FSTTrainState& State) const
 	if (!State.bManaged)
 	{
 		return FString();
+	}
+	if (!mSettings.bItemGroups)
+	{
+		if (State.bHasJob && !State.Job.bPark)
+		{
+			return State.Job.AnchorStation ? FString::Printf(TEXT("Trip for %s."), *STLayout::Name(State.Job.AnchorStation.Get())) : FString(TEXT("Working."));
+		}
+		const FString* Why = mIdleReasons.Find(State.Train.Get());
+		return Why ? TEXT("Waiting: ") + *Why + TEXT(".") : FString(TEXT("Waiting for a trip."));
 	}
 	UClass* HomeItem = State.HomeItem.Get();
 	FString Text;

@@ -31,13 +31,14 @@ them (see below).
   yours to choose (`/st setup format`, `/st setup words`).
 - **Trains:** in the locomotive menu, switch **Managed by SmartTrains** on. SmartTrains writes its timetable; the
   game, or Auto Trains, drives it.
-- **Item groups:** every item the plan moves is a group of its suppliers and consumers. A new station joins its
-  item's group by itself. Each managed train gets a **home group** whose platforms its cars fit, shared out by what
-  the groups need, so with too few trains every group gets its share.
-- **Trips:** a free train takes its home group's work first: a pickup and delivery, and it may add other work on the
-  way (another item for the same factory, a load back instead of running empty). When its group has nothing to move,
-  it is **lent** to whatever work is worth running. Only with nothing anywhere does it park. After every stop the rest
-  of the trip is planned again from what the cars really hold.
+- **Trips:** every trip is built around one consumer station. A free train looks at each consumer it can deliver to,
+  fills the cars that line up with that station's unloading platforms from the suppliers that pay best, and unloads
+  there. A factory with several inputs gets one gathering trip in its platform order (car 1 iron, car 2 wire); a
+  one-item consumer gets a plain shuttle trip. The train runs the trip worth the most per second, so trains whose cars
+  line up and trains nearby win by themselves. After every stop the rest of the trip is planned again from what the
+  cars really hold. With nothing worth a trip, it parks.
+- **Item groups (0.10 dispatcher)** in the Mods menu brings back the earlier way (home groups and lending) for
+  comparison.
 - **Short of trains** in the monitor means a group lacks trains and no train that fits it is idle: then more trains
   help. Idle trains that fit mean there's too little to move, not too few trains. `/st group` and the monitor's Groups
   tab show the groups, their trains and their flows.

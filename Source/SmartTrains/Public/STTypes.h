@@ -281,6 +281,10 @@ struct SMARTTRAINS_API FSTJob
 	UPROPERTY(SaveGame)
 	TSubclassOf<UFGItemDescriptor> GroupItem;
 
+	// The consumer station the trip was built around (consumer-anchored trips); re-plans only add deliveries there.
+	UPROPERTY(SaveGame)
+	TObjectPtr<AFGTrainStationIdentifier> AnchorStation = nullptr;
+
 	// One line for logs and readouts.
 	UPROPERTY(SaveGame)
 	FString Summary;

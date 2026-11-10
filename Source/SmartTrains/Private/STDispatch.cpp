@@ -843,8 +843,15 @@ void ASTSubsystem::DispatchRound()
 	{
 		return;
 	}
-	// Free trains: home work first, then any work, else they park.
-	GroupRound(Planner, Nodes);
+	// Free trains: trips built around one consumer each (or, with Item groups on, home work first, then any work).
+	if (mSettings.bItemGroups)
+	{
+		GroupRound(Planner, Nodes);
+	}
+	else
+	{
+		GatherRound(Planner, Nodes);
+	}
 	if (!mSettings.bObserveOnly)
 	{
 		ClearNeededBays();
@@ -861,7 +868,8 @@ void ASTSubsystem::NoteNoTrip(const FSTTrainState& State, const FString& Reason)
 	}
 }
 
-void ASTSubsystem::CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve, UClass* GroupItem)
+void ASTSubsystem::CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve, UClass* GroupItem,
+	AFGTrainStationIdentifier* Anchor)
 {
 	const double Time = Now();
 	mIdleReasons.Remove(State.Train.Get());
@@ -884,6 +892,7 @@ void ASTSubsystem::CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, con
 		Stations.Add(STLayout::Name(Stop.Station));
 	}
 	Job.GroupItem = GroupItem;
+	Job.AnchorStation = Anchor;
 	Job.Summary = FString::Printf(TEXT("%s: %s"), *FString::Join(Items, TEXT(", ")), *FString::Join(Stations, TEXT(" -> ")));
 	const FString Line = FString::Printf(TEXT("%s: %s [%s], %d moved, value %.2f, score %.4f"), *STLayout::Name(State.Train), *Job.Summary,
 		*Planner.Describe(Stops, Result), Result.Moved, Result.Value, Result.Score);
@@ -1073,7 +1082,10 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	const bool bKeptWorks = Result.bValid && Stops.Num() > 0;
 	const TArray<FSTPlanStop> Kept = Stops;
 	const FSTPlanResult KeptResult = bKeptWorks ? Planner.Simulate(Stops) : FSTPlanResult();
+	// A trip built around one consumer only adds deliveries there; cargo for elsewhere waits for the next trip.
+	Planner.SetOnlyStation(!mSettings.bItemGroups ? State.Job.AnchorStation.Get() : nullptr);
 	Result = Planner.Improve(Stops, 0);
+	Planner.SetOnlyStation(nullptr);
 	FSTTripPlanner::Trim(Stops, Result, 0);
 	Result = Planner.Simulate(Stops);
 	// Stability: additions to a trip that still works must beat it by the re-plan threshold.

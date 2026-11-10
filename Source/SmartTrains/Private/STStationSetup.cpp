@@ -15,6 +15,7 @@
 #include "FGMinimapCaptureActor.h"
 #include "FGPipeConnectionComponent.h"
 #include "FGRailroadSubsystem.h"
+#include "FGTrain.h"
 #include "FGRecipe.h"
 #include "FGTrainStationIdentifier.h"
 #include "FGVolumeMapArea.h"
@@ -1384,6 +1385,30 @@ namespace
 			UE_LOG(LogSmartTrains, Log, TEXT("%s"), *Line);
 		}
 	}
+
+	// SmartTrains.EmptyCars: deletes the cargo of every managed train (as /st emptycars all confirm), for tests that
+	// start from empty trains on a dedicated server.
+	void RunEmptyCarsCommand(const TArray<FString>& Args, UWorld* World)
+	{
+		ASTSubsystem* Subsystem = ASTSubsystem::Get(World);
+		if (!Subsystem)
+		{
+			UE_LOG(LogSmartTrains, Warning, TEXT("SmartTrains.EmptyCars: no SmartTrains subsystem in this world"));
+			return;
+		}
+		int32 Removed = 0;
+		int32 Trains = 0;
+		for (AFGTrain* Train : Subsystem->GetManagedTrains())
+		{
+			Removed += Subsystem->EmptyTrainCars(Train, TEXT("server console"));
+			++Trains;
+		}
+		UE_LOG(LogSmartTrains, Log, TEXT("SmartTrains.EmptyCars: %d managed trains emptied, %d items and litres removed"), Trains, Removed);
+	}
+
+	FAutoConsoleCommandWithWorldAndArgs GEmptyCarsCommand(TEXT("SmartTrains.EmptyCars"),
+		TEXT("Deletes the cargo of every managed train (no undo), as /st emptycars all confirm."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&RunEmptyCarsCommand));
 
 	FAutoConsoleCommandWithWorldAndArgs GSetupCommand(TEXT("SmartTrains.Setup"),
 		TEXT("Station set-up for every station: preview (default) or apply [keepname]. Report in Saved/SmartTrains."),

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.12.0 (beta)
+
+**Every trip is built around one consumer.** Like a DynamicTimeTable group per factory, made automatic.
+
+- A free train looks at each consumer station it can deliver to, fills the cars that line up with that station's
+  unloading platforms from the suppliers that pay best, and unloads there. A factory with several inputs gets one
+  gathering trip (car 1 iron, car 2 wire...) in its platform order; a one-item consumer gets a plain shuttle trip.
+- The train runs the trip worth the most per second. Trains whose cars line up better, and trains nearby, win by
+  themselves: no home groups, no lending.
+- After each stop the rest is planned again, but only deliveries to the trip's consumer are added. Cargo for
+  somewhere else stays on board and goes on the next trip.
+- **Item groups (0.10 dispatcher)** in the Mods menu switches back, for comparison. It will be removed.
+- On a copy of a large save (26 trains), 20 minutes from the same start: about 19 % more car loads delivered than
+  with item groups, full or emptied trains, in more and shorter trips.
+- Server console: `SmartTrains.EmptyCars` empties every managed train (as `/st emptycars all confirm`), for tests.
+
 ## 0.11.0 (beta)
 
 **Station set-up from the factory.** Build a station and its platforms, connect them, and let SmartTrains set it up.

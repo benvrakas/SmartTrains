@@ -1145,6 +1145,8 @@ bool FSTGroupHomesTest::RunTest(const FString& Parameters)
 	UClass* Iron = USTTestSolid::StaticClass();
 	UClass* Coal = USTTestSolidB::StaticClass();
 	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	// Homes exist only with the 0.10 dispatcher.
+	FSTTestAccess::Settings(*Subsystem).bItemGroups = true;
 	TArray<AFGTrain*> Trains;
 	for (int32 Index = 0; Index < 4; ++Index)
 	{
@@ -1203,6 +1205,8 @@ bool FSTGroupShortfallTest::RunTest(const FString& Parameters)
 {
 	UClass* Iron = USTTestSolid::StaticClass();
 	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	// Homes exist only with the 0.10 dispatcher.
+	FSTTestAccess::Settings(*Subsystem).bItemGroups = true;
 	AFGTrain* Train = NewObject<AFGTrain>(GetTransientPackage());
 	FSTTestAccess::AddManaged(*Subsystem, Train);
 	FSTTestAccess::AddGroup(*Subsystem, Iron, 3.0, {Train});
@@ -1300,6 +1304,88 @@ bool FSTHomeItemFirstTest::RunTest(const FString& Parameters)
 	{
 		TestTrue(TEXT("with iron as its home it delivers iron"), Delivered(HomeResult, Iron) > 0);
 		TestEqual(TEXT("and only iron while the home item is set"), Delivered(HomeResult, Coal), 0);
+	}
+	return true;
+}
+
+// A trip built around one consumer fills each car that lines up with its unloading platforms from that item's supplier
+// (a gathering trip for a factory with two inputs) and ends there, even when a nearer consumer of one of the items
+// would score more on its own.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTGatherMixedFactoryTest, "SmartTrains.Gather.MixedFactory", TestFlags)
+bool FSTGatherMixedFactoryTest::RunTest(const FString& Parameters)
+{
+	UClass* Iron = USTTestSolid::StaticClass();
+	UClass* Coal = USTTestSolidB::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* IronMine = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* CoalMine = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Factory = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* IronUser = FSTTestAccess::MakeStation();
+	const TArray<AFGTrainStationIdentifier*> All = {Start, IronMine, CoalMine, Factory, IronUser};
+	for (AFGTrainStationIdentifier* From : All)
+	{
+		for (AFGTrainStationIdentifier* To : All)
+		{
+			const bool bNear = (From == Start && To == IronMine) || (From == IronMine && To == IronUser);
+			FSTTestAccess::SetTrip(*Subsystem, From, To, bNear ? 30.f : 300.f);
+		}
+	}
+	TArray<FSTNode> Nodes = {
+		FSTTestAccess::Node(IronMine, Iron, ESTRole::Supply, 4800, 4800, 1), FSTTestAccess::Node(CoalMine, Coal, ESTRole::Supply, 4800, 4800, 1),
+		FSTTestAccess::Node(Factory, Iron, ESTRole::Demand, 0, 4800, 1), FSTTestAccess::Node(Factory, Coal, ESTRole::Demand, 0, 4800, 1),
+		FSTTestAccess::Node(IronUser, Iron, ESTRole::Demand, 0, 4800, 1)};
+	for (FSTNode& Node : Nodes)
+	{
+		Node.Rate = 1.0;
+	}
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+	FSTTestAccess::ServeAll(Planner);
+	TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Iron, true, 4800.0, 48), FSTTestAccess::Platform(Coal, true, 4800.0, 48),
+		FSTTestAccess::Platform(Iron, false, 0.0, 0), FSTTestAccess::Platform(Coal, false, 0.0, 0), FSTTestAccess::Platform(Iron, false, 0.0, 0)};
+	for (FSTTestAccess::FPlatformInfo& Platform : Platforms)
+	{
+		Platform.Slots = 48;
+	}
+	FSTTestAccess::FCarInfo Car = FSTTestAccess::Car();
+	Car.Slots = 32;
+	// Car 1 stops beside the iron platforms, car 2 beside the coal ones; at the nearer iron consumer only car 1 has a platform.
+	FSTTestAccess::FCarPlatforms CarPlatforms;
+	CarPlatforms.Add(IronMine, {{0, INDEX_NONE}});
+	CarPlatforms.Add(CoalMine, {{INDEX_NONE, 1}});
+	CarPlatforms.Add(Factory, {{2, 3}});
+	CarPlatforms.Add(IronUser, {{4, INDEX_NONE}});
+	FSTTestAccess::SetTrain(Planner, Start, true, false, {Car, Car}, Platforms, CarPlatforms);
+	FSTTestAccess::BuildMoves(Planner);
+	auto Delivered = [](const FSTPlanResult& Result, UClass* Item)
+	{
+		int32 Moved = 0;
+		for (const TArray<FSTPlanCarStep>& Stop : Result.Steps)
+		{
+			for (const FSTPlanCarStep& Step : Stop)
+			{
+				for (const TPair<UClass*, int32>& Each : Step.Unloaded)
+				{
+					Moved += Each.Key == Item ? Each.Value : 0;
+				}
+			}
+		}
+		return Moved;
+	};
+	TestTrue(TEXT("the factory is a consumer the train can deliver to"), Planner.GetConsumerStations().Contains(Factory));
+	TArray<FSTPlanStop> Stops;
+	Planner.SetOnlyStation(Factory);
+	FSTPlanResult Result = Planner.Improve(Stops, 0);
+	Planner.SetOnlyStation(nullptr);
+	FSTTripPlanner::Trim(Stops, Result, 0);
+	Result = Planner.Simulate(Stops);
+	if (TestTrue(FString::Printf(TEXT("a trip for the factory is found (%s)"), *Result.Problem), Result.bValid && Stops.Num() > 0))
+	{
+		TestTrue(TEXT("it delivers iron"), Delivered(Result, Iron) > 0);
+		TestTrue(TEXT("and coal, in the other car"), Delivered(Result, Coal) > 0);
+		TestEqual(TEXT("it ends at the factory"), Stops.Last().Station, Factory);
+		TestFalse(TEXT("it doesn't stop at the other iron consumer"), Stops.ContainsByPredicate([&](const FSTPlanStop& Stop) { return Stop.Station == IronUser; }));
 	}
 	return true;
 }
