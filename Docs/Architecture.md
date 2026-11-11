@@ -213,7 +213,7 @@ window's Rename stations); never automatic.
   Trains' `ExternalDriveTo` API). SmartTrains switches the autopilot on and hands Auto Trains the spot's goal connection
   (Auto Trains empties the timetable; the drive isn't saved, so after loading an idle train is simply sent again); `MonitorTrains` parks the train (autopilot off) once Auto Trains reports it arrived, and if
   Auto Trains drops it (no way, goal dropped) that signal isn't offered to the train for `STDepots::NoWayRetrySeconds`
-  (`mDepotNoWay`) and the train settles again. `WriteJob` and unmanaging cancel the drive. Without Auto Trains there is
+  (`mDepotNoWay`) and the train settles again. `WriteJob`'s timetable ends the drive by itself (cancelling would clear the new path); unmanaging cancels it. Without Auto Trains there is
   no depot parking. Before 0.22.0 SmartTrains forced a path with no station into the game's automatic control
   (`mAtcData.SetPath`, an `AFGTrain` friend): the game flagged "no timetable", Auto Trains didn't manage the train, and
   on the IB save most depot-bound trains stood on the main line and jammed the network.

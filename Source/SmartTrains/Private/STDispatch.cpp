@@ -1706,10 +1706,8 @@ void ASTSubsystem::WriteJob(FSTTrainState& State, const TCHAR* Why)
 		TimeTable->SetStops(Stops);
 	}
 	TimeTable->SetCurrentStop(0);
-	if (mDepotTrips.Remove(Train) > 0)
-	{
-		STAt::CancelDrive(GetWorld(), Train);
-	}
+	// A timetable with stops ends an Auto Trains drive to a depot signal by itself (cancelling it would clear the new path).
+	mDepotTrips.Remove(Train);
 	if (!Train->IsSelfDrivingEnabled() && !State.bHeld)
 	{
 		Train->SetSelfDrivingEnabled(true);
