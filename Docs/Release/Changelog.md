@@ -18,6 +18,10 @@ Fixes for the gridlock on the IB save (from about 14:00, down from about 200 fin
   one every few seconds, and logs it once; with every way blocked it says so once and waits. On the IB save one train
   logged "moving it" 1,811 times in under two hours.
 - A trip to a station that turns out unreachable ends the same way (it used to be re-planned only for that station).
+- **A parked train out on the line gives way too** when Auto Trains reports a train waiting for it (only trains parked
+  in a station did).
+- **A train still moving is never stopped where it is to park** (Auto Trains plans the others around it as driven):
+  with no station free of trains, it drives to the nearest other station.
 
 ## 0.22.1 (beta)
 

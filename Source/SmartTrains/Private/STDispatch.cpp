@@ -1702,8 +1702,8 @@ void ASTSubsystem::ClearNeededBays()
 		};
 		if (!Target)
 		{
-			Report(FString::Printf(TEXT("BLOCKING %s, parked at %s, has to move (%s) but its way out to every parking station is blocked now (%d tried); it waits"),
-				*STLayout::Name(State.Train), *STLayout::Name(Here), *Why, Tried.Num()));
+			Report(FString::Printf(TEXT("BLOCKING %s, parked %s%s, has to move (%s) but its way out to every parking station is blocked now (%d tried); it waits"),
+				*STLayout::Name(State.Train), Here ? TEXT("at ") : TEXT(""), *Where, *Why, Tried.Num()));
 			continue;
 		}
 		// With Auto Trains the way out is checked first: a train coming the other way on a single track would meet it
@@ -1721,10 +1721,17 @@ void ASTSubsystem::ClearNeededBays()
 			if (Check == STAt::ELegCheck::Blocked)
 			{
 				State.ExitBlocked.Add(Target, Clock + RerouteAgainSeconds);
-				mBlockedStations.Add(Here, Clock + RerouteAgainSeconds);
 				TArray<FString> Ended;
+				if (Here)
+				{
+					mBlockedStations.Add(Here, Clock + RerouteAgainSeconds);
+				}
 				for (FSTTrainState& Other : mTrains)
 				{
+					if (!Here)
+					{
+						break;
+					}
 					if (&Other == &State || !Other.bManaged || !Other.bHasJob || !IsValid(Other.Train) || Other.Train->IsDocked() || Clock - Other.LastRerouted < RerouteAgainSeconds)
 					{
 						continue;
@@ -1741,14 +1748,14 @@ void ASTSubsystem::ClearNeededBays()
 						EndJob(Other, *FString::Printf(TEXT("%s can't leave %s, which this trip heads for"), *STLayout::Name(State.Train), *STLayout::Name(Here)));
 					}
 				}
-				Report(FString::Printf(TEXT("REROUTE %s, parked at %s, can't get out to %s now (%s); %s offered to no new trip for %.0f s%s%s"), *STLayout::Name(State.Train),
-					*STLayout::Name(Here), *STLayout::Name(Target), *Reason, *STLayout::Name(Here), RerouteAgainSeconds, Ended.Num() > 0 ? TEXT("; trips ended: ") : TEXT(""),
-					*FString::Join(Ended, TEXT(", "))));
+				Report(FString::Printf(TEXT("REROUTE %s, parked %s%s, can't get out to %s now (%s)%s%s%s"), *STLayout::Name(State.Train), Here ? TEXT("at ") : TEXT(""), *Where,
+					*STLayout::Name(Target), *Reason, Here ? *FString::Printf(TEXT("; %s offered to no new trip for %.0f s"), *Where, RerouteAgainSeconds) : TEXT(""),
+					Ended.Num() > 0 ? TEXT("; trips ended: ") : TEXT(""), *FString::Join(Ended, TEXT(", "))));
 				continue;
 			}
 		}
 		State.LastExitReport.Reset();
-		UE_LOG(LogSmartTrains, Log, TEXT("BLOCKING %s, parked at %s: %s; moving it to %s"), *STLayout::Name(State.Train), *STLayout::Name(Here), *Why, *STLayout::Name(Target));
+		UE_LOG(LogSmartTrains, Log, TEXT("BLOCKING %s, parked %s%s: %s; moving it to %s"), *STLayout::Name(State.Train), Here ? TEXT("at ") : TEXT(""), *Where, *Why, *STLayout::Name(Target));
 		SendToStation(State, Target, *Why);
 	}
 }

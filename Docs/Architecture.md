@@ -282,8 +282,10 @@ fix exposed the next problem through how they interacted. 0.8.0 replaces them wi
   parking station (`FindParkingStation`: not needed, not blocked, not the one it is in) and parks there. Before 0.22.2
   a train still moving drove on to its timetable's current stop: after a one-stop trip that was the consumer it had
   just left, so it parked inside it and the next delivery waited at the door (IB, Dune Desert Crystal Oscillator In 1).
-  `ClearNeededBays` moves a parked train when a trip needs its station or Auto Trains reports a train waiting for it
-  (to a free depot signal, else `FindParkingStation`). Station depots (`FSTStationConfig::bDepot`,
+  `ClearNeededBays` moves a parked train (in a station, or out on the line) when a trip needs its station or Auto Trains
+  reports a train waiting for it (to a free depot signal, else `FindParkingStation`). A train still moving is never
+  parked where it is (autopilot off while under way leaves others planned around a train nobody drives): with no
+  station free of trains it drives to the nearest other station. Depot drives park only once arrived. Station depots (`FSTStationConfig::bDepot`,
   `/st station depot`) were removed in 0.19.0; the saved `mStations` of older saves is ignored on load.
 - **Waiting room** (`FSTTravel::WalkApproach`, `GetWaitingRoom`): from each station's platform end, the walk follows the
   track out until the first switch (a connection with more than one track), a track end or another station, adding
