@@ -68,10 +68,11 @@ it from the factory, its map area and its rate. Only on request (station menu bu
 window's Rename stations); never automatic.
 
 - **Platforms** (`ProposeStation`): role from what is attached (`FSTPlatformAccess::CountConnections`): only inputs:
-  Supply; only outputs: Demand; both: its load mode; nothing: Off. Items from `STTrace::Trace` that fit the platform,
-  the largest traced flow first; platforms of one role reaching the same machines share the items out
-  (`STMigration::ShareOutItems`, moved out of the migration's private helpers). No machine reached: what it holds,
-  then the fluid in its pipes. The proposal is a `STMigration::FStationProposal`, so the migration preview and the
+  Supply; only outputs: Demand; both: its load mode; nothing: Off. **Item: what the platform holds** (the item or
+  fluid it holds most of that fits it); since 0.18.1 the trace never overrides it, and a note shows when its machines
+  take or make something else. Only an empty platform gets its item from `STTrace::Trace`, the largest traced flow
+  first; platforms of one role reaching the same machines share the items out (`STMigration::ShareOutItems`, moved
+  out of the migration's private helpers). Empty and no machine reached: the fluid in its pipes. The proposal is a `STMigration::FStationProposal`, so the migration preview and the
   set-up share one shape. Applied with `SetPlatformConfig` (which also sets the load mode); platforms already set the
   same are left alone, so nothing re-plans for them.
   - **0.16.0, kept platforms:** a platform that already has a role (`FSTPlatformConfig`) is proposed as it is

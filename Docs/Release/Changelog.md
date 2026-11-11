@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.18.1 (beta)
+
+- **Platforms keep the item they hold.** Autodetect, the station set-up and the migration now always give a platform
+  the item or fluid it holds (the one it holds most of); the belt and pipe trace only picks the item for an empty
+  platform. Before, the trace won whenever it found machines that don't use the held item. Where they disagree, the
+  preview notes it ("holds X; its machines take Y"), so a stray item from an old wrong delivery is easy to spot.
+- Platforms that already have a role are still left as they are (Autodetect in a platform's own menu redoes that
+  platform).
+
 ## 0.18.0 (beta)
 
 **Car patterns: a car only ever carries its one item.** On the IB save trains still came out mixed after `/st emptycars

@@ -13,8 +13,9 @@ platforms' roles and items and the trains need migrating, and that the station s
 
 - **Stations:** for every station with cargo platforms, `STSetup::ProposeStation`: the role from what is attached
   (belts or pipes only into the platform: Supply; only out: Demand; both: its load/unload switch; nothing: Off) and
-  one item per platform from the connection trace (below), shared out between platforms of one role that reach the
-  same machines. No machine reached: what the platform holds, then the fluid in its pipes. A platform left without an
+  one item per platform: what the platform holds (the trace never overrides it); an empty platform gets one from the
+  connection trace (below), shared out between platforms of one role that reach the same machines. Empty and no
+  machine reached: the fluid in its pipes. A platform left without an
   item flags its station ("platform N: no item found"), and a flagged station isn't ticked by default.
 - **Names:** every station's set-up name (product, map area, number, rate), worked out a few stations at a time
   after the preview appears (`StepNaming`). With **Rename stations** on (window) or `rename` (chat), apply renames the
@@ -44,9 +45,9 @@ through belts, lifts, splitters, mergers, pipes, junctions and pumps and stops a
 - **Trace limit:** buildings and belt segments one platform's trace may visit, default 5,000 (100 to 100,000). Set
   it in the migration window or with `/st migrate preview tracelimit <n>`. Reaching it marks the result incomplete.
 - **One item per platform** (default): a machine with several inputs makes the trace find several items, and giving
-  a platform all of them would let one flood the line while another runs short. Of several items the platform gets
-  the one it holds most of now, else one its timetables send (DynamicTimeTable or vanilla), else the largest traced
-  flow (marked medium, "check it"). The others are listed in the note. The window's "Items per platform" switch
+  a platform all of them would let one flood the line while another runs short. A platform holding an item keeps
+  it; an empty one gets the largest traced flow, or a share of the items when several platforms reach the same
+  machines. The others are listed in the note. The window's "Items per platform" switch
   (or `allitems` in chat) keeps every traced item, for mixed (sushi) belts.
 - **Sharing out between platforms** (`ShareOutItems`): platforms whose one item wasn't settled by their own stock
   share out the items their traces found.

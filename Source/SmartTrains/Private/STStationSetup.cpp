@@ -524,6 +524,35 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 	for (const FTraced& Each : Traced)
 	{
 		STMigration::FPlatformProposal& Platform = Proposal.Platforms[Each.Proposal];
+		// What it holds decides; the trace only gives an empty platform its item.
+		UClass* HeldItem = nullptr;
+		int32 HeldMost = 0;
+		for (const TPair<UClass*, int32>& Pair : Each.Held)
+		{
+			if (Pair.Value > HeldMost && STLayout::ItemFitsCargoType(Pair.Key, Each.CargoType))
+			{
+				HeldMost = Pair.Value;
+				HeldItem = Pair.Key;
+			}
+		}
+		if (HeldItem)
+		{
+			Platform.Items.Add(HeldItem);
+			Platform.Confidence = TEXT("high");
+			Platform.Evidence += TEXT(", item from what it holds");
+			if (Each.Flow.Num() > 0 && !Each.Flow.Contains(HeldItem))
+			{
+				TArray<FString> Traced;
+				for (const TPair<UClass*, float>& Pair : Each.Flow)
+				{
+					Traced.Add(STNames::Item(Pair.Key));
+				}
+				Platform.Note = FString::Printf(TEXT("holds %s; its machines %s %s"), *STNames::Item(HeldItem), Each.bSupply ? TEXT("make") : TEXT("take"),
+					*FString::Join(Traced, TEXT(", ")));
+				Platform.Evidence += TEXT(" (") + Platform.Note + TEXT(")");
+			}
+			continue;
+		}
 		TMap<UClass*, float> Flow = Each.Flow;
 		TArray<FString> Local;
 		if (!Each.bSupply)
@@ -542,31 +571,14 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 			TArray<UClass*> Order;
 			Flow.GetKeys(Order);
 			Order.Sort([&Flow](const UClass& A, const UClass& B) { return Flow.FindRef(const_cast<UClass*>(&A)) > Flow.FindRef(const_cast<UClass*>(&B)); });
-			// Of the items its machines take or make, the one it holds most of: a factory with several inputs has a
-			// platform per input, and each already holds its own.
-			UClass* HeldItem = nullptr;
-			int32 HeldMost = 0;
-			for (UClass* Item : Order)
-			{
-				if (Each.Held.FindRef(Item) > HeldMost)
-				{
-					HeldMost = Each.Held.FindRef(Item);
-					HeldItem = Item;
-				}
-			}
-			Platform.Items.Add(HeldItem ? HeldItem : Order[0]);
+			Platform.Items.Add(Order[0]);
 			Platform.Confidence = Each.Confidence;
 			Platform.Evidence += TEXT(", items from its machines: ") + Each.Summary;
 			if (Local.Num() > 0)
 			{
 				Platform.Evidence += FString::Printf(TEXT("; made in the factory itself, so left out: %s"), *FString::Join(Local, TEXT(", ")));
 			}
-			if (Order.Num() > 1 && HeldItem)
-			{
-				Platform.OneItemNote = FString::Printf(TEXT("several items on its belts; it holds %s"), *STNames::Item(HeldItem));
-				Platform.Note = Platform.OneItemNote;
-			}
-			else if (Order.Num() > 1)
+			if (Order.Num() > 1)
 			{
 				for (UClass* Item : Order)
 				{
@@ -578,24 +590,8 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 			}
 			continue;
 		}
-		// No machine reached: what it holds, then the fluid in its pipes.
-		UClass* Most = nullptr;
-		int32 MostHeld = 0;
-		for (const TPair<UClass*, int32>& Pair : Each.Held)
-		{
-			if (Pair.Value > MostHeld)
-			{
-				MostHeld = Pair.Value;
-				Most = Pair.Key;
-			}
-		}
-		if (Most)
-		{
-			Platform.Items.Add(Most);
-			Platform.Confidence = TEXT("medium");
-			Platform.Evidence += TEXT(", no machine reached; item from what it holds");
-		}
-		else if (Each.PipeFluidHint && STLayout::ItemFitsCargoType(Each.PipeFluidHint.Get(), Each.CargoType))
+		// Empty and no machine reached: the fluid now in its pipes.
+		if (Each.PipeFluidHint && STLayout::ItemFitsCargoType(Each.PipeFluidHint.Get(), Each.CargoType))
 		{
 			Platform.Items.Add(Each.PipeFluidHint.Get());
 			Platform.Confidence = TEXT("medium");
