@@ -1072,9 +1072,7 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	Planner.Release(State.Job.Legs, State.Job.Leg);
 	TArray<FSTPlanStop> Stops;
 	FString Before;
-	const bool bFresh = State.bReplanFresh;
-	State.bReplanFresh = false;
-	for (int32 Leg = State.Job.Leg; !bFresh && Leg < State.Job.Legs.Num(); ++Leg)
+	for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
 	{
 		const FSTJobLeg& Each = State.Job.Legs[Leg];
 		FSTPlanStop& Stop = Stops.AddDefaulted_GetRef();
@@ -1231,23 +1229,87 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 	{
 		return;
 	}
+	// It parks where it stands only standing in a station no trip needs. Otherwise (moving, out on the line, or in a
+	// station trips are heading for) it drives to the nearest station no train needs and parks there; never back into
+	// the one it just left, where the next delivery would find it in the way.
 	const AFGRailroadVehicle* First = State.Train->GetFirstVehicle();
 	const bool bMoving = First && First->GetVelocity().Size() > 300.0;
-	const bool bOnTheLine = !State.Train->IsDocked() && !State.LastStation;
-	AFGRailroadTimeTable* TimeTable = State.Train->GetTimeTable();
-	AFGTrainStationIdentifier* Heading = TimeTable && TimeTable->IsValidStop(TimeTable->GetCurrentStop()) ? TimeTable->GetStop(TimeTable->GetCurrentStop()).Station.Get() : nullptr;
-	// A train isn't parked on the line: one still at speed drives on to the stop it was heading for, and one that
-	// isn't at a station (e.g. just managed out on the track) drives to the nearest station, and parks there.
-	if (bMoving || bOnTheLine)
+	const AFGTrainStationIdentifier* Here = State.Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation.Get() : State.LastStation.Get();
+	const TSet<const AFGTrainStationIdentifier*> Needed = GetNeededStations(&State);
+	const bool bStaysHere = !bMoving && Here && !Needed.Contains(Here) && !IsStationBlocked(Here);
+	if (!bStaysHere)
 	{
-		Heading = Heading ? Heading : FindNearestStation(State.Train);
-		if (Heading)
+		if (AFGTrainStationIdentifier* Target = FindParkingStation(State, Here, Needed, {}))
 		{
-			SendToStation(State, Heading, *FString::Printf(TEXT("%s, %s"), Why, bMoving ? TEXT("still moving") : TEXT("not at a station")));
+			SendToStation(State, Target, *FString::Printf(TEXT("%s, %s"), Why, bMoving ? TEXT("still moving") : (Here ? TEXT("its station is needed") : TEXT("not at a station"))));
 			return;
 		}
 	}
 	Park(State, Why);
+}
+
+TSet<const AFGTrainStationIdentifier*> ASTSubsystem::GetNeededStations(const FSTTrainState* Except) const
+{
+	TSet<const AFGTrainStationIdentifier*> Needed;
+	for (const FSTTrainState& Other : mTrains)
+	{
+		if (&Other == Except || !IsValid(Other.Train))
+		{
+			continue;
+		}
+		if (Other.bManaged && Other.bHasJob)
+		{
+			for (int32 Leg = Other.Job.Leg; Leg < Other.Job.Legs.Num(); ++Leg)
+			{
+				Needed.Add(Other.Job.Legs[Leg].Station.Get());
+			}
+		}
+		if (Other.Train->IsDocked() && Other.DockedStation.IsValid())
+		{
+			Needed.Add(Other.DockedStation.Get());
+		}
+		if (Other.bManaged && Other.Phase == ESTTrainPhase::Parked && Other.LastStation)
+		{
+			Needed.Add(Other.LastStation.Get());
+		}
+	}
+	Needed.Remove(nullptr);
+	return Needed;
+}
+
+AFGTrainStationIdentifier* ASTSubsystem::FindParkingStation(const FSTTrainState& State, const AFGTrainStationIdentifier* From, const TSet<const AFGTrainStationIdentifier*>& Needed,
+	const TSet<const AFGTrainStationIdentifier*>& Skip) const
+{
+	const AFGTrainStationIdentifier* Origin = From ? From : FindNearestStation(State.Train);
+	AFGRailroadSubsystem* Railroad = AFGRailroadSubsystem::Get(GetWorld());
+	if (!Origin || !Railroad)
+	{
+		return nullptr;
+	}
+	TArray<AFGTrainStationIdentifier*> Stations;
+	Railroad->GetAllTrainStations(Stations);
+	AFGTrainStationIdentifier* Best = nullptr;
+	float BestTime = TNumericLimits<float>::Max();
+	for (AFGTrainStationIdentifier* Candidate : Stations)
+	{
+		if (!Candidate || Candidate == From || Needed.Contains(Candidate) || Skip.Contains(Candidate) || IsStationBlocked(Candidate) || !CanServe(State, Candidate))
+		{
+			continue;
+		}
+		const float Time = Candidate == Origin ? 0.f : EstimateTravelSeconds(Origin, Candidate, IsPushPull(State.Train));
+		if (Time >= 0.f && Time < BestTime)
+		{
+			BestTime = Time;
+			Best = Candidate;
+		}
+	}
+	return Best;
+}
+
+bool ASTSubsystem::IsStationBlocked(const AFGTrainStationIdentifier* Station) const
+{
+	const double* Until = Station ? mBlockedStations.Find(const_cast<AFGTrainStationIdentifier*>(Station)) : nullptr;
+	return Until && *Until > Now();
 }
 
 void ASTSubsystem::FinishJob(FSTTrainState& State)
@@ -1547,17 +1609,7 @@ void ASTSubsystem::Park(FSTTrainState& State, const TCHAR* Why)
 void ASTSubsystem::ClearNeededBays()
 {
 	const double Clock = Now();
-	TSet<const AFGTrainStationIdentifier*> Needed;
-	for (const FSTTrainState& State : mTrains)
-	{
-		if (State.bManaged && State.bHasJob)
-		{
-			for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
-			{
-				Needed.Add(State.Job.Legs[Leg].Station.Get());
-			}
-		}
-	}
+	const TSet<const AFGTrainStationIdentifier*> Needed = GetNeededStations(nullptr);
 
 	// With Auto Trains: per train it reports as holding another up, the one held up and for how long.
 	TMap<const AFGTrain*, TPair<const AFGTrain*, float>> HeldUp;
@@ -1593,7 +1645,7 @@ void ASTSubsystem::ClearNeededBays()
 
 	for (FSTTrainState& State : mTrains)
 	{
-		const AFGTrainStationIdentifier* Here = State.LastStation.Get();
+		AFGTrainStationIdentifier* Here = State.LastStation.Get();
 		if (!State.bManaged || State.Phase != ESTTrainPhase::Parked || !Here || !IsValid(State.Train))
 		{
 			continue;
@@ -1607,47 +1659,47 @@ void ASTSubsystem::ClearNeededBays()
 		else if (const TPair<const AFGTrain*, float>* Held = HeldUp.Find(State.Train.Get()))
 		{
 			Why = FString::Printf(TEXT("%s has waited %.0f s for it (Auto Trains)"), *STLayout::Name(Held->Key), Held->Value);
-			UE_LOG(LogSmartTrains, Log, TEXT("BLOCKING %s, parked at %s, holds a train up: %s; moving it"), *STLayout::Name(State.Train), *STLayout::Name(Here), *Why);
 		}
 		if (Why.IsEmpty())
 		{
 			continue;
 		}
-		// Out of the way: a free depot signal, else the nearest station no trip needs.
+		// Out of the way: a free depot signal, else the nearest parking station whose way out wasn't blocked lately.
 		if (SendToDepotSignal(State, *Why))
 		{
+			State.LastExitReport.Reset();
 			continue;
 		}
-		AFGTrainStationIdentifier* Target = nullptr;
+		TSet<const AFGTrainStationIdentifier*> Tried;
+		for (auto It = State.ExitBlocked.CreateIterator(); It; ++It)
 		{
-			float BestTime = TNumericLimits<float>::Max();
-			TArray<AFGTrainStationIdentifier*> Stations;
-			if (Railroad)
+			if (!It.Key().IsValid() || It.Value() <= Clock)
 			{
-				Railroad->GetAllTrainStations(Stations);
+				It.RemoveCurrent();
 			}
-			for (AFGTrainStationIdentifier* Candidate : Stations)
+			else
 			{
-				if (!Candidate || Candidate == Here || Needed.Contains(Candidate) || !CanServe(State, Candidate))
-				{
-					continue;
-				}
-				const float Time = EstimateTravelSeconds(Here, Candidate, IsPushPull(State.Train));
-				if (Time >= 0.f && Time < BestTime)
-				{
-					BestTime = Time;
-					Target = Candidate;
-				}
+				Tried.Add(It.Key().Get());
 			}
 		}
+		AFGTrainStationIdentifier* Target = FindParkingStation(State, Here, Needed, Tried);
+		auto Report = [&State](const FString& Line)
+		{
+			if (Line != State.LastExitReport)
+			{
+				State.LastExitReport = Line;
+				UE_LOG(LogSmartTrains, Log, TEXT("%s"), *Line);
+			}
+		};
 		if (!Target)
 		{
-			UE_LOG(LogSmartTrains, Warning, TEXT("%s is parked at %s, which a job needs, and there is nowhere to move it: build a depot signal"),
-				*STLayout::Name(State.Train), *STLayout::Name(Here));
+			Report(FString::Printf(TEXT("BLOCKING %s, parked at %s, has to move (%s) but its way out to every parking station is blocked now (%d tried); it waits"),
+				*STLayout::Name(State.Train), *STLayout::Name(Here), *Why, Tried.Num()));
 			continue;
 		}
 		// With Auto Trains the way out is checked first: a train coming the other way on a single track would meet it
-		// head on. Then it stays, and the trips heading here are planned again so they go elsewhere.
+		// head on. Blocked: that station is skipped for a while (the next round tries the next one), and the trips
+		// heading here end, so the trains waiting at the door drive elsewhere and clear the way out.
 		if (Target->GetStation())
 		{
 			float Seconds = -1.f;
@@ -1659,11 +1711,12 @@ void ASTSubsystem::ClearNeededBays()
 			}
 			if (Check == STAt::ELegCheck::Blocked)
 			{
-				TArray<FString> Rerouted;
+				State.ExitBlocked.Add(Target, Clock + RerouteAgainSeconds);
+				mBlockedStations.Add(Here, Clock + RerouteAgainSeconds);
+				TArray<FString> Ended;
 				for (FSTTrainState& Other : mTrains)
 				{
-					if (&Other == &State || !Other.bManaged || !Other.bHasJob || Other.Job.bPark || !IsValid(Other.Train) || Other.Train->IsDocked()
-						|| Clock - Other.LastRerouted < RerouteAgainSeconds)
+					if (&Other == &State || !Other.bManaged || !Other.bHasJob || !IsValid(Other.Train) || Other.Train->IsDocked() || Clock - Other.LastRerouted < RerouteAgainSeconds)
 					{
 						continue;
 					}
@@ -1675,20 +1728,18 @@ void ASTSubsystem::ClearNeededBays()
 					if (bComing)
 					{
 						Other.LastRerouted = Clock;
-						Other.bReplan = true;
-						Other.bReplanFresh = true;
-						Rerouted.Add(STLayout::Name(Other.Train));
+						Ended.Add(STLayout::Name(Other.Train));
+						EndJob(Other, *FString::Printf(TEXT("%s can't leave %s, which this trip heads for"), *STLayout::Name(State.Train), *STLayout::Name(Here)));
 					}
 				}
-				UE_LOG(LogSmartTrains, Log, TEXT("REROUTE %s, parked at %s, can't get out to %s now (%s)%s%s"), *STLayout::Name(State.Train), *STLayout::Name(Here),
-					*STLayout::Name(Target), *Reason, Rerouted.Num() > 0 ? TEXT("; planned again: ") : TEXT(""), *FString::Join(Rerouted, TEXT(", ")));
-				if (Rerouted.Num() > 0)
-				{
-					bDispatchSoon = true;
-				}
+				Report(FString::Printf(TEXT("REROUTE %s, parked at %s, can't get out to %s now (%s); %s offered to no new trip for %.0f s%s%s"), *STLayout::Name(State.Train),
+					*STLayout::Name(Here), *STLayout::Name(Target), *Reason, *STLayout::Name(Here), RerouteAgainSeconds, Ended.Num() > 0 ? TEXT("; trips ended: ") : TEXT(""),
+					*FString::Join(Ended, TEXT(", "))));
 				continue;
 			}
 		}
+		State.LastExitReport.Reset();
+		UE_LOG(LogSmartTrains, Log, TEXT("BLOCKING %s, parked at %s: %s; moving it to %s"), *STLayout::Name(State.Train), *STLayout::Name(Here), *Why, *STLayout::Name(Target));
 		SendToStation(State, Target, *Why);
 	}
 }

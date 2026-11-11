@@ -399,10 +399,12 @@ struct SMARTTRAINS_API FSTTrainState
 	TArray<FString> WrittenStopKeys;
 	// Runtime only: the rest of the trip is re-planned in the next dispatch.
 	bool bReplan = false;
-	// Runtime only: that re-plan starts from scratch (from the cargo on board), not from the stops it has.
-	bool bReplanFresh = false;
-	// Runtime only: when the trip was last planned again because a parked train couldn't leave a station it needs.
+	// Runtime only: when its trip was last ended because a parked train couldn't leave the station it was heading for.
 	double LastRerouted = -1000.0;
+	// Runtime only: parking stations its way out to was blocked lately (ClearNeededBays), and until when (Now()).
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> ExitBlocked;
+	// Runtime only: the last way-out report logged for it, so the same one isn't logged every round.
+	FString LastExitReport;
 	// Runtime only: docking state at the last check, when the current dock began, and where.
 	bool bWasDocked = false;
 	double DockedAt = 0.0;

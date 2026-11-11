@@ -374,6 +374,16 @@ private:
 
 	// Station nearest to Train's first vehicle on its rail network, for trains that haven't docked anywhere yet.
 	AFGTrainStationIdentifier* FindNearestStation(const AFGTrain* Train) const;
+	// Stations trains need: in a managed train's trip (or drive to park) still ahead, or where another train is docked or
+	// parked. Except: that train's own.
+	TSet<const AFGTrainStationIdentifier*> GetNeededStations(const FSTTrainState* Except) const;
+	// Where an idle train waits out of the way: the station nearest From (else nearest the train) that no train needs
+	// (Needed), isn't blocked for new trips, isn't From and isn't in Skip. Null if none.
+	AFGTrainStationIdentifier* FindParkingStation(const FSTTrainState& State, const AFGTrainStationIdentifier* From, const TSet<const AFGTrainStationIdentifier*>& Needed,
+		const TSet<const AFGTrainStationIdentifier*>& Skip) const;
+	// A station whose door a parked train can't clear: offered to no new trip until then (Now()).
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mBlockedStations;
+	bool IsStationBlocked(const AFGTrainStationIdentifier* Station) const;
 
 	// Where Train will be free and when (game seconds); false if it isn't free soon.
 	bool GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifier*& OutStation, double& OutTime) const;

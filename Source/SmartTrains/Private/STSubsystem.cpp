@@ -564,9 +564,7 @@ void ASTSubsystem::MonitorTrains()
 			}
 			else
 			{
-				State.bReplan = true;
-				State.bReplanFresh = true;
-				bDispatchSoon = true;
+				EndJob(State, TEXT("a station of its trip is unreachable"));
 			}
 		}
 		const bool bLasting = Error == 0 || Time - State.SelfDrivingErrorSince >= SelfDrivingErrorLogSeconds;
@@ -676,7 +674,6 @@ void ASTSubsystem::EndJob(FSTTrainState& State, const TCHAR* Why)
 	State.bHasJob = false;
 	State.Phase = ESTTrainPhase::Idle;
 	State.bReplan = false;
-	State.bReplanFresh = false;
 	bDispatchSoon = true;
 }
 

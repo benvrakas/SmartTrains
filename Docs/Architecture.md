@@ -276,9 +276,14 @@ fix exposed the next problem through how they interacted. 0.8.0 replaces them wi
   regret insertion, re-plans and the search all optimise one thing. Value is the forecast cost removed (shortfall x
   priority x `CostScale`, plus lost production x 0.25), less the stop cost, plus or minus tied cars. The over-target
   bonus (0.2) and sink value (0.1) are gone; a re-plan now has to beat the kept rest by `ReplanMarginValue` in score.
-- **Idle trains park** (`SettleIdle`): a free depot signal (`SendToDepotSignal`), else park where it is;
+- **Idle trains park** (`SettleIdle`): a free depot signal (`SendToDepotSignal`); else it parks where it stands only
+  when it stands in a station no train needs (`GetNeededStations`: in a managed trip or drive to park still ahead, or
+  where another train is docked or parked). Moving, out on the line, or in a needed station, it drives to the nearest
+  parking station (`FindParkingStation`: not needed, not blocked, not the one it is in) and parks there. Before 0.22.2
+  a train still moving drove on to its timetable's current stop: after a one-stop trip that was the consumer it had
+  just left, so it parked inside it and the next delivery waited at the door (IB, Dune Desert Crystal Oscillator In 1).
   `ClearNeededBays` moves a parked train when a trip needs its station or Auto Trains reports a train waiting for it
-  (to a free depot signal, else the nearest station no trip needs). Station depots (`FSTStationConfig::bDepot`,
+  (to a free depot signal, else `FindParkingStation`). Station depots (`FSTStationConfig::bDepot`,
   `/st station depot`) were removed in 0.19.0; the saved `mStations` of older saves is ignored on load.
 - **Waiting room** (`FSTTravel::WalkApproach`, `GetWaitingRoom`): from each station's platform end, the walk follows the
   track out until the first switch (a connection with more than one track), a track end or another station, adding
@@ -432,8 +437,13 @@ settings change (`DispatchRound`):
   is set back to the job's leg (`TIMETABLE` log line).
 6. Parked trains move to a depot, or else to the nearest station no trip uses, when a trip needs their station, or
    (with Auto Trains) when a train has waited 20 s for them (`BLOCKING`).
-   - With Auto Trains the way out is checked first (`ExternalCheckLeg`). If it isn't clear, the train stays, and the
-     trips heading there re-plan from scratch (`REROUTE`).
+   - With Auto Trains the way out is checked first (`ExternalCheckLeg`). If it isn't clear (`REROUTE`): that parking
+     station is skipped for `RerouteAgainSeconds` (`FSTTrainState::ExitBlocked`), so the next round tries the next one;
+     the station is offered to no new trip for as long (`mBlockedStations`, skipped in `GatherRound`); and the trips
+     heading there end (`EndJob`), so their trains get a trip elsewhere or park out of the way and clear the door. With
+     every way out blocked it waits; each report is logged once (`LastExitReport`). Before 0.22.2 those trips re-planned
+     "from scratch", but only with deliveries to the same station, so they came straight back (and a train that couldn't
+     get out logged the same line every 3 s for hours). An unreachable station ends the trip the same way.
    - A parked train books its station for 60 s. In a dead-end station (`IsDeadEnd`: no station reachable past its
      building) it books it until it leaves, since a train sent there could neither get in nor let it out.
 

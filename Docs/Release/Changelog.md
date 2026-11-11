@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.22.2 (beta)
+
+Fixes for the gridlock on the IB save (from about 14:00, down from about 200 finished jobs an hour to about 30):
+
+- **An idle train no longer parks in a station that trips are heading for.** A train that had just finished a
+  one-stop delivery and found nothing to do drove back to the stop it had just left, the consumer, and parked inside
+  it; the next delivery then waited at the door, standing on the parked train's way out (Dune Desert Crystal
+  Oscillator In 1, Southern Forest Nitric Acid In 1, No Man's Land Coal In 1). Now an idle train parks where it stands
+  only in a station no train needs; otherwise it drives to the nearest station no train needs (after trying a depot
+  signal) and parks there.
+- **Trains waiting at the door of a station a parked train can't leave now go elsewhere.** Their trips used to be
+  re-planned only with deliveries to that same station, so they came straight back. Now those trips end, the station
+  takes no new trips for a minute, and the trains get a trip elsewhere or park out of the way, which clears the way
+  out.
+- **A parked train whose way out is blocked tries the next way out** (the next parking station) instead of the same
+  one every few seconds, and logs it once; with every way blocked it says so once and waits. On the IB save one train
+  logged "moving it" 1,811 times in under two hours.
+- A trip to a station that turns out unreachable ends the same way (it used to be re-planned only for that station).
+
 ## 0.22.1 (beta)
 
 - **"In" stations unloading several items get no rate in their name.** The set-up named them after the factory's

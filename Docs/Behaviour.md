@@ -86,7 +86,8 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
     shuttle takes whichever consumer's trip pays best, often its old route when its cars line up only there.
 17. **Parking in a station, then making room** (seen). An idle train stops where its last stop ended, often inside
     a station. When a trip needs that station, the parked train is sent to a depot signal or the nearest unused station
-    (log: "drive to Alclad Aluminum Sheet SRC (4680) and park (making room at Heavy Oil Residue SNK (640))").
+    (log: "drive to Alclad Aluminum Sheet SRC (4680) and park (making room at Heavy Oil Residue SNK (640))"). Since
+    0.22.2 an idle train doesn't park in a station trips are heading for in the first place.
 18. **Eviction chains** (risk). A train sent away to make room may park in a station the next trip needs. Depot
     signals prevent this. Moves because a train stood near a parked one happen at most every 5 minutes per parked train.
 18a. **Parked trains give way** (designed, after 2026-11-05). With Auto Trains, a parked train moves when a train has

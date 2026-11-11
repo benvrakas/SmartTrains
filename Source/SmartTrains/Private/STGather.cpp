@@ -188,6 +188,11 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				{
 					break;
 				}
+				// A parked train can't clear its door: no new trip there until it has.
+				if (IsStationBlocked(Consumer))
+				{
+					continue;
+				}
 				TArray<TArray<UClass*>> Allowed;
 				int32 Mismatched = 0;
 				if (!Planner.MakeCarItems(Consumer, Pattern, bIgnorePattern, Allowed, Mismatched))
