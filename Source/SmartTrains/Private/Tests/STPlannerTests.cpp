@@ -1341,7 +1341,7 @@ bool FSTSushiPatternTest::RunTest(const FString& Parameters)
 		}
 	}
 	TArray<FSTNode> Nodes = {
-		FSTTestAccess::Node(Mine, Iron, ESTRole::Supply, 4800, 4800, 1), FSTTestAccess::Node(Mine, Coal, ESTRole::Supply, 4800, 4800, 1),
+		FSTTestAccess::Node(Mine, Iron, ESTRole::Supply, 1000, 4800, 1), FSTTestAccess::Node(Mine, Coal, ESTRole::Supply, 1000, 4800, 1),
 		FSTTestAccess::Node(Factory, Iron, ESTRole::Demand, 0, 4800, 1), FSTTestAccess::Node(Factory, Coal, ESTRole::Demand, 0, 4800, 1),
 		FSTTestAccess::Node(IronOnly, Iron, ESTRole::Demand, 0, 4800, 1)};
 	for (FSTNode& Node : Nodes)
@@ -1351,11 +1351,12 @@ bool FSTSushiPatternTest::RunTest(const FString& Parameters)
 	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
 	FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
 	FSTTestAccess::ServeAll(Planner);
-	TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Iron, true, 4800.0, 48), FSTTestAccess::Platform(Iron, false, 0.0, 0),
+	// Little of each at the mine, so one car has room for both.
+	TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Iron, true, 1000.0, 20), FSTTestAccess::Platform(Iron, false, 0.0, 0),
 		FSTTestAccess::Platform(Iron, false, 0.0, 0)};
 	// The mine's platform gives iron and coal, the factory's takes both, the other station's only iron.
 	Platforms[0].Items.AddUnique(Coal);
-	Platforms[0].Stock.Add(Coal, 4800);
+	Platforms[0].Stock.Add(Coal, 1000);
 	Platforms[1].Items.AddUnique(Coal);
 	for (FSTTestAccess::FPlatformInfo& Platform : Platforms)
 	{

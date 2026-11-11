@@ -1337,7 +1337,6 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					if (bFirst)
 					{
 						Total.LoadRoom += Room;
-						Loaded.Add({CarIndex, Item, StopIndex, false});
 					}
 					if (Node != INDEX_NONE)
 					{
@@ -1347,6 +1346,11 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					if (Amount <= 0.0 || Amount < MinLoadShare * GetCarRoom(mCars[CarIndex], {}, Item))
 					{
 						continue;
+					}
+					// Only what really goes in has to be unloaded later (a car taking several items may fill up on the first).
+					if (bFirst)
+					{
+						Loaded.Add({CarIndex, Item, StopIndex, false});
 					}
 					AddCargo(Cargo[CarIndex], Item, Amount);
 					Step.Platform = Beside.Num() > 0 ? mPlatforms[Beside[0]].Platform : nullptr;
