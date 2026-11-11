@@ -159,6 +159,26 @@ window's Rename stations); never automatic.
 - **Console:** `SmartTrains.Setup [apply] [keepname]` (an `FAutoConsoleCommandWithWorldAndArgs`) runs the
   all-stations set-up from a dedicated server's console, for headless tests.
 
+## 0.18.0: car patterns
+
+- **Pattern** (`FSTTrainState::CarPattern`, saved): per freight car, front to back, the item it carries in its group;
+  null where none is given yet. Reset when the number of cars changes. `DescribePattern`: "Iron | Wire | - | Wire".
+- **Lining up** (`FSTTripPlanner::MakeCarItems`): per car, the demand items of the platform beside it at the consumer
+  (the same whichever way the train docks, else none). A car holding cargo may only take that item, and counts as
+  mismatched if the platform beside it takes something else, it holds two items, or the cargo differs from its pattern
+  item. An empty car with a pattern item may only take that item; if the platform beside it takes another, the station
+  is another group (false). An open car may take what the platform beside it takes; a car beside no demand platform
+  takes nothing. The result goes to `SetCarItems`; in `SimulateWithSkips` a car beside a supply platform offering a
+  planned item it may not take counts as harm, so it skips (FCC) or the trip fails.
+- **Dispatch** (`GatherRound`): consumers that line up with the pattern and have no mismatched cargo are tried as before
+  (one trip per consumer, the best runs). The pattern then takes each car's loaded item (else its cargo; else it keeps
+  its item). With none found, `PatternIdleSince` starts; after `PatternIdleSeconds` (300 s), or at once for an open
+  train, consumers are tried ignoring the pattern (still no mismatched cargo), and the pattern is rebuilt from that
+  trip. If consumers were blocked only by cargo, a clearing trip runs: `SetNoLoads`, any consumer (`SetSinksForCargo`
+  lets sinks take cargo a consumer exists for), no anchor; the pattern starts open. `ReplanTrip` applies the same car
+  items from the job's anchor (no anchor: no loads, sinks allowed).
+- Why: platforms fill cars past the plan, so leftovers are normal; within a pattern they always line up.
+
 ## 0.17.0: depot signals, hold, new trains
 
 - **Depot signal** (`STDepotSignal.*`): `ASTBuildableDepotSignal`, a C++ subclass of the native

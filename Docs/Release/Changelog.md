@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.18.0 (beta)
+
+**Car patterns: a car only ever carries its one item.** On the IB save trains still came out mixed after `/st emptycars
+all confirm`: every trip was planned for one consumer, but a platform fills a car to the brim, not to the planned
+amount. The consumer only took what it had room for, and the rest rode along on the train's next trip for another
+factory (e.g. 10,000 Concrete left in a car after a Steel Pipe factory took 6,000, then a Coal trip).
+
+- Each managed train keeps a **pattern**, the item per freight car, and only serves consumer stations whose
+  unloading platforms line up with it. Stations with the same pattern share trains; a station with fewer platforms
+  only lines up with the front of the train.
+- A trip only loads a car with its pattern item. A car beside a platform that would fill it with another item skips
+  the stop (Freight Car Control), or the trip isn't used.
+- Leftovers that line up stay on board; the car takes less next time.
+- New trains (and every train after updating) start open and take their pattern from their first trips.
+- **Changing group:** after 5 minutes with nothing to do in its pattern, a train may serve a consumer of another
+  pattern. If cargo on board doesn't line up there, it first unloads those cars, at consumers of the cargo or else at
+  a sink platform; cars that line up keep their cargo. Trains carrying mixed cargo from before do this first.
+- A trip's name follows its re-plans (it kept the first plan's items before).
+- `/st patterns` lists the train groups and each consumer station's platforms in order; the train's status line shows
+  its pattern.
+- Removed: "cargo on board first" from 0.16.0 (patterns make it unnecessary).
+
 ## 0.17.0 (beta)
 
 - **Depot signals (new, not yet tried in game).** A **Depot Signal** (AWESOME Shop, SmartTrains Depot Signal, 1

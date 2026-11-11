@@ -1,8 +1,8 @@
 ## SmartTrains
 
 Timetables that make themselves. Give your freight and fluid platforms a role and the items they handle. SmartTrains
-works out what has to move where, groups the stations by item, and sends each train where its cars are needed most,
-trip by trip, as your factory grows. You don't plan a train per factory.
+works out what has to move where, groups trains and stations by the item each car carries, and sends each train where
+its cars are needed most, trip by trip, as your factory grows. You don't plan a train per factory.
 
 **Beta.** Try it on a copy of your save first (`/st testcopy`).
 
@@ -32,12 +32,21 @@ them (see below).
   yours to choose (`/st setup format`, `/st setup words`).
 - **Trains:** in the locomotive menu, switch **Managed by SmartTrains** on. SmartTrains writes its timetable; the
   game, or Auto Trains, drives it.
-- **Trips:** every trip is built around one consumer station. A free train looks at each consumer it can deliver to,
+- **Car patterns:** a consumer station's unloading platforms make a pattern, the item per car: car 1 iron, car 2
+  wire, car 3 nothing, car 4 wire. Each managed train has a pattern too, and only serves consumers whose platforms
+  line up with it, so a car only ever carries its one item. Stations with the same pattern share their trains. A
+  station with fewer platforms only has to line up with the front of the train; the other cars hang past the end.
+  - Cargo that lines up stays on board: a car the platform couldn't empty just takes less next time.
+  - A new train starts open and takes its pattern from its first trips.
+  - A train with nothing to do in its pattern for 5 minutes may change group. Cars whose cargo doesn't line up with
+    the new consumer are unloaded first, at consumers of that cargo, else at a sink platform. Cars that already line
+    up keep their cargo.
+  - `/st patterns` lists the train groups and every consumer station's platforms in order.
+- **Trips:** every trip is built around one consumer station. A free train looks at each consumer in its pattern,
   fills the cars that line up with that station's unloading platforms from the suppliers that pay best, and unloads
-  there. A factory with several inputs gets one gathering trip in its platform order (car 1 iron, car 2 wire); a
-  one-item consumer gets a plain shuttle trip. The train runs the trip worth the most per second, so trains whose cars
-  line up and trains nearby win by themselves. After every stop the rest of the trip is planned again from what the
-  cars really hold. With nothing worth a trip, it parks.
+  there. A factory with several inputs gets one gathering trip in its platform order; a one-item consumer gets a plain
+  shuttle trip. The train runs the trip worth the most per second. After every stop the rest of the trip is planned
+  again from what the cars really hold. With nothing worth a trip, it parks.
 - **Short of trains** in the monitor means an item's routes call for more trains than are moving it and no train
   that fits is idle: then more trains help. Idle trains that fit mean there's too little to move, not too few trains.
   `/st group` and the monitor's Groups tab show each item's routes, trains needed and trains moving it.
