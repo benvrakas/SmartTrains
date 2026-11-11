@@ -11,19 +11,38 @@
 
 class AFGBuildableRailroadTrack;
 class AFGLocomotive;
+class AFGTrain;
+class ASTBuildableDepotSignal;
 class UFGRailroadTrackConnectionComponent;
 
-// The track behind a depot signal, where a train waits (STDepots::Check).
+// The parking spot a depot signal marks, where one train waits (STDepots::Check): on a passing siding the track behind
+// the signal, on a dead-end siding the track beyond it.
 struct FSTDepotSiding
 {
-	// Where a parked train's front stops: the end of the track just before the signal.
+	// Where a parked train's front stops: the end of the spot's last track.
 	UFGRailroadTrackConnectionComponent* Goal = nullptr;
 	TArray<AFGBuildableRailroadTrack*> Tracks;
-	// Track length from the signal back to the siding's entry signal. [cm]
+	// Length of the spot. [cm]
 	float Length = 0.f;
 	int32 TrackGraph = INDEX_NONE;
-	// Why the siding can't be used; empty when it can.
+	// The signal faces into a dead-end siding: trains with a locomotive at each end drive in and back out.
+	bool bDeadEnd = false;
+	// The next depot signal on the same siding: toward the entrance (passing siding) or deeper in (dead end).
+	const AFGBuildableRailroadSignal* Neighbour = nullptr;
+	// Why the spot can't be used; empty when it can.
 	FString Problem;
+};
+
+// One parking spot per depot signal, linked along its siding (STDepots::Survey).
+struct FSTDepotSpot
+{
+	ASTBuildableDepotSignal* Signal = nullptr;
+	FSTDepotSiding Siding;
+	// The spots next to it on its siding: toward the entrance, and deeper in (toward the exit or the track end).
+	int32 Behind = INDEX_NONE;
+	int32 Ahead = INDEX_NONE;
+	// Trains with a vehicle on its tracks.
+	TArray<const AFGTrain*> Trains;
 };
 
 namespace STDepots
@@ -31,9 +50,13 @@ namespace STDepots
 	// A train needs this much more siding than its own length. [cm]
 	constexpr float Margin = 800.f;
 
-	// Walks back from Signal to the siding's entry: its switch (with Auto Trains) or an entry signal; no station may lie
-	// on the way.
+	// Signal's parking spot. Facing into a dead end: the track beyond it to the next depot signal or the track end.
+	// Otherwise (passing siding): back from it to the siding's entry, its switch (with Auto Trains) or a signal. No station
+	// may lie on the way.
 	SMARTTRAINS_API FSTDepotSiding Check(const AFGBuildableRailroadSignal* Signal);
+
+	// Every depot signal's spot in World, linked to its neighbours on the same siding, with the trains standing on it.
+	SMARTTRAINS_API TArray<FSTDepotSpot> Survey(UWorld* World);
 
 	// One line for the look-at text and /st depots: "Depot: ready, 312 m of siding (trains up to 304 m)" or the problem.
 	SMARTTRAINS_API FString Describe(const FSTDepotSiding& Siding);

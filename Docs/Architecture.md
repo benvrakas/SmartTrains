@@ -201,6 +201,17 @@ window's Rename stations); never automatic.
   switch before an entry signal makes it unusable, since the game's blocks would put a parked train in the main line's
   block. A platform's track or a track end on the way makes it unusable. Shown in the look-at text (runs on every client: tracks
   and signals are replicated) and `/st depots`.
+- **Dead ends and chains (0.21.0)**: `Check` first walks forward from the signal; if the track ends there without a
+  switch the signal faces into a dead end (`bDeadEnd`): the spot runs to the next depot signal facing the same way, or
+  the track end (`Goal`). Without Auto Trains it needs another signal on the way (at the track end, facing out).
+  Otherwise the passing-siding walk back runs as before, and a depot signal at the entry joint is the spot's
+  `Neighbour`. `STDepots::Survey` links every spot to its neighbours (`Behind` toward the siding's entrance, `Ahead`
+  deeper in) and lists the trains with a vehicle on its tracks (so it holds after a restart, when `mDepotTrips` is
+  empty). `SendToDepotSignal` only offers a spot that is free, whose spots `Behind` are free (the way in), and whose
+  spot `Ahead` is taken or doesn't fit the train (far end first); dead ends only for push-pull trains with
+  **Dead-end depots** on. `GatherRound` skips a parked train for which `IsBoxedInAtDepot` finds a train (or a trip)
+  on its way out: the spots `Ahead` on a passing siding, `Behind` on a dead end. `MonitorTrains` parks a depot-bound
+  train near the spot's goal (`FDepotTrip::Goal`), not the signal, since a dead end's goal lies deep inside.
 - **Parking** (`SendToDepotSignal`, in `SettleIdle` and `ClearNeededBays`): free depot signals (no other train in `mDepotTrips`) whose
   siding fits the train (length + `STDepots::Margin`) on its track graph are goals of one Dijkstra over track exits from
   the MU master's exit ahead (`STDepots::FindRoute`). The train's timetable is emptied, then the route is given to its

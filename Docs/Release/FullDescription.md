@@ -75,7 +75,13 @@ them (see below).
     the exit of a passing siding. With Auto Trains the siding runs back to its switch; without it, put a signal after
     the switch at the siding's entry, so a parked train doesn't hold up the main line. No station may lie on the
     siding, and it must be at least 8 m longer than the train. With Auto Trains, the game's "Signal loops into itself"
-    warning on the signal doesn't matter. Look at it to see whether it's ready and which trains
+    warning on the signal doesn't matter.
+  - **Several trains on one siding:** build depot signals one after another along a long siding; each stretch between
+    them is a parking spot. Trains fill the spot furthest in first, and a parked train only leaves once the spots on its
+    way out are empty, so nobody gets boxed in.
+  - **Dead-end sidings (trains back out):** a depot signal at the entrance of a dead-end siding, facing in, makes it a
+    depot for trains with a locomotive at each end: they drive in to the end and leave backwards. Without Auto Trains,
+    put a second signal at the track end, facing out. **Dead-end depots** in the Mods menu switches this off. Look at it to see whether it's ready and which trains
     fit, or why not; `/st depots` lists them all.
   - A train parked in a station that a trip needs moves to a free depot signal, else to the nearest station no trip
     needs.

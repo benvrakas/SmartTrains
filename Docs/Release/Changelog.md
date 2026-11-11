@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.21.0 (beta)
+
+- **Several trains per depot siding.** Depot signals one after another along a long siding make several parking spots.
+  Trains fill the spot furthest in first, and a parked train only takes a job once the spots on its way out are empty
+  (its status says which train it waits for). Which spots are taken is worked out from where trains stand, so it holds
+  after a restart.
+- **Dead-end depots (trains back out).** A depot signal at the entrance of a dead-end siding, facing in, makes it a
+  depot for trains with a locomotive at each end: they drive in to the end and leave backwards. Chains work there too
+  (deepest spot first, the one nearest the entrance leaves first). Without Auto Trains, a second signal at the track
+  end, facing out, is needed. New Mods menu setting **Dead-end depots (trains back out)**, on by default.
+- A depot-bound train is parked once it stands near where its front should stop, rather than near the signal.
+
 ## 0.20.1 (beta)
 
 - **Depot signals no longer need an entry signal with Auto Trains.** The siding now runs back from the depot signal to

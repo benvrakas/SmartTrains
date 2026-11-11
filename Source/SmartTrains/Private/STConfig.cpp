@@ -44,6 +44,8 @@ namespace
 				LOCTEXT("JobNamesTip", "Renames each managed train to show what it is doing, e.g. \"ST: Iron Plate -> Steel Mill\". The original name comes back when this is turned off or the train is no longer managed.")},
 			{TEXT("ManageNewTrains"), &FSTSettings::bManageNewTrains, LOCTEXT("ManageNewTrains", "Manage new trains"),
 				LOCTEXT("ManageNewTrainsTip", "A new train with freight cars and no timetable is managed by SmartTrains 30 seconds after its cars last changed. A train with a timetable of its own, kept vanilla, or switched off in its locomotive menu is left alone.")},
+			{TEXT("DeadEndDepots"), &FSTSettings::bDeadEndDepots, LOCTEXT("DeadEndDepots", "Dead-end depots (trains back out)"),
+				LOCTEXT("DeadEndDepotsTip", "A depot signal at the entrance of a dead-end siding, facing in, makes it a depot for trains with a locomotive at each end: they drive in and leave backwards. Off: only passing sidings are depots.")},
 			{TEXT("LeaveAtOnce"), &FSTSettings::bLeaveAtOnce, LOCTEXT("LeaveAtOnce", "Trains leave stations at once"),
 				LOCTEXT("LeaveAtOnceTip", "Every stop is load/unload once: a train moves what it can in one transfer and leaves. A train with a trip also starts it at once instead of holding in the station while its next stop is busy or Auto Trains sees no way yet. Off: deliveries and pickups wait up to their longest wait, and trains hold in stations.")},
 			{TEXT("AdminsOnly"), &FSTSettings::bAdminsOnly, LOCTEXT("AdminsOnly", "Only admins change SmartTrains"),

@@ -17,6 +17,8 @@ struct FSTSettings
 	bool bJobNames = false;
 	// New trains without a timetable are managed once their consist hasn't changed for a while.
 	bool bManageNewTrains = false;
+	// Depot signals facing into dead-end sidings park trains with a locomotive at each end, which back out.
+	bool bDeadEndDepots = true;
 	// Only admins (the host, or dedicated server admins) may change platform, station and train settings.
 	bool bAdminsOnly = false;
 	// Every stop is load/unload once, and a train with a trip leaves at once instead of holding in the station.

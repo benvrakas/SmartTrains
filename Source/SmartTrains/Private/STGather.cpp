@@ -8,6 +8,7 @@
 #include "FGTrain.h"
 #include "FGTrainStationIdentifier.h"
 #include "SmartTrains.h"
+#include "STDepotSignal.h"
 #include "STForecast.h"
 #include "STLayout.h"
 #include "STSubsystem.h"
@@ -85,6 +86,8 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		double LastTurn = -1.0e9;
 	};
 	TArray<FFree> Free;
+	// Depot spots, surveyed once a round when a parked train needs them.
+	TOptional<TArray<FSTDepotSpot>> Spots;
 	for (int32 TrainIndex = 0; TrainIndex < mTrains.Num(); ++TrainIndex)
 	{
 		FSTTrainState& State = mTrains[TrainIndex];
@@ -93,6 +96,20 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		if (!GetFreeAt(State, Each.Anchor, Each.FreeAt))
 		{
 			continue;
+		}
+		// A train parked behind another at a depot leaves after it.
+		if (State.Phase == ESTTrainPhase::Parked && !State.bHasJob)
+		{
+			if (!Spots.IsSet())
+			{
+				Spots = STDepots::Survey(GetWorld());
+			}
+			FString Ahead;
+			if (IsBoxedInAtDepot(State, Spots.GetValue(), Ahead))
+			{
+				NoteNoTrip(State, FString::Printf(TEXT("parked at a depot behind %s, which leaves first"), *Ahead));
+				continue;
+			}
 		}
 		const bool bJustLeftAnchor = State.LastStation.Get() == Each.Anchor && Time - State.LastDepartureAt < GatherJustLeftSeconds
 			&& !(State.Phase == ESTTrainPhase::Parked && !State.Train->IsSelfDrivingEnabled());

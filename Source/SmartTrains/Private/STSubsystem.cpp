@@ -589,10 +589,8 @@ void ASTSubsystem::MonitorTrains()
 		{
 			const AFGRailroadVehicle* First = Train->GetFirstVehicle();
 			const AFGRailroadVehicle* Last = Train->GetLastVehicle();
-			const ASTBuildableDepotSignal* Signal = Trip->Signal.Get();
 			const bool bStill = !First || First->GetVelocity().Size() < DepotStillSpeed;
-			const float Near = Signal && First && Last ? FMath::Min(FVector::Dist(First->GetActorLocation(), Signal->GetActorLocation()),
-				FVector::Dist(Last->GetActorLocation(), Signal->GetActorLocation())) : 0.f;
+			const float Near = First && Last ? FMath::Min(FVector::Dist(First->GetActorLocation(), Trip->Goal), FVector::Dist(Last->GetActorLocation(), Trip->Goal)) : 0.f;
 			if (bStill && (Near < DepotArriveDistance || !FSTPlatformAccess::HasTrainPath(Train)))
 			{
 				State.Phase = ESTTrainPhase::Parked;
@@ -600,7 +598,7 @@ void ASTSubsystem::MonitorTrains()
 				{
 					Train->SetSelfDrivingEnabled(false);
 				}
-				UE_LOG(LogSmartTrains, Log, TEXT("PARK %s at a depot signal (%s, %.0f m from it)"), *STLayout::Name(Train),
+				UE_LOG(LogSmartTrains, Log, TEXT("PARK %s at a depot signal (%s, %.0f m from where its front stops)"), *STLayout::Name(Train),
 					Near < DepotArriveDistance ? TEXT("arrived") : TEXT("its path ran out"), Near / 100.f);
 				UpdateTrainName(State);
 			}

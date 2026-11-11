@@ -1278,24 +1278,50 @@ bool ASTSubsystem::SendToDepotSignal(FSTTrainState& State, const TCHAR* Why)
 	const float Needed = STLayout::GetTrainLength(Train) + STDepots::Margin;
 	TSet<const UFGRailroadTrackConnectionComponent*> Goals;
 	TMap<const UFGRailroadTrackConnectionComponent*, ASTBuildableDepotSignal*> ByGoal;
-	for (TActorIterator<ASTBuildableDepotSignal> It(GetWorld()); It; ++It)
+	const TArray<FSTDepotSpot> Spots = STDepots::Survey(GetWorld());
+	const bool bPushPull = IsPushPull(Train);
+	// Taken: another train stands on the spot or is heading there.
+	auto Taken = [&](int32 Index)
 	{
-		ASTBuildableDepotSignal* Signal = *It;
-		bool bTaken = false;
+		if (Spots[Index].Trains.ContainsByPredicate([Train](const AFGTrain* Each) { return Each != Train; }))
+		{
+			return true;
+		}
 		for (const TPair<TWeakObjectPtr<AFGTrain>, FDepotTrip>& Pair : mDepotTrips)
 		{
-			bTaken |= Pair.Key.Get() != Train && Pair.Key.IsValid() && Pair.Value.Signal.Get() == Signal;
+			if (Pair.Key.IsValid() && Pair.Key.Get() != Train && Pair.Value.Signal.Get() == Spots[Index].Signal)
+			{
+				return true;
+			}
 		}
-		if (bTaken)
+		return false;
+	};
+	auto Fits = [&](int32 Index)
+	{
+		const FSTDepotSiding& Siding = Spots[Index].Siding;
+		return Siding.Problem.IsEmpty() && Siding.Goal && Siding.Length >= Needed && Siding.TrackGraph == Here->GetTrackGraphID()
+			&& (!Siding.bDeadEnd || (bPushPull && mSettings.bDeadEndDepots));
+	};
+	for (int32 Index = 0; Index < Spots.Num(); ++Index)
+	{
+		if (!Fits(Index) || Taken(Index))
 		{
 			continue;
 		}
-		const FSTDepotSiding Siding = STDepots::Check(Signal);
-		if (Siding.Problem.IsEmpty() && Siding.Goal && Siding.Length >= Needed && Siding.TrackGraph == Here->GetTrackGraphID())
+		// The way in is clear: no train on the spots between the siding's entrance and this one.
+		bool bClear = true;
+		for (int32 Behind = Spots[Index].Behind, Steps = 0; Behind != INDEX_NONE && bClear && Steps < Spots.Num(); Behind = Spots[Behind].Behind, ++Steps)
 		{
-			Goals.Add(Siding.Goal);
-			ByGoal.Add(Siding.Goal, Signal);
+			bClear = !Taken(Behind);
 		}
+		// Far end first: a deeper spot this train fits must be taken already.
+		const int32 Ahead = Spots[Index].Ahead;
+		if (!bClear || (Ahead != INDEX_NONE && Fits(Ahead) && !Taken(Ahead)))
+		{
+			continue;
+		}
+		Goals.Add(Spots[Index].Siding.Goal);
+		ByGoal.Add(Spots[Index].Siding.Goal, Spots[Index].Signal);
 	}
 	if (Goals.Num() == 0)
 	{
@@ -1329,11 +1355,45 @@ bool ASTSubsystem::SendToDepotSignal(FSTTrainState& State, const TCHAR* Why)
 	State.LastStation = nullptr;
 	State.WrittenStopKeys.Reset();
 	State.WrittenStations.Reset();
-	mDepotTrips.Add(Train, FDepotTrip{Signal, Now()});
+	mDepotTrips.Add(Train, FDepotTrip{Signal, Now(), Reached ? Reached->GetComponentLocation() : Signal->GetActorLocation()});
 	UE_LOG(LogSmartTrains, Log, TEXT("DEPOT %s: to the depot signal at %s, %.0f m along %d tracks (%s)"), *STLayout::Name(Train),
 		*Signal->GetActorLocation().ToCompactString(), Length / 100.f, Route.Num(), Why);
 	UpdateTrainName(State);
 	return true;
+}
+
+bool ASTSubsystem::IsBoxedInAtDepot(const FSTTrainState& State, const TArray<FSTDepotSpot>& Spots, FString& OutAhead) const
+{
+	const AFGTrain* Train = State.Train;
+	const int32 Here = Spots.IndexOfByPredicate([Train](const FSTDepotSpot& Spot) { return Spot.Trains.Contains(Train); });
+	if (Here == INDEX_NONE)
+	{
+		return false;
+	}
+	// The way out: toward the exit on a passing siding, back past the entrance on a dead end.
+	const bool bBack = Spots[Here].Siding.bDeadEnd;
+	int32 Next = bBack ? Spots[Here].Behind : Spots[Here].Ahead;
+	for (int32 Steps = 0; Next != INDEX_NONE && Steps < Spots.Num(); ++Steps)
+	{
+		for (const AFGTrain* Other : Spots[Next].Trains)
+		{
+			if (Other != Train)
+			{
+				OutAhead = STLayout::Name(Other);
+				return true;
+			}
+		}
+		for (const TPair<TWeakObjectPtr<AFGTrain>, FDepotTrip>& Pair : mDepotTrips)
+		{
+			if (Pair.Key.IsValid() && Pair.Key.Get() != Train && Pair.Value.Signal.Get() == Spots[Next].Signal)
+			{
+				OutAhead = STLayout::Name(Pair.Key.Get());
+				return true;
+			}
+		}
+		Next = bBack ? Spots[Next].Behind : Spots[Next].Ahead;
+	}
+	return false;
 }
 
 TArray<FString> ASTSubsystem::DescribeDepots() const
