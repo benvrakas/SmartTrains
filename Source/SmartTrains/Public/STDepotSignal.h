@@ -4,6 +4,7 @@
 #include "Buildables/FGBuildableRailroadSignal.h"
 #include "FGRecipe.h"
 #include "FGSchematic.h"
+#include "Hologram/FGHologram.h"
 #include "Resources/FGBuildingDescriptor.h"
 #include "Unlocks/FGUnlockRecipe.h"
 #include "STDepotSignal.generated.h"
