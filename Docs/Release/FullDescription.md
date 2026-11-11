@@ -70,19 +70,20 @@ them (see below).
   across junctions. Switch **Trains leave stations at once** off for the old behaviour: deliveries and pickups wait
   up to their longest wait, and a train whose next station is busy waits in its station.
 - **Trains with nothing to move park** at the nearest free **Depot Signal** whose siding fits them, else where they
-  stopped, and leave as soon as they get a trip. Auto Trains drives them there, so depot signals need Auto Trains
-  1.4.15 or later.
+  stopped, and leave as soon as they get a trip. With Auto Trains (1.4.15 or later), Auto Trains drives them there;
+  without it they drive along your signals and stop at the depot signal, which shows red while a train parks there.
   - **Depot Signal** (unlocked with the Block Signal, next to it in the build menu): marks a parking spot. Put it at
-    the exit of a passing siding; the spot runs back to the siding's switch. No station may lie on it, and it must be
-    at least 8 m longer than the train. The game's "Signal loops into itself" warning on it doesn't matter, since Auto
-    Trains doesn't use signal blocks. Look at it to see whether it's ready and which trains fit, or why not;
+    the exit of a passing siding; the spot runs back to the siding's switch. Without Auto Trains, also put a signal
+    after the switch, at the siding's entry, so a parked train doesn't hold up the main line. No station may lie on
+    the siding, and it must be at least 8 m longer than the train. With Auto Trains the game's "Signal loops into
+    itself" warning on it doesn't matter. Look at it to see whether it's ready and which trains fit, or why not;
     `/st depots` lists them all.
   - **Several trains on one siding:** build depot signals one after another along a long siding; each stretch between
     them is a parking spot. Trains fill the spot furthest in first, and a parked train only leaves once the spots on its
     way out are empty, so nobody gets boxed in.
   - **Dead-end sidings (trains back out):** a depot signal at the entrance of a dead-end siding, facing in, makes it a
-    depot for trains with a locomotive at each end: they drive in to the end and leave backwards. **Dead-end depots**
-    in the Mods menu switches this off.
+    depot for trains with a locomotive at each end: they drive in and leave backwards. Without Auto Trains, put a
+    signal at the far end, facing in, for trains to stop at. **Dead-end depots** in the Mods menu switches this off.
   - A train parked in a station that a trip needs moves to a free depot signal, else to the nearest station no trip
     needs.
 - **Dead ends:** a train parked in a dead-end station keeps it until it leaves, so no second train is sent into a

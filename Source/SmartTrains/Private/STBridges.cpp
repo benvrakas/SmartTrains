@@ -495,7 +495,7 @@ bool STAt::DriveTo(const UWorld* World, AFGTrain* Train, UFGRailroadTrackConnect
 	return bStarted;
 }
 
-STAt::EDriveState STAt::GetDriveState(const UWorld* World, AFGTrain* Train)
+STDepots::EDriveState STAt::GetDriveState(const UWorld* World, AFGTrain* Train)
 {
 	int32 Answer = -1;
 	TObjectPtr<AFGTrain> TrainPtr = Train;
@@ -511,11 +511,11 @@ STAt::EDriveState STAt::GetDriveState(const UWorld* World, AFGTrain* Train)
 	});
 	switch (bCalled ? Answer : -1)
 	{
-	case 0: return EDriveState::None;
-	case 1: return EDriveState::UnderWay;
-	case 2: return EDriveState::Arrived;
-	case 3: return EDriveState::NoWay;
-	default: return EDriveState::Unavailable;
+	case 0: return STDepots::EDriveState::None;
+	case 1: return STDepots::EDriveState::UnderWay;
+	case 2: return STDepots::EDriveState::Arrived;
+	case 3: return STDepots::EDriveState::NoWay;
+	default: return STDepots::EDriveState::Unavailable;
 	}
 }
 

@@ -399,9 +399,10 @@ bool ASTSubsystem::SetTrainManaged(AFGTrain* Train, bool bManaged, const FString
 	State.bManaged = false;
 	State.bHasJob = false;
 	State.Phase = ESTTrainPhase::Idle;
-	if (mDepotTrips.Remove(Train) > 0)
+	if (const FDepotTrip* Trip = mDepotTrips.Find(Train))
 	{
-		STAt::CancelDrive(GetWorld(), Train);
+		EndDepotDrive(Train, *Trip, true);
+		mDepotTrips.Remove(Train);
 	}
 	if (TimeTable && State.bHasSaved && !mSettings.bObserveOnly)
 	{
@@ -585,13 +586,12 @@ void ASTSubsystem::MonitorTrains()
 				: TEXT("a player drives it by hand (autopilot off); no new trips until autopilot is on")));
 			State.PlayerAboard = Aboard;
 		}
-		// Heading for a depot signal: parked once it stands at the signal (or its path has run out).
-		// Heading for a depot signal (Auto Trains drives it): parked once it stands at its spot; if Auto Trains drops it,
-		// that signal isn't offered to it for a while and it settles again.
-		if (const FDepotTrip* Trip = mDepotTrips.Find(Train); Trip && !State.bHasJob && State.Phase != ESTTrainPhase::Parked && Time - Trip->SentAt > DepotSettleSeconds)
+		// Heading for a depot signal: parked once it stands at its spot; if the drive ends without arriving, that signal
+		// isn't offered to it for a while and it settles again.
+		if (FDepotTrip* Trip = mDepotTrips.Find(Train); Trip && !State.bHasJob && State.Phase != ESTTrainPhase::Parked && Time - Trip->SentAt > DepotSettleSeconds)
 		{
-			const STAt::EDriveState Drive = STAt::GetDriveState(GetWorld(), Train);
-			if (Drive == STAt::EDriveState::Arrived)
+			const STDepots::EDriveState Drive = GetDepotDriveState(Train, *Trip);
+			if (Drive == STDepots::EDriveState::Arrived)
 			{
 				State.Phase = ESTTrainPhase::Parked;
 				if (Train->IsSelfDrivingEnabled())
@@ -601,12 +601,13 @@ void ASTSubsystem::MonitorTrains()
 				UE_LOG(LogSmartTrains, Log, TEXT("PARK %s at a depot signal (arrived)"), *STLayout::Name(Train));
 				UpdateTrainName(State);
 			}
-			else if (Drive != STAt::EDriveState::UnderWay)
+			else if (Drive != STDepots::EDriveState::UnderWay)
 			{
 				const ASTBuildableDepotSignal* Signal = Trip->Signal.Get();
-				UE_LOG(LogSmartTrains, Warning, TEXT("DEPOT %s: Auto Trains stopped driving it to the depot signal (%s); settling it again"), *STLayout::Name(Train),
-					Drive == STAt::EDriveState::NoWay ? TEXT("no way there") : (Drive == STAt::EDriveState::None ? TEXT("goal dropped") : TEXT("Auto Trains not available")));
+				UE_LOG(LogSmartTrains, Warning, TEXT("DEPOT %s: the drive to the depot signal ended before it arrived (%s); settling it again"), *STLayout::Name(Train),
+					Drive == STDepots::EDriveState::NoWay ? TEXT("no way there") : (Drive == STDepots::EDriveState::None ? TEXT("goal dropped") : TEXT("Auto Trains not available")));
 				mDepotNoWay.Add(TPair<const AFGTrain*, const ASTBuildableDepotSignal*>(Train, Signal), Time + STDepots::NoWayRetrySeconds);
+				EndDepotDrive(Train, *Trip, true);
 				mDepotTrips.Remove(Train);
 				SettleIdle(State, TEXT("no way to the depot signal"));
 			}

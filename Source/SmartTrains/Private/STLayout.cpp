@@ -4,6 +4,7 @@
 #include "RailroadNavigation.h"
 #include "Algo/Reverse.h"
 #include "Buildables/FGBuildableConveyorAttachment.h"
+#include "Buildables/FGBuildableRailroadSignal.h"
 #include "Buildables/FGBuildableRailroadStation.h"
 #include "Buildables/FGBuildableTrainPlatform.h"
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
@@ -17,13 +18,90 @@
 #include "FGTrain.h"
 #include "FGTrainPlatformConnection.h"
 #include "FGTrainStationIdentifier.h"
+#include "Patching/NativeHookManager.h"
 #include "Resources/FGItemDescriptor.h"
 #include "SmartTrains.h"
+#include "STDepotSignal.h"
 #include "STTypes.h"
 
 EFreightCargoType FSTPlatformAccess::GetCargoType(const AFGBuildableTrainPlatformCargo* Platform)
 {
 	return Platform ? Platform->mFreightCargoType : EFreightCargoType::FCT_NONE;
+}
+
+bool FSTPlatformAccess::FollowPath(AFGTrain* Train, const TArray<UFGRailroadTrackConnectionComponent*>& Route)
+{
+	if (!IsValid(Train) || Route.Num() == 0)
+	{
+		return false;
+	}
+	FRailroadPathSharedPtr Path = MakeShared<FRailroadPath>();
+	Path->PathPoints.SetNum(Route.Num());
+	float DistanceToEnd = 0.f;
+	for (int32 Index = Route.Num() - 1; Index >= 0; --Index)
+	{
+		Path->PathPoints[Index].TrackConnection = Route[Index];
+		Path->PathPoints[Index].Distance = DistanceToEnd;
+		const AFGBuildableRailroadTrack* Track = Route[Index] ? Route[Index]->GetTrack() : nullptr;
+		DistanceToEnd += Track ? Track->GetLength() : 0.f;
+	}
+	FRailroadPathFindingResult Result;
+	Result.Locomotive = Train->GetMultipleUnitMaster();
+	Result.Goal = Route.Last();
+	Result.Path = Path;
+	Result.Result = ERailroadPathFindingResult::RPFR_Success;
+	if (!Train->mAtcData.SetPath(Result))
+	{
+		return false;
+	}
+	Train->GotoSelfDrivingState(ESelfDrivingLocomotiveState::SDLS_FollowPath);
+	return true;
+}
+
+bool FSTPlatformAccess::IsFollowing(const AFGTrain* Train, const UFGRailroadTrackConnectionComponent* Goal)
+{
+	return IsValid(Train) && Train->mSelfDrivingData.State == ESelfDrivingLocomotiveState::SDLS_FollowPath && Train->mAtcData.HasPath()
+		&& Train->mAtcData.Path->PathPoints.Num() > 0 && Train->mAtcData.Path->PathPoints.Last().TrackConnection.Get() == Goal;
+}
+
+void FSTPlatformAccess::HoldSignal(AFGBuildableRailroadSignal* Signal, bool bHold)
+{
+	if (!IsValid(Signal))
+	{
+		return;
+	}
+	if (bHold)
+	{
+		const ERailroadSignalAspect Previous = Signal->mAspect;
+		Signal->mAspect = ERailroadSignalAspect::RSA_Stop;
+		Signal->OnAspectChanged(Previous);
+		return;
+	}
+	Signal->UpdateAspect();
+}
+
+void FSTPlatformAccess::InstallSignalHook()
+{
+#if WITH_EDITOR
+	UE_LOG(LogSmartTrains, Log, TEXT("Editor build: signal hold hook not installed"));
+#else
+	static bool bInstalled = false;
+	if (bInstalled)
+	{
+		return;
+	}
+	bInstalled = true;
+	SUBSCRIBE_METHOD_AFTER(AFGBuildableRailroadSignal::UpdateAspect, [](AFGBuildableRailroadSignal* Self)
+	{
+		if (Self && Self->mAspect != ERailroadSignalAspect::RSA_Stop && STDepots::IsHeld(Self))
+		{
+			const ERailroadSignalAspect Previous = Self->mAspect;
+			Self->mAspect = ERailroadSignalAspect::RSA_Stop;
+			Self->OnAspectChanged(Previous);
+		}
+	});
+	UE_LOG(LogSmartTrains, Log, TEXT("Signal hold hook installed"));
+#endif
 }
 
 void FSTPlatformAccess::CountConnections(const AFGBuildableTrainPlatformCargo* Platform, int32& OutInputs, int32& OutOutputs)

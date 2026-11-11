@@ -90,19 +90,26 @@ namespace
 		return nullptr;
 	}
 
-	// The depot signal a train passes when it leaves its track through Connection, or null.
-	ASTBuildableDepotSignal* DepotSignalFacing(const UFGRailroadTrackConnectionComponent* Connection)
+	// The signal a train passes when it leaves its track through Connection, or null.
+	AFGBuildableRailroadSignal* SignalFacing(const UFGRailroadTrackConnectionComponent* Connection)
 	{
 		TArray<UFGRailroadTrackConnectionComponent*> Candidates = {const_cast<UFGRailroadTrackConnectionComponent*>(Connection)};
 		Candidates.Append(Connection ? Connection->GetConnections() : TArray<UFGRailroadTrackConnectionComponent*>());
 		for (const UFGRailroadTrackConnectionComponent* Each : Candidates)
 		{
-			if (ASTBuildableDepotSignal* Signal = Each ? Cast<ASTBuildableDepotSignal>(Each->GetFacingSignal()) : nullptr)
+			if (AFGBuildableRailroadSignal* Signal = Each ? Each->GetFacingSignal() : nullptr)
 			{
 				return Signal;
 			}
 		}
 		return nullptr;
+	}
+
+	// Signals held at stop for trains driving to depot spots without Auto Trains.
+	TSet<TWeakObjectPtr<const AFGBuildableRailroadSignal>>& HeldSignals()
+	{
+		static TSet<TWeakObjectPtr<const AFGBuildableRailroadSignal>> Held;
+		return Held;
 	}
 
 	// More than one track meets at the joint of Connection, on either side: a switch.
@@ -152,15 +159,17 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 		return Siding;
 	}
 	Siding.TrackGraph = Approach->GetTrack()->GetTrackGraphID();
+	// Without Auto Trains, SmartTrains drives trains here along the game's signals (STDepots::Check's rules).
+	const bool bSignalled = !STAt::IsInstalled();
 
-	// Facing into a dead end: forward from the signal; the spot ends at the next depot signal or the track end.
+	// Facing into a dead end: forward from the signal; the spot ends at the next signal facing in, or the track end.
 	const TArray<UFGRailroadTrackConnectionComponent*> Next = Approach->GetConnections();
 	if (Next.Num() == 1 && Next[0])
 	{
 		UFGRailroadTrackConnectionComponent* In = Next[0];
 		TArray<AFGBuildableRailroadTrack*> Walked;
 		float Length = 0.f;
-		const AFGBuildableRailroadSignal* Deeper = nullptr;
+		const AFGBuildableRailroadSignal* Ahead = nullptr;
 		UFGRailroadTrackConnectionComponent* SpotEnd = nullptr;
 		TArray<AFGBuildableRailroadTrack*> SpotTracks;
 		float SpotLength = 0.f;
@@ -179,11 +188,11 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 			{
 				break;
 			}
-			if (!Deeper)
+			if (!Ahead)
 			{
-				if (ASTBuildableDepotSignal* Found = DepotSignalFacing(Out); Found && Found != Signal)
+				if (const AFGBuildableRailroadSignal* Found = SignalFacing(Out); Found && Found != Signal)
 				{
-					Deeper = Found;
+					Ahead = Found;
 					SpotEnd = Out;
 					SpotTracks = Walked;
 					SpotLength = Length;
@@ -193,7 +202,7 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 			if (Joined.Num() == 0)
 			{
 				bDeadEnd = true;
-				if (!Deeper)
+				if (!Ahead)
 				{
 					SpotEnd = Out;
 					SpotTracks = Walked;
@@ -213,7 +222,12 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 			Siding.Goal = SpotEnd;
 			Siding.Tracks = SpotTracks;
 			Siding.Length = SpotLength;
-			Siding.Neighbour = Deeper;
+			Siding.Neighbour = Ahead && Ahead->IsA<ASTBuildableDepotSignal>() ? Ahead : nullptr;
+			Siding.StopSignal = Ahead;
+			if (bSignalled && !Ahead)
+			{
+				Siding.Problem = TEXT("without Auto Trains, a dead-end depot needs a signal at its far end, facing in, for trains to stop at");
+			}
 			return Siding;
 		}
 	}
@@ -221,6 +235,7 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 	// Passing siding: back from the signal along whole tracks until the siding's entry; a station or a track end on the
 	// way makes it unusable.
 	Siding.Goal = Approach;
+	Siding.StopSignal = Signal;
 	UFGRailroadTrackConnectionComponent* Exit = Approach;
 	bool bEntry = false;
 	for (int32 Step = 0; Step < SidingWalkLimit && Exit; ++Step)
@@ -256,6 +271,11 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 		}
 		if (IsSwitchAt(Entry))
 		{
+			if (bSignalled)
+			{
+				Siding.Problem = TEXT("without Auto Trains, the siding needs an entry signal after its switch, so a parked train doesn't hold up the main line");
+				break;
+			}
 			bEntry = true;
 			break;
 		}
@@ -266,6 +286,28 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 		Siding.Problem = TEXT("no switch or entry signal found behind it within 200 tracks");
 	}
 	return Siding;
+}
+
+void STDepots::Hold(AFGBuildableRailroadSignal* Signal, bool bHold)
+{
+	if (!IsValid(Signal) || IsHeld(Signal) == bHold)
+	{
+		return;
+	}
+	if (bHold)
+	{
+		HeldSignals().Add(Signal);
+	}
+	else
+	{
+		HeldSignals().Remove(Signal);
+	}
+	FSTPlatformAccess::HoldSignal(Signal, bHold);
+}
+
+bool STDepots::IsHeld(const AFGBuildableRailroadSignal* Signal)
+{
+	return Signal && HeldSignals().Contains(Signal);
 }
 
 TArray<FSTDepotSpot> STDepots::Survey(UWorld* World)
@@ -323,10 +365,6 @@ TArray<FSTDepotSpot> STDepots::Survey(UWorld* World)
 
 FString STDepots::Describe(const FSTDepotSiding& Siding)
 {
-	if (!STAt::IsInstalled())
-	{
-		return TEXT("SmartTrains depot: not usable: Auto Trains drives trains to depot signals, and it isn't installed.");
-	}
 	if (!Siding.Problem.IsEmpty())
 	{
 		return FString::Printf(TEXT("SmartTrains depot: not usable: %s."), *Siding.Problem);

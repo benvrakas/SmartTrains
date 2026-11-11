@@ -209,14 +209,22 @@ window's Rename stations); never automatic.
   **Dead-end depots** on. `GatherRound` skips a parked train for which `IsBoxedInAtDepot` finds a train (or a trip)
   on its way out: the spots `Ahead` on a passing siding, `Behind` on a dead end. `MonitorTrains` parks a depot-bound
   train near the spot's goal (`FDepotTrip::Goal`), not the signal, since a dead end's goal lies deep inside.
-- **Driving (0.22.0)**: Auto Trains drives a train to its spot (`STAt::DriveTo`, `GetDriveState`, `CancelDrive`; Auto
-  Trains' `ExternalDriveTo` API). SmartTrains switches the autopilot on and hands Auto Trains the spot's goal connection
-  (Auto Trains empties the timetable; the drive isn't saved, so after loading an idle train is simply sent again); `MonitorTrains` parks the train (autopilot off) once Auto Trains reports it arrived, and if
-  Auto Trains drops it (no way, goal dropped) that signal isn't offered to the train for `STDepots::NoWayRetrySeconds`
-  (`mDepotNoWay`) and the train settles again. `WriteJob`'s timetable ends the drive by itself (cancelling would clear the new path); unmanaging cancels it. Without Auto Trains there is
-  no depot parking. Before 0.22.0 SmartTrains forced a path with no station into the game's automatic control
-  (`mAtcData.SetPath`, an `AFGTrain` friend): the game flagged "no timetable", Auto Trains didn't manage the train, and
-  on the IB save most depot-bound trains stood on the main line and jammed the network.
+- **Driving (0.22.0)**: one drive per trip (`FDepotTrip`: goal, route, stop signal), started, followed and ended by
+  `StartDepotDrive`, `GetDepotDriveState` and `EndDepotDrive`; everything else (spot choice, parking on arrival, the
+  no-way pause `mDepotNoWay` for `STDepots::NoWayRetrySeconds`) is shared. With Auto Trains loaded it drives the train
+  (`STAt::DriveTo` / `GetDriveState` / `CancelDrive`, its `ExternalDriveTo` API since 1.4.15: it empties the timetable,
+  plans the leg around the other trains and stops the train at the goal). Without it SmartTrains drives: an empty
+  timetable, the route as a path with no station and the game's follow-path state (`FSTPlatformAccess::FollowPath`;
+  the game follows such a path only in that state), and the spot's stop signal (`FSTDepotSiding::StopSignal`: the
+  depot signal on a passing siding, the signal at the far end of a dead end) held at stop (`STDepots::Hold`, kept there
+  by a hook on `AFGBuildableRailroadSignal::UpdateAspect`), so the game's automatic control brakes for it; arrived once
+  the train stands with an end within 60 m of the goal; the path given again every 5 s if the game dropped it. The
+  siding rules without Auto Trains (an entry signal after a passing siding's switch, a signal facing in at a dead end's
+  far end) make the spot a block of its own. A trip's timetable ends an Auto Trains drive by itself (`WriteJob` only
+  lets the stop signal go); unmanaging cancels it. Neither drive is saved: after loading an idle train is sent again.
+  Before 0.22.0 SmartTrains set the path without the follow-path state: the game ignores such a path, flags "no
+  timetable", and Auto Trains didn't manage the train either; on the IB save most depot-bound trains stood on the main
+  line and jammed the network.
 - **Parking** (`SendToDepotSignal`, in `SettleIdle` and `ClearNeededBays`): free depot signals (no other train in `mDepotTrips`) whose
   siding fits the train (length + `STDepots::Margin`) on its track graph are goals of one Dijkstra over track exits from
   the MU master's exit ahead (`STDepots::FindRoute`). The train's timetable is emptied, then the route is given to its

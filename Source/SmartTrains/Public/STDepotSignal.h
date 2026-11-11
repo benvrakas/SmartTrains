@@ -29,6 +29,9 @@ struct FSTDepotSiding
 	bool bDeadEnd = false;
 	// The next depot signal on the same siding: toward the entrance (passing siding) or deeper in (dead end).
 	const AFGBuildableRailroadSignal* Neighbour = nullptr;
+	// The signal a parked train's front stops before (null: the track end). Without Auto Trains it is held at stop while
+	// a train drives there, so the game's automatic control brakes for it.
+	const AFGBuildableRailroadSignal* StopSignal = nullptr;
 	// Why the spot can't be used; empty when it can.
 	FString Problem;
 };
@@ -47,18 +50,38 @@ struct FSTDepotSpot
 
 namespace STDepots
 {
+	// Where a train stands with its drive to a depot spot.
+	enum class EDriveState : uint8
+	{
+		// Auto Trains isn't loaded or has no such function.
+		Unavailable,
+		// No goal given (or it was dropped).
+		None,
+		UnderWay,
+		// Standing at its goal.
+		Arrived,
+		// No way to the goal.
+		NoWay,
+	};
+
 	// A train needs this much more siding than its own length. [cm]
 	constexpr float Margin = 800.f;
 	// A depot signal Auto Trains found no way to isn't offered to that train again for this long. [s]
 	constexpr double NoWayRetrySeconds = 600.0;
 
-	// Signal's parking spot. Facing into a dead end: the track beyond it to the next depot signal or the track end.
+	// Signal's parking spot. Facing into a dead end: the track beyond it to the next signal facing in, or the track end.
 	// Otherwise (passing siding): back from it to the siding's entry, its switch or a signal. No station may lie on the
-	// way. Auto Trains drives trains to it, so it can't be used without Auto Trains.
+	// way. Without Auto Trains the game's signals keep trains apart: a passing siding needs an entry signal after its
+	// switch, and a dead end a signal at its far end, facing in.
 	SMARTTRAINS_API FSTDepotSiding Check(const AFGBuildableRailroadSignal* Signal);
 
 	// Every depot signal's spot in World, linked to its neighbours on the same siding, with the trains standing on it.
 	SMARTTRAINS_API TArray<FSTDepotSpot> Survey(UWorld* World);
+
+	// Holds Signal at stop (bHold) or lets its block decide its aspect again (server).
+	void Hold(AFGBuildableRailroadSignal* Signal, bool bHold);
+	// True while Signal is held at stop.
+	bool IsHeld(const AFGBuildableRailroadSignal* Signal);
 
 	// One line for the look-at text and /st depots: "Depot: ready, 312 m of siding (trains up to 304 m)" or the problem.
 	SMARTTRAINS_API FString Describe(const FSTDepotSiding& Siding);

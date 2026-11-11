@@ -8,6 +8,11 @@
 #include "Subsystem/ModSubsystem.h"
 #include "STSubsystem.generated.h"
 
+namespace STDepots
+{
+	enum class EDriveState : uint8;
+}
+
 class AFGBuildableRailroadStation;
 class AFGBuildableTrainPlatformCargo;
 class AFGFreightWagon;
@@ -314,8 +319,23 @@ private:
 	{
 		TWeakObjectPtr<class ASTBuildableDepotSignal> Signal;
 		double SentAt = 0.0;
+		// Where its front stops, the way there (track exits in order) and the signal it stops before (STDepots::Check).
+		TWeakObjectPtr<class UFGRailroadTrackConnectionComponent> Goal;
+		TArray<TWeakObjectPtr<class UFGRailroadTrackConnectionComponent>> Route;
+		TWeakObjectPtr<class AFGBuildableRailroadSignal> StopSignal;
+		// SmartTrains drives it (no Auto Trains): along the game's signals, with StopSignal held at stop.
+		bool bOwnDrive = false;
+		// When SmartTrains last gave it the path (bOwnDrive).
+		double PathSetAt = 0.0;
 	};
-	// Depot signals Auto Trains found no way to for a train, and until when (Now()) they aren't offered to it again.
+	// Depot drives (Docs/Architecture.md, "Depot signals"): Auto Trains drives the train when it is loaded, else
+	// SmartTrains along the game's signals. Start: false if it can't. State: as Auto Trains reports it, or (own drive)
+	// arrived once it stands near the goal, the path given again if the game dropped it. End: lets StopSignal go, and with
+	// bCancel stops an Auto Trains drive (a trip's timetable ends one by itself).
+	bool StartDepotDrive(AFGTrain* Train, FDepotTrip& Trip);
+	STDepots::EDriveState GetDepotDriveState(AFGTrain* Train, FDepotTrip& Trip);
+	void EndDepotDrive(AFGTrain* Train, const FDepotTrip& Trip, bool bCancel);
+	// Depot signals no way was found to for a train, and until when (Now()) they aren't offered to it again.
 	TMap<TPair<const AFGTrain*, const class ASTBuildableDepotSignal*>, double> mDepotNoWay;
 	// A train parked on a depot spot with another train (or one heading there) on its way out: ahead of it on a passing
 	// siding, nearer the entrance on a dead end. Spots: STDepots::Survey. OutAhead: that train.

@@ -18,6 +18,17 @@ class FSTPlatformAccess
 public:
 	static EFreightCargoType GetCargoType(const AFGBuildableTrainPlatformCargo* Platform);
 
+	// Depot signals without Auto Trains (Docs/Architecture.md, "Depot signals"). Gives Train's automatic control the path
+	// along Route (track exits in order, no station at the end) and has it follow it: the game follows a path with no
+	// station only in its follow-path state. False if the train refused it.
+	static bool FollowPath(AFGTrain* Train, const TArray<class UFGRailroadTrackConnectionComponent*>& Route);
+	// True if Train follows a path ending at Goal.
+	static bool IsFollowing(const AFGTrain* Train, const class UFGRailroadTrackConnectionComponent* Goal);
+	// Shows Signal at stop (bHold), so trains brake for it, or back at the aspect its block gives.
+	static void HoldSignal(class AFGBuildableRailroadSignal* Signal, bool bHold);
+	// Keeps held signals at stop when their block changes (server only; not in editor builds).
+	static void InstallSignalHook();
+
 	// Counts the platform's belt or pipe inputs and outputs that are connected to something.
 	static void CountConnections(const AFGBuildableTrainPlatformCargo* Platform, int32& OutInputs, int32& OutOutputs);
 
