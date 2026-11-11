@@ -542,13 +542,13 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 			Platform.Evidence += TEXT(", item from what it holds");
 			if (Each.Flow.Num() > 0 && !Each.Flow.Contains(HeldItem))
 			{
-				TArray<FString> Traced;
+				TArray<FString> TracedItems;
 				for (const TPair<UClass*, float>& Pair : Each.Flow)
 				{
-					Traced.Add(STNames::Item(Pair.Key));
+					TracedItems.Add(STNames::Item(Pair.Key));
 				}
 				Platform.Note = FString::Printf(TEXT("holds %s; its machines %s %s"), *STNames::Item(HeldItem), Each.bSupply ? TEXT("make") : TEXT("take"),
-					*FString::Join(Traced, TEXT(", ")));
+					*FString::Join(TracedItems, TEXT(", ")));
 				Platform.Evidence += TEXT(" (") + Platform.Note + TEXT(")");
 			}
 			continue;
