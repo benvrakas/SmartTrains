@@ -31,7 +31,8 @@ namespace STDepots
 	// A train needs this much more siding than its own length. [cm]
 	constexpr float Margin = 800.f;
 
-	// Walks back from Signal to the siding's entry signal: no switch or station may lie between them.
+	// Walks back from Signal to the siding's entry: its switch (with Auto Trains) or an entry signal; no station may lie
+	// on the way.
 	SMARTTRAINS_API FSTDepotSiding Check(const AFGBuildableRailroadSignal* Signal);
 
 	// One line for the look-at text and /st depots: "Depot: ready, 312 m of siding (trains up to 304 m)" or the problem.

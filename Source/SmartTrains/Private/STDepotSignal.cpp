@@ -12,6 +12,7 @@
 #include "FGRecipeManager.h"
 #include "FGSchematicCategory.h"
 #include "SmartTrains.h"
+#include "STBridges.h"
 #include "UObject/UnrealType.h"
 
 #define LOCTEXT_NAMESPACE "SmartTrains"
@@ -119,7 +120,10 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 	}
 	Siding.Goal = Approach;
 	Siding.TrackGraph = Approach->GetTrack()->GetTrackGraphID();
-	// Back along the approach: whole tracks until a signal (the siding's entry), stopping at a switch, station or end.
+	// Back along the approach: whole tracks until the siding's entry, a signal or (with Auto Trains, which drives without
+	// signals) its switch; a station or a track end on the way makes it unusable. Without Auto Trains the game's own
+	// blocks keep trains apart, so the siding needs an entry signal after its switch to be a block of its own.
+	const bool bSwitchIsEntry = STAt::IsInstalled();
 	UFGRailroadTrackConnectionComponent* Exit = Approach;
 	bool bEntry = false;
 	for (int32 Step = 0; Step < SidingWalkLimit && Exit; ++Step)
@@ -149,19 +153,24 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 		const TArray<UFGRailroadTrackConnectionComponent*> Before = Entry->GetConnections();
 		if (Before.Num() == 0)
 		{
-			Siding.Problem = TEXT("the track behind it ends without an entry signal (dead-end sidings aren't supported yet)");
+			Siding.Problem = TEXT("the track behind it ends before a switch (dead-end sidings aren't supported yet)");
 			break;
 		}
 		if (Before.Num() > 1 || (Before[0] && Before[0]->GetConnections().Num() > 1))
 		{
-			Siding.Problem = TEXT("a switch lies between it and the signal before it: put an entry signal after the switch, so the siding is a block of its own");
+			if (bSwitchIsEntry)
+			{
+				bEntry = true;
+				break;
+			}
+			Siding.Problem = TEXT("a switch lies between it and the signal before it: without Auto Trains, put an entry signal after the switch, so the siding is a block of its own");
 			break;
 		}
 		Exit = Before[0];
 	}
 	if (Siding.Problem.IsEmpty() && !bEntry)
 	{
-		Siding.Problem = TEXT("no entry signal found behind it within 200 tracks");
+		Siding.Problem = TEXT("no switch or entry signal found behind it within 200 tracks");
 	}
 	return Siding;
 }

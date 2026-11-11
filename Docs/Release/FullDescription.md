@@ -72,8 +72,10 @@ them (see below).
 - **Trains with nothing to move park** at the nearest free **Depot Signal** whose siding fits them, else where they
   stopped, and leave as soon as they get a trip. One train per depot signal.
   - **Depot Signal** (unlocked with the Block Signal, next to it in the build menu): a block signal that marks the siding behind it as a depot. Put it at
-    the exit of a passing siding, with a signal at the siding's entry. No switch or station may lie between the two,
-    and the siding must be at least 8 m longer than the train. Look at it to see whether it's ready and which trains
+    the exit of a passing siding. With Auto Trains the siding runs back to its switch; without it, put a signal after
+    the switch at the siding's entry, so a parked train doesn't hold up the main line. No station may lie on the
+    siding, and it must be at least 8 m longer than the train. With Auto Trains, the game's "Signal loops into itself"
+    warning on the signal doesn't matter. Look at it to see whether it's ready and which trains
     fit, or why not; `/st depots` lists them all.
   - A train parked in a station that a trip needs moves to a free depot signal, else to the nearest station no trip
     needs.

@@ -196,8 +196,10 @@ window's Rename stations); never automatic.
   signal's is (`STDepots::KeepUnlocked`, also for saves that unlocked block signals before). The 0.17.0 AWESOME Shop
   schematic is no longer registered; its class stays (a stub) so saves that bought it still load.
 - **Siding check** (`STDepots::Check`): the approach exit is the guarded connection (or one joined to it) whose facing
-  signal is this one; from there back along whole tracks until a signal at a joint (the siding's entry). A switch, a
-  platform's track or a track end before that makes it unusable. Shown in the look-at text (runs on every client: tracks
+  signal is this one; from there back along whole tracks until the siding's entry: a signal at a joint, or (since
+  0.20.1, with Auto Trains installed: `STAt::IsInstalled`, also true on clients) its switch. Without Auto Trains a
+  switch before an entry signal makes it unusable, since the game's blocks would put a parked train in the main line's
+  block. A platform's track or a track end on the way makes it unusable. Shown in the look-at text (runs on every client: tracks
   and signals are replicated) and `/st depots`.
 - **Parking** (`SendToDepotSignal`, in `SettleIdle` and `ClearNeededBays`): free depot signals (no other train in `mDepotTrips`) whose
   siding fits the train (length + `STDepots::Margin`) on its track graph are goals of one Dijkstra over track exits from

@@ -279,7 +279,8 @@ bool STDtt::ReadGroups(const UWorld* World, TArray<FGroup>& OutGroups, FString& 
 
 namespace
 {
-	UObject* GetAtSubsystem(const UWorld* World)
+	// Auto Trains' subsystem class, or null if it isn't installed.
+	UClass* GetAtClass()
 	{
 		static TWeakObjectPtr<UClass> Cached;
 		static bool bSearched = false;
@@ -290,7 +291,12 @@ namespace
 			UE_LOG(LogSmartTrains, Log, TEXT("Auto Trains %s"), Cached.IsValid() ? TEXT("found: its API gives waits, station queues and troubled trains")
 				: TEXT("not loaded; SmartTrains uses its own estimates"));
 		}
-		UClass* Class = Cached.Get();
+		return Cached.Get();
+	}
+
+	UObject* GetAtSubsystem(const UWorld* World)
+	{
+		UClass* Class = GetAtClass();
 		USubsystemActorManager* Manager = World && Class ? World->GetSubsystem<USubsystemActorManager>() : nullptr;
 		return Manager && Class->IsChildOf(AModSubsystem::StaticClass()) ? Manager->K2_GetSubsystemActor(Class) : nullptr;
 	}
@@ -349,6 +355,11 @@ namespace
 		}
 		return Trains;
 	}
+}
+
+bool STAt::IsInstalled()
+{
+	return GetAtClass() != nullptr;
 }
 
 bool STAt::IsAvailable(const UWorld* World)

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.1 (beta)
+
+- **Depot signals no longer need an entry signal with Auto Trains.** The siding now runs back from the depot signal to
+  its switch; on a network without signals every depot signal said "not usable: a switch lies between it and the
+  signal before it". Without Auto Trains an entry signal after the switch is still needed (the game's own blocks would
+  otherwise put a parked train in the main line's block). The game's "Signal loops into itself" warning on a depot
+  signal doesn't matter with Auto Trains.
+
 ## 0.20.0 (beta)
 
 - **Car patterns work with sushi platforms.** A car's part of the pattern is now a set of items: beside a platform

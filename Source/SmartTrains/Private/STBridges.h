@@ -45,6 +45,8 @@ namespace STAt
 {
 	// Returns true if Auto Trains with the API is loaded in World.
 	bool IsAvailable(const UWorld* World);
+	// Returns true if the Auto Trains mod is installed (server and clients alike; no world needed).
+	bool IsInstalled();
 
 	// The trains Train waits for, the one holding it up first (parked and undriven trains included), how long it has
 	// been held up and why. Returns false if Auto Trains doesn't drive Train now or isn't loaded.
