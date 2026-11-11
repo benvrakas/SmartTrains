@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.16.0 (beta)
+
+- **The migration and station set-up leave platforms that are already set up alone.** A platform with a SmartTrains
+  role keeps it; the preview shows it as "set up". On the IB save the migration had set the four Encased Uranium
+  Cell platforms of a Uranium Fuel Rod station to Rotor, EM Control Rod and Crystal Oscillator. Autodetect in a
+  platform's own menu still sets that platform afresh.
+- **Items a factory makes for itself are no train input.** When the machines a station feeds get an item from the
+  factory's own machines or resource nodes as fast as they use it, its unloading platforms aren't given that item.
+  A Rocket Fuel plant that makes its own Fuel kept two Nitrogen Gas platforms as Fuel before.
+- **Several input stations of one factory share items out together, by rate.** Platforms (of any of the factory's
+  stations) feeding the same machines get items in proportion to car loads per minute: a fast input such as Encased
+  Uranium Cell (1,440/min) gets several platforms, slower ones one each. Platforms set up before, and platforms that
+  hold one of the items, count as they are.
+- **A train with cargo on board delivers it first.** When a platform took less than planned (it was full), the rest
+  stayed on board and the train's next trip, for another factory, loaded beside it, so trains carried cargo for
+  several factories at once. Now such a train first goes to a consumer of its cargo and only then takes other work,
+  unless no consumer needs that cargo now.
+
 ## 0.15.3 (beta)
 
 - **Migration window: apply names, platforms or both.** The toolbar button that was Rename stations on/off now says

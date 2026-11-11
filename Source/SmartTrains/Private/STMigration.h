@@ -21,6 +21,8 @@ namespace STMigration
 		int32 Index = 0;
 		// False for a piece that can't move freight or fluid (STLayout::CanMoveCargo): listed, never given a role.
 		bool bCargo = true;
+		// It already had a role: proposed as it is and left alone when applying.
+		bool bKept = false;
 		ESTRole Role = ESTRole::Off;
 		TArray<TSubclassOf<class UFGItemDescriptor>> Items;
 		FString Evidence;
@@ -36,6 +38,8 @@ namespace STMigration
 		// When its one item wasn't settled by its own stock: the items it could have, best first, so platforms serving
 		// the same machines can share them out (ShareOutItems).
 		TArray<TSubclassOf<class UFGItemDescriptor>> SpreadChoices;
+		// How much of each of SpreadChoices its machines use or make per minute (same order).
+		TArray<float> SpreadRates;
 		// The machines its connection trace reached.
 		TArray<TWeakObjectPtr<const AActor>> Machines;
 	};

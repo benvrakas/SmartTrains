@@ -113,13 +113,46 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			continue;
 		}
 		// One trip per consumer station the train can deliver to: pickups for the cars that line up there, added while
-		// the trip's value per second rises. The best one is run.
+		// the trip's value per second rises. The best one is run. A train with cargo on board first tries only the
+		// consumers of that cargo, and only trips that deliver some of it, so it serves one factory at a time; any
+		// consumer only when none of them is worth a trip now.
 		TArray<FSTPlanStop> BestStops;
 		FSTPlanResult BestResult;
 		AFGTrainStationIdentifier* BestConsumer = nullptr;
 		int32 Tried = 0;
+		const TMap<UClass*, int32> Carried = GetCargo(State.Train);
+		TSet<const AFGTrainStationIdentifier*> TakesCargo;
+		for (const FSTNode& Node : Nodes)
+		{
+			if (Node.Role == ESTRole::Demand && !Node.bAnyItem && Node.Item && Carried.Contains(Node.Item.Get()))
+			{
+				TakesCargo.Add(Node.Station.Get());
+			}
+		}
+		auto DeliversCargo = [&Carried](const FSTPlanResult& Result)
+		{
+			for (const TArray<FSTPlanCarStep>& Stop : Result.Steps)
+			{
+				for (const FSTPlanCarStep& Step : Stop)
+				{
+					for (const TPair<UClass*, int32>& Each : Step.Unloaded)
+					{
+						if (Each.Value > 0 && Carried.Contains(Each.Key))
+						{
+							return true;
+						}
+					}
+				}
+			}
+			return false;
+		};
+		for (int32 Pass = TakesCargo.Num() > 0 ? 0 : 1; Pass < 2 && !BestConsumer; ++Pass)
 		for (const AFGTrainStationIdentifier* Consumer : Planner.GetConsumerStations())
 		{
+			if (Pass == 0 && !TakesCargo.Contains(Consumer))
+			{
+				continue;
+			}
 			if (Tried > 0 && Planner.IsOverBudget())
 			{
 				break;
@@ -132,7 +165,8 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			FSTTripPlanner::Trim(Stops, Result, 0);
 			Result = Planner.Simulate(Stops);
 			const bool bWorth = Result.bValid && Stops.Num() > 0 && Result.Moved > 0
-				&& Result.Value - STForecast::TrainSecondCost * FMath::Max(0.0, Result.EndTime - Each.FreeAt) > 0.0;
+				&& Result.Value - STForecast::TrainSecondCost * FMath::Max(0.0, Result.EndTime - Each.FreeAt) > 0.0
+				&& (Pass > 0 || DeliversCargo(Result));
 			if (bWorth && (!BestConsumer || Result.Score > BestResult.Score))
 			{
 				BestStops = MoveTemp(Stops);

@@ -91,7 +91,7 @@ namespace
 
 	FLinearColor ConfidenceColor(const FString& Confidence)
 	{
-		return Confidence == TEXT("high") ? MigrationReady : (Confidence == TEXT("medium") ? MigrationCheck : MigrationFlag);
+		return Confidence == TEXT("high") || Confidence == TEXT("set up") ? MigrationReady : (Confidence == TEXT("medium") ? MigrationCheck : MigrationFlag);
 	}
 
 	FString RoleCounts(const FSTMigrationRow& Row)

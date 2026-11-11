@@ -36,6 +36,9 @@ namespace
 {
 	// Buildings and belt segments one flood fill through a factory may visit.
 	constexpr int32 FactoryFloodLimit = 50000;
+	// An item the factory makes upstream of its unloading platforms' machines at least this share as fast as those
+	// machines use it is made there, not brought by train.
+	constexpr double LocalSupplyShare = 0.9;
 	// Recipe chains deeper than this are cut off in the rate search (loops of recipes).
 	constexpr int32 MaxRecipeDepth = 12;
 	// Steps of the rate search.
@@ -305,7 +308,7 @@ TArray<FString> STSetup::ApplyProposal(ASTSubsystem& Subsystem, const STMigratio
 	for (const STMigration::FPlatformProposal& Platform : Proposal.Platforms)
 	{
 		AFGBuildableTrainPlatformCargo* Cargo = Platform.Platform.Get();
-		if (!Cargo || !Platform.bCargo)
+		if (!Cargo || !Platform.bCargo || Platform.bKept)
 		{
 			continue;
 		}
@@ -360,12 +363,25 @@ TArray<FString> STSetup::ApplyProposal(ASTSubsystem& Subsystem, const STMigratio
 
 //~ Platforms
 
-STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsystem, AFGTrainStationIdentifier* Station)
+STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsystem, AFGTrainStationIdentifier* Station, const AFGBuildableTrainPlatformCargo* Redo, bool bShare)
 {
 	STMigration::FStationProposal Proposal;
 	Proposal.Station = Station;
 	const AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
 	const TArray<AFGBuildableTrainPlatform*> Platforms = STLayout::GetPlatforms(Building);
+	// What each traced platform's belts or pipes reach, for choosing its item once the whole station is known.
+	struct FTraced
+	{
+		int32 Proposal = INDEX_NONE;
+		bool bSupply = false;
+		TMap<UClass*, float> Flow;
+		TMap<UClass*, int32> Held;
+		FString Summary;
+		FString Confidence;
+		EFreightCargoType CargoType = EFreightCargoType::FCT_Standard;
+		TSubclassOf<UFGItemDescriptor> PipeFluidHint;
+	};
+	TArray<FTraced> Traced;
 	for (int32 Index = 0; Index < Platforms.Num(); ++Index)
 	{
 		AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Platforms[Index]);
@@ -382,6 +398,26 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 			Platform.Evidence = TEXT("can't move cargo");
 			continue;
 		}
+		// A platform a player (or an earlier set-up) gave a role keeps it.
+		if (const FSTPlatformConfig* Config = Subsystem.FindPlatformConfig(Cargo); Cargo != Redo && Config && Config->Role != ESTRole::Off)
+		{
+			Platform.bKept = true;
+			for (const TObjectPtr<AActor>& Machine : Config->Machines)
+			{
+				Platform.Machines.Add(Machine.Get());
+			}
+			Platform.Role = Config->Role;
+			for (const FSTItemRule& Rule : Config->Items)
+			{
+				if (Rule.Item)
+				{
+					Platform.Items.Add(Rule.Item);
+				}
+			}
+			Platform.Confidence = TEXT("set up");
+			Platform.Evidence = TEXT("already set up; kept as it is");
+			continue;
+		}
 		int32 Inputs = 0;
 		int32 Outputs = 0;
 		FSTPlatformAccess::CountConnections(Cargo, Inputs, Outputs);
@@ -395,9 +431,10 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 		const bool bSupply = Outputs == 0 || (Inputs > 0 && Cargo->GetIsInLoadMode());
 		Platform.Role = bSupply ? ESTRole::Supply : ESTRole::Demand;
 		Platform.Evidence = FString::Printf(TEXT("%d in, %d out%s"), Inputs, Outputs, Inputs > 0 && Outputs > 0 ? TEXT(", both: its load mode decides") : TEXT(""));
-		const EFreightCargoType CargoType = STLayout::GetPlatformCargoType(Cargo);
-		// What it holds now, by item.
-		TMap<UClass*, int32> Held;
+		FTraced& Each = Traced.AddDefaulted_GetRef();
+		Each.Proposal = Proposal.Platforms.Num() - 1;
+		Each.bSupply = bSupply;
+		Each.CargoType = STLayout::GetPlatformCargoType(Cargo);
 		if (const UFGInventoryComponent* Inventory = Cargo->GetInventory())
 		{
 			TArray<FInventoryStack> Stacks;
@@ -406,19 +443,98 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 			{
 				if (Stack.HasItems() && Stack.Item.GetItemClass())
 				{
-					Held.FindOrAdd(Stack.Item.GetItemClass()) += Stack.NumItems;
+					Each.Held.FindOrAdd(Stack.Item.GetItemClass()) += Stack.NumItems;
 				}
 			}
 		}
 		const STTrace::FResult Trace = STTrace::Trace(Cargo, bSupply);
 		Platform.TraceText = Trace.Summary();
 		Platform.Machines = Trace.MachineActors;
-		TMap<UClass*, float> Flow;
-		for (const STTrace::FFlow& Each : Trace.Flows)
+		Each.Summary = Trace.Summary();
+		Each.Confidence = STTrace::ConfidenceName(Trace.Confidence);
+		Each.PipeFluidHint = Trace.PipeFluidHint;
+		for (const STTrace::FFlow& Flow : Trace.Flows)
 		{
-			if (Each.Item && STLayout::ItemFitsCargoType(Each.Item.Get(), CargoType))
+			if (Flow.Item && STLayout::ItemFitsCargoType(Flow.Item.Get(), Each.CargoType))
 			{
-				Flow.FindOrAdd(Each.Item.Get()) += Each.PerMinute;
+				Each.Flow.FindOrAdd(Flow.Item.Get()) += Flow.PerMinute;
+			}
+		}
+	}
+
+	// Items the factory makes for itself: what the machines upstream of its unloading platforms' machines make (in its
+	// own machines, or extracted from resource nodes) at least as fast as those machines use it. Trains don't bring those.
+	TSet<UClass*> MadeHere;
+	{
+		TArray<const AActor*> Seeds;
+		for (const FTraced& Each : Traced)
+		{
+			if (!Each.bSupply)
+			{
+				for (const TWeakObjectPtr<const AActor>& Machine : Proposal.Platforms[Each.Proposal].Machines)
+				{
+					if (Machine.IsValid())
+					{
+						Seeds.AddUnique(Machine.Get());
+					}
+				}
+			}
+		}
+		if (Seeds.Num() > 0)
+		{
+			TMap<FString, FSetupMachineGroup> Users;
+			for (const AActor* Machine : Seeds)
+			{
+				SetupAddMachine(Machine, Users);
+			}
+			TMap<UClass*, double> Used;
+			for (const TPair<FString, FSetupMachineGroup>& Pair : Users)
+			{
+				for (const TPair<UClass*, double>& Ingredient : Pair.Value.Ingredients)
+				{
+					Used.FindOrAdd(Ingredient.Key) += Ingredient.Value * Pair.Value.Capacity;
+				}
+			}
+			const STTrace::FFlood Up = STTrace::Flood(Seeds, true, FactoryFloodLimit);
+			TMap<FString, FSetupMachineGroup> Makers;
+			for (const AActor* Machine : Up.Machines)
+			{
+				SetupAddMachine(Machine, Makers);
+			}
+			TMap<UClass*, double> Made;
+			for (const TPair<FString, FSetupMachineGroup>& Pair : Makers)
+			{
+				for (const TPair<UClass*, double>& Product : Pair.Value.Products)
+				{
+					Made.FindOrAdd(Product.Key) += Product.Value * Pair.Value.Capacity;
+				}
+			}
+			for (const TPair<UClass*, double>& Pair : Used)
+			{
+				if (Pair.Value > 0.0 && Made.FindRef(Pair.Key) >= LocalSupplyShare * Pair.Value)
+				{
+					MadeHere.Add(Pair.Key);
+					UE_LOG(LogSmartTrains, Verbose, TEXT("SETUP %s: %s made here (%.1f/min made upstream, %.1f/min used by the machines its platforms feed); not a train input"),
+						*STLayout::Name(Station), *STNames::Item(Pair.Key), Made.FindRef(Pair.Key), Pair.Value);
+				}
+			}
+		}
+	}
+
+	for (const FTraced& Each : Traced)
+	{
+		STMigration::FPlatformProposal& Platform = Proposal.Platforms[Each.Proposal];
+		TMap<UClass*, float> Flow = Each.Flow;
+		TArray<FString> Local;
+		if (!Each.bSupply)
+		{
+			for (auto It = Flow.CreateIterator(); It; ++It)
+			{
+				if (MadeHere.Contains(It.Key()) && Flow.Num() > 1)
+				{
+					Local.Add(STNames::Item(It.Key()));
+					It.RemoveCurrent();
+				}
 			}
 		}
 		if (Flow.Num() > 0)
@@ -432,15 +548,19 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 			int32 HeldMost = 0;
 			for (UClass* Item : Order)
 			{
-				if (Held.FindRef(Item) > HeldMost)
+				if (Each.Held.FindRef(Item) > HeldMost)
 				{
-					HeldMost = Held.FindRef(Item);
+					HeldMost = Each.Held.FindRef(Item);
 					HeldItem = Item;
 				}
 			}
 			Platform.Items.Add(HeldItem ? HeldItem : Order[0]);
-			Platform.Confidence = STTrace::ConfidenceName(Trace.Confidence);
-			Platform.Evidence += TEXT(", items from its machines: ") + Trace.Summary();
+			Platform.Confidence = Each.Confidence;
+			Platform.Evidence += TEXT(", items from its machines: ") + Each.Summary;
+			if (Local.Num() > 0)
+			{
+				Platform.Evidence += FString::Printf(TEXT("; made in the factory itself, so left out: %s"), *FString::Join(Local, TEXT(", ")));
+			}
 			if (Order.Num() > 1 && HeldItem)
 			{
 				Platform.OneItemNote = FString::Printf(TEXT("several items on its belts; it holds %s"), *STNames::Item(HeldItem));
@@ -451,8 +571,9 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 				for (UClass* Item : Order)
 				{
 					Platform.SpreadChoices.Add(Item);
+					Platform.SpreadRates.Add(Flow.FindRef(Item));
 				}
-				Platform.OneItemNote = TEXT("several items on its belts; one per platform");
+				Platform.OneItemNote = TEXT("several items on its belts; shared out by rate");
 				Platform.Note = Platform.OneItemNote;
 			}
 			continue;
@@ -460,7 +581,7 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 		// No machine reached: what it holds, then the fluid in its pipes.
 		UClass* Most = nullptr;
 		int32 MostHeld = 0;
-		for (const TPair<UClass*, int32>& Pair : Held)
+		for (const TPair<UClass*, int32>& Pair : Each.Held)
 		{
 			if (Pair.Value > MostHeld)
 			{
@@ -474,9 +595,9 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 			Platform.Confidence = TEXT("medium");
 			Platform.Evidence += TEXT(", no machine reached; item from what it holds");
 		}
-		else if (Trace.PipeFluidHint && STLayout::ItemFitsCargoType(Trace.PipeFluidHint.Get(), CargoType))
+		else if (Each.PipeFluidHint && STLayout::ItemFitsCargoType(Each.PipeFluidHint.Get(), Each.CargoType))
 		{
-			Platform.Items.Add(Trace.PipeFluidHint.Get());
+			Platform.Items.Add(Each.PipeFluidHint.Get());
 			Platform.Confidence = TEXT("medium");
 			Platform.Evidence += TEXT(", no machine reached; fluid now in its pipes");
 		}
@@ -484,8 +605,12 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 		{
 			Platform.Confidence = TEXT("unclear");
 			Platform.Conflict = TEXT("no item found");
-			Platform.Evidence += TEXT(", no item found: ") + Trace.Summary();
+			Platform.Evidence += TEXT(", no item found: ") + Each.Summary;
 		}
+	}
+	if (!bShare)
+	{
+		return Proposal;
 	}
 	// Platforms of one role serving the same machines share the items out.
 	STMigration::FPreview One;
@@ -1275,7 +1400,7 @@ FString ASTSubsystem::AutodetectPlatform(AFGBuildableTrainPlatformCargo* Platfor
 	{
 		return TEXT("This platform isn't part of a station.");
 	}
-	STMigration::FStationProposal Proposal = STSetup::ProposeStation(*this, Station);
+	STMigration::FStationProposal Proposal = STSetup::ProposeStation(*this, Station, Platform);
 	const STMigration::FPlatformProposal* Own = Proposal.Platforms.FindByPredicate([Platform](const STMigration::FPlatformProposal& Each) { return Each.Platform.Get() == Platform; });
 	if (!Own)
 	{

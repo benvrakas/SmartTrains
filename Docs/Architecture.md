@@ -49,6 +49,11 @@ The rules:
 4. **After.** The job keeps its consumer (`FSTJob::AnchorStation`); re-plans after each stop only add deliveries
    there. Cargo for elsewhere stays on board and is a move (cargo on board) for the next trip. With nothing worth a
    trip the train settles (depot or in place).
+5. **Cargo first** (0.16.0). A train with cargo on board (a delivery whose platform had less room than planned) first
+   tries only consumer stations with a demand node for an item it carries, and only trips that unload some of it;
+   any consumer only when none of those is worth a trip now. On the IB server 12 of 160 trips after
+   `/st emptycars all` delivered under 90 % of their plan, and those trains then loaded for another factory beside
+   the leftovers.
 
 There are no homes and no lending (the groups are only a readout of the flow plan). A
 consumer is served by whichever free train makes its trip pay best, so trains whose cars line up better and trains
@@ -69,6 +74,18 @@ window's Rename stations); never automatic.
   then the fluid in its pipes. The proposal is a `STMigration::FStationProposal`, so the migration preview and the
   set-up share one shape. Applied with `SetPlatformConfig` (which also sets the load mode); platforms already set the
   same are left alone, so nothing re-plans for them.
+  - **0.16.0, kept platforms:** a platform that already has a role (`FSTPlatformConfig`) is proposed as it is
+    (`FPlatformProposal::bKept`, confidence "set up", its saved machines for grouping) and `ApplyProposal` skips it.
+    Only the platform menu's Autodetect redoes its own platform (`ProposeStation`'s `Redo`).
+  - **0.16.0, made here:** one upstream flood from the machines the station's unloading platforms reach; an item those
+    machines use that the flood's machines and extractors make at least `LocalSupplyShare` (0.9) as fast is left out
+    of the unloading platforms' choices (a rocket fuel plant that makes its own Fuel, a factory with its own miner).
+  - **0.16.0, share-out by rate:** `ShareOutItems` groups platforms of one role reaching the same machines, across
+    stations (the migration proposes every station with `bShare` off, then shares out once over the preview). Each
+    group's platforms go to items in proportion to car loads per minute (`SpreadRates` / car capacity; at least one
+    each while there are enough; largest remainder), counting settled platforms (one item, what they hold, kept). The
+    rest, in station and platform order, take the item furthest below its share, then one already at that station,
+    then the faster item. Test: `SmartTrains.Setup.ShareOutByRate`.
 - **Factory** (`AnalyzeFactory`), in flood fills (`STTrace::Flood`): one walk from a set of machines through belts,
   pipes, splitters, storage and machines, downstream or upstream, that visits each building once and stops at train
   platforms (noting the machine it last passed before each, `PlatformsByMachine`), up to 50,000 buildings and belts.

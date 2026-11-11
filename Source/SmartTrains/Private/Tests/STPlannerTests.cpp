@@ -10,6 +10,7 @@
 #include "FGTrainStationIdentifier.h"
 #include "Misc/AutomationTest.h"
 #include "STForecast.h"
+#include "STMigration.h"
 #include "STMinCostFlow.h"
 #include "STSubsystem.h"
 #include "STTripPlanner.h"
@@ -1232,6 +1233,63 @@ bool FSTGatherMixedFactoryTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("it ends at the factory"), Stops.Last().Station, Factory);
 		TestFalse(TEXT("it doesn't stop at the other iron consumer"), Stops.ContainsByPredicate([&](const FSTPlanStop& Stop) { return Stop.Station == IronUser; }));
 	}
+	return true;
+}
+
+// Platforms of two stations feeding the same machines share their items out in proportion to car loads per minute:
+// a fast item gets most of them, a slow one still gets one; a platform set up before counts and is left alone.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTShareOutByRateTest, "SmartTrains.Setup.ShareOutByRate", TestFlags)
+bool FSTShareOutByRateTest::RunTest(const FString& Parameters)
+{
+	UClass* Fast = USTTestSolid::StaticClass();
+	UClass* Slow = USTTestSolidB::StaticClass();
+	AActor* Machine = NewObject<AActor>(GetTransientPackage());
+	auto MakePreview = [&](bool bKeptSlow)
+	{
+		STMigration::FPreview Preview;
+		for (int32 StationIndex = 0; StationIndex < 2; ++StationIndex)
+		{
+			STMigration::FStationProposal& Station = Preview.Stations.AddDefaulted_GetRef();
+			for (int32 Index = 0; Index < 2; ++Index)
+			{
+				STMigration::FPlatformProposal& Platform = Station.Platforms.AddDefaulted_GetRef();
+				Platform.Index = Index;
+				Platform.Role = ESTRole::Demand;
+				Platform.Machines.Add(Machine);
+				if (bKeptSlow && StationIndex == 1 && Index == 1)
+				{
+					Platform.bKept = true;
+					Platform.Items = {Slow};
+					continue;
+				}
+				Platform.Items = {Fast};
+				Platform.SpreadChoices = {Fast, Slow};
+				Platform.SpreadRates = {1440.f, 144.f};
+			}
+		}
+		STMigration::ShareOutItems(Preview);
+		return Preview;
+	};
+	auto Count = [](const STMigration::FPreview& Preview, UClass* Item)
+	{
+		int32 Found = 0;
+		for (const STMigration::FStationProposal& Station : Preview.Stations)
+		{
+			for (const STMigration::FPlatformProposal& Platform : Station.Platforms)
+			{
+				Found += Platform.Items.Num() == 1 && Platform.Items[0].Get() == Item ? 1 : 0;
+			}
+		}
+		return Found;
+	};
+	const STMigration::FPreview Shared = MakePreview(false);
+	TestEqual(TEXT("the fast item gets three of the four platforms"), Count(Shared, Fast), 3);
+	TestEqual(TEXT("the slow item still gets one"), Count(Shared, Slow), 1);
+	TestTrue(TEXT("the first station's platforms all take the fast item"), Count(Shared, Fast) >= 2
+		&& Shared.Stations[0].Platforms[0].Items[0].Get() == Fast && Shared.Stations[0].Platforms[1].Items[0].Get() == Fast);
+	const STMigration::FPreview Kept = MakePreview(true);
+	TestEqual(TEXT("with a platform set up for the slow item, the other three take the fast one"), Count(Kept, Fast), 3);
+	TestTrue(TEXT("the set-up platform keeps its item"), Kept.Stations[1].Platforms[1].Items[0].Get() == Slow);
 	return true;
 }
 

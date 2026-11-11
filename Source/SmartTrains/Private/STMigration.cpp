@@ -175,52 +175,127 @@ void STMigration::ShareOutItems(FPreview& Preview)
 		}
 	}
 
-	TMap<int32, TSet<UClass*>> Taken;
+	// Per group of platforms serving the same machines: how many platforms each item gets, in proportion to its car
+	// loads per minute (at least one each while there are enough), counting the platforms whose item is settled
+	// already (one item on its belts, what it holds, or set up before). The others, in station and platform order,
+	// each take the item furthest below its share, keeping a station's platforms together where it's a tie.
+	TMap<int32, TArray<int32>> Members;
 	for (int32 Index = 0; Index < Refs.Num(); ++Index)
+	{
+		Members.FindOrAdd(Find(Index)).Add(Index);
+	}
+	auto IsFree = [&](int32 Index)
 	{
 		const STMigration::FPlatformProposal& Each = Get(Refs[Index]);
-		if (Each.SpreadChoices.Num() == 0)
+		return !Each.bKept && Each.SpreadChoices.Num() >= 2 && Each.Items.Num() == 1;
+	};
+	int32 Changed = 0;
+	for (TPair<int32, TArray<int32>>& Group : Members)
+	{
+		TArray<int32> Free;
+		TMap<UClass*, double> Weight;
+		TMap<UClass*, int32> Given;
+		TMap<int32, TSet<UClass*>> AtStation;
+		for (const int32 Index : Group.Value)
 		{
+			const STMigration::FPlatformProposal& Each = Get(Refs[Index]);
+			for (int32 Choice = 0; Choice < Each.SpreadChoices.Num(); ++Choice)
+			{
+				UClass* Item = Each.SpreadChoices[Choice].Get();
+				const double Rate = Each.SpreadRates.IsValidIndex(Choice) ? Each.SpreadRates[Choice] : 0.0;
+				Weight.FindOrAdd(Item) = FMath::Max(Weight.FindRef(Item), Rate / FMath::Max(1.0, STLayout::GetCarCapacity(nullptr, Item)));
+			}
+			if (IsFree(Index))
+			{
+				Free.Add(Index);
+				continue;
+			}
 			for (const TSubclassOf<UFGItemDescriptor>& Item : Each.Items)
 			{
-				Taken.FindOrAdd(Find(Index)).Add(Item.Get());
+				++Given.FindOrAdd(Item.Get());
+				AtStation.FindOrAdd(Refs[Index].Station).Add(Item.Get());
 			}
 		}
-	}
-	int32 Changed = 0;
-	for (int32 Index = 0; Index < Refs.Num(); ++Index)
-	{
-		STMigration::FPlatformProposal& Each = Get(Refs[Index]);
-		if (Each.SpreadChoices.Num() < 2 || Each.Items.Num() != 1)
+		if (Free.Num() == 0 || Weight.Num() == 0)
 		{
 			continue;
 		}
-		TSet<UClass*>& Used = Taken.FindOrAdd(Find(Index));
-		const TSubclassOf<UFGItemDescriptor>* Free = Each.SpreadChoices.FindByPredicate([&Used](const TSubclassOf<UFGItemDescriptor>& Item) { return !Used.Contains(Item.Get()); });
-		const TSubclassOf<UFGItemDescriptor> Pick = Free ? *Free : Each.Items[0];
-		Used.Add(Pick.Get());
-		if (Pick == Each.Items[0])
+		TArray<UClass*> Items;
+		Weight.GetKeys(Items);
+		Items.Sort([&Weight](const UClass& A, const UClass& B) { return Weight.FindRef(const_cast<UClass*>(&A)) > Weight.FindRef(const_cast<UClass*>(&B)); });
+		double Sum = 0.0;
+		for (UClass* Item : Items)
 		{
-			continue;
+			Sum += Weight.FindRef(Item);
 		}
-		TArray<FString> Others;
-		for (const TSubclassOf<UFGItemDescriptor>& Item : Each.SpreadChoices)
+		const int32 Total = Group.Value.Num();
+		TMap<UClass*, int32> Target;
+		int32 Left = Total;
+		if (Total >= Items.Num())
 		{
-			if (Item != Pick)
+			for (UClass* Item : Items)
 			{
-				Others.Add(STNames::Item(Item));
+				Target.Add(Item, 1);
+			}
+			Left -= Items.Num();
+		}
+		TArray<TPair<double, UClass*>> Remainders;
+		int32 Whole = 0;
+		for (UClass* Item : Items)
+		{
+			const double Quota = Sum > 0.0 ? Left * Weight.FindRef(Item) / Sum : static_cast<double>(Left) / Items.Num();
+			const int32 Floor = FMath::FloorToInt(Quota);
+			Target.FindOrAdd(Item) += Floor;
+			Whole += Floor;
+			Remainders.Add({Quota - Floor, Item});
+		}
+		Remainders.Sort([](const TPair<double, UClass*>& A, const TPair<double, UClass*>& B) { return A.Key > B.Key; });
+		for (int32 Extra = 0; Extra < Left - Whole && Extra < Remainders.Num(); ++Extra)
+		{
+			++Target.FindOrAdd(Remainders[Extra].Value);
+		}
+		Free.Sort([&](int32 A, int32 B)
+		{
+			return Refs[A].Station != Refs[B].Station ? Refs[A].Station < Refs[B].Station : Get(Refs[A]).Index < Get(Refs[B]).Index;
+		});
+		for (const int32 Index : Free)
+		{
+			STMigration::FPlatformProposal& Each = Get(Refs[Index]);
+			const TSet<UClass*>& Here = AtStation.FindOrAdd(Refs[Index].Station);
+			UClass* Pick = nullptr;
+			TTuple<int32, int32, double> BestKey(MIN_int32, 0, 0.0);
+			for (const TSubclassOf<UFGItemDescriptor>& Choice : Each.SpreadChoices)
+			{
+				UClass* Item = Choice.Get();
+				const TTuple<int32, int32, double> Key(Target.FindRef(Item) - Given.FindRef(Item), Here.Contains(Item) ? 1 : 0, Weight.FindRef(Item));
+				if (!Pick || BestKey < Key)
+				{
+					Pick = Item;
+					BestKey = Key;
+				}
+			}
+			if (!Pick)
+			{
+				continue;
+			}
+			++Given.FindOrAdd(Pick);
+			AtStation.FindOrAdd(Refs[Index].Station).Add(Pick);
+			TArray<FString> Shares;
+			for (UClass* Item : Items)
+			{
+				Shares.Add(FString::Printf(TEXT("%s %d"), *STNames::Item(Item), Target.FindRef(Item)));
+			}
+			Each.OneItemNote = FString::Printf(TEXT("several items on its belts; shared out over %d platforms by car loads per minute (%s)"), Total, *FString::Join(Shares, TEXT(", ")));
+			Each.Note = Each.OneItemNote;
+			if (Pick != Each.Items[0].Get())
+			{
+				UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION %s platform %d: %s (%s)"), *STLayout::Name(Preview.Stations[Refs[Index].Station].Station.Get()), Each.Index + 1,
+					*STNames::Item(Pick), *Each.OneItemNote);
+				Each.Items = {Pick};
+				Each.Confidence = TEXT("medium");
+				++Changed;
 			}
 		}
-		const FString Old = Each.OneItemNote;
-		Each.OneItemNote = FString::Printf(TEXT("belts also carry %s; one item per platform: one no other platform for the same %s has yet; check it"),
-			*FString::Join(Others, TEXT(", ")), Each.Machines.Num() > 0 ? TEXT("machines") : TEXT("station"));
-		Each.Note = Old.IsEmpty() || !Each.Note.Contains(Old) ? (Each.Note.IsEmpty() ? Each.OneItemNote : Each.OneItemNote + TEXT("; ") + Each.Note)
-			: Each.Note.Replace(*Old, *Each.OneItemNote);
-		Each.Confidence = TEXT("medium");
-		UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION %s platform %d: %s instead of %s, which another platform for the same machines already has"),
-			*STLayout::Name(Preview.Stations[Refs[Index].Station].Station.Get()), Each.Index + 1, *STNames::Item(Pick), *STNames::Item(Each.Items[0]));
-		Each.Items = {Pick};
-		++Changed;
 	}
 	UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION shared out items: %d platforms changed"), Changed);
 }
@@ -404,7 +479,7 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World)
 		{
 			continue;
 		}
-		FStationProposal Station = STSetup::ProposeStation(*Subsystem, Identifier);
+		FStationProposal Station = STSetup::ProposeStation(*Subsystem, Identifier, nullptr, false);
 		if (!Station.Platforms.ContainsByPredicate([](const FPlatformProposal& Each) { return Each.bCargo; }))
 		{
 			continue;
@@ -423,6 +498,9 @@ TArray<FString> STMigration::Preview(ASTSubsystem* Subsystem, UWorld* World)
 		}
 		Preview.Stations.Add(MoveTemp(Station));
 	}
+	// Platforms of one role serving the same machines share the items out, over all stations (a factory may have
+	// several input stations).
+	ShareOutItems(Preview);
 
 	// Names from the station set-up (factory product, map area, number and rate) come a few stations per step
 	// (StepNaming), so the server keeps running; the window gets them when they are ready.
