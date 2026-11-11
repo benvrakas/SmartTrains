@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.21.1 (beta)
+
+- **Fixed: idle trains on their way to a depot signal were sent there again every dispatch round** (every few
+  seconds). Each time their timetable was emptied (the game's "no timetable" warning flashed) and their path replaced,
+  so they kept stalling on the line and held other trains up. A train already on its way with its path is now left
+  alone until it parks or gets a trip. (Trains do drive to depot signals and park there: seen on the IB save.)
+
 ## 0.21.0 (beta)
 
 - **Several trains per depot siding.** Depot signals one after another along a long siding make several parking spots.

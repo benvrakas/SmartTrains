@@ -1275,6 +1275,13 @@ bool ASTSubsystem::SendToDepotSignal(FSTTrainState& State, const TCHAR* Why)
 	{
 		return false;
 	}
+	// Already on its way to a depot signal with its path: left alone (sending it again would empty its timetable and
+	// replace its path every dispatch round).
+	if (const FDepotTrip* Trip = mDepotTrips.Find(Train); Trip && Trip->Signal.IsValid() && State.Phase != ESTTrainPhase::Parked
+		&& Train->IsSelfDrivingEnabled() && FSTPlatformAccess::HasTrainPath(Train))
+	{
+		return true;
+	}
 	const float Needed = STLayout::GetTrainLength(Train) + STDepots::Margin;
 	TSet<const UFGRailroadTrackConnectionComponent*> Goals;
 	TMap<const UFGRailroadTrackConnectionComponent*, ASTBuildableDepotSignal*> ByGoal;
