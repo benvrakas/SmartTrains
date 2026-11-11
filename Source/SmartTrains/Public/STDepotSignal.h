@@ -3,10 +3,8 @@
 #include "CoreMinimal.h"
 #include "Buildables/FGBuildableRailroadSignal.h"
 #include "FGRecipe.h"
-#include "FGSchematic.h"
 #include "Hologram/FGHologram.h"
 #include "Resources/FGBuildingDescriptor.h"
-#include "Unlocks/FGUnlockRecipe.h"
 #include "STDepotSignal.generated.h"
 
 class AFGBuildableRailroadTrack;
@@ -45,6 +43,10 @@ namespace STDepots
 	// Points the depot signal's content classes at the vanilla block signal's mesh, hologram, icons, categories and
 	// ingredients (game instance post-initialization).
 	void ResolveVanillaAssets();
+
+	// Server: makes the depot signal's recipe available once the vanilla block signal's is (it unlocks with it, in new
+	// and existing saves).
+	void KeepUnlocked(UWorld* World);
 }
 
 // A block signal that also marks the siding behind it as a depot: managed trains with nothing to do wait there
@@ -82,27 +84,5 @@ public:
 	USTRecipe_DepotSignal();
 
 	// Copies the vanilla block signal recipe's ingredients and where it is built.
-	static void ResolveVanillaAssets();
-};
-
-UCLASS()
-class SMARTTRAINS_API USTUnlockRecipe_DepotSignal : public UFGUnlockRecipe
-{
-	GENERATED_BODY()
-
-public:
-	USTUnlockRecipe_DepotSignal();
-};
-
-// AWESOME Shop entry that unlocks the depot signal.
-UCLASS()
-class SMARTTRAINS_API USTSchematic_DepotSignal : public UFGSchematic
-{
-	GENERATED_BODY()
-
-public:
-	USTSchematic_DepotSignal();
-
-	// Sets the coupon cost, shop category and icon from vanilla assets.
 	static void ResolveVanillaAssets();
 };

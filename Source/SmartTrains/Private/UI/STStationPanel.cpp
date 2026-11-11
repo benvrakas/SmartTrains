@@ -18,7 +18,7 @@
 void USTStationPanel::BuildContent(UVerticalBox* Root)
 {
 	MakeHeading(Root, LOCTEXT("StationHeading", "SmartTrains"));
-	MakeText(Root, LOCTEXT("DepotHint", "Managed trains with nothing to do wait at the nearest free Depot Signal (AWESOME Shop) whose siding fits them; with none, where they stopped."), 10);
+	MakeText(Root, LOCTEXT("DepotHint", "Managed trains with nothing to do wait at the nearest free Depot Signal whose siding fits them; with none, where they stopped."), 10);
 	mLines = MakeText(Root, LOCTEXT("Loading", "Asking the server..."), 10, true, FMargin(0.f, 6.f, 0.f, 0.f));
 	mNetwork = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 6.f, 0.f, 0.f));
 }

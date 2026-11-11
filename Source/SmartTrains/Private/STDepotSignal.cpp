@@ -9,6 +9,7 @@
 #include "FGColoredInstanceMeshProxy.h"
 #include "FGLocomotive.h"
 #include "FGRailroadTrackConnectionComponent.h"
+#include "FGRecipeManager.h"
 #include "FGSchematicCategory.h"
 #include "SmartTrains.h"
 #include "UObject/UnrealType.h"
@@ -22,9 +23,6 @@ namespace
 	const TCHAR* BlockSignalRecipe = TEXT("/Game/FactoryGame/Buildable/Factory/Train/Signal/Recipe_RailroadBlockSignal.Recipe_RailroadBlockSignal_C");
 	const TCHAR* BlockSignalMesh = TEXT("/Game/FactoryGame/Buildable/Factory/TrainSignalType1/Mesh/SM_TrainSignalType01_01.SM_TrainSignalType01_01");
 	const TCHAR* BlockSignalIcon = TEXT("/Game/FactoryGame/Buildable/Factory/Train/Signal/UI/IconDesc_BlockSignal_512.IconDesc_BlockSignal_512");
-	const TCHAR* BlockSignalIcon256 = TEXT("/Game/FactoryGame/Buildable/Factory/Train/Signal/UI/IconDesc_BlockSignal_256.IconDesc_BlockSignal_256");
-	const TCHAR* ItemCoupon = TEXT("/Game/FactoryGame/Resource/Parts/ResourceSinkCoupon/Desc_ResourceSinkCoupon.Desc_ResourceSinkCoupon_C");
-	const TCHAR* ShopCategoryVehicles = TEXT("/Game/FactoryGame/Schematics/ResourceSinkShopCategories/SC_RSS_Vehicles.SC_RSS_Vehicles_C");
 	const TCHAR* BuildGun = TEXT("/Game/FactoryGame/Equipment/BuildGun/BP_BuildGun.BP_BuildGun_C");
 	// Route search: most track exits looked at. [connections]
 	constexpr int32 RouteSearchLimit = 50000;
@@ -277,6 +275,12 @@ void ASTBuildableDepotSignal::ResolveVanillaAssets()
 	const AFGBuildableRailroadSignal* Theirs = Vanilla->GetDefaultObject<AFGBuildableRailroadSignal>();
 	const int32 Copied = CopyEditable(Theirs, Mine, AFGBuildableRailroadSignal::StaticClass(), AFGBuildable::StaticClass(),
 		{TEXT("mDisplayName"), TEXT("mDescription")});
+	// The left/right-handed meshes the signal and its hologram read (not an editable setting, so copied by hand).
+	Mine->mRailroadSignalSparesDataCDO = Theirs->mRailroadSignalSparesDataCDO;
+	if (!Mine->mRailroadSignalSparesDataCDO)
+	{
+		UE_LOG(LogSmartTrains, Error, TEXT("DEPOT signal: the vanilla block signal has no signal sparse data; the depot signal can't be built safely"));
+	}
 	Mine->mDisplayName = LOCTEXT("DepotSignalName", "Depot Signal");
 	Mine->mDescription = LOCTEXT("DepotSignalDescription",
 		"A Block Signal that also marks the siding behind it as a SmartTrains depot: managed trains with nothing to do wait there.\n\n"
@@ -297,7 +301,8 @@ void ASTBuildableDepotSignal::ResolveVanillaAssets()
 		}
 		Mine->mSignalComponent->SetRelativeLocationAndRotation(FVector(0.f, 450.f, 0.f), FRotator(0.f, -90.f, 0.f));
 	}
-	UE_LOG(LogSmartTrains, Log, TEXT("DEPOT signal: %d settings copied from the vanilla block signal, mesh %s (%s), hologram %s"), Copied,
+	UE_LOG(LogSmartTrains, Log, TEXT("DEPOT signal: %d settings copied from the vanilla block signal, signal data %s, mesh %s (%s), hologram %s"), Copied,
+		Mine->mRailroadSignalSparesDataCDO ? *Mine->mRailroadSignalSparesDataCDO->GetName() : TEXT("MISSING"),
 		Mine->mSignalComponent && Mine->mSignalComponent->GetStaticMesh() ? *Mine->mSignalComponent->GetStaticMesh()->GetName() : TEXT("MISSING"),
 		Source ? TEXT("from its component") : TEXT("by path"), Mine->mHologramClass ? *Mine->mHologramClass->GetName() : TEXT("MISSING"));
 }
@@ -346,48 +351,23 @@ void USTRecipe_DepotSignal::ResolveVanillaAssets()
 	UE_LOG(LogSmartTrains, Log, TEXT("DEPOT signal recipe: %d ingredients"), Mine->mIngredients.Num());
 }
 
-USTUnlockRecipe_DepotSignal::USTUnlockRecipe_DepotSignal()
-{
-	mRecipes.Add(USTRecipe_DepotSignal::StaticClass());
-}
-
-USTSchematic_DepotSignal::USTSchematic_DepotSignal()
-{
-	mType = ESchematicType::EST_ResourceSink;
-	mDisplayName = LOCTEXT("DepotSchematicName", "SmartTrains Depot Signal");
-	mDescription = LOCTEXT("DepotSchematicDescription",
-		"A Block Signal that marks the siding behind it as a depot where SmartTrains parks trains with nothing to do.");
-	mMenuPriority = 5.f;
-	mTechTier = 1;
-	mTimeToComplete = 0.0f;
-	mUnlocks.Add(CreateDefaultSubobject<USTUnlockRecipe_DepotSignal>(TEXT("UnlockDepotSignal")));
-}
-
-void USTSchematic_DepotSignal::ResolveVanillaAssets()
-{
-	USTSchematic_DepotSignal* Mine = GetMutableDefault<USTSchematic_DepotSignal>();
-	if (TSubclassOf<UFGItemDescriptor> Coupon = LoadClass<UFGItemDescriptor>(nullptr, ItemCoupon))
-	{
-		Mine->mCost = {FItemAmount(Coupon, 1)};
-	}
-	if (TSubclassOf<UFGSchematicCategory> Category = LoadClass<UFGSchematicCategory>(nullptr, ShopCategoryVehicles))
-	{
-		Mine->mSubCategories = {Category};
-	}
-	if (UTexture2D* Icon = LoadObject<UTexture2D>(nullptr, BlockSignalIcon256))
-	{
-		Mine->mSchematicIcon.SetResourceObject(Icon);
-		Mine->mSchematicIcon.ImageSize = FVector2D(256.0, 256.0);
-		Mine->mSmallSchematicIcon = Icon;
-	}
-}
-
 void STDepots::ResolveVanillaAssets()
 {
 	ASTBuildableDepotSignal::ResolveVanillaAssets();
 	USTDesc_DepotSignal::ResolveVanillaAssets();
 	USTRecipe_DepotSignal::ResolveVanillaAssets();
-	USTSchematic_DepotSignal::ResolveVanillaAssets();
+}
+
+void STDepots::KeepUnlocked(UWorld* World)
+{
+	AFGRecipeManager* Recipes = World ? AFGRecipeManager::Get(World) : nullptr;
+	const TSubclassOf<UFGRecipe> Vanilla = LoadClass<UFGRecipe>(nullptr, BlockSignalRecipe);
+	if (!Recipes || !Vanilla || !Recipes->IsRecipeAvailable(Vanilla) || Recipes->IsRecipeAvailable(USTRecipe_DepotSignal::StaticClass()))
+	{
+		return;
+	}
+	Recipes->AddAvailableRecipe(USTRecipe_DepotSignal::StaticClass());
+	UE_LOG(LogSmartTrains, Log, TEXT("DEPOT signal unlocked: the block signal is unlocked"));
 }
 
 #undef LOCTEXT_NAMESPACE

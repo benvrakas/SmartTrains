@@ -319,6 +319,7 @@ private:
 	// Trains with no state yet: vehicles when first seen and since when (Now()).
 	TMap<TWeakObjectPtr<AFGTrain>, TPair<int32, double>> mNewTrains;
 	FTimerHandle mNewTrainTimer;
+	FTimerHandle mUnlockTimer;
 	// /st snapshot: the next dispatch round writes every free train's planning inputs to a file for replay tests.
 	bool bSnapshotNext = false;
 	void WriteSnapshot(const TArray<FSTNode>& Nodes, const TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& Bookings, const TArray<TSharedPtr<class FJsonValue>>& Trains) const;

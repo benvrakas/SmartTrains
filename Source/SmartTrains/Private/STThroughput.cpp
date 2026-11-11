@@ -346,7 +346,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		}
 		if (Last.ParkedOutside > 0)
 		{
-			View.Summary.Add(FString::Printf(TEXT("%d idle trains are parked where they stopped, because no depot signal is free or fits them (/st depots). They move when a trip needs their station, but a depot signal for each (AWESOME Shop; a passing siding off the main line, one train each) keeps stations clear."),
+			View.Summary.Add(FString::Printf(TEXT("%d idle trains are parked where they stopped, because no depot signal is free or fits them (/st depots). They move when a trip needs their station, but a depot signal for each (a passing siding off the main line, one train each) keeps stations clear."),
 				Last.ParkedOutside));
 		}
 	}

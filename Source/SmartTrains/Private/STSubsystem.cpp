@@ -82,6 +82,7 @@ void ASTSubsystem::BeginPlay()
 	Timers.SetTimer(mMonitorTimer, this, &ASTSubsystem::MonitorTrains, 0.25f, true, 1.f);
 	Timers.SetTimer(mSampleTimer, this, &ASTSubsystem::SamplePlatforms, 1.f, true, 1.f);
 	Timers.SetTimer(mNewTrainTimer, this, &ASTSubsystem::ManageNewTrains, 5.f, true, 10.f);
+	Timers.SetTimer(mUnlockTimer, FTimerDelegate::CreateWeakLambda(this, [this]() { STDepots::KeepUnlocked(GetWorld()); }), 5.f, true, 5.f);
 	Timers.SetTimer(mTravelTimer, this, &ASTSubsystem::StepTravel, 0.5f, true, 2.f);
 	Timers.SetTimer(mThroughputTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
 	{

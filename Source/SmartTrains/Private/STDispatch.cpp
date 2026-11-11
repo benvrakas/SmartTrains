@@ -1353,7 +1353,7 @@ TArray<FString> ASTSubsystem::DescribeDepots() const
 	}
 	if (Lines.Num() == 0)
 	{
-		Lines.Add(TEXT("No depot signals built (AWESOME Shop: SmartTrains Depot Signal)."));
+		Lines.Add(TEXT("No depot signals built (build menu, Vehicles, next to the Block Signal; unlocked with it)."));
 	}
 	return Lines;
 }
@@ -1490,7 +1490,7 @@ void ASTSubsystem::ClearNeededBays()
 		}
 		if (!Target)
 		{
-			UE_LOG(LogSmartTrains, Warning, TEXT("%s is parked at %s, which a job needs, and there is nowhere to move it: build a depot signal (AWESOME Shop)"),
+			UE_LOG(LogSmartTrains, Warning, TEXT("%s is parked at %s, which a job needs, and there is nowhere to move it: build a depot signal"),
 				*STLayout::Name(State.Train), *STLayout::Name(Here));
 			continue;
 		}

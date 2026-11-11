@@ -46,7 +46,6 @@ USTGameWorldModule::USTGameWorldModule()
 	bRootModule = true;
 	ModSubsystems.Add(ASTSubsystem::StaticClass());
 	mChatCommands.Add(ASTChatCommand::StaticClass());
-	mSchematics.Add(USTSchematic_DepotSignal::StaticClass());
 }
 
 void USTGameWorldModule::DispatchLifecycleEvent(ELifecyclePhase Phase)

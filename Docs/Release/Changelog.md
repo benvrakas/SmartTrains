@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.19.1 (beta)
+
+- **Fixed: equipping the depot signal crashed the game.** Its left/right-handed mesh data wasn't copied from the
+  vanilla Block Signal, and the build gun's hologram read it as soon as it appeared.
+- **The depot signal unlocks with the Block Signal**, next to it in the build menu (Vehicles). It was an AWESOME Shop
+  item in 0.17.0 and 0.18.0; saves that have block signals get it within seconds of loading.
+
 ## 0.19.0 (beta)
 
 - **Station depots are gone; depot signals replace them.** The station menu has no depot switch any more (the bar
