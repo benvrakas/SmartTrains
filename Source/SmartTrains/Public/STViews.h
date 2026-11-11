@@ -84,6 +84,13 @@ struct SMARTTRAINS_API FSTTrainView
 	UPROPERTY()
 	bool bKeepVanilla = false;
 
+	// Held by a player (Hold / Resume), and whether it has a job to cancel.
+	UPROPERTY()
+	bool bHeld = false;
+
+	UPROPERTY()
+	bool bHasJob = false;
+
 	// Why it can't be managed, empty if it can.
 	UPROPERTY()
 	FString CannotManage;
@@ -273,6 +280,9 @@ enum class ESTTrainAction : uint8
 	Unmanage,
 	KeepVanillaOn,
 	KeepVanillaOff,
+	Hold,
+	Resume,
+	CancelJob,
 };
 
 // One row of the throughput monitor: an item, station, platform or train, or an overview tile.

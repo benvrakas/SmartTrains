@@ -419,7 +419,7 @@ void USTRemoteCallObject::PushMigrationView(const TArray<FString>& Lines)
 
 bool USTRemoteCallObject::Server_SetTrain_Validate(AFGTrain* Train, ESTTrainAction Action, int32 Edit)
 {
-	return Action <= ESTTrainAction::KeepVanillaOff;
+	return Action <= ESTTrainAction::CancelJob;
 }
 
 void USTRemoteCallObject::Server_SetTrain_Implementation(AFGTrain* Train, ESTTrainAction Action, int32 Edit)
@@ -449,6 +449,16 @@ void USTRemoteCallObject::Server_SetTrain_Implementation(AFGTrain* Train, ESTTra
 	case ESTTrainAction::KeepVanillaOn:
 	case ESTTrainAction::KeepVanillaOff:
 		Subsystem->SetTrainKeepVanilla(Train, Action == ESTTrainAction::KeepVanillaOn, Cause);
+		break;
+	case ESTTrainAction::Hold:
+	case ESTTrainAction::Resume:
+		Subsystem->SetTrainHeld(Train, Action == ESTTrainAction::Hold, Cause);
+		break;
+	case ESTTrainAction::CancelJob:
+		if (!Subsystem->CancelTrainJob(Train, Cause))
+		{
+			Client_Message(FString::Printf(TEXT("%s has no job to cancel."), *STLayout::Name(Train)), true);
+		}
 		break;
 	}
 	Client_Train(Subsystem->MakeTrainView(Train, mAppliedEdit));

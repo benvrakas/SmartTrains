@@ -32,4 +32,13 @@ class SMARTTRAINS_API USTGameWorldModule : public UGameWorldModule
 
 public:
 	USTGameWorldModule();
+
+	virtual void DispatchLifecycleEvent(ELifecyclePhase Phase) override;
+
+private:
+	// Names the loaded mods that also write train timetables or dispatch trains, in the log and in the local player's
+	// chat (DynamicTimeTable, Dynamic Train Routes, RailDispatch).
+	void NoteConflictingMods();
+
+	FTimerHandle mNoticeTimer;
 };

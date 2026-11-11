@@ -1,6 +1,8 @@
 #include "UI/STTrainPanel.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
+#include "Components/HorizontalBox.h"
+#include "Components/HorizontalBoxSlot.h"
 #include "Components/ScrollBox.h"
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
@@ -40,6 +42,18 @@ void USTTrainPanel::BuildContent(UVerticalBox* Root)
 	{
 		Send(static_cast<uint8>(bManaged ? ESTTrainAction::Unmanage : ESTTrainAction::Manage));
 	}, FMargin(0.f, 0.f, 0.f, 2.f));
+	mControls = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
+	Root->AddChildToVerticalBox(mControls)->SetPadding(FMargin(0.f, 0.f, 0.f, 2.f));
+	mHold = MakeButton(nullptr, LOCTEXT("Hold", "Hold"), [this]() { Send(static_cast<uint8>(bHeld ? ESTTrainAction::Resume : ESTTrainAction::Hold)); }, FMargin(0.f));
+	mCancelJob = MakeButton(nullptr, LOCTEXT("CancelJob", "Cancel job"), [this]() { Send(static_cast<uint8>(ESTTrainAction::CancelJob)); }, FMargin(0.f));
+	for (USTButton* Button : {mHold.Get(), mCancelJob.Get()})
+	{
+		if (UHorizontalBoxSlot* ButtonSlot = mControls->AddChildToHorizontalBox(Button))
+		{
+			ButtonSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+			ButtonSlot->SetPadding(FMargin(0.f, 0.f, Button == mHold ? 4.f : 0.f, 0.f));
+		}
+	}
 	mStatus = MakeText(Root, LOCTEXT("Loading", "Asking the server..."), 10);
 	mLines = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 4.f, 0.f, 0.f));
 }
@@ -137,6 +151,10 @@ void USTTrainPanel::Refresh(USTRemoteCallObject* RCO)
 	mStatus->SetText(FText::FromString(Status));
 	mManage->SetText(View->bManaged ? LOCTEXT("ManageOn", "Managed by SmartTrains: on") : LOCTEXT("ManageOff", "Managed by SmartTrains: off"));
 	mManage->SetIsEnabled(View->bManaged || View->CannotManage.IsEmpty());
+	bHeld = View->bHeld;
+	mControls->SetVisibility(View->bManaged ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	mHold->SetText(bHeld ? LOCTEXT("Resume", "Resume") : LOCTEXT("Hold", "Hold"));
+	mCancelJob->SetIsEnabled(View->bHasJob);
 	SetLines(mLines, View->Lines);
 	SetEditLocked(View->bManaged);
 }

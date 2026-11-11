@@ -308,6 +308,10 @@ struct SMARTTRAINS_API FSTTrainState
 	UPROPERTY(SaveGame)
 	bool bHasJob = false;
 
+	// Held by a player (locomotive menu Hold): autopilot off, no new trips, until Resume.
+	UPROPERTY(SaveGame)
+	bool bHeld = false;
+
 	UPROPERTY(SaveGame)
 	FSTJob Job;
 

@@ -42,6 +42,8 @@ namespace
 				LOCTEXT("DetailedLogTip", "Writes much more to FactoryGame.log: every dispatch round, why each free train got no trip, re-plans, connection traces and dock maps. Turn it on to report a problem.")},
 			{TEXT("JobNames"), &FSTSettings::bJobNames, LOCTEXT("JobNames", "Show jobs in train names"),
 				LOCTEXT("JobNamesTip", "Renames each managed train to show what it is doing, e.g. \"ST: Iron Plate -> Steel Mill\". The original name comes back when this is turned off or the train is no longer managed.")},
+			{TEXT("ManageNewTrains"), &FSTSettings::bManageNewTrains, LOCTEXT("ManageNewTrains", "Manage new trains"),
+				LOCTEXT("ManageNewTrainsTip", "A new train with freight cars and no timetable is managed by SmartTrains 30 seconds after its cars last changed. A train with a timetable of its own, kept vanilla, or switched off in its locomotive menu is left alone.")},
 			{TEXT("LeaveAtOnce"), &FSTSettings::bLeaveAtOnce, LOCTEXT("LeaveAtOnce", "Trains leave stations at once"),
 				LOCTEXT("LeaveAtOnceTip", "Every stop is load/unload once: a train moves what it can in one transfer and leaves. A train with a trip also starts it at once instead of holding in the station while its next stop is busy or Auto Trains sees no way yet. Off: deliveries and pickups wait up to their longest wait, and trains hold in stations.")},
 			{TEXT("AdminsOnly"), &FSTSettings::bAdminsOnly, LOCTEXT("AdminsOnly", "Only admins change SmartTrains"),

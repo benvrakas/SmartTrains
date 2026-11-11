@@ -153,6 +153,10 @@ public:
 	// Managed trains, for commands that act on all of them.
 	TArray<AFGTrain*> GetManagedTrains() const;
 	void SetTrainKeepVanilla(AFGTrain* Train, bool bKeepVanilla, const FString& Cause);
+	// Hold: autopilot off and no new trips until Resume, which writes its job again (or gives it a new trip).
+	bool SetTrainHeld(AFGTrain* Train, bool bHold, const FString& Cause);
+	// Ends the managed train's job; the next dispatch round gives it a new trip, or it parks.
+	bool CancelTrainJob(AFGTrain* Train, const FString& Cause);
 
 	// Gives Train a job by hand (for testing): pick up Item at From with the cars that fit, deliver it to To.
 	bool AssignManualJob(AFGTrain* Train, AFGTrainStationIdentifier* From, AFGTrainStationIdentifier* To, TSubclassOf<UFGItemDescriptor> Item, FString& OutResult);
@@ -300,6 +304,13 @@ private:
 	static void LinkSupplyChain(TArray<FSTNode>& Nodes);
 	// Samples every configured platform's stock and rates. [1 s]
 	void SamplePlatforms();
+	// Manage new trains (setting): new trains without a timetable, once their consist is settled. [5 s]
+	void ManageNewTrains();
+	// Ends State's job at once (no stop of it is run any more); the train is free for the next dispatch round.
+	void EndJob(FSTTrainState& State, const TCHAR* Why);
+	// Trains with no state yet: vehicles when first seen and since when (Now()).
+	TMap<TWeakObjectPtr<AFGTrain>, TPair<int32, double>> mNewTrains;
+	FTimerHandle mNewTrainTimer;
 	// /st snapshot: the next dispatch round writes every free train's planning inputs to a file for replay tests.
 	bool bSnapshotNext = false;
 	void WriteSnapshot(const TArray<FSTNode>& Nodes, const TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& Bookings, const TArray<TSharedPtr<class FJsonValue>>& Trains) const;

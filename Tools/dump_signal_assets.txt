@@ -1,0 +1,228 @@
+
+==================== /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadBlockSignal.Build_RailroadBlockSignal
+parent chain: /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadBlockSignal.Build_RailroadBlockSignal_C
+--- CDO : /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadBlockSignal.Build_RailroadBlockSignal_C
+  actor_guid = Guid()
+  actor_instance_guid = Guid()
+  always_relevant = False
+  auto_destroy_when_finished = False
+  can_be_damaged = True
+  content_bundle_guid = Guid()
+  custom_time_dilation = 1.0
+  enable_auto_lod_generation = True
+  find_camera_component_when_view_target = True
+  generate_overlap_events_during_level_streaming = False
+  hidden = False
+  initial_life_span = 0.0
+  instigator = None
+  is_spatially_loaded = True
+  life_span = 0.0
+  m_build_effect_instignator = None
+  m_default_swatch_customization_override = None
+  m_description = "Directs the movement of trains to avoid collisions and bottlenecks.
+
+Block Signals can be placed on Railways to create 'Blocks' between them. When a train is occupying one of these Blocks, other trains will be unable to enter it.
+
+Caution: Signals are directional! Trains are unable to move against this direction, so be sure to set up Signals in both directions for bi-directional Railways."
+  m_display_name = "Block Signal"
+  m_draw_debug_visual_state = False
+  m_on_aspect_changed_delegate = <Multicast delegate 'FGBuildableRailroadSignal_OnAspectChanged' (0x0000024D18F60808) <Unbound>>
+  m_on_block_validation_changed_delegate = <Multicast delegate 'FGBuildableRailroadSignal_OnBlockValidationChanged' (0x0000024D18F60820) <Unbound>>
+  m_swatch_group = /Script/FactoryGame.FGSwatchGroup_Standard
+  min_net_update_frequency = 2.0
+  net_cull_distance_squared = 5624999936.0
+  net_dormancy = <NetDormancy.DORM_INITIAL: 4>
+  net_priority = 1.0
+  net_update_frequency = 100.0
+  net_use_owner_relevancy = False
+  only_relevant_to_owner = False
+  pivot_offset = Vector(x=0.0, y=0.0, z=0.0)
+  replicate_using_registered_sub_object_list = False
+  replicates = True
+  root_component = /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadBlockSignal.Default__Build_RailroadBlockSignal_C:RootComponent
+  runtime_grid = None
+  spawn_collision_handling_method = <SpawnActorCollisionHandlingMethod.ALWAYS_SPAWN: 1>
+  sprite_scale = 1.0
+  tags = []
+
+  component RootComponent (SceneComponent)
+    relative_location = Vector(x=0.0, y=0.0, z=0.0)
+    relative_rotation = Rotator(pitch=0.0, roll=0.0, yaw=0.0)
+    relative_scale3d = Vector(x=1.0, y=1.0, z=1.0)
+    mobility = <ComponentMobility.STATIC: 0>
+    visible = True
+    hidden_in_game = False
+    attach_parent(scene) = None
+
+  component Signal Component (FGColoredInstanceMeshProxy)
+    static_mesh = /Game/FactoryGame/Buildable/Factory/TrainSignalType1/Mesh/SM_TrainSignalType01_01.SM_TrainSignalType01_01
+    relative_location = Vector(x=0.0, y=450.0, z=0.0)
+    relative_rotation = Rotator(pitch=0.0, roll=0.0, yaw=-90.00017547607422)
+    relative_scale3d = Vector(x=1.0, y=1.0, z=1.0)
+    override_materials = []
+    mobility = <ComponentMobility.STATIC: 0>
+    visible = True
+    hidden_in_game = False
+    attach_parent(scene) = /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadBlockSignal.Default__Build_RailroadBlockSignal_C:RootComponent
+
+  CDO components of /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadBlockSignal.Build_RailroadBlockSignal
+    RootComponent (SceneComponent)
+      relative_location = Vector(x=0.0, y=0.0, z=0.0)
+      relative_rotation = Rotator(pitch=0.0, roll=0.0, yaw=0.0)
+      relative_scale3d = Vector(x=1.0, y=1.0, z=1.0)
+      mobility = <ComponentMobility.STATIC: 0>
+      visible = True
+    Signal Component (FGColoredInstanceMeshProxy)
+      static_mesh = /Game/FactoryGame/Buildable/Factory/TrainSignalType1/Mesh/SM_TrainSignalType01_01.SM_TrainSignalType01_01
+      relative_location = Vector(x=0.0, y=450.0, z=0.0)
+      relative_rotation = Rotator(pitch=0.0, roll=0.0, yaw=-90.00017547607422)
+      relative_scale3d = Vector(x=1.0, y=1.0, z=1.0)
+      override_materials = []
+      mobility = <ComponentMobility.STATIC: 0>
+      visible = True
+
+==================== /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadPathSignal.Build_RailroadPathSignal
+parent chain: /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadPathSignal.Build_RailroadPathSignal_C
+--- CDO : /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadPathSignal.Build_RailroadPathSignal_C
+  actor_guid = Guid()
+  actor_instance_guid = Guid()
+  always_relevant = False
+  auto_destroy_when_finished = False
+  can_be_damaged = True
+  content_bundle_guid = Guid()
+  custom_time_dilation = 1.0
+  enable_auto_lod_generation = True
+  find_camera_component_when_view_target = True
+  generate_overlap_events_during_level_streaming = False
+  hidden = False
+  initial_life_span = 0.0
+  instigator = None
+  is_spatially_loaded = True
+  life_span = 0.0
+  m_build_effect_instignator = None
+  m_default_swatch_customization_override = None
+  m_description = "Directs the movement of trains to avoid collisions and bottlenecks.
+
+Path Signals are advanced signals that are especially useful for bi-directional Railways and complex intersections. They function similarly to Block Signals, but rather than occupying the entire Block, trains can reserve a specific path through it and will only enter the Block if their path allows them to fully pass through.
+
+Caution: Signals are directional! Trains are unable to move against this direction, so be sure to set up Signals in both directions for bi-directional Railways."
+  m_display_name = "Path Signal"
+  m_draw_debug_visual_state = False
+  m_on_aspect_changed_delegate = <Multicast delegate 'FGBuildableRailroadSignal_OnAspectChanged' (0x0000024D18F67608) <Unbound>>
+  m_on_block_validation_changed_delegate = <Multicast delegate 'FGBuildableRailroadSignal_OnBlockValidationChanged' (0x0000024D18F67620) <Unbound>>
+  m_swatch_group = /Script/FactoryGame.FGSwatchGroup_Standard
+  min_net_update_frequency = 2.0
+  net_cull_distance_squared = 5624999936.0
+  net_dormancy = <NetDormancy.DORM_INITIAL: 4>
+  net_priority = 1.0
+  net_update_frequency = 100.0
+  net_use_owner_relevancy = False
+  only_relevant_to_owner = False
+  pivot_offset = Vector(x=0.0, y=0.0, z=0.0)
+  replicate_using_registered_sub_object_list = False
+  replicates = True
+  root_component = /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadPathSignal.Default__Build_RailroadPathSignal_C:RootComponent
+  runtime_grid = None
+  spawn_collision_handling_method = <SpawnActorCollisionHandlingMethod.ALWAYS_SPAWN: 1>
+  sprite_scale = 1.0
+  tags = []
+
+  component RootComponent (SceneComponent)
+    relative_location = Vector(x=0.0, y=0.0, z=0.0)
+    relative_rotation = Rotator(pitch=0.0, roll=0.0, yaw=0.0)
+    relative_scale3d = Vector(x=1.0, y=1.0, z=1.0)
+    mobility = <ComponentMobility.STATIC: 0>
+    visible = True
+    hidden_in_game = False
+    attach_parent(scene) = None
+
+  component Signal Component (FGColoredInstanceMeshProxy)
+    static_mesh = /Game/FactoryGame/Buildable/Factory/TrainSignalType2/Mesh/SM_TrainSignalType02_01.SM_TrainSignalType02_01
+    relative_location = Vector(x=0.001062154769897461, y=450.0, z=0.0)
+    relative_rotation = Rotator(pitch=0.0, roll=0.0, yaw=-90.00018310546875)
+    relative_scale3d = Vector(x=1.0, y=1.0, z=1.0)
+    override_materials = [/Game/FactoryGame/Buildable/Factory/TrainSignalType2/Material/MI_TrainSignalType_2.MI_TrainSignalType_2]
+    mobility = <ComponentMobility.STATIC: 0>
+    visible = True
+    hidden_in_game = False
+    attach_parent(scene) = /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadPathSignal.Default__Build_RailroadPathSignal_C:RootComponent
+
+  CDO components of /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadPathSignal.Build_RailroadPathSignal
+    RootComponent (SceneComponent)
+      relative_location = Vector(x=0.0, y=0.0, z=0.0)
+      relative_rotation = Rotator(pitch=0.0, roll=0.0, yaw=0.0)
+      relative_scale3d = Vector(x=1.0, y=1.0, z=1.0)
+      mobility = <ComponentMobility.STATIC: 0>
+      visible = True
+    Signal Component (FGColoredInstanceMeshProxy)
+      static_mesh = /Game/FactoryGame/Buildable/Factory/TrainSignalType2/Mesh/SM_TrainSignalType02_01.SM_TrainSignalType02_01
+      relative_location = Vector(x=0.001062154769897461, y=450.0, z=0.0)
+      relative_rotation = Rotator(pitch=0.0, roll=0.0, yaw=-90.00018310546875)
+      relative_scale3d = Vector(x=1.0, y=1.0, z=1.0)
+      override_materials = [/Game/FactoryGame/Buildable/Factory/TrainSignalType2/Material/MI_TrainSignalType_2.MI_TrainSignalType_2]
+      mobility = <ComponentMobility.STATIC: 0>
+      visible = True
+
+==================== DESCRIPTOR /Game/FactoryGame/Buildable/Factory/Train/Signal/Desc_RailroadBlockSignal.Desc_RailroadBlockSignal
+parent chain: /Game/FactoryGame/Buildable/Factory/Train/Signal/Desc_RailroadBlockSignal.Desc_RailroadBlockSignal_C
+--- CDO : /Game/FactoryGame/Buildable/Factory/Train/Signal/Desc_RailroadBlockSignal.Desc_RailroadBlockSignal_C
+
+==================== DESCRIPTOR /Game/FactoryGame/Buildable/Factory/Train/Signal/Desc_RailroadPathSignal.Desc_RailroadPathSignal
+parent chain: /Game/FactoryGame/Buildable/Factory/Train/Signal/Desc_RailroadPathSignal.Desc_RailroadPathSignal_C
+--- CDO : /Game/FactoryGame/Buildable/Factory/Train/Signal/Desc_RailroadPathSignal.Desc_RailroadPathSignal_C
+
+==================== RECIPE /Game/FactoryGame/Buildable/Factory/Train/Signal/Recipe_RailroadBlockSignal.Recipe_RailroadBlockSignal
+parent chain: /Game/FactoryGame/Buildable/Factory/Train/Signal/Recipe_RailroadBlockSignal.Recipe_RailroadBlockSignal_C
+--- CDO : /Game/FactoryGame/Buildable/Factory/Train/Signal/Recipe_RailroadBlockSignal.Recipe_RailroadBlockSignal_C
+
+==================== RECIPE /Game/FactoryGame/Buildable/Factory/Train/Signal/Recipe_RailroadPathSignal.Recipe_RailroadPathSignal
+parent chain: /Game/FactoryGame/Buildable/Factory/Train/Signal/Recipe_RailroadPathSignal.Recipe_RailroadPathSignal_C
+--- CDO : /Game/FactoryGame/Buildable/Factory/Train/Signal/Recipe_RailroadPathSignal.Recipe_RailroadPathSignal_C
+
+==================== MATERIAL /Game/FactoryGame/Buildable/Factory/Train/Signal/MM_TrainSignal.MM_TrainSignal
+  class=Material
+  get_texture_parameter_names = []
+  get_scalar_parameter_names = []
+  get_vector_parameter_names = [Color]
+  get_static_switch_parameter_names = []
+  blend_mode = <BlendMode.BLEND_OPAQUE: 0>
+  shading_model = <MaterialShadingModel.MSM_DEFAULT_LIT: 1>
+  two_sided = False
+  material_domain = <MaterialDomain.MD_SURFACE: 0>
+
+==================== MATERIAL /Game/FactoryGame/Buildable/Factory/Train/Signal/MI_TrainSignal_Green.MI_TrainSignal_Green
+  class=MaterialInstanceConstant
+  get_texture_parameter_names = []
+  get_scalar_parameter_names = []
+  get_vector_parameter_names = [Color]
+  get_static_switch_parameter_names = []
+  parent=/Game/FactoryGame/Buildable/Factory/Train/Signal/MM_TrainSignal.MM_TrainSignal
+
+==================== MATERIAL /Game/FactoryGame/Buildable/Factory/Train/Signal/MI_TrainSignal_Red.MI_TrainSignal_Red
+  class=MaterialInstanceConstant
+  get_texture_parameter_names = []
+  get_scalar_parameter_names = []
+  get_vector_parameter_names = [Color]
+  get_static_switch_parameter_names = []
+  parent=/Game/FactoryGame/Buildable/Factory/Train/Signal/MM_TrainSignal.MM_TrainSignal
+
+==================== MATERIAL /Game/FactoryGame/Buildable/Factory/Train/Signal/MI_TrainSignal_Off.MI_TrainSignal_Off
+  class=MaterialInstanceConstant
+  get_texture_parameter_names = []
+  get_scalar_parameter_names = []
+  get_vector_parameter_names = [Color]
+  get_static_switch_parameter_names = []
+  parent=/Game/FactoryGame/Buildable/Factory/Train/Signal/MM_TrainSignal.MM_TrainSignal
+
+==================== MATERIAL /Game/FactoryGame/Buildable/Factory/Train/Signal/MI_TrainSignal_Error.MI_TrainSignal_Error
+  class=MaterialInstanceConstant
+  get_texture_parameter_names = []
+  get_scalar_parameter_names = []
+  get_vector_parameter_names = [Color]
+  get_static_switch_parameter_names = []
+  parent=/Game/FactoryGame/Buildable/Factory/Train/Signal/MM_TrainSignal.MM_TrainSignal
+
+signal meshes: /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadBlockSignal.Build_RailroadBlockSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadPathSignal.Build_RailroadPathSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/Mesh/Signal_static.Signal_static, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/IconDesc_BlockSignal_256.IconDesc_BlockSignal_256, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/IconDesc_BlockSignal_512.IconDesc_BlockSignal_512, /Game/FactoryGame/Buildable/Factory/Train/Signal/Desc_RailroadBlockSignal.Desc_RailroadBlockSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/IconDesc_PathSignal_256.IconDesc_PathSignal_256, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/IconDesc_PathSignal_512.IconDesc_PathSignal_512, /Game/FactoryGame/Buildable/Factory/Train/Signal/Desc_RailroadPathSignal.Desc_RailroadPathSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/Recipe_RailroadBlockSignal.Recipe_RailroadBlockSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/Recipe_RailroadPathSignal.Recipe_RailroadPathSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/MM_TrainSignal.MM_TrainSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/MI_TrainSignal_Green.MI_TrainSignal_Green, /Game/FactoryGame/Buildable/Factory/Train/Signal/MI_TrainSignal_Red.MI_TrainSignal_Red, /Game/FactoryGame/Buildable/Factory/Train/Signal/MI_TrainSignal_Off.MI_TrainSignal_Off, /Game/FactoryGame/Buildable/Factory/Train/Signal/MI_TrainSignal_Error.MI_TrainSignal_Error, /Game/FactoryGame/Buildable/Factory/Train/Signal/Widget_RailroadSignal.Widget_RailroadSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/ERailroadSignal_State.ERailroadSignal_State, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/TXUI_TrainSignal_PathError.TXUI_TrainSignal_PathError, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/TXUI_TrainSignal_PathClear.TXUI_TrainSignal_PathClear, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/TXUI_TrainSignal_PathBlocked.TXUI_TrainSignal_PathBlocked, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/TXUI_TrainSignal_BG.TXUI_TrainSignal_BG
+signal holograms: /Game/FactoryGame/Buildable/Factory/-Shared/Holo_RailroadSignal.Holo_RailroadSignal, /Game/FactoryGame/Buildable/Factory/Train/EndStop/Holo_RailroadEndStop.Holo_RailroadEndStop, /Game/FactoryGame/Buildable/Factory/Train/Track/Holo_RailroadTrack.Holo_RailroadTrack
+railroad schematics: /Game/FactoryGame/Schematics/ResourceSink/ResourceSink_FactoryRailing.ResourceSink_FactoryRailing
+signal icons: /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadBlockSignal.Build_RailroadBlockSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/Build_RailroadPathSignal.Build_RailroadPathSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/Mesh/Signal_static.Signal_static, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/IconDesc_BlockSignal_256.IconDesc_BlockSignal_256, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/IconDesc_BlockSignal_512.IconDesc_BlockSignal_512, /Game/FactoryGame/Buildable/Factory/Train/Signal/Desc_RailroadBlockSignal.Desc_RailroadBlockSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/IconDesc_PathSignal_256.IconDesc_PathSignal_256, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/IconDesc_PathSignal_512.IconDesc_PathSignal_512, /Game/FactoryGame/Buildable/Factory/Train/Signal/Desc_RailroadPathSignal.Desc_RailroadPathSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/Recipe_RailroadBlockSignal.Recipe_RailroadBlockSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/Recipe_RailroadPathSignal.Recipe_RailroadPathSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/MM_TrainSignal.MM_TrainSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/MI_TrainSignal_Green.MI_TrainSignal_Green, /Game/FactoryGame/Buildable/Factory/Train/Signal/MI_TrainSignal_Red.MI_TrainSignal_Red, /Game/FactoryGame/Buildable/Factory/Train/Signal/MI_TrainSignal_Off.MI_TrainSignal_Off, /Game/FactoryGame/Buildable/Factory/Train/Signal/MI_TrainSignal_Error.MI_TrainSignal_Error, /Game/FactoryGame/Buildable/Factory/Train/Signal/Widget_RailroadSignal.Widget_RailroadSignal, /Game/FactoryGame/Buildable/Factory/Train/Signal/ERailroadSignal_State.ERailroadSignal_State, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/TXUI_TrainSignal_PathError.TXUI_TrainSignal_PathError, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/TXUI_TrainSignal_PathClear.TXUI_TrainSignal_PathClear, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/TXUI_TrainSignal_PathBlocked.TXUI_TrainSignal_PathBlocked, /Game/FactoryGame/Buildable/Factory/Train/Signal/UI/TXUI_TrainSignal_BG.TXUI_TrainSignal_BG

@@ -296,6 +296,8 @@ FSTTrainView ASTSubsystem::MakeTrainView(const AFGTrain* Train, int32 AppliedEdi
 	const FSTTrainState* State = mTrains.FindByPredicate([Train](const FSTTrainState& Each) { return Each.Train == Train; });
 	View.bManaged = State && State->bManaged;
 	View.bKeepVanilla = State && State->bKeepVanilla;
+	View.bHeld = State && State->bHeld;
+	View.bHasJob = State && State->bHasJob && !State->Job.bPark;
 	if (View.bKeepVanilla)
 	{
 		View.CannotManage = TEXT("it is set to keep vanilla (/st train keepvanilla off)");
@@ -311,6 +313,11 @@ FSTTrainView ASTSubsystem::MakeTrainView(const AFGTrain* Train, int32 AppliedEdi
 	if (!View.bManaged)
 	{
 		View.Status = View.bKeepVanilla ? TEXT("Kept vanilla: SmartTrains and its migration leave this train alone.") : TEXT("Not managed: the timetable is yours.");
+	}
+	else if (State->bHeld)
+	{
+		View.Status = State->bHasJob ? FString::Printf(TEXT("Held (Resume to go on with job %d: %s)."), State->Job.Id, *State->Job.Summary)
+			: FString(TEXT("Held: no new trips until Resume."));
 	}
 	else if (State->bHasJob)
 	{

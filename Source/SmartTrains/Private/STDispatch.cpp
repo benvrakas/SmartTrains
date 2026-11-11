@@ -656,7 +656,7 @@ bool ASTSubsystem::GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifi
 {
 	const AFGTrain* Train = State.Train;
 	// A player in the driver's seat holds the train only while driving it by hand (autopilot off).
-	if (!State.bManaged || State.bKeepVanilla || !IsValid(Train) || (Train->IsPlayerDriven() && !Train->IsSelfDrivingEnabled()) || Train->IsDerailed())
+	if (!State.bManaged || State.bKeepVanilla || State.bHeld || !IsValid(Train) || (Train->IsPlayerDriven() && !Train->IsSelfDrivingEnabled()) || Train->IsDerailed())
 	{
 		return false;
 	}
@@ -833,7 +833,7 @@ void ASTSubsystem::DispatchRound()
 		for (FSTTrainState& State : mTrains)
 		{
 			const bool bWanted = State.bReplan || bReplanAll;
-			if (!bWanted || !State.bManaged || !State.bHasJob || State.Job.bPark || !IsValid(State.Train) || State.Train->IsDocked())
+			if (!bWanted || !State.bManaged || !State.bHasJob || State.Job.bPark || State.bHeld || !IsValid(State.Train) || State.Train->IsDocked())
 			{
 				continue;
 			}
@@ -1181,7 +1181,7 @@ void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& 
 
 void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDispatchFirst)
 {
-	if (mSettings.bObserveOnly || !State.bManaged || !IsValid(State.Train))
+	if (mSettings.bObserveOnly || !State.bManaged || State.bHeld || !IsValid(State.Train))
 	{
 		return;
 	}
@@ -1569,7 +1569,7 @@ void ASTSubsystem::WriteJob(FSTTrainState& State, const TCHAR* Why)
 		TimeTable->SetStops(Stops);
 	}
 	TimeTable->SetCurrentStop(0);
-	if (!Train->IsSelfDrivingEnabled())
+	if (!Train->IsSelfDrivingEnabled() && !State.bHeld)
 	{
 		Train->SetSelfDrivingEnabled(true);
 	}

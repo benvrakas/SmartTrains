@@ -38,6 +38,8 @@ namespace
 {
 	// How long a move that moved nothing isn't planned again for that train. [min]
 	constexpr double NoProgressMinutes = 10.0;
+	// Manage new trains: a new train is managed once its vehicles haven't changed for this long. [s]
+	constexpr double NewTrainSettleSeconds = 30.0;
 	// A platform's machines are traced again after this long. [s]
 	// An unloading platform that takes less than this share of what was planned counts as slow draining for SlowDrainMinutes.
 	constexpr double SlowDrainShare = 0.5;
@@ -73,6 +75,7 @@ void ASTSubsystem::BeginPlay()
 	FTimerManager& Timers = GetWorldTimerManager();
 	Timers.SetTimer(mMonitorTimer, this, &ASTSubsystem::MonitorTrains, 0.25f, true, 1.f);
 	Timers.SetTimer(mSampleTimer, this, &ASTSubsystem::SamplePlatforms, 1.f, true, 1.f);
+	Timers.SetTimer(mNewTrainTimer, this, &ASTSubsystem::ManageNewTrains, 5.f, true, 10.f);
 	Timers.SetTimer(mTravelTimer, this, &ASTSubsystem::StepTravel, 0.5f, true, 2.f);
 	Timers.SetTimer(mThroughputTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
 	{
@@ -595,6 +598,13 @@ void ASTSubsystem::MonitorTrains()
 				: TEXT("a player drives it by hand (autopilot off); no new trips until autopilot is on")));
 			State.PlayerAboard = Aboard;
 		}
+		// A held train whose autopilot someone switched on again is no longer held.
+		if (State.bHeld && Train->IsSelfDrivingEnabled())
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("HOLD %s: autopilot switched on by someone; no longer held"), *STLayout::Name(Train));
+			State.bHeld = false;
+			bDispatchSoon = true;
+		}
 		if (State.Phase == ESTTrainPhase::Parked && Train->IsSelfDrivingEnabled() && !bDocked)
 		{
 			UE_LOG(LogSmartTrains, Log, TEXT("%s: autopilot switched on while parked; it gets the next job that fits"), *STLayout::Name(Train));
@@ -633,15 +643,119 @@ int32 ASTSubsystem::EmptyTrainCars(AFGTrain* Train, const FString& Cause)
 	// parks). Its reservations go with the job.
 	if (FSTTrainState* State = mTrains.FindByPredicate([Train](const FSTTrainState& Each) { return Each.Train == Train; }); State && State->bManaged && State->bHasJob && !State->Job.bPark)
 	{
-		UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s ended: cars emptied (%s); it gets a new trip"), State->Job.Id, *STLayout::Name(Train), *State->Job.Summary);
-		State->bHasJob = false;
-		State->Phase = ESTTrainPhase::Idle;
-		State->bReplan = false;
-		State->bReplanFresh = false;
+		EndJob(*State, TEXT("cars emptied"));
+	}
+	if (FSTTrainState* State = mTrains.FindByPredicate([Train](const FSTTrainState& Each) { return Each.Train == Train; }))
+	{
 		State->UnwantedCargoSince = 0.0;
-		bDispatchSoon = true;
 	}
 	return static_cast<int32>(FMath::Min<int64>(Removed, MAX_int32));
+}
+
+void ASTSubsystem::EndJob(FSTTrainState& State, const TCHAR* Why)
+{
+	if (!State.bHasJob)
+	{
+		return;
+	}
+	UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s ended: %s (%s); it gets a new trip"), State.Job.Id, *STLayout::Name(State.Train), Why, *State.Job.Summary);
+	State.bHasJob = false;
+	State.Phase = ESTTrainPhase::Idle;
+	State.bReplan = false;
+	State.bReplanFresh = false;
+	bDispatchSoon = true;
+}
+
+bool ASTSubsystem::SetTrainHeld(AFGTrain* Train, bool bHold, const FString& Cause)
+{
+	FSTTrainState* State = FindTrainState(Train);
+	if (!State || !State->bManaged || !IsValid(Train) || State->bHeld == bHold)
+	{
+		return false;
+	}
+	State->bHeld = bHold;
+	UE_LOG(LogSmartTrains, Log, TEXT("HOLD %s %s by %s%s"), *STLayout::Name(Train), bHold ? TEXT("held") : TEXT("resumed"), *Cause,
+		State->bHasJob ? *FString::Printf(TEXT(" (job %d: %s)"), State->Job.Id, *State->Job.Summary) : TEXT(""));
+	if (bHold)
+	{
+		if (Train->IsSelfDrivingEnabled())
+		{
+			Train->SetSelfDrivingEnabled(false);
+		}
+		return true;
+	}
+	if (State->bHasJob)
+	{
+		State->WrittenStopKeys.Reset();
+		WriteJob(*State, TEXT("resumed"));
+	}
+	else
+	{
+		State->Phase = ESTTrainPhase::Idle;
+		bDispatchSoon = true;
+	}
+	return true;
+}
+
+bool ASTSubsystem::CancelTrainJob(AFGTrain* Train, const FString& Cause)
+{
+	FSTTrainState* State = FindTrainState(Train);
+	if (!State || !State->bManaged || !State->bHasJob)
+	{
+		return false;
+	}
+	EndJob(*State, *FString::Printf(TEXT("cancelled by %s"), *Cause));
+	return true;
+}
+
+void ASTSubsystem::ManageNewTrains()
+{
+	if (!mSettings.bManageNewTrains || mSettings.bObserveOnly || !HasAuthority())
+	{
+		mNewTrains.Reset();
+		return;
+	}
+	AFGRailroadSubsystem* Railroad = AFGRailroadSubsystem::Get(this);
+	if (!Railroad)
+	{
+		return;
+	}
+	TArray<AFGTrain*> Trains;
+	Railroad->GetAllTrains(Trains);
+	const double Time = Now();
+	for (AFGTrain* Train : Trains)
+	{
+		// Only trains SmartTrains has never had a setting for (one switched off or kept vanilla has a state).
+		if (!IsValid(Train) || FindTrainState(Train))
+		{
+			mNewTrains.Remove(Train);
+			continue;
+		}
+		const AFGRailroadTimeTable* TimeTable = Train->GetTimeTable();
+		const TArray<AFGRailroadVehicle*> Vehicles = STLayout::GetVehicles(Train);
+		const bool bFreight = Vehicles.ContainsByPredicate([](const AFGRailroadVehicle* Each) { return Cast<AFGFreightWagon>(Each) != nullptr; });
+		if ((TimeTable && TimeTable->GetNumStops() > 0) || !bFreight || STLayout::GetPossibleDockingLocomotives(Train).Num() == 0)
+		{
+			mNewTrains.Remove(Train);
+			continue;
+		}
+		TPair<int32, double>& Seen = mNewTrains.FindOrAdd(Train, TPair<int32, double>(Vehicles.Num(), Time));
+		if (Seen.Key != Vehicles.Num())
+		{
+			Seen = TPair<int32, double>(Vehicles.Num(), Time);
+			continue;
+		}
+		if (Time - Seen.Value < NewTrainSettleSeconds)
+		{
+			continue;
+		}
+		mNewTrains.Remove(Train);
+		FString Why;
+		if (!SetTrainManaged(Train, true, TEXT("Manage new trains"), Why))
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("MANAGE %s: new train not managed: %s"), *STLayout::Name(Train), *Why);
+		}
+	}
 }
 
 TArray<AFGTrain*> ASTSubsystem::GetManagedTrains() const

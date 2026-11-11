@@ -207,7 +207,7 @@ namespace
 		TEXT("/st setup [apply] [keepname]   (platform roles, items and a name for the station you look at, from its factory)"),
 		TEXT("/st setup all [apply] [keepname]   (every station; report in Saved/SmartTrains; apply is admin only)"),
 		TEXT("/st setup format <text> | words <loads> <unloads several> <unloads one> [both] | default   (how stations are named)"),
-		TEXT("/st train [manage|unmanage] [keepvanilla on|off]"),
+		TEXT("/st train [manage|unmanage] [keepvanilla on|off] [hold|resume|canceljob]"),
 		TEXT("/st snapshot   (the next dispatch round's planning inputs to a file in the server's Saved/SmartTrains/Snapshots, for replay tests; admin only)"),
 		TEXT("/st group [item]   (per item: the flow plan's routes, trains needed and working on it)"),
 		TEXT("/st job <item> from <station> to <station>   (a test job for the train you drive or look at)"),
@@ -559,6 +559,14 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			else if (Word == TEXT("keepvanilla") && Index + 1 < Arguments.Num())
 			{
 				Subsystem->SetTrainKeepVanilla(Train, IsOn(Arguments[++Index]), Who);
+			}
+			else if (Word == TEXT("hold") || Word == TEXT("resume"))
+			{
+				Subsystem->SetTrainHeld(Train, Word == TEXT("hold"), Who);
+			}
+			else if (Word == TEXT("canceljob") && !Subsystem->CancelTrainJob(Train, Who))
+			{
+				Sender->SendChatMessage(FString::Printf(TEXT("%s has no job to cancel."), *STLayout::Name(Train)), FLinearColor::Red);
 			}
 		}
 		Send(Sender, Subsystem->DescribeTrain(Train));
