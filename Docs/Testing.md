@@ -113,8 +113,8 @@ On a test copy of the user's network:
 
 ## Automated tests
 
-`D:\SFMod\Tools\BuildScripts	est-smarttrains.bat` builds the editor (FactoryEditor, Development) and runs the
-`SmartTrains` automation tests (`Source/SmartTrains/Private/Tests`). The report is in
+`D:\SFMod\Tools\BuildScripts\sfmod test SmartTrains` builds the editor (FactoryEditor, Development), runs the
+`SmartTrains` automation tests and prints a pass/fail summary (`Source/SmartTrains/Private/Tests`). The report is in
 `SatisfactoryModLoader/Saved/Logs/SmartTrainsTests.log`. In the editor's console: `Automation RunTests SmartTrains`. The
 tests are compiled only where `WITH_DEV_AUTOMATION_TESTS` is on, so not into the packaged mod. Their two item classes
 (`USTTestSolid`, `USTTestFluid`) are abstract and hidden.
