@@ -1,4 +1,7 @@
 #include "STLayout.h"
+#include "Buildables/FGBuildableRailroadTrack.h"
+#include "FGRailroadTrackConnectionComponent.h"
+#include "RailroadNavigation.h"
 #include "Algo/Reverse.h"
 #include "Buildables/FGBuildableConveyorAttachment.h"
 #include "Buildables/FGBuildableRailroadStation.h"
@@ -21,6 +24,35 @@
 EFreightCargoType FSTPlatformAccess::GetCargoType(const AFGBuildableTrainPlatformCargo* Platform)
 {
 	return Platform ? Platform->mFreightCargoType : EFreightCargoType::FCT_NONE;
+}
+
+bool FSTPlatformAccess::SetTrainPath(AFGTrain* Train, const TArray<UFGRailroadTrackConnectionComponent*>& Route)
+{
+	if (!IsValid(Train) || Route.Num() == 0)
+	{
+		return false;
+	}
+	FRailroadPathSharedPtr Path = MakeShared<FRailroadPath>();
+	Path->PathPoints.SetNum(Route.Num());
+	float DistanceToEnd = 0.f;
+	for (int32 Index = Route.Num() - 1; Index >= 0; --Index)
+	{
+		Path->PathPoints[Index].TrackConnection = Route[Index];
+		Path->PathPoints[Index].Distance = DistanceToEnd;
+		const AFGBuildableRailroadTrack* Track = Route[Index] ? Route[Index]->GetTrack() : nullptr;
+		DistanceToEnd += Track ? Track->GetLength() : 0.f;
+	}
+	FRailroadPathFindingResult Result;
+	Result.Locomotive = Train->GetMultipleUnitMaster();
+	Result.Goal = Route.Last();
+	Result.Path = Path;
+	Result.Result = ERailroadPathFindingResult::RPFR_Success;
+	return Train->mAtcData.SetPath(Result);
+}
+
+bool FSTPlatformAccess::HasTrainPath(const AFGTrain* Train)
+{
+	return IsValid(Train) && Train->mAtcData.HasPath();
 }
 
 void FSTPlatformAccess::CountConnections(const AFGBuildableTrainPlatformCargo* Platform, int32& OutInputs, int32& OutOutputs)

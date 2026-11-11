@@ -8,6 +8,7 @@
 #include "STChatCommand.h"
 #include "STClipboardHooks.h"
 #include "STConfig.h"
+#include "STDepotSignal.h"
 #include "STDockHooks.h"
 #include "STRemoteCallObject.h"
 #include "STSubsystem.h"
@@ -32,6 +33,7 @@ void USTGameInstanceModule::DispatchLifecycleEvent(ELifecyclePhase Phase)
 	{
 		STClipboardHooks::Install();
 		STDockHooks::Install();
+		STDepots::ResolveVanillaAssets();
 		TArray<UWidgetBlueprintHookData*> Hooks;
 		STUIHooks::Register(this, Hooks);
 		mWidgetHooks.Append(Hooks);
@@ -44,6 +46,7 @@ USTGameWorldModule::USTGameWorldModule()
 	bRootModule = true;
 	ModSubsystems.Add(ASTSubsystem::StaticClass());
 	mChatCommands.Add(ASTChatCommand::StaticClass());
+	mSchematics.Add(USTSchematic_DepotSignal::StaticClass());
 }
 
 void USTGameWorldModule::DispatchLifecycleEvent(ELifecyclePhase Phase)

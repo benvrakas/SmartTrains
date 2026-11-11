@@ -159,6 +159,34 @@ window's Rename stations); never automatic.
 - **Console:** `SmartTrains.Setup [apply] [keepname]` (an `FAutoConsoleCommandWithWorldAndArgs`) runs the
   all-stations set-up from a dedicated server's console, for headless tests.
 
+## 0.17.0: depot signals, hold, new trains
+
+- **Depot signal** (`STDepotSignal.*`): `ASTBuildableDepotSignal`, a C++ subclass of the native
+  `AFGBuildableRailroadSignal`. At game instance post-initialization (`STDepots::ResolveVanillaAssets`) its class
+  default gets every editable setting the vanilla `Build_RailroadBlockSignal_C` default has (declared in `AFGBuildable`
+  and below: hologram, interact widget, sparse data, block or path, sounds), and the vanilla signal component's mesh,
+  transform and materials. The vanilla blueprint has no components of its own beyond that one (dump:
+  `Tools/dump_signal_assets.py`), and the lights are the native class's. Descriptor and recipe copy the vanilla block
+  signal's (icons, build category, ingredients); an AWESOME Shop schematic (1 coupon, Vehicles) unlocks it.
+- **Siding check** (`STDepots::Check`): the approach exit is the guarded connection (or one joined to it) whose facing
+  signal is this one; from there back along whole tracks until a signal at a joint (the siding's entry). A switch, a
+  platform's track or a track end before that makes it unusable. Shown in the look-at text (runs on every client: tracks
+  and signals are replicated) and `/st depots`.
+- **Parking** (`SendToDepotSignal`, first in `SettleIdle`): free depot signals (no other train in `mDepotTrips`) whose
+  siding fits the train (length + `STDepots::Margin`) on its track graph are goals of one Dijkstra over track exits from
+  the MU master's exit ahead (`STDepots::FindRoute`). The train's timetable is emptied, then the route is given to its
+  automatic control (`FSTPlatformAccess::SetTrainPath`, friend of `AFGTrain`: `mAtcData.SetPath`, no station, as Auto
+  Trains' routes), autopilot on, `LastStation` cleared (so bookings and bay clearing ignore it). `MonitorTrains` parks it
+  (autopilot off) once it stands still within 60 m of the signal or its path has run out. `WriteJob` (a new trip)
+  removes it from `mDepotTrips`. Untested in game: whether the autopilot keeps a path that ends at no station.
+- **Hold** (`FSTTrainState::bHeld`, saved): autopilot off; `GetFreeAt`, re-plans and `SettleIdle` skip it; `WriteJob`
+  leaves the autopilot off. Resume writes the job again. Someone switching the autopilot on ends the hold.
+  **Cancel job** and `/st emptycars` use `EndJob`.
+- **Manage new trains** (setting): every 5 s, trains with no `FSTTrainState`, freight cars, no timetable stops and a
+  locomotive that can dock are managed once their vehicle count hasn't changed for 30 s.
+- **Other train mods** (`USTGameWorldModule::NoteConflictingMods`, 20 s after the world's post-initialization): SML's
+  loaded mods matched by name; a warning in the log, and on clients a system chat line each.
+
 ## 0.10.0: item groups (a readout since 0.13.0)
 
 Code: `STGroups.cpp`. 0.10.0 replaced 0.9's services with item groups that owned home trains (D'Hondt share-out,

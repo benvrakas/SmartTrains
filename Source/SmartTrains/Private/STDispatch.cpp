@@ -20,6 +20,8 @@
 #include "SmartTrains.h"
 #include "STBridges.h"
 #include "STLayout.h"
+#include "STDepotSignal.h"
+#include "EngineUtils.h"
 #include "STMinCostFlow.h"
 #include "STTripPlanner.h"
 #include "STForecast.h"
@@ -1198,8 +1200,13 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 			return;
 		}
 	}
-	// Idle: to the nearest depot no other train is at or heading for. With none free it parks where it is, and moves
-	// when a trip needs that station or (with Auto Trains) a train waits for it (ClearNeededBays).
+	// Idle: to the nearest free depot signal whose siding fits it, else the nearest depot station no other train is at or
+	// heading for. With none free it parks where it is, and moves when a trip needs that station or (with Auto Trains)
+	// a train waits for it (ClearNeededBays).
+	if (SendToDepotSignal(State, Why))
+	{
+		return;
+	}
 	AFGTrainStationIdentifier* Depot = FindDepot(State, State.LastStation.Get());
 	if (Depot && Depot != State.LastStation)
 	{
@@ -1245,6 +1252,98 @@ void ASTSubsystem::FinishJob(FSTTrainState& State)
 		return;
 	}
 	SettleIdle(State, TEXT("job done"));
+}
+
+bool ASTSubsystem::SendToDepotSignal(FSTTrainState& State, const TCHAR* Why)
+{
+	AFGTrain* Train = State.Train;
+	AFGLocomotive* Locomotive = IsValid(Train) ? Cast<AFGLocomotive>(Train->GetMultipleUnitMaster()) : nullptr;
+	const AFGBuildableRailroadTrack* Here = Locomotive ? Locomotive->GetTrackPosition().Track.Get() : nullptr;
+	if (!Here || mSettings.bObserveOnly)
+	{
+		return false;
+	}
+	const float Needed = STLayout::GetTrainLength(Train) + STDepots::Margin;
+	TSet<const UFGRailroadTrackConnectionComponent*> Goals;
+	TMap<const UFGRailroadTrackConnectionComponent*, ASTBuildableDepotSignal*> ByGoal;
+	for (TActorIterator<ASTBuildableDepotSignal> It(GetWorld()); It; ++It)
+	{
+		ASTBuildableDepotSignal* Signal = *It;
+		bool bTaken = false;
+		for (const TPair<TWeakObjectPtr<AFGTrain>, FDepotTrip>& Pair : mDepotTrips)
+		{
+			bTaken |= Pair.Key.Get() != Train && Pair.Key.IsValid() && Pair.Value.Signal.Get() == Signal;
+		}
+		if (bTaken)
+		{
+			continue;
+		}
+		const FSTDepotSiding Siding = STDepots::Check(Signal);
+		if (Siding.Problem.IsEmpty() && Siding.Goal && Siding.Length >= Needed && Siding.TrackGraph == Here->GetTrackGraphID())
+		{
+			Goals.Add(Siding.Goal);
+			ByGoal.Add(Siding.Goal, Signal);
+		}
+	}
+	if (Goals.Num() == 0)
+	{
+		return false;
+	}
+	const UFGRailroadTrackConnectionComponent* Reached = nullptr;
+	float Length = 0.f;
+	const TArray<UFGRailroadTrackConnectionComponent*> Route = STDepots::FindRoute(Locomotive, Goals, Reached, Length);
+	ASTBuildableDepotSignal* Signal = Reached ? ByGoal.FindRef(Reached) : nullptr;
+	if (!Signal)
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("DEPOT %s: no way ahead to any of %d free depot signals that fit it"), *STLayout::Name(Train), Goals.Num());
+		return false;
+	}
+	// An empty timetable first (the game drops a path when the timetable changes), then the path to the signal.
+	if (AFGRailroadTimeTable* TimeTable = Train->GetTimeTable())
+	{
+		TimeTable->SetStops(TArray<FTimeTableStop>());
+	}
+	if (!FSTPlatformAccess::SetTrainPath(Train, Route))
+	{
+		UE_LOG(LogSmartTrains, Warning, TEXT("DEPOT %s: the train refused the path to the depot signal"), *STLayout::Name(Train));
+		return false;
+	}
+	if (!Train->IsSelfDrivingEnabled())
+	{
+		Train->SetSelfDrivingEnabled(true);
+	}
+	State.bHasJob = false;
+	State.Phase = ESTTrainPhase::Idle;
+	State.LastStation = nullptr;
+	State.WrittenStopKeys.Reset();
+	State.WrittenStations.Reset();
+	mDepotTrips.Add(Train, FDepotTrip{Signal, Now()});
+	UE_LOG(LogSmartTrains, Log, TEXT("DEPOT %s: to the depot signal at %s, %.0f m along %d tracks (%s)"), *STLayout::Name(Train),
+		*Signal->GetActorLocation().ToCompactString(), Length / 100.f, Route.Num(), Why);
+	UpdateTrainName(State);
+	return true;
+}
+
+TArray<FString> ASTSubsystem::DescribeDepots() const
+{
+	TArray<FString> Lines;
+	for (TActorIterator<ASTBuildableDepotSignal> It(GetWorld()); It; ++It)
+	{
+		FString User;
+		for (const TPair<TWeakObjectPtr<AFGTrain>, FDepotTrip>& Pair : mDepotTrips)
+		{
+			if (Pair.Value.Signal.Get() == *It && Pair.Key.IsValid())
+			{
+				User = TEXT(" In use by ") + STLayout::Name(Pair.Key.Get()) + TEXT(".");
+			}
+		}
+		Lines.Add(FString::Printf(TEXT("Depot signal at %s: %s%s"), *It->GetActorLocation().ToCompactString(), *STDepots::Describe(STDepots::Check(*It)), *User));
+	}
+	if (Lines.Num() == 0)
+	{
+		Lines.Add(TEXT("No depot signals built (AWESOME Shop: SmartTrains Depot Signal)."));
+	}
+	return Lines;
 }
 
 void ASTSubsystem::SendToStation(FSTTrainState& State, AFGTrainStationIdentifier* Station, const TCHAR* Why)
@@ -1569,6 +1668,7 @@ void ASTSubsystem::WriteJob(FSTTrainState& State, const TCHAR* Why)
 		TimeTable->SetStops(Stops);
 	}
 	TimeTable->SetCurrentStop(0);
+	mDepotTrips.Remove(Train);
 	if (!Train->IsSelfDrivingEnabled() && !State.bHeld)
 	{
 		Train->SetSelfDrivingEnabled(true);

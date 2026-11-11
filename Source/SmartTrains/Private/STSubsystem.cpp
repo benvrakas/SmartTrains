@@ -13,6 +13,7 @@
 #include "SmartTrains.h"
 #include "STBridges.h"
 #include "STLayout.h"
+#include "STDepotSignal.h"
 #include "STThroughput.h"
 #include "STTrace.h"
 #include "STTravel.h"
@@ -38,6 +39,11 @@ namespace
 {
 	// How long a move that moved nothing isn't planned again for that train. [min]
 	constexpr double NoProgressMinutes = 10.0;
+	// Depot signals: a train sent to one is parked when it stands still this long after being sent, within the distance
+	// of the signal (front or back), or its path has run out. [s, cm/s, cm]
+	constexpr double DepotSettleSeconds = 5.0;
+	constexpr float DepotStillSpeed = 50.f;
+	constexpr float DepotArriveDistance = 6000.f;
 	// Manage new trains: a new train is managed once its vehicles haven't changed for this long. [s]
 	constexpr double NewTrainSettleSeconds = 30.0;
 	// A platform's machines are traced again after this long. [s]
@@ -416,6 +422,7 @@ bool ASTSubsystem::SetTrainManaged(AFGTrain* Train, bool bManaged, const FString
 	State.bManaged = false;
 	State.bHasJob = false;
 	State.Phase = ESTTrainPhase::Idle;
+	mDepotTrips.Remove(Train);
 	if (TimeTable && State.bHasSaved && !mSettings.bObserveOnly)
 	{
 		if (!STFcc::SetStops(GetWorld(), TimeTable, State.SavedStops, {}, {}, FString()))
@@ -597,6 +604,27 @@ void ASTSubsystem::MonitorTrains()
 				: (Aboard == 1 ? TEXT("a player is in the driver's seat with autopilot on; it keeps getting trips")
 				: TEXT("a player drives it by hand (autopilot off); no new trips until autopilot is on")));
 			State.PlayerAboard = Aboard;
+		}
+		// Heading for a depot signal: parked once it stands at the signal (or its path has run out).
+		if (const FDepotTrip* Trip = mDepotTrips.Find(Train); Trip && !State.bHasJob && State.Phase != ESTTrainPhase::Parked && Time - Trip->SentAt > DepotSettleSeconds)
+		{
+			const AFGRailroadVehicle* First = Train->GetFirstVehicle();
+			const AFGRailroadVehicle* Last = Train->GetLastVehicle();
+			const ASTBuildableDepotSignal* Signal = Trip->Signal.Get();
+			const bool bStill = !First || First->GetVelocity().Size() < DepotStillSpeed;
+			const float Near = Signal && First && Last ? FMath::Min(FVector::Dist(First->GetActorLocation(), Signal->GetActorLocation()),
+				FVector::Dist(Last->GetActorLocation(), Signal->GetActorLocation())) : 0.f;
+			if (bStill && (Near < DepotArriveDistance || !FSTPlatformAccess::HasTrainPath(Train)))
+			{
+				State.Phase = ESTTrainPhase::Parked;
+				if (Train->IsSelfDrivingEnabled())
+				{
+					Train->SetSelfDrivingEnabled(false);
+				}
+				UE_LOG(LogSmartTrains, Log, TEXT("PARK %s at a depot signal (%s, %.0f m from it)"), *STLayout::Name(Train),
+					Near < DepotArriveDistance ? TEXT("arrived") : TEXT("its path ran out"), Near / 100.f);
+				UpdateTrainName(State);
+			}
 		}
 		// A held train whose autopilot someone switched on again is no longer held.
 		if (State.bHeld && Train->IsSelfDrivingEnabled())

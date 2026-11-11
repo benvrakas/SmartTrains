@@ -308,6 +308,16 @@ private:
 	void ManageNewTrains();
 	// Ends State's job at once (no stop of it is run any more); the train is free for the next dispatch round.
 	void EndJob(FSTTrainState& State, const TCHAR* Why);
+	// Depot signals (STDepotSignal.h): sends State's idle train to the nearest free depot signal whose siding fits it,
+	// with an empty timetable and a path to the signal. False if there is none or no way to one.
+	bool SendToDepotSignal(FSTTrainState& State, const TCHAR* Why);
+	// Trains heading for or parked at a depot signal, and when they were sent. A train leaves this when it gets a job.
+	struct FDepotTrip
+	{
+		TWeakObjectPtr<class ASTBuildableDepotSignal> Signal;
+		double SentAt = 0.0;
+	};
+	TMap<TWeakObjectPtr<AFGTrain>, FDepotTrip> mDepotTrips;
 	// Trains with no state yet: vehicles when first seen and since when (Now()).
 	TMap<TWeakObjectPtr<AFGTrain>, TPair<int32, double>> mNewTrains;
 	FTimerHandle mNewTrainTimer;
@@ -448,6 +458,8 @@ public:
 	int32 GetGroupShortfall(const FSTGroup& Group) const;
 	// Trains whose current trip moves the group's item.
 	int32 CountWorkingFor(const FSTGroup& Group) const;
+	// One line per depot signal: where, its siding check, and the train using it (/st depots).
+	TArray<FString> DescribeDepots() const;
 	// One line per group, for /st group.
 	TArray<FString> DescribeGroups() const;
 	// What a managed train does: the consumer of its trip, or why it waits (empty when not managed).

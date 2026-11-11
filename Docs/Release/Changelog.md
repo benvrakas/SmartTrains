@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.17.0 (beta)
+
+- **Depot signals (new, not yet tried in game).** A **Depot Signal** (AWESOME Shop, SmartTrains Depot Signal, 1
+  coupon; built like a Block Signal, same look, same cost, next to it in the build menu) marks the siding behind it as
+  a depot. A managed train with nothing to do drives onto the nearest free depot siding that fits it and waits at the
+  signal; it leaves as soon as it gets a trip. No station needed.
+  - The siding is checked: from the signal back to the siding's entry signal there must be no switch and no station,
+    and it must be longer than the train plus 8 m. Look at a depot signal to see "ready, 312 m of siding (fits trains
+    up to 304 m)" or why it can't be used. `/st depots` lists them all.
+  - Only passing sidings for now (an entry signal after the switch, the depot signal at the exit); dead-end sidings
+    aren't supported yet.
+  - Station depots still work; trains use depot signals first. They'll go once depot signals have proved themselves.
+- **Hold / Resume and Cancel job** in the locomotive menu of a managed train (also `/st train hold|resume|canceljob`).
+  A held train stops (autopilot off) and gets no new trips until Resume, which carries on with its job. Cancel job
+  ends its job; it gets a new trip at the next dispatch round, or parks.
+- **Manage new trains** (Mods menu, off by default): a new train with freight cars and no timetable is managed 30 s
+  after its cars last changed. Trains with a timetable of their own, kept vanilla or switched off are left alone.
+- **Notice when other train mods are installed:** DynamicTimeTable, Dynamic Train Routes and RailDispatch also steer
+  trains; a chat line after loading names them and what they do to managed trains (and the log too).
+
 ## 0.16.0 (beta)
 
 - **The migration and station set-up leave platforms that are already set up alone.** A platform with a SmartTrains

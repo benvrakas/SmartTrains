@@ -68,6 +68,9 @@ Setting a role switches the platform to load (supply) or unload (demand).
 - `/st train manage`: SmartTrains takes over its timetable. The old timetable and autopilot setting are saved.
 - `/st train unmanage`: gives the saved timetable and autopilot back.
 - `/st train keepvanilla on|off`: never managed or proposed by the migration tool.
+- `/st train hold` / `resume`: stops the managed train (autopilot off, no new trips) until resume, which carries on with
+  its job. `/st train canceljob` ends its job; it gets a new trip at the next dispatch round, or parks.
+- `/st depots`: every depot signal, its siding check and the train using it.
 - `/st job <item> from <station> to <station>`: a test job for a managed train, using the cars that fit.
 - `/st emptycars`: deletes all cargo in the freight cars of the train you drive or look at (admin only, no undo).
   `/st emptycars all confirm` does it for every managed train. A managed train's job ends, so the next dispatch round
