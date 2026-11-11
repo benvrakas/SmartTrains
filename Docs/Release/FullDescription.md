@@ -70,7 +70,8 @@ them (see below).
   across junctions. Switch **Trains leave stations at once** off for the old behaviour: deliveries and pickups wait
   up to their longest wait, and a train whose next station is busy waits in its station.
 - **Trains with nothing to move park** at the nearest free **Depot Signal** whose siding fits them, else where they
-  stopped, and leave as soon as they get a trip. Auto Trains drives them there, so depot signals need Auto Trains.
+  stopped, and leave as soon as they get a trip. Auto Trains drives them there, so depot signals need Auto Trains
+  1.4.15 or later.
   - **Depot Signal** (unlocked with the Block Signal, next to it in the build menu): marks a parking spot. Put it at
     the exit of a passing siding; the spot runs back to the siding's switch. No station may lie on it, and it must be
     at least 8 m longer than the train. The game's "Signal loops into itself" warning on it doesn't matter, since Auto
