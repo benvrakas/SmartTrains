@@ -3,8 +3,10 @@
 #include "CoreMinimal.h"
 #include "Buildables/FGBuildableRailroadSignal.h"
 #include "FGRecipe.h"
+#include "FGSchematic.h"
 #include "Hologram/FGHologram.h"
 #include "Resources/FGBuildingDescriptor.h"
+#include "Unlocks/FGUnlockRecipe.h"
 #include "STDepotSignal.generated.h"
 
 class AFGBuildableRailroadTrack;
@@ -85,4 +87,24 @@ public:
 
 	// Copies the vanilla block signal recipe's ingredients and where it is built.
 	static void ResolveVanillaAssets();
+};
+
+// Kept so saves that bought the 0.17.0/0.18.0 AWESOME Shop entry load; no longer registered, so no shop lists it.
+UCLASS()
+class SMARTTRAINS_API USTUnlockRecipe_DepotSignal : public UFGUnlockRecipe
+{
+	GENERATED_BODY()
+
+public:
+	USTUnlockRecipe_DepotSignal();
+};
+
+// Kept so saves that bought the 0.17.0/0.18.0 AWESOME Shop entry load; no longer registered, so no shop lists it.
+UCLASS()
+class SMARTTRAINS_API USTSchematic_DepotSignal : public UFGSchematic
+{
+	GENERATED_BODY()
+
+public:
+	USTSchematic_DepotSignal();
 };

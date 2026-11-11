@@ -351,6 +351,18 @@ void USTRecipe_DepotSignal::ResolveVanillaAssets()
 	UE_LOG(LogSmartTrains, Log, TEXT("DEPOT signal recipe: %d ingredients"), Mine->mIngredients.Num());
 }
 
+USTUnlockRecipe_DepotSignal::USTUnlockRecipe_DepotSignal()
+{
+	mRecipes.Add(USTRecipe_DepotSignal::StaticClass());
+}
+
+USTSchematic_DepotSignal::USTSchematic_DepotSignal()
+{
+	mType = ESchematicType::EST_ResourceSink;
+	mDisplayName = LOCTEXT("DepotSchematicName", "SmartTrains Depot Signal");
+	mUnlocks.Add(CreateDefaultSubobject<USTUnlockRecipe_DepotSignal>(TEXT("UnlockDepotSignal")));
+}
+
 void STDepots::ResolveVanillaAssets()
 {
 	ASTBuildableDepotSignal::ResolveVanillaAssets();

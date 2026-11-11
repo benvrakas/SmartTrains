@@ -190,7 +190,7 @@ window's Rename stations); never automatic.
   `Tools/dump_signal_assets.py`), and the lights are the native class's. Descriptor and recipe copy the vanilla block
   signal's (icons, build category, ingredients); since 0.19.0 it unlocks with the vanilla block signal: every 5 s the server makes its recipe available once the block
   signal's is (`STDepots::KeepUnlocked`, also for saves that unlocked block signals before). The 0.17.0 AWESOME Shop
-  schematic is gone.
+  schematic is no longer registered; its class stays (a stub) so saves that bought it still load.
 - **Siding check** (`STDepots::Check`): the approach exit is the guarded connection (or one joined to it) whose facing
   signal is this one; from there back along whole tracks until a signal at a joint (the siding's entry). A switch, a
   platform's track or a track end before that makes it unusable. Shown in the look-at text (runs on every client: tracks
