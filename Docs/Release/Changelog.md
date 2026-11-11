@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.1 (beta)
+
+- **"In" stations unloading several items get no rate in their name.** The set-up named them after the factory's
+  product and showed the product's rate (e.g. "Grass Fields Modular Frame In 1 (288)"), which isn't what the station
+  takes in. A station unloading one item still shows how much of it the factory uses; "Out" and mixed stations keep
+  their rates. Rename a station again (or `/st setup all`) to update its name.
+
 ## 0.22.0 (beta)
 
 - **Trains really drive to depot signals now.** Until now SmartTrains emptied a train's timetable and gave the game a

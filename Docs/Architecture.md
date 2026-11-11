@@ -125,8 +125,9 @@ window's Rename stations); never automatic.
   two stations loading from one factory don't both claim all of it.
 - **Name** (`NameStation`): `FSTNamingConfig` (saved per world): `Format` with `{area}`, `{product}`, `{role}`,
   `{n}`, `{rate}`; `{role}` from `SupplyWord` (only loads), `FactoryWord` (unloads several items: a factory's inputs),
-  `ConsumerWord` (unloads one item), `MixedWord` (both). Empty values drop out with their brackets
-  (`FormatName`).
+  `ConsumerWord` (unloads one item), `MixedWord` (both). `{rate}`: the one item's use for a station unloading one
+  item, none for one unloading several (the factory's output isn't what it takes in; 0.22.1), else the product's
+  rate. Empty values drop out with their brackets (`FormatName`).
   - **Area:** `AFGWorldSettings::GetMinimapCaptureActor()->GetMapAreaTexture()->GetMapAreaForWorldLocation()`, the
     game's fog-of-war areas, named by `UFGMapArea::GetUserSetAreaDisplayName` or `GetAreaDisplayName`; else a
     `AFGVolumeMapArea` that contains the station (`mMapArea` by reflection). The name note says which one was used.

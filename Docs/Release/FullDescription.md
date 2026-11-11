@@ -26,9 +26,10 @@ them (see below).
   the platform to load or unload. The item is what the platform holds; an empty platform gets the item its machines
   take or make.
   **Rename station from its factory**, under the station's name, names it from what the factory makes, its map area,
-  a number and its most per minute, e.g. "Grass Fields Modular Frame In 1 (288)". Each shows what it would do first;
+  a number and its most per minute, e.g. "Grass Fields Modular Frame Out 1 (288)". Each shows what it would do first;
   click again to do it. The rate is the factory's theoretical most, limited by its
-  weakest link apart from the trains: the belts out of its unloading platforms, or its machines. `/st setup all`
+  weakest link apart from the trains: the belts out of its unloading platforms, or its machines. A station that
+  unloads one item shows how much of it the factory uses; one that unloads several items shows no rate. `/st setup all`
   does every station, and the migration window can rename stations the same way. The name format and words are
   yours to choose (`/st setup format`, `/st setup words`).
 - **Trains:** in the locomotive menu, switch **Managed by SmartTrains** on. SmartTrains writes its timetable; the

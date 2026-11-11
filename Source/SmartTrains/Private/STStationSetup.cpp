@@ -1277,7 +1277,8 @@ void STSetup::NameStation(const ASTSubsystem& Subsystem, STMigration::FStationPr
 	FString AreaSource;
 	const FString Area = GetMapArea(Building->GetWorld(), Building->GetActorLocation(), AreaSource);
 	const FString Product = STNames::Item(bOneInput ? Factory.InputItem : Factory.Product);
-	const double NameRate = bOneInput ? Factory.InputRate : Factory.Rate;
+	// A station that only unloads shows a rate only for its one item: the factory's output rate isn't what it takes in.
+	const double NameRate = bOneInput ? Factory.InputRate : (bDemand && !bSupply ? 0.0 : Factory.Rate);
 	const FString Old = StationNameOf(Station);
 	const int32 Number = PickNumber(Naming.Format, Area, Product, Role, Old, Taken);
 	Proposal.NewName = FormatName(Naming.Format, Area, Product, Role, Number, FormatRate(NameRate));
