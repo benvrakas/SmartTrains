@@ -17,6 +17,9 @@
   stayed on board and the train's next trip, for another factory, loaded beside it, so trains carried cargo for
   several factories at once. Now such a train first goes to a consumer of its cargo and only then takes other work,
   unless no consumer needs that cargo now.
+- **`/st emptycars` ends the trains' jobs.** An emptied train used to keep its trip (and its consumer) and was only
+  re-planned, so it kept heading for the same factory with nothing on board. Now its job ends and the next dispatch
+  round gives it a new trip, or it parks.
 
 ## 0.15.3 (beta)
 

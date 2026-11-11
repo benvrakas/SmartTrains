@@ -70,7 +70,8 @@ Setting a role switches the platform to load (supply) or unload (demand).
 - `/st train keepvanilla on|off`: never managed or proposed by the migration tool.
 - `/st job <item> from <station> to <station>`: a test job for a managed train, using the cars that fit.
 - `/st emptycars`: deletes all cargo in the freight cars of the train you drive or look at (admin only, no undo).
-  `/st emptycars all confirm` does it for every managed train. A managed train's trip is planned again. Logged as
+  `/st emptycars all confirm` does it for every managed train. A managed train's job ends, so the next dispatch round
+  gives it a new trip (or it parks). Logged as
   `EMPTY <train> by <player>: removed ...`.
 
 ## Item groups (readout)

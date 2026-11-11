@@ -629,10 +629,16 @@ int32 ASTSubsystem::EmptyTrainCars(AFGTrain* Train, const FString& Cause)
 		}
 	}
 	UE_LOG(LogSmartTrains, Log, TEXT("EMPTY %s by %s: removed %s"), *STLayout::Name(Train), *Cause, Items.Num() > 0 ? *FString::Join(Items, TEXT(", ")) : TEXT("nothing"));
+	// Its job ends: with empty cars the train is free for a new trip, which the next dispatch round gives it (or it
+	// parks). Its reservations go with the job.
 	if (FSTTrainState* State = mTrains.FindByPredicate([Train](const FSTTrainState& Each) { return Each.Train == Train; }); State && State->bManaged && State->bHasJob && !State->Job.bPark)
 	{
-		State->bReplan = true;
-		State->bReplanFresh = true;
+		UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s ended: cars emptied (%s); it gets a new trip"), State->Job.Id, *STLayout::Name(Train), *State->Job.Summary);
+		State->bHasJob = false;
+		State->Phase = ESTTrainPhase::Idle;
+		State->bReplan = false;
+		State->bReplanFresh = false;
+		State->UnwantedCargoSince = 0.0;
 		bDispatchSoon = true;
 	}
 	return static_cast<int32>(FMath::Min<int64>(Removed, MAX_int32));
