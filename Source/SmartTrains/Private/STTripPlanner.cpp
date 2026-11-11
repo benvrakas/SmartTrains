@@ -627,8 +627,9 @@ void FSTTripPlanner::BuildMoves()
 				{
 					continue;
 				}
-				// A sink only takes what this car can't unload at any consumer of the item.
-				if (Consumer.bAnyItem && CarHasConsumer(CarIndex, Carried.Key))
+				// A sink only takes what this car can't unload at any consumer of the item, unless the train is clearing
+				// cars to change group.
+				if (Consumer.bAnyItem && !bSinksForCargo && CarHasConsumer(CarIndex, Carried.Key))
 				{
 					continue;
 				}
@@ -789,6 +790,7 @@ bool FSTTripPlanner::PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifi
 	mMoves.Reset();
 	mCarPlatforms.Reset();
 	mProblems.Reset();
+	mCarAllowed.Reset();
 	bPushPull = ASTSubsystem::IsPushPull(mSubsystem.mTrains[TrainIndex].Train);
 	const FSTTrainState& State = mSubsystem.mTrains[TrainIndex];
 	const AFGTrain* Train = State.Train;
@@ -875,6 +877,86 @@ bool FSTTripPlanner::ResumeTrain(int32 TrainIndex, const AFGTrainStationIdentifi
 	mMoves = Setup->Moves;
 	mCarPlatforms = Setup->CarPlatforms;
 	mProblems = Setup->Problems;
+	return true;
+}
+
+UClass* FSTTripPlanner::GetCarCargo(int32 Index) const
+{
+	UClass* Best = nullptr;
+	double Most = 0.0;
+	for (const TPair<UClass*, double>& Each : mCars.IsValidIndex(Index) ? mCars[Index].Cargo : TArray<TPair<UClass*, double>>())
+	{
+		if (Each.Value >= 1.0 && Each.Value > Most)
+		{
+			Most = Each.Value;
+			Best = Each.Key;
+		}
+	}
+	return Best;
+}
+
+bool FSTTripPlanner::MakeCarItems(const AFGTrainStationIdentifier* Consumer, const TArray<UClass*>& Pattern, bool bIgnorePattern, TArray<TArray<UClass*>>& OutAllowed,
+	int32& OutMismatched) const
+{
+	OutAllowed.Reset();
+	OutMismatched = 0;
+	const TArray<TArray<int32>>& Maps = GetCarPlatforms(Consumer);
+	for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
+	{
+		// The demand items beside the car, the same whichever way the train docks; bConflict if the ways differ.
+		TArray<UClass*> Demand;
+		bool bConflict = false;
+		for (int32 MapIndex = 0; MapIndex < Maps.Num(); ++MapIndex)
+		{
+			const int32 Here = Maps[MapIndex].IsValidIndex(CarIndex) ? Maps[MapIndex][CarIndex] : INDEX_NONE;
+			TArray<UClass*> Items;
+			if (Here != INDEX_NONE && mPlatforms[Here].bDemand && !mPlatforms[Here].bLoadMode && !mPlatforms[Here].bAnyItem)
+			{
+				Items = mPlatforms[Here].Items;
+			}
+			if (MapIndex == 0)
+			{
+				Demand = Items;
+			}
+			else if (Items.Num() != Demand.Num() || Items.ContainsByPredicate([&](UClass* Item) { return !Demand.Contains(Item); }))
+			{
+				bConflict = true;
+			}
+		}
+		if (bConflict)
+		{
+			Demand.Reset();
+		}
+		int32 Held = 0;
+		for (const TPair<UClass*, double>& Each : mCars[CarIndex].Cargo)
+		{
+			Held += Each.Value >= 1.0 ? 1 : 0;
+		}
+		UClass* Cargo = GetCarCargo(CarIndex);
+		UClass* Fixed = bIgnorePattern || !Pattern.IsValidIndex(CarIndex) ? nullptr : Pattern[CarIndex];
+		TArray<UClass*>& Allowed = OutAllowed.AddDefaulted_GetRef();
+		if (Cargo)
+		{
+			// Cargo that lines up stays on board; any other has to be unloaded first.
+			if (Held > 1 || (Demand.Num() > 0 && !Demand.Contains(Cargo)) || (Fixed && Fixed != Cargo))
+			{
+				++OutMismatched;
+			}
+			Allowed.Add(Cargo);
+		}
+		else if (Fixed)
+		{
+			if (Demand.Num() > 0 && !Demand.Contains(Fixed))
+			{
+				return false;
+			}
+			Allowed.Add(Fixed);
+		}
+		else
+		{
+			Allowed = Demand;
+		}
+	}
 	return true;
 }
 
@@ -1148,7 +1230,8 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 							const bool bOffers = Platform.bConfigured ? Platform.Items.Contains(Item) : Platform.Stock.Contains(Item);
 							if (bOffers && STNames::IsFluid(Item) == Platform.bFluid && GetCarRoom(mCars[CarIndex], Cargo[CarIndex], Item) > 0.0)
 							{
-								if (HoldsOtherItem(Cargo[CarIndex], Item))
+								// The platform would fill this car with an item outside its pattern: it must skip the stop.
+								if (HoldsOtherItem(Cargo[CarIndex], Item) || (mCarAllowed.Num() > 0 && !(mCarAllowed.IsValidIndex(CarIndex) && mCarAllowed[CarIndex].Contains(Item))))
 								{
 									bWouldMix = true;
 									continue;

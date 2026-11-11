@@ -866,6 +866,21 @@ void ASTSubsystem::NoteNoTrip(const FSTTrainState& State, const FString& Reason)
 	}
 }
 
+FString ASTSubsystem::SummarizeLegs(const TArray<FSTJobLeg>& Legs)
+{
+	TArray<FString> Items;
+	TArray<FString> Stations;
+	for (const FSTJobLeg& Leg : Legs)
+	{
+		for (const FSTCarWork& Work : Leg.Work)
+		{
+			Items.AddUnique(STNames::Item(Work.Item));
+		}
+		Stations.Add(STLayout::Name(Leg.Station.Get()));
+	}
+	return FString::Printf(TEXT("%s: %s"), *FString::Join(Items, TEXT(", ")), *FString::Join(Stations, TEXT(" -> ")));
+}
+
 void ASTSubsystem::CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result, bool bReserve, UClass* GroupItem,
 	AFGTrainStationIdentifier* Anchor)
 {
@@ -876,22 +891,9 @@ void ASTSubsystem::CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, con
 	Job.StartedAt = Time;
 	Job.LegStartedAt = Time;
 	Planner.MakeLegs(Stops, Result, Job.Legs);
-	TArray<FString> Items;
-	for (const FSTJobLeg& Leg : Job.Legs)
-	{
-		for (const FSTCarWork& Work : Leg.Work)
-		{
-			Items.AddUnique(STNames::Item(Work.Item));
-		}
-	}
-	TArray<FString> Stations;
-	for (const FSTPlanStop& Stop : Stops)
-	{
-		Stations.Add(STLayout::Name(Stop.Station));
-	}
 	Job.GroupItem = GroupItem;
 	Job.AnchorStation = Anchor;
-	Job.Summary = FString::Printf(TEXT("%s: %s"), *FString::Join(Items, TEXT(", ")), *FString::Join(Stations, TEXT(" -> ")));
+	Job.Summary = SummarizeLegs(Job.Legs);
 	const FString Line = FString::Printf(TEXT("%s: %s [%s], %d moved, value %.2f, score %.4f"), *STLayout::Name(State.Train), *Job.Summary,
 		*Planner.Describe(Stops, Result), Result.Moved, Result.Value, Result.Score);
 	if (bReserve)
@@ -1042,9 +1044,24 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 {
 	const int32 TrainIndex = static_cast<int32>(&State - mTrains.GetData());
 	AFGTrainStationIdentifier* From = State.LastStation.Get();
+	// A trip without a consumer clears cars for a change of group: it may unload into sinks and loads nothing.
+	AFGTrainStationIdentifier* Anchor = State.Job.AnchorStation.Get();
+	Planner.SetSinksForCargo(!Anchor);
 	if (!From || !Planner.BeginTrain(TrainIndex, From, Now(), true))
 	{
+		Planner.SetSinksForCargo(false);
 		return;
+	}
+	Planner.SetSinksForCargo(false);
+	TArray<TArray<UClass*>> Allowed;
+	int32 Mismatched = 0;
+	if (Anchor && Planner.MakeCarItems(Anchor, State.GetPattern(), false, Allowed, Mismatched))
+	{
+		Planner.SetCarItems(MoveTemp(Allowed));
+	}
+	else
+	{
+		Planner.SetNoLoads();
 	}
 	Planner.Release(State.Job.Legs, State.Job.Leg);
 	TArray<FSTPlanStop> Stops;
@@ -1106,6 +1123,8 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	Planner.Reserve(Stops, Result);
 	State.Job.Legs.SetNum(State.Job.Leg);
 	State.Job.Legs.Append(Rest);
+	// The name shows what the trip moves now.
+	State.Job.Summary = SummarizeLegs(State.Job.Legs);
 	if (After == Before)
 	{
 		UE_LOG(LogSmartTrains, Verbose, TEXT("REPLAN %s job %d: unchanged [%s]"), *STLayout::Name(State.Train), State.Job.Id, *After);

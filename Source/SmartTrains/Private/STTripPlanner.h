@@ -100,6 +100,24 @@ public:
 	void SetOnlyStation(const AFGTrainStationIdentifier* Station) { mOnlyStation = Station; }
 	// The stations the current train's moves deliver to, each once.
 	TArray<const AFGTrainStationIdentifier*> GetConsumerStations() const;
+
+	// Car patterns (Docs/Architecture.md, "0.18.0: car patterns"). Per car of the current train, front to back: the
+	// items a trip to Consumer may load into it. Pattern holds the train's item per car (null: none yet); bIgnorePattern
+	// leaves it out (a train changing group). A car whose item is fixed (by cargo on board or the pattern) may only take
+	// that item; an open car may take the demand items of the platform beside it at Consumer; a car beside no demand
+	// platform there takes nothing. Returns false if Consumer's demand platforms don't line up with the pattern.
+	// OutMismatched: cars holding cargo Consumer's platform beside them doesn't take, or more than one item.
+	bool MakeCarItems(const AFGTrainStationIdentifier* Consumer, const TArray<UClass*>& Pattern, bool bIgnorePattern, TArray<TArray<UClass*>>& OutAllowed,
+		int32& OutMismatched) const;
+	// While set (one entry per car), simulated trips only load a car with the items its entry holds; empty: no limit.
+	void SetCarItems(TArray<TArray<UClass*>> InAllowed) { mCarAllowed = MoveTemp(InAllowed); }
+	// Simulated trips load nothing (a trip that only unloads cargo on board).
+	void SetNoLoads() { mCarAllowed.Init(TArray<UClass*>(), mCars.Num()); }
+	// Set before BeginTrain: cargo on board may also go to sinks (any-item platforms) when a consumer of it exists.
+	void SetSinksForCargo(bool bInSinks) { bSinksForCargo = bInSinks; }
+	int32 GetCarCount() const { return mCars.Num(); }
+	// The item car Index holds most of (at least one), or null.
+	UClass* GetCarCargo(int32 Index) const;
 	// The current train's cars and start only (no moves): enough to simulate given stops.
 	bool PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bInAnchorDocked);
 	// The current train's planning inputs (cars, platforms, dock maps, start), for /st snapshot.
@@ -229,6 +247,9 @@ private:
 	mutable TMap<FString, int32> mProblems;
 	bool bFcc = false;
 	const AFGTrainStationIdentifier* mOnlyStation = nullptr;
+	// Per car, the items it may load (SetCarItems); empty: no limit.
+	TArray<TArray<UClass*>> mCarAllowed;
+	bool bSinksForCargo = false;
 	// Automation tests: every station counts as on the train's track network (they have no world).
 	bool bServeAll = false;
 	int32 mMaxStops = 4;

@@ -412,6 +412,8 @@ private:
 
 	// Items carried by Train's freight cars, by item class.
 	static TMap<UClass*, int32> GetCargo(const AFGTrain* Train);
+	// "Items: station -> station" for a job's name.
+	static FString SummarizeLegs(const TArray<FSTJobLeg>& Legs);
 
 	double Now() const;
 
@@ -464,6 +466,8 @@ public:
 	TArray<FString> DescribeGroups() const;
 	// What a managed train does: the consumer of its trip, or why it waits (empty when not managed).
 	FString DescribeWork(const FSTTrainState& State) const;
+	// /st patterns: managed trains grouped by car pattern, and every consumer station's platforms in order.
+	TArray<FString> DescribePatterns() const;
 	// Groups of Platform's items, or why it has none; groups at Station, its room to wait and its switch.
 	TArray<FString> DescribePlatformGroups(const AFGBuildableTrainPlatformCargo* Platform) const;
 	TArray<FString> DescribeStationGroups(const AFGTrainStationIdentifier* Station) const;

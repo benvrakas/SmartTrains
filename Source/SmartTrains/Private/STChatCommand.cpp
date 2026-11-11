@@ -210,6 +210,7 @@ namespace
 		TEXT("/st train [manage|unmanage] [keepvanilla on|off] [hold|resume|canceljob]"),
 		TEXT("/st snapshot   (the next dispatch round's planning inputs to a file in the server's Saved/SmartTrains/Snapshots, for replay tests; admin only)"),
 		TEXT("/st group [item]   (per item: the flow plan's routes, trains needed and working on it)"),
+		TEXT("/st patterns   (train groups by the item in each car, and consumer stations' platforms)"),
 		TEXT("/st job <item> from <station> to <station>   (a test job for the train you drive or look at)"),
 		TEXT("/st migrate   (opens the migration window)"),
 		TEXT("/st migrate preview | apply all [rename | namesonly] [confirm] | apply stations 1,2 trains 3 | undo"),
@@ -570,6 +571,12 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			}
 		}
 		Send(Sender, Subsystem->DescribeTrain(Train));
+		return EExecutionStatus::COMPLETED;
+	}
+
+	if (Verb == TEXT("patterns"))
+	{
+		Send(Sender, Subsystem->DescribePatterns());
 		return EExecutionStatus::COMPLETED;
 	}
 

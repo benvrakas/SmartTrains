@@ -1236,6 +1236,89 @@ bool FSTGatherMixedFactoryTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// Car patterns: a consumer whose platforms don't line up with the train's pattern is another group; a car beside a
+// platform that would give it an item outside its pattern skips the stop; cargo that doesn't line up is reported.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTCarPatternTest, "SmartTrains.Gather.CarPattern", TestFlags)
+bool FSTCarPatternTest::RunTest(const FString& Parameters)
+{
+	UClass* Iron = USTTestSolid::StaticClass();
+	UClass* Coal = USTTestSolidB::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* IronMine = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Factory = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Swapped = FSTTestAccess::MakeStation();
+	const TArray<AFGTrainStationIdentifier*> All = {Start, IronMine, Factory, Swapped};
+	for (AFGTrainStationIdentifier* From : All)
+	{
+		for (AFGTrainStationIdentifier* To : All)
+		{
+			FSTTestAccess::SetTrip(*Subsystem, From, To, 100.f);
+		}
+	}
+	TArray<FSTNode> Nodes = {
+		FSTTestAccess::Node(IronMine, Iron, ESTRole::Supply, 4800, 4800, 1),
+		FSTTestAccess::Node(Factory, Iron, ESTRole::Demand, 0, 4800, 1), FSTTestAccess::Node(Factory, Coal, ESTRole::Demand, 0, 4800, 1),
+		FSTTestAccess::Node(Swapped, Iron, ESTRole::Demand, 0, 4800, 1), FSTTestAccess::Node(Swapped, Coal, ESTRole::Demand, 0, 4800, 1)};
+	for (FSTNode& Node : Nodes)
+	{
+		Node.Rate = 1.0;
+	}
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+	FSTTestAccess::ServeAll(Planner);
+	TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Iron, true, 4800.0, 48), FSTTestAccess::Platform(Iron, true, 4800.0, 48),
+		FSTTestAccess::Platform(Iron, false, 0.0, 0), FSTTestAccess::Platform(Coal, false, 0.0, 0),
+		FSTTestAccess::Platform(Coal, false, 0.0, 0), FSTTestAccess::Platform(Iron, false, 0.0, 0)};
+	for (FSTTestAccess::FPlatformInfo& Platform : Platforms)
+	{
+		Platform.Slots = 48;
+	}
+	FSTTestAccess::FCarInfo Empty = FSTTestAccess::Car();
+	Empty.Slots = 32;
+	FSTTestAccess::FCarInfo HoldsCoal = FSTTestAccess::Car(Coal, 100.0);
+	HoldsCoal.Slots = 32;
+	// Both cars stop beside an iron platform at the mine; the factory takes iron then coal, the other station coal then iron.
+	FSTTestAccess::FCarPlatforms CarPlatforms;
+	CarPlatforms.Add(IronMine, {{0, 1}});
+	CarPlatforms.Add(Factory, {{2, 3}});
+	CarPlatforms.Add(Swapped, {{4, 5}});
+	FSTTestAccess::SetTrain(Planner, Start, true, false, {Empty, Empty}, Platforms, CarPlatforms);
+	FSTTestAccess::BuildMoves(Planner);
+	const TArray<UClass*> Pattern = {Iron, Coal};
+	TArray<TArray<UClass*>> Allowed;
+	int32 Mismatched = 0;
+	TestTrue(TEXT("the factory lines up with iron | coal"), Planner.MakeCarItems(Factory, Pattern, false, Allowed, Mismatched) && Mismatched == 0);
+	TestTrue(TEXT("car 1 may only take iron"), Allowed.Num() == 2 && Allowed[0] == TArray<UClass*>{Iron});
+	TestFalse(TEXT("the station taking coal then iron is another group"), Planner.MakeCarItems(Swapped, Pattern, false, Allowed, Mismatched));
+	TestTrue(TEXT("a train with an open pattern may serve it"), Planner.MakeCarItems(Swapped, {nullptr, nullptr}, false, Allowed, Mismatched)
+		&& Allowed.Num() == 2 && Allowed[0] == TArray<UClass*>{Coal});
+	TestTrue(TEXT("so may one changing group"), Planner.MakeCarItems(Swapped, Pattern, true, Allowed, Mismatched) && Mismatched == 0);
+
+	Planner.MakeCarItems(Factory, Pattern, false, Allowed, Mismatched);
+	Planner.SetCarItems(Allowed);
+	FSTPlanStop Pickup;
+	Pickup.Station = IronMine;
+	Pickup.LoadItems = {Iron};
+	FSTPlanStop Drop;
+	Drop.Station = Factory;
+	Drop.UnloadItems = {Iron};
+	const FSTPlanResult Result = Planner.Simulate({Pickup, Drop});
+	if (TestTrue(FString::Printf(TEXT("the iron trip works (%s)"), *Result.Problem), Result.bValid && Result.Steps.Num() == 2 && Result.Steps[0].Num() == 2))
+	{
+		TestTrue(TEXT("car 1 loads iron"), Result.Steps[0][0].Loaded.Num() > 0);
+		TestTrue(TEXT("car 2 (coal) skips the iron mine"), Result.Steps[0][1].bSkip && Result.Steps[0][1].Loaded.Num() == 0);
+	}
+	Planner.SetCarItems({});
+
+	FSTTestAccess::SetTrain(Planner, Start, true, false, {HoldsCoal, Empty}, Platforms, CarPlatforms);
+	FSTTestAccess::BuildMoves(Planner);
+	TestTrue(TEXT("coal in car 1 at the factory is checked"), Planner.MakeCarItems(Factory, {nullptr, nullptr}, false, Allowed, Mismatched));
+	TestEqual(TEXT("coal in car 1 doesn't line up with the factory's iron platform"), Mismatched, 1);
+	TestTrue(TEXT("but lines up at the other station"), Planner.MakeCarItems(Swapped, {nullptr, nullptr}, false, Allowed, Mismatched) && Mismatched == 0);
+	return true;
+}
+
 // Platforms of two stations feeding the same machines share their items out in proportion to car loads per minute:
 // a fast item gets most of them, a slow one still gets one; a platform set up before counts and is left alone.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTShareOutByRateTest, "SmartTrains.Setup.ShareOutByRate", TestFlags)

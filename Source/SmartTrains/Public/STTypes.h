@@ -292,6 +292,29 @@ struct SMARTTRAINS_API FSTTrainState
 {
 	GENERATED_BODY()
 
+	// CarPattern as plain classes.
+	TArray<UClass*> GetPattern() const
+	{
+		TArray<UClass*> Out;
+		for (const TSubclassOf<UFGItemDescriptor>& Item : CarPattern)
+		{
+			Out.Add(Item.Get());
+		}
+		return Out;
+	}
+	// "Iron Plate | Wire | - | Wire", or "open" when no car has an item.
+	FString DescribePattern() const
+	{
+		TArray<FString> Parts;
+		bool bAny = false;
+		for (const TSubclassOf<UFGItemDescriptor>& Item : CarPattern)
+		{
+			Parts.Add(Item ? STNames::Item(Item) : FString(TEXT("-")));
+			bAny |= Item != nullptr;
+		}
+		return bAny ? FString::Join(Parts, TEXT(" | ")) : FString(TEXT("open"));
+	}
+
 	UPROPERTY(SaveGame)
 	TObjectPtr<AFGTrain> Train = nullptr;
 
@@ -349,6 +372,14 @@ struct SMARTTRAINS_API FSTTrainState
 	// When the train began carrying cargo no trip wanted (game seconds), 0 if it doesn't.
 	UPROPERTY(SaveGame)
 	double UnwantedCargoSince = 0.0;
+
+	// Its group: the item each freight car carries, front to back (null: none given yet). Docs/Architecture.md,
+	// "0.18.0: car patterns".
+	UPROPERTY(SaveGame)
+	TArray<TSubclassOf<UFGItemDescriptor>> CarPattern;
+
+	// Runtime only: since when the train has found no trip in its pattern (0: it has one), for changing group.
+	double PatternIdleSince = 0.0;
 
 	// Runtime only: moves that moved nothing at their station lately.
 	TArray<FSTNoProgress> NoProgress;

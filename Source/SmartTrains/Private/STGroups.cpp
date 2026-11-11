@@ -180,12 +180,72 @@ FString ASTSubsystem::DescribeWork(const FSTTrainState& State) const
 	{
 		return FString();
 	}
+	const FString Cars = FString::Printf(TEXT(" Cars: %s."), *State.DescribePattern());
 	if (State.bHasJob && !State.Job.bPark)
 	{
-		return State.Job.AnchorStation ? FString::Printf(TEXT("Trip for %s."), *STLayout::Name(State.Job.AnchorStation.Get())) : FString(TEXT("Working."));
+		return (State.Job.AnchorStation ? FString::Printf(TEXT("Trip for %s."), *STLayout::Name(State.Job.AnchorStation.Get()))
+			: FString(TEXT("Unloading cars to change group."))) + Cars;
 	}
 	const FString* Why = mIdleReasons.Find(State.Train.Get());
-	return Why ? TEXT("Waiting: ") + *Why + TEXT(".") : FString(TEXT("Waiting for a trip."));
+	return (Why ? TEXT("Waiting: ") + *Why + TEXT(".") : FString(TEXT("Waiting for a trip."))) + Cars;
+}
+
+TArray<FString> ASTSubsystem::DescribePatterns() const
+{
+	TArray<FString> Lines;
+	TMap<FString, TArray<FString>> Groups;
+	for (const FSTTrainState& State : mTrains)
+	{
+		if (State.bManaged && IsValid(State.Train))
+		{
+			Groups.FindOrAdd(State.DescribePattern()).Add(STLayout::Name(State.Train));
+		}
+	}
+	Groups.KeySort([](const FString& A, const FString& B) { return A < B; });
+	Lines.Add(TEXT("Train groups (item per freight car, front to back):"));
+	for (const TPair<FString, TArray<FString>>& Group : Groups)
+	{
+		Lines.Add(FString::Printf(TEXT("  %s: %d train%s (%s)"), *Group.Key, Group.Value.Num(), Group.Value.Num() == 1 ? TEXT("") : TEXT("s"),
+			*FString::Join(Group.Value, TEXT(", "))));
+	}
+	// Consumer stations: their platforms from the station building outward.
+	TMap<FString, TArray<FString>> Stations;
+	for (const FSTPlatformConfig& Config : mPlatforms)
+	{
+		if (!IsValid(Config.Platform) || !STNames::Unloads(Config.Role))
+		{
+			continue;
+		}
+		const AFGBuildableRailroadStation* Building = STLayout::FindStation(Config.Platform);
+		const AFGTrainStationIdentifier* Identifier = STLayout::GetIdentifier(const_cast<AFGBuildableRailroadStation*>(Building));
+		if (!Identifier || Stations.Contains(STLayout::Name(Identifier)))
+		{
+			continue;
+		}
+		TArray<FString> Slots;
+		for (AFGBuildableTrainPlatform* Platform : STLayout::GetPlatforms(Building))
+		{
+			const AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Platform);
+			const FSTPlatformConfig* Each = Cargo ? FindPlatformConfig(Cargo) : nullptr;
+			TArray<FString> Items;
+			if (Each && STNames::Unloads(Each->Role))
+			{
+				for (const FSTItemRule& Rule : Each->Items)
+				{
+					Items.Add(Rule.Item ? STNames::Item(Rule.Item) : FString(TEXT("any (sink)")));
+				}
+			}
+			Slots.Add(Items.Num() > 0 ? FString::Join(Items, TEXT("/")) : FString(TEXT("-")));
+		}
+		Stations.Add(STLayout::Name(Identifier), Slots);
+	}
+	Stations.KeySort([](const FString& A, const FString& B) { return A < B; });
+	Lines.Add(TEXT("Consumer stations (what each platform takes, from the station building outward):"));
+	for (const TPair<FString, TArray<FString>>& Station : Stations)
+	{
+		Lines.Add(FString::Printf(TEXT("  %s: %s"), *Station.Key, *FString::Join(Station.Value, TEXT(" | "))));
+	}
+	return Lines;
 }
 
 TArray<FString> ASTSubsystem::DescribePlatformGroups(const AFGBuildableTrainPlatformCargo* Platform) const
