@@ -101,13 +101,13 @@ public:
 	// The stations the current train's moves deliver to, each once.
 	TArray<const AFGTrainStationIdentifier*> GetConsumerStations() const;
 
-	// Car patterns (Docs/Architecture.md, "0.18.0: car patterns"). Per car of the current train, front to back: the
-	// items a trip to Consumer may load into it. Pattern holds the train's item per car (null: none yet); bIgnorePattern
-	// leaves it out (a train changing group). A car whose item is fixed (by cargo on board or the pattern) may only take
-	// that item; an open car may take the demand items of the platform beside it at Consumer; a car beside no demand
-	// platform there takes nothing. Returns false if Consumer's demand platforms don't line up with the pattern.
-	// OutMismatched: cars holding cargo Consumer's platform beside them doesn't take, or more than one item.
-	bool MakeCarItems(const AFGTrainStationIdentifier* Consumer, const TArray<UClass*>& Pattern, bool bIgnorePattern, TArray<TArray<UClass*>>& OutAllowed,
+	// Car patterns (Docs/Architecture.md, "Car patterns"). Per car of the current train, front to back: the items a trip
+	// to Consumer may load into it. Pattern holds the train's items per car (empty: none yet); bIgnorePattern leaves it
+	// out (a train changing group). A car with items in its pattern may only take those; an open car may take the demand
+	// items of the platform beside it at Consumer, or (beside none) the items it holds. Returns false if a demand
+	// platform's items at Consumer differ from the pattern items of the car beside it. OutMismatched: cars holding an
+	// item outside their pattern items or outside what the demand platform beside them takes.
+	bool MakeCarItems(const AFGTrainStationIdentifier* Consumer, const TArray<TArray<UClass*>>& Pattern, bool bIgnorePattern, TArray<TArray<UClass*>>& OutAllowed,
 		int32& OutMismatched) const;
 	// While set (one entry per car), simulated trips only load a car with the items its entry holds; empty: no limit.
 	void SetCarItems(TArray<TArray<UClass*>> InAllowed) { mCarAllowed = MoveTemp(InAllowed); }
@@ -116,8 +116,8 @@ public:
 	// Set before BeginTrain: cargo on board may also go to sinks (any-item platforms) when a consumer of it exists.
 	void SetSinksForCargo(bool bInSinks) { bSinksForCargo = bInSinks; }
 	int32 GetCarCount() const { return mCars.Num(); }
-	// The item car Index holds most of (at least one), or null.
-	UClass* GetCarCargo(int32 Index) const;
+	// The items car Index holds (at least one of each).
+	TArray<UClass*> GetCarCargo(int32 Index) const;
 	// The current train's cars and start only (no moves): enough to simulate given stops.
 	bool PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bInAnchorDocked);
 	// The current train's planning inputs (cars, platforms, dock maps, start), for /st snapshot.

@@ -49,36 +49,25 @@ namespace
 		return Best;
 	}
 
-	// The pattern after a trip: per car the item it loads, else the cargo it holds, else (bKeep) its item before.
-	TArray<TSubclassOf<UFGItemDescriptor>> PatternAfter(const FSTTrainState& State, const FSTTripPlanner& Planner, const FSTPlanResult& Result, bool bKeep)
+	// The pattern after a trip to a consumer: per car the items the trip allowed it there (its pattern items, the
+	// demand platform's beside it, or what it holds), else (bKeep) its items before.
+	TArray<FSTCarItems> PatternAfter(const FSTTrainState& State, const TArray<TArray<UClass*>>& Allowed, int32 Cars, bool bKeep)
 	{
-		TArray<TSubclassOf<UFGItemDescriptor>> Next;
-		for (int32 CarIndex = 0; CarIndex < Planner.GetCarCount(); ++CarIndex)
+		TArray<FSTCarItems> Next;
+		for (int32 CarIndex = 0; CarIndex < Cars; ++CarIndex)
 		{
-			UClass* Item = nullptr;
-			for (const TArray<FSTPlanCarStep>& Stop : Result.Steps)
+			FSTCarItems& Car = Next.AddDefaulted_GetRef();
+			if (Allowed.IsValidIndex(CarIndex) && Allowed[CarIndex].Num() > 0)
 			{
-				if (!Item && Stop.IsValidIndex(CarIndex))
+				for (UClass* Item : Allowed[CarIndex])
 				{
-					for (const TPair<UClass*, int32>& Each : Stop[CarIndex].Loaded)
-					{
-						if (Each.Value > 0)
-						{
-							Item = Each.Key;
-							break;
-						}
-					}
+					Car.Items.Add(Item);
 				}
 			}
-			if (!Item)
+			else if (bKeep && State.CarSets.IsValidIndex(CarIndex))
 			{
-				Item = Planner.GetCarCargo(CarIndex);
+				Car = State.CarSets[CarIndex];
 			}
-			if (!Item && bKeep && State.CarPattern.IsValidIndex(CarIndex))
-			{
-				Item = State.CarPattern[CarIndex].Get();
-			}
-			Next.Add(Item);
 		}
 		return Next;
 	}
@@ -145,7 +134,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		++Turns;
 		FSTTrainState& State = mTrains[Each.TrainIndex];
 		mPlanTurns.Add(State.Train.Get(), Time);
-		const bool bOpen = !State.CarPattern.ContainsByPredicate([](const TSubclassOf<UFGItemDescriptor>& Item) { return Item != nullptr; });
+		const bool bOpen = State.IsPatternOpen();
 		// A train may change group when it has none yet or found nothing in its own for a while.
 		const bool bMayChange = bOpen || (State.PatternIdleSince > 0.0 && Time - State.PatternIdleSince >= PatternIdleSeconds);
 		Planner.SetSinksForCargo(bMayChange);
@@ -155,21 +144,22 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		{
 			continue;
 		}
-		if (State.CarPattern.Num() != Planner.GetCarCount())
+		if (State.CarSets.Num() != Planner.GetCarCount())
 		{
-			if (State.CarPattern.Num() > 0)
+			if (State.CarSets.Num() > 0)
 			{
-				UE_LOG(LogSmartTrains, Log, TEXT("PATTERN %s: its cars changed (%d -> %d); pattern starts open"), *STLayout::Name(State.Train), State.CarPattern.Num(),
+				UE_LOG(LogSmartTrains, Log, TEXT("PATTERN %s: its cars changed (%d -> %d); pattern starts open"), *STLayout::Name(State.Train), State.CarSets.Num(),
 					Planner.GetCarCount());
 			}
-			State.CarPattern.Init(nullptr, Planner.GetCarCount());
+			State.CarSets.Init(FSTCarItems(), Planner.GetCarCount());
 		}
-		const TArray<UClass*> Pattern = State.GetPattern();
+		const TArray<TArray<UClass*>> Pattern = State.GetPattern();
 		// One trip per consumer station whose platforms line up with the cars: pickups for the cars that line up there,
 		// added while the trip's value per second rises. The best one is run.
 		TArray<FSTPlanStop> BestStops;
 		FSTPlanResult BestResult;
 		AFGTrainStationIdentifier* BestConsumer = nullptr;
+		TArray<TArray<UClass*>> BestAllowed;
 		int32 Tried = 0;
 		int32 OtherPattern = 0;
 		int32 Blocked = 0;
@@ -195,6 +185,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				}
 				++Tried;
 				TArray<FSTPlanStop> Stops;
+				const TArray<TArray<UClass*>> ThisAllowed = Allowed;
 				Planner.SetCarItems(MoveTemp(Allowed));
 				Planner.SetOnlyStation(Consumer);
 				FSTPlanResult Result = Planner.Improve(Stops, 0);
@@ -209,6 +200,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 					BestStops = MoveTemp(Stops);
 					BestResult = MoveTemp(Result);
 					BestConsumer = const_cast<AFGTrainStationIdentifier*>(Consumer);
+					BestAllowed = ThisAllowed;
 				}
 			}
 		};
@@ -231,13 +223,13 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			UE_LOG(LogSmartTrains, Verbose, TEXT("GATHER %s: %d consumer stations tried (%d of other patterns, %d blocked by cargo), best %s (%d stops, %d with pickups), score %.4f"),
 				*STLayout::Name(State.Train), Tried, OtherPattern, Blocked, *STLayout::Name(BestConsumer), BestStops.Num(), Pickups, BestResult.Score);
 			const FString Before = State.DescribePattern();
-			State.CarPattern = PatternAfter(State, Planner, BestResult, !bChanging);
+			State.CarSets = PatternAfter(State, BestAllowed, Planner.GetCarCount(), !bChanging);
 			State.PatternIdleSince = 0.0;
 			const FString After = State.DescribePattern();
 			if (After != Before)
 			{
 				UE_LOG(LogSmartTrains, Log, TEXT("PATTERN %s: %s -> %s (%s)"), *STLayout::Name(State.Train), *Before, *After,
-					bChanging ? TEXT("changes group: nothing to do in its own for a while") : TEXT("a trip gives open cars their item"));
+					bChanging ? TEXT("changes group: nothing to do in its own for a while") : TEXT("a trip gives open cars their items"));
 			}
 			CommitTrip(State, Planner, BestStops, BestResult, true, MostUnloaded(BestResult), BestConsumer);
 			continue;
@@ -261,7 +253,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				++Planned;
 				UE_LOG(LogSmartTrains, Log, TEXT("PATTERN %s: %s -> open; unloads its cars first (%d consumers it could serve need other items in them)"),
 					*STLayout::Name(State.Train), *State.DescribePattern(), Blocked);
-				State.CarPattern.Init(nullptr, Planner.GetCarCount());
+				State.CarSets.Init(FSTCarItems(), Planner.GetCarCount());
 				State.PatternIdleSince = 0.0;
 				CommitTrip(State, Planner, Stops, Result, true, MostUnloaded(Result), nullptr);
 				continue;

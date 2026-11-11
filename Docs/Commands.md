@@ -70,7 +70,7 @@ Setting a role switches the platform to load (supply) or unload (demand).
 - `/st train hold` / `resume`: stops the managed train (autopilot off, no new trips) until resume, which carries on with
   its job. `/st train canceljob` ends its job; it gets a new trip at the next dispatch round, or parks.
 - `/st depots`: every depot signal, its siding check and the train using it.
-- `/st patterns`: managed trains grouped by car pattern (the item each freight car carries, front to back), and every
+- `/st patterns`: managed trains grouped by car pattern (the items each freight car carries, front to back), and every
   consumer station's platforms in order from the station building.
 - `/st job <item> from <station> to <station>`: a test job for a managed train, using the cars that fit.
 - `/st emptycars`: deletes all cargo in the freight cars of the train you drive or look at (admin only, no undo).

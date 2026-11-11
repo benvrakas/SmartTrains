@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.20.0 (beta)
+
+- **Car patterns work with sushi platforms.** A car's part of the pattern is now a set of items: beside a platform
+  taking iron and coal it is "iron + coal", and it carries both (loaded together, or at different stops). A station
+  lines up when the platform beside each car takes exactly that car's items; a platform taking only iron is another
+  group. Cargo lines up when everything in the car is in its set. `/st patterns` shows sets as "Iron Plate + Coal".
+- Trains start with an open pattern after updating (0.18.0's one-item patterns aren't read any more) and take their
+  sets from their first trips.
+
 ## 0.19.2 (beta)
 
 - **Fixed: placing a depot signal crashed the server** (and would have crashed every client that saw it). The settings

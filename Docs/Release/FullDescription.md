@@ -38,6 +38,8 @@ them (see below).
   line up with it, so a car only ever carries its one item. Stations with the same pattern share their trains. A
   station with fewer platforms only has to line up with the front of the train; the other cars hang past the end.
   - Cargo that lines up stays on board: a car the platform couldn't empty just takes less next time.
+  - **Sushi platforms** work too: a platform taking iron and coal makes that car's part of the pattern "iron + coal",
+    and the car carries both. Only platforms taking exactly the same items line up with it.
   - A new train starts open and takes its pattern from its first trips.
   - A train with nothing to do in its pattern for 5 minutes may change group. Cars whose cargo doesn't line up with
     the new consumer are unloaded first, at consumers of that cargo, else at a sink platform. Cars that already line

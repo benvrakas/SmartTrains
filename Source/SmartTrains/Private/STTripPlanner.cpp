@@ -880,24 +880,30 @@ bool FSTTripPlanner::ResumeTrain(int32 TrainIndex, const AFGTrainStationIdentifi
 	return true;
 }
 
-UClass* FSTTripPlanner::GetCarCargo(int32 Index) const
+TArray<UClass*> FSTTripPlanner::GetCarCargo(int32 Index) const
 {
-	UClass* Best = nullptr;
-	double Most = 0.0;
+	TArray<UClass*> Items;
 	for (const TPair<UClass*, double>& Each : mCars.IsValidIndex(Index) ? mCars[Index].Cargo : TArray<TPair<UClass*, double>>())
 	{
-		if (Each.Value >= 1.0 && Each.Value > Most)
+		if (Each.Value >= 1.0)
 		{
-			Most = Each.Value;
-			Best = Each.Key;
+			Items.AddUnique(Each.Key);
 		}
 	}
-	return Best;
+	return Items;
 }
 
-bool FSTTripPlanner::MakeCarItems(const AFGTrainStationIdentifier* Consumer, const TArray<UClass*>& Pattern, bool bIgnorePattern, TArray<TArray<UClass*>>& OutAllowed,
+bool FSTTripPlanner::MakeCarItems(const AFGTrainStationIdentifier* Consumer, const TArray<TArray<UClass*>>& Pattern, bool bIgnorePattern, TArray<TArray<UClass*>>& OutAllowed,
 	int32& OutMismatched) const
 {
+	auto SameItems = [](const TArray<UClass*>& A, const TArray<UClass*>& B)
+	{
+		return A.Num() == B.Num() && !A.ContainsByPredicate([&B](UClass* Item) { return !B.Contains(Item); });
+	};
+	auto Within = [](const TArray<UClass*>& Items, const TArray<UClass*>& Set)
+	{
+		return !Items.ContainsByPredicate([&Set](UClass* Item) { return !Set.Contains(Item); });
+	};
 	OutAllowed.Reset();
 	OutMismatched = 0;
 	const TArray<TArray<int32>>& Maps = GetCarPlatforms(Consumer);
@@ -918,7 +924,7 @@ bool FSTTripPlanner::MakeCarItems(const AFGTrainStationIdentifier* Consumer, con
 			{
 				Demand = Items;
 			}
-			else if (Items.Num() != Demand.Num() || Items.ContainsByPredicate([&](UClass* Item) { return !Demand.Contains(Item); }))
+			else if (!SameItems(Items, Demand))
 			{
 				bConflict = true;
 			}
@@ -927,34 +933,19 @@ bool FSTTripPlanner::MakeCarItems(const AFGTrainStationIdentifier* Consumer, con
 		{
 			Demand.Reset();
 		}
-		int32 Held = 0;
-		for (const TPair<UClass*, double>& Each : mCars[CarIndex].Cargo)
+		const TArray<UClass*> Cargo = GetCarCargo(CarIndex);
+		const TArray<UClass*> Fixed = bIgnorePattern || !Pattern.IsValidIndex(CarIndex) ? TArray<UClass*>() : Pattern[CarIndex];
+		// A demand platform beside a car with pattern items must take exactly those: else it's another group.
+		if (Fixed.Num() > 0 && Demand.Num() > 0 && !SameItems(Fixed, Demand))
 		{
-			Held += Each.Value >= 1.0 ? 1 : 0;
+			return false;
 		}
-		UClass* Cargo = GetCarCargo(CarIndex);
-		UClass* Fixed = bIgnorePattern || !Pattern.IsValidIndex(CarIndex) ? nullptr : Pattern[CarIndex];
 		TArray<UClass*>& Allowed = OutAllowed.AddDefaulted_GetRef();
-		if (Cargo)
+		Allowed = Fixed.Num() > 0 ? Fixed : (Demand.Num() > 0 ? Demand : Cargo);
+		// Cargo that lines up stays on board; any other has to be unloaded first.
+		if (Cargo.Num() > 0 && !Within(Cargo, Allowed))
 		{
-			// Cargo that lines up stays on board; any other has to be unloaded first.
-			if (Held > 1 || (Demand.Num() > 0 && !Demand.Contains(Cargo)) || (Fixed && Fixed != Cargo))
-			{
-				++OutMismatched;
-			}
-			Allowed.Add(Cargo);
-		}
-		else if (Fixed)
-		{
-			if (Demand.Num() > 0 && !Demand.Contains(Fixed))
-			{
-				return false;
-			}
-			Allowed.Add(Fixed);
-		}
-		else
-		{
-			Allowed = Demand;
+			++OutMismatched;
 		}
 	}
 	return true;
@@ -1230,8 +1221,12 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 							const bool bOffers = Platform.bConfigured ? Platform.Items.Contains(Item) : Platform.Stock.Contains(Item);
 							if (bOffers && STNames::IsFluid(Item) == Platform.bFluid && GetCarRoom(mCars[CarIndex], Cargo[CarIndex], Item) > 0.0)
 							{
-								// The platform would fill this car with an item outside its pattern: it must skip the stop.
-								if (HoldsOtherItem(Cargo[CarIndex], Item) || (mCarAllowed.Num() > 0 && !(mCarAllowed.IsValidIndex(CarIndex) && mCarAllowed[CarIndex].Contains(Item))))
+								// The platform would fill this car with an item outside its pattern items (or, without a pattern,
+								// mix it with another item it holds): it must skip the stop.
+								const TArray<UClass*>* CarItems = mCarAllowed.IsValidIndex(CarIndex) ? &mCarAllowed[CarIndex] : nullptr;
+								const bool bOutside = mCarAllowed.Num() > 0 && (!CarItems || !CarItems->Contains(Item)
+									|| Cargo[CarIndex].ContainsByPredicate([CarItems](const TPair<UClass*, double>& Each) { return Each.Value >= 1.0 && !CarItems->Contains(Each.Key); }));
+								if (bOutside || (mCarAllowed.Num() == 0 && HoldsOtherItem(Cargo[CarIndex], Item)))
 								{
 									bWouldMix = true;
 									continue;

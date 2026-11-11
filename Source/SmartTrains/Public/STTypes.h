@@ -274,32 +274,54 @@ struct FSTNoProgress
 	double Until = 0.0;
 };
 
+// The items one freight car carries in its train's pattern (empty: none given yet).
+USTRUCT()
+struct SMARTTRAINS_API FSTCarItems
+{
+	GENERATED_BODY()
+
+	UPROPERTY(SaveGame)
+	TArray<TSubclassOf<UFGItemDescriptor>> Items;
+};
+
 USTRUCT()
 struct SMARTTRAINS_API FSTTrainState
 {
 	GENERATED_BODY()
 
-	// CarPattern as plain classes.
-	TArray<UClass*> GetPattern() const
+	// CarSets as plain classes, one list per car.
+	TArray<TArray<UClass*>> GetPattern() const
 	{
-		TArray<UClass*> Out;
-		for (const TSubclassOf<UFGItemDescriptor>& Item : CarPattern)
+		TArray<TArray<UClass*>> Out;
+		for (const FSTCarItems& Car : CarSets)
 		{
-			Out.Add(Item.Get());
+			TArray<UClass*>& Items = Out.AddDefaulted_GetRef();
+			for (const TSubclassOf<UFGItemDescriptor>& Item : Car.Items)
+			{
+				Items.Add(Item.Get());
+			}
 		}
 		return Out;
 	}
-	// "Iron Plate | Wire | - | Wire", or "open" when no car has an item.
+	// True when no car has items given yet.
+	bool IsPatternOpen() const
+	{
+		return !CarSets.ContainsByPredicate([](const FSTCarItems& Car) { return Car.Items.Num() > 0; });
+	}
+	// "Iron Plate | Wire + Cable | - | Wire", or "open" when no car has items.
 	FString DescribePattern() const
 	{
 		TArray<FString> Parts;
-		bool bAny = false;
-		for (const TSubclassOf<UFGItemDescriptor>& Item : CarPattern)
+		for (const FSTCarItems& Car : CarSets)
 		{
-			Parts.Add(Item ? STNames::Item(Item) : FString(TEXT("-")));
-			bAny |= Item != nullptr;
+			TArray<FString> Names;
+			for (const TSubclassOf<UFGItemDescriptor>& Item : Car.Items)
+			{
+				Names.Add(STNames::Item(Item));
+			}
+			Parts.Add(Names.Num() > 0 ? FString::Join(Names, TEXT(" + ")) : FString(TEXT("-")));
 		}
-		return bAny ? FString::Join(Parts, TEXT(" | ")) : FString(TEXT("open"));
+		return IsPatternOpen() ? FString(TEXT("open")) : FString::Join(Parts, TEXT(" | "));
 	}
 
 	UPROPERTY(SaveGame)
@@ -360,10 +382,10 @@ struct SMARTTRAINS_API FSTTrainState
 	UPROPERTY(SaveGame)
 	double UnwantedCargoSince = 0.0;
 
-	// Its group: the item each freight car carries, front to back (null: none given yet). Docs/Architecture.md,
-	// "0.18.0: car patterns".
+	// Its group: the items each freight car carries, front to back (empty: none given yet). Docs/Architecture.md,
+	// "Car patterns".
 	UPROPERTY(SaveGame)
-	TArray<TSubclassOf<UFGItemDescriptor>> CarPattern;
+	TArray<FSTCarItems> CarSets;
 
 	// Runtime only: since when the train has found no trip in its pattern (0: it has one), for changing group.
 	double PatternIdleSince = 0.0;

@@ -160,21 +160,23 @@ window's Rename stations); never automatic.
 - **Console:** `SmartTrains.Setup [apply] [keepname]` (an `FAutoConsoleCommandWithWorldAndArgs`) runs the
   all-stations set-up from a dedicated server's console, for headless tests.
 
-## 0.18.0: car patterns
+## Car patterns (0.18.0; item sets since 0.20.0)
 
-- **Pattern** (`FSTTrainState::CarPattern`, saved): per freight car, front to back, the item it carries in its group;
-  null where none is given yet. Reset when the number of cars changes. `DescribePattern`: "Iron | Wire | - | Wire".
+- **Pattern** (`FSTTrainState::CarSets`, saved, one `FSTCarItems` per freight car front to back): the items each car
+  carries in its group; empty where none are given yet. Usually one item; a sushi platform makes it several. Reset when
+  the number of cars changes. `DescribePattern`: "Iron | Wire + Cable | - | Wire". (0.18.0's one-item `CarPattern` is
+  no longer read, so trains start open after updating.)
 - **Lining up** (`FSTTripPlanner::MakeCarItems`): per car, the demand items of the platform beside it at the consumer
-  (the same whichever way the train docks, else none). A car holding cargo may only take that item, and counts as
-  mismatched if the platform beside it takes something else, it holds two items, or the cargo differs from its pattern
-  item. An empty car with a pattern item may only take that item; if the platform beside it takes another, the station
-  is another group (false). An open car may take what the platform beside it takes; a car beside no demand platform
-  takes nothing. The result goes to `SetCarItems`; in `SimulateWithSkips` a car beside a supply platform offering a
-  planned item it may not take counts as harm, so it skips (FCC) or the trip fails.
+  (the same whichever way the train docks, else none). A car with pattern items beside a demand platform whose items
+  aren't exactly the same set: the station is another group (false). A car may take its pattern items, else (open) the
+  demand platform's items beside it, else what it holds. It counts as mismatched if it holds an item outside that set.
+  The result goes to `SetCarItems`; in `SimulateWithSkips` a car beside a supply platform offering a planned item
+  outside its set, or holding something outside it, counts as harm, so it skips (FCC) or the trip fails. Within its set
+  a car may carry several items (loaded at one stop or several); without a set (tests) a car still never mixes.
 - **Dispatch** (`GatherRound`): consumers that line up with the pattern and have no mismatched cargo are tried as before
-  (one trip per consumer, the best runs). The pattern then takes each car's loaded item (else its cargo; else it keeps
-  its item). With none found, `PatternIdleSince` starts; after `PatternIdleSeconds` (300 s), or at once for an open
-  train, consumers are tried ignoring the pattern (still no mismatched cargo), and the pattern is rebuilt from that
+  (one trip per consumer, the best runs). The pattern then takes, per car, the set the trip allowed it (`PatternAfter`),
+  else keeps its set. With none found, `PatternIdleSince` starts; after `PatternIdleSeconds` (300 s), or at once for an
+  open train, consumers are tried ignoring the pattern (still no mismatched cargo), and the pattern is rebuilt from that
   trip. If consumers were blocked only by cargo, a clearing trip runs: `SetNoLoads`, any consumer (`SetSinksForCargo`
   lets sinks take cargo a consumer exists for), no anchor; the pattern starts open. `ReplanTrip` applies the same car
   items from the job's anchor (no anchor: no loads, sinks allowed).

@@ -1285,13 +1285,13 @@ bool FSTCarPatternTest::RunTest(const FString& Parameters)
 	CarPlatforms.Add(Swapped, {{4, 5}});
 	FSTTestAccess::SetTrain(Planner, Start, true, false, {Empty, Empty}, Platforms, CarPlatforms);
 	FSTTestAccess::BuildMoves(Planner);
-	const TArray<UClass*> Pattern = {Iron, Coal};
+	const TArray<TArray<UClass*>> Pattern = {{Iron}, {Coal}};
 	TArray<TArray<UClass*>> Allowed;
 	int32 Mismatched = 0;
 	TestTrue(TEXT("the factory lines up with iron | coal"), Planner.MakeCarItems(Factory, Pattern, false, Allowed, Mismatched) && Mismatched == 0);
 	TestTrue(TEXT("car 1 may only take iron"), Allowed.Num() == 2 && Allowed[0] == TArray<UClass*>{Iron});
 	TestFalse(TEXT("the station taking coal then iron is another group"), Planner.MakeCarItems(Swapped, Pattern, false, Allowed, Mismatched));
-	TestTrue(TEXT("a train with an open pattern may serve it"), Planner.MakeCarItems(Swapped, {nullptr, nullptr}, false, Allowed, Mismatched)
+	TestTrue(TEXT("a train with an open pattern may serve it"), Planner.MakeCarItems(Swapped, {{}, {}}, false, Allowed, Mismatched)
 		&& Allowed.Num() == 2 && Allowed[0] == TArray<UClass*>{Coal});
 	TestTrue(TEXT("so may one changing group"), Planner.MakeCarItems(Swapped, Pattern, true, Allowed, Mismatched) && Mismatched == 0);
 
@@ -1313,9 +1313,94 @@ bool FSTCarPatternTest::RunTest(const FString& Parameters)
 
 	FSTTestAccess::SetTrain(Planner, Start, true, false, {HoldsCoal, Empty}, Platforms, CarPlatforms);
 	FSTTestAccess::BuildMoves(Planner);
-	TestTrue(TEXT("coal in car 1 at the factory is checked"), Planner.MakeCarItems(Factory, {nullptr, nullptr}, false, Allowed, Mismatched));
+	TestTrue(TEXT("coal in car 1 at the factory is checked"), Planner.MakeCarItems(Factory, {{}, {}}, false, Allowed, Mismatched));
 	TestEqual(TEXT("coal in car 1 doesn't line up with the factory's iron platform"), Mismatched, 1);
-	TestTrue(TEXT("but lines up at the other station"), Planner.MakeCarItems(Swapped, {nullptr, nullptr}, false, Allowed, Mismatched) && Mismatched == 0);
+	TestTrue(TEXT("but lines up at the other station"), Planner.MakeCarItems(Swapped, {{}, {}}, false, Allowed, Mismatched) && Mismatched == 0);
+	return true;
+}
+
+// Sushi: a car's pattern is a set of items. A platform taking exactly that set lines up, one taking part of it is
+// another group; one car loads both items from a platform giving both; a car holding both is fine where its platform
+// takes both and mismatched where it takes only one.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTSushiPatternTest, "SmartTrains.Gather.SushiPattern", TestFlags)
+bool FSTSushiPatternTest::RunTest(const FString& Parameters)
+{
+	UClass* Iron = USTTestSolid::StaticClass();
+	UClass* Coal = USTTestSolidB::StaticClass();
+	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
+	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Mine = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* Factory = FSTTestAccess::MakeStation();
+	AFGTrainStationIdentifier* IronOnly = FSTTestAccess::MakeStation();
+	const TArray<AFGTrainStationIdentifier*> All = {Start, Mine, Factory, IronOnly};
+	for (AFGTrainStationIdentifier* From : All)
+	{
+		for (AFGTrainStationIdentifier* To : All)
+		{
+			FSTTestAccess::SetTrip(*Subsystem, From, To, 100.f);
+		}
+	}
+	TArray<FSTNode> Nodes = {
+		FSTTestAccess::Node(Mine, Iron, ESTRole::Supply, 4800, 4800, 1), FSTTestAccess::Node(Mine, Coal, ESTRole::Supply, 4800, 4800, 1),
+		FSTTestAccess::Node(Factory, Iron, ESTRole::Demand, 0, 4800, 1), FSTTestAccess::Node(Factory, Coal, ESTRole::Demand, 0, 4800, 1),
+		FSTTestAccess::Node(IronOnly, Iron, ESTRole::Demand, 0, 4800, 1)};
+	for (FSTNode& Node : Nodes)
+	{
+		Node.Rate = 1.0;
+	}
+	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
+	FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
+	FSTTestAccess::ServeAll(Planner);
+	TArray<FSTTestAccess::FPlatformInfo> Platforms = {FSTTestAccess::Platform(Iron, true, 4800.0, 48), FSTTestAccess::Platform(Iron, false, 0.0, 0),
+		FSTTestAccess::Platform(Iron, false, 0.0, 0)};
+	// The mine's platform gives iron and coal, the factory's takes both, the other station's only iron.
+	Platforms[0].Items.AddUnique(Coal);
+	Platforms[0].Stock.Add(Coal, 4800);
+	Platforms[1].Items.AddUnique(Coal);
+	for (FSTTestAccess::FPlatformInfo& Platform : Platforms)
+	{
+		Platform.Slots = 48;
+	}
+	FSTTestAccess::FCarInfo Empty = FSTTestAccess::Car();
+	Empty.Slots = 32;
+	FSTTestAccess::FCarInfo HoldsBoth = FSTTestAccess::Car(Iron, 100.0);
+	HoldsBoth.Cargo.Emplace(Coal, 100.0);
+	HoldsBoth.Slots = 32;
+	FSTTestAccess::FCarPlatforms CarPlatforms;
+	CarPlatforms.Add(Mine, {{0}});
+	CarPlatforms.Add(Factory, {{1}});
+	CarPlatforms.Add(IronOnly, {{2}});
+	FSTTestAccess::SetTrain(Planner, Start, true, false, {Empty}, Platforms, CarPlatforms);
+	FSTTestAccess::BuildMoves(Planner);
+	const TArray<TArray<UClass*>> Pattern = {{Iron, Coal}};
+	TArray<TArray<UClass*>> Allowed;
+	int32 Mismatched = 0;
+	TestTrue(TEXT("the factory taking iron and coal lines up with iron + coal"), Planner.MakeCarItems(Factory, Pattern, false, Allowed, Mismatched) && Mismatched == 0);
+	TestTrue(TEXT("the car may take both"), Allowed.Num() == 1 && Allowed[0].Num() == 2);
+	TestFalse(TEXT("a platform taking only iron is another group"), Planner.MakeCarItems(IronOnly, Pattern, false, Allowed, Mismatched));
+	TestTrue(TEXT("an open car beside the factory's platform may take both"), Planner.MakeCarItems(Factory, {{}}, false, Allowed, Mismatched)
+		&& Allowed.Num() == 1 && Allowed[0].Num() == 2);
+
+	Planner.SetCarItems(Allowed);
+	FSTPlanStop Pickup;
+	Pickup.Station = Mine;
+	Pickup.LoadItems = {Iron, Coal};
+	FSTPlanStop Drop;
+	Drop.Station = Factory;
+	Drop.UnloadItems = {Iron, Coal};
+	const FSTPlanResult Result = Planner.Simulate({Pickup, Drop});
+	if (TestTrue(FString::Printf(TEXT("the sushi trip works (%s)"), *Result.Problem), Result.bValid && Result.Steps.Num() == 2 && Result.Steps[0].Num() == 1))
+	{
+		TestEqual(TEXT("the car loads both items at the mine"), Result.Steps[0][0].Loaded.Num(), 2);
+		TestEqual(TEXT("and unloads both at the factory"), Result.Steps[1][0].Unloaded.Num(), 2);
+	}
+	Planner.SetCarItems({});
+
+	FSTTestAccess::SetTrain(Planner, Start, true, false, {HoldsBoth}, Platforms, CarPlatforms);
+	FSTTestAccess::BuildMoves(Planner);
+	TestTrue(TEXT("a car holding both lines up at the factory"), Planner.MakeCarItems(Factory, Pattern, false, Allowed, Mismatched) && Mismatched == 0);
+	TestTrue(TEXT("an open train holding both is checked at the iron-only station"), Planner.MakeCarItems(IronOnly, {{}}, false, Allowed, Mismatched));
+	TestEqual(TEXT("its coal doesn't line up there"), Mismatched, 1);
 	return true;
 }
 
