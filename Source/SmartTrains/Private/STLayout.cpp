@@ -72,12 +72,26 @@ void FSTPlatformAccess::HoldSignal(AFGBuildableRailroadSignal* Signal, bool bHol
 	}
 	if (bHold)
 	{
-		const ERailroadSignalAspect Previous = Signal->mAspect;
-		Signal->mAspect = ERailroadSignalAspect::RSA_Stop;
-		Signal->OnAspectChanged(Previous);
+		ShowStop(Signal);
 		return;
 	}
 	Signal->UpdateAspect();
+}
+
+void FSTPlatformAccess::ShowStop(AFGBuildableRailroadSignal* Signal)
+{
+	const ERailroadSignalAspect Previous = Signal->mAspect;
+	if (Previous == ERailroadSignalAspect::RSA_Stop)
+	{
+		return;
+	}
+	Signal->mAspect = ERailroadSignalAspect::RSA_Stop;
+	// Its lights and sounds, as when the aspect arrives on a client (the game doesn't export the function behind it).
+	if (UFunction* OnRep = Signal->FindFunction(TEXT("OnRep_Aspect")))
+	{
+		ERailroadSignalAspect Params = Previous;
+		Signal->ProcessEvent(OnRep, &Params);
+	}
 }
 
 void FSTPlatformAccess::InstallSignalHook()
@@ -93,11 +107,9 @@ void FSTPlatformAccess::InstallSignalHook()
 	bInstalled = true;
 	SUBSCRIBE_METHOD_AFTER(AFGBuildableRailroadSignal::UpdateAspect, [](AFGBuildableRailroadSignal* Self)
 	{
-		if (Self && Self->mAspect != ERailroadSignalAspect::RSA_Stop && STDepots::IsHeld(Self))
+		if (Self && STDepots::IsHeld(Self))
 		{
-			const ERailroadSignalAspect Previous = Self->mAspect;
-			Self->mAspect = ERailroadSignalAspect::RSA_Stop;
-			Self->OnAspectChanged(Previous);
+			ShowStop(Self);
 		}
 	});
 	UE_LOG(LogSmartTrains, Log, TEXT("Signal hold hook installed"));

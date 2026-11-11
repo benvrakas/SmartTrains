@@ -29,6 +29,12 @@ public:
 	// Keeps held signals at stop when their block changes (server only; not in editor builds).
 	static void InstallSignalHook();
 
+private:
+	// Sets Signal's aspect to stop, with its lights.
+	static void ShowStop(class AFGBuildableRailroadSignal* Signal);
+
+public:
+
 	// Counts the platform's belt or pipe inputs and outputs that are connected to something.
 	static void CountConnections(const AFGBuildableTrainPlatformCargo* Platform, int32& OutInputs, int32& OutOutputs);
 
