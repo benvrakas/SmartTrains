@@ -3,6 +3,7 @@
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "FGRailroadSubsystem.h"
+#include "FGRailroadTrackConnectionComponent.h"
 #include "FGRailroadVehicle.h"
 #include "FGTrain.h"
 #include "FGTrainStationIdentifier.h"
@@ -473,6 +474,55 @@ void STAt::TimeTableChanged(const UWorld* World, AFGTrain* Train)
 {
 	TObjectPtr<AFGTrain> TrainPtr = Train;
 	CallAt(World, TEXT("ExternalTimeTableChanged"), [&](const UFunction* Function, FStructOnScope& Params)
+	{
+		return Train && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr);
+	}, [](const UFunction*, const uint8*) {});
+}
+
+bool STAt::DriveTo(const UWorld* World, AFGTrain* Train, UFGRailroadTrackConnectionComponent* Goal)
+{
+	bool bStarted = false;
+	TObjectPtr<AFGTrain> TrainPtr = Train;
+	TObjectPtr<UFGRailroadTrackConnectionComponent> GoalPtr = Goal;
+	CallAt(World, TEXT("ExternalDriveTo"), [&](const UFunction* Function, FStructOnScope& Params)
+	{
+		return Train && Goal && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr) && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Goal"), GoalPtr);
+	}, [&](const UFunction* Function, const uint8* Memory)
+	{
+		const FBoolProperty* Return = CastField<FBoolProperty>(Function->GetReturnProperty());
+		bStarted = Return && Return->GetPropertyValue_InContainer(Memory);
+	});
+	return bStarted;
+}
+
+STAt::EDriveState STAt::GetDriveState(const UWorld* World, AFGTrain* Train)
+{
+	int32 Answer = -1;
+	TObjectPtr<AFGTrain> TrainPtr = Train;
+	const bool bCalled = CallAt(World, TEXT("ExternalGetDriveState"), [&](const UFunction* Function, FStructOnScope& Params)
+	{
+		return Train && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr);
+	}, [&](const UFunction* Function, const uint8* Memory)
+	{
+		if (const FIntProperty* Return = CastField<FIntProperty>(Function->GetReturnProperty()))
+		{
+			Answer = Return->GetPropertyValue_InContainer(Memory);
+		}
+	});
+	switch (bCalled ? Answer : -1)
+	{
+	case 0: return EDriveState::None;
+	case 1: return EDriveState::UnderWay;
+	case 2: return EDriveState::Arrived;
+	case 3: return EDriveState::NoWay;
+	default: return EDriveState::Unavailable;
+	}
+}
+
+void STAt::CancelDrive(const UWorld* World, AFGTrain* Train)
+{
+	TObjectPtr<AFGTrain> TrainPtr = Train;
+	CallAt(World, TEXT("ExternalCancelDrive"), [&](const UFunction* Function, FStructOnScope& Params)
 	{
 		return Train && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr);
 	}, [](const UFunction*, const uint8*) {});

@@ -197,14 +197,11 @@ window's Rename stations); never automatic.
   schematic is no longer registered; its class stays (a stub) so saves that bought it still load.
 - **Siding check** (`STDepots::Check`): the approach exit is the guarded connection (or one joined to it) whose facing
   signal is this one; from there back along whole tracks until the siding's entry: a signal at a joint, or (since
-  0.20.1, with Auto Trains installed: `STAt::IsInstalled`, also true on clients) its switch. Without Auto Trains a
-  switch before an entry signal makes it unusable, since the game's blocks would put a parked train in the main line's
-  block. A platform's track or a track end on the way makes it unusable. Shown in the look-at text (runs on every client: tracks
+  0.20.1, with Auto Trains installed: `STAt::IsInstalled`, also true on clients) its switch. A platform's track or a track end on the way makes it unusable. Shown in the look-at text (runs on every client: tracks
   and signals are replicated) and `/st depots`.
 - **Dead ends and chains (0.21.0)**: `Check` first walks forward from the signal; if the track ends there without a
   switch the signal faces into a dead end (`bDeadEnd`): the spot runs to the next depot signal facing the same way, or
-  the track end (`Goal`). Without Auto Trains it needs another signal on the way (at the track end, facing out).
-  Otherwise the passing-siding walk back runs as before, and a depot signal at the entry joint is the spot's
+  the track end (`Goal`). Otherwise the passing-siding walk back runs as before, and a depot signal at the entry joint is the spot's
   `Neighbour`. `STDepots::Survey` links every spot to its neighbours (`Behind` toward the siding's entrance, `Ahead`
   deeper in) and lists the trains with a vehicle on its tracks (so it holds after a restart, when `mDepotTrips` is
   empty). `SendToDepotSignal` only offers a spot that is free, whose spots `Behind` are free (the way in), and whose
@@ -212,6 +209,14 @@ window's Rename stations); never automatic.
   **Dead-end depots** on. `GatherRound` skips a parked train for which `IsBoxedInAtDepot` finds a train (or a trip)
   on its way out: the spots `Ahead` on a passing siding, `Behind` on a dead end. `MonitorTrains` parks a depot-bound
   train near the spot's goal (`FDepotTrip::Goal`), not the signal, since a dead end's goal lies deep inside.
+- **Driving (0.22.0)**: Auto Trains drives a train to its spot (`STAt::DriveTo`, `GetDriveState`, `CancelDrive`; Auto
+  Trains' `ExternalDriveTo` API). SmartTrains empties the timetable, switches the autopilot on and hands Auto Trains the
+  spot's goal connection; `MonitorTrains` parks the train (autopilot off) once Auto Trains reports it arrived, and if
+  Auto Trains drops it (no way, goal dropped) that signal isn't offered to the train for `STDepots::NoWayRetrySeconds`
+  (`mDepotNoWay`) and the train settles again. `WriteJob` and unmanaging cancel the drive. Without Auto Trains there is
+  no depot parking. Before 0.22.0 SmartTrains forced a path with no station into the game's automatic control
+  (`mAtcData.SetPath`, an `AFGTrain` friend): the game flagged "no timetable", Auto Trains didn't manage the train, and
+  on the IB save most depot-bound trains stood on the main line and jammed the network.
 - **Parking** (`SendToDepotSignal`, in `SettleIdle` and `ClearNeededBays`): free depot signals (no other train in `mDepotTrips`) whose
   siding fits the train (length + `STDepots::Margin`) on its track graph are goals of one Dijkstra over track exits from
   the MU master's exit ahead (`STDepots::FindRoute`). The train's timetable is emptied, then the route is given to its

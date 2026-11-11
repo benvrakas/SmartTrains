@@ -152,9 +152,6 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 		return Siding;
 	}
 	Siding.TrackGraph = Approach->GetTrack()->GetTrackGraphID();
-	// Auto Trains drives without signals, so a siding's switch is its entry; without it the game's blocks need an entry
-	// signal after the switch (passing siding) or one at the track end facing out (dead end).
-	const bool bSwitchIsEntry = STAt::IsInstalled();
 
 	// Facing into a dead end: forward from the signal; the spot ends at the next depot signal or the track end.
 	const TArray<UFGRailroadTrackConnectionComponent*> Next = Approach->GetConnections();
@@ -163,7 +160,6 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 		UFGRailroadTrackConnectionComponent* In = Next[0];
 		TArray<AFGBuildableRailroadTrack*> Walked;
 		float Length = 0.f;
-		bool bOutSignal = false;
 		const AFGBuildableRailroadSignal* Deeper = nullptr;
 		UFGRailroadTrackConnectionComponent* SpotEnd = nullptr;
 		TArray<AFGBuildableRailroadTrack*> SpotTracks;
@@ -193,10 +189,6 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 					SpotLength = Length;
 				}
 			}
-			if (const AFGBuildableRailroadSignal* Other = SignalAt(Out, Signal); Other && !Other->IsA<ASTBuildableDepotSignal>())
-			{
-				bOutSignal = true;
-			}
 			const TArray<UFGRailroadTrackConnectionComponent*> Joined = Out->GetConnections();
 			if (Joined.Num() == 0)
 			{
@@ -222,10 +214,6 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 			Siding.Tracks = SpotTracks;
 			Siding.Length = SpotLength;
 			Siding.Neighbour = Deeper;
-			if (!bSwitchIsEntry && !bOutSignal)
-			{
-				Siding.Problem = TEXT("a dead-end depot needs a signal at the track end, facing out (without Auto Trains)");
-			}
 			return Siding;
 		}
 	}
@@ -268,12 +256,7 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 		}
 		if (IsSwitchAt(Entry))
 		{
-			if (bSwitchIsEntry)
-			{
-				bEntry = true;
-				break;
-			}
-			Siding.Problem = TEXT("a switch lies between it and the signal before it: without Auto Trains, put an entry signal after the switch, so the siding is a block of its own");
+			bEntry = true;
 			break;
 		}
 		Exit = Before[0];
@@ -340,6 +323,10 @@ TArray<FSTDepotSpot> STDepots::Survey(UWorld* World)
 
 FString STDepots::Describe(const FSTDepotSiding& Siding)
 {
+	if (!STAt::IsInstalled())
+	{
+		return TEXT("SmartTrains depot: not usable: Auto Trains drives trains to depot signals, and it isn't installed.");
+	}
 	if (!Siding.Problem.IsEmpty())
 	{
 		return FString::Printf(TEXT("SmartTrains depot: not usable: %s."), *Siding.Problem);

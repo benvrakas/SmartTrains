@@ -314,9 +314,9 @@ private:
 	{
 		TWeakObjectPtr<class ASTBuildableDepotSignal> Signal;
 		double SentAt = 0.0;
-		// Where its front stops (the spot's goal connection).
-		FVector Goal = FVector::ZeroVector;
 	};
+	// Depot signals Auto Trains found no way to for a train, and until when (Now()) they aren't offered to it again.
+	TMap<TPair<const AFGTrain*, const class ASTBuildableDepotSignal*>, double> mDepotNoWay;
 	// A train parked on a depot spot with another train (or one heading there) on its way out: ahead of it on a passing
 	// siding, nearer the entrance on a dead end. Spots: STDepots::Survey. OutAhead: that train.
 	bool IsBoxedInAtDepot(const FSTTrainState& State, const TArray<struct FSTDepotSpot>& Spots, FString& OutAhead) const;

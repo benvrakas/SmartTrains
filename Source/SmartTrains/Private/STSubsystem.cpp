@@ -42,8 +42,6 @@ namespace
 	// Depot signals: a train sent to one is parked when it stands still this long after being sent, within the distance
 	// of the signal (front or back), or its path has run out. [s, cm/s, cm]
 	constexpr double DepotSettleSeconds = 5.0;
-	constexpr float DepotStillSpeed = 50.f;
-	constexpr float DepotArriveDistance = 6000.f;
 	// Manage new trains: a new train is managed once its vehicles haven't changed for this long. [s]
 	constexpr double NewTrainSettleSeconds = 30.0;
 	// A platform's machines are traced again after this long. [s]
@@ -401,7 +399,10 @@ bool ASTSubsystem::SetTrainManaged(AFGTrain* Train, bool bManaged, const FString
 	State.bManaged = false;
 	State.bHasJob = false;
 	State.Phase = ESTTrainPhase::Idle;
-	mDepotTrips.Remove(Train);
+	if (mDepotTrips.Remove(Train) > 0)
+	{
+		STAt::CancelDrive(GetWorld(), Train);
+	}
 	if (TimeTable && State.bHasSaved && !mSettings.bObserveOnly)
 	{
 		if (!STFcc::SetStops(GetWorld(), TimeTable, State.SavedStops, {}, {}, FString()))
@@ -585,22 +586,29 @@ void ASTSubsystem::MonitorTrains()
 			State.PlayerAboard = Aboard;
 		}
 		// Heading for a depot signal: parked once it stands at the signal (or its path has run out).
+		// Heading for a depot signal (Auto Trains drives it): parked once it stands at its spot; if Auto Trains drops it,
+		// that signal isn't offered to it for a while and it settles again.
 		if (const FDepotTrip* Trip = mDepotTrips.Find(Train); Trip && !State.bHasJob && State.Phase != ESTTrainPhase::Parked && Time - Trip->SentAt > DepotSettleSeconds)
 		{
-			const AFGRailroadVehicle* First = Train->GetFirstVehicle();
-			const AFGRailroadVehicle* Last = Train->GetLastVehicle();
-			const bool bStill = !First || First->GetVelocity().Size() < DepotStillSpeed;
-			const float Near = First && Last ? FMath::Min(FVector::Dist(First->GetActorLocation(), Trip->Goal), FVector::Dist(Last->GetActorLocation(), Trip->Goal)) : 0.f;
-			if (bStill && (Near < DepotArriveDistance || !FSTPlatformAccess::HasTrainPath(Train)))
+			const STAt::EDriveState Drive = STAt::GetDriveState(GetWorld(), Train);
+			if (Drive == STAt::EDriveState::Arrived)
 			{
 				State.Phase = ESTTrainPhase::Parked;
 				if (Train->IsSelfDrivingEnabled())
 				{
 					Train->SetSelfDrivingEnabled(false);
 				}
-				UE_LOG(LogSmartTrains, Log, TEXT("PARK %s at a depot signal (%s, %.0f m from where its front stops)"), *STLayout::Name(Train),
-					Near < DepotArriveDistance ? TEXT("arrived") : TEXT("its path ran out"), Near / 100.f);
+				UE_LOG(LogSmartTrains, Log, TEXT("PARK %s at a depot signal (arrived)"), *STLayout::Name(Train));
 				UpdateTrainName(State);
+			}
+			else if (Drive != STAt::EDriveState::UnderWay)
+			{
+				const ASTBuildableDepotSignal* Signal = Trip->Signal.Get();
+				UE_LOG(LogSmartTrains, Warning, TEXT("DEPOT %s: Auto Trains stopped driving it to the depot signal (%s); settling it again"), *STLayout::Name(Train),
+					Drive == STAt::EDriveState::NoWay ? TEXT("no way there") : (Drive == STAt::EDriveState::None ? TEXT("goal dropped") : TEXT("Auto Trains not available")));
+				mDepotNoWay.Add(TPair<const AFGTrain*, const ASTBuildableDepotSignal*>(Train, Signal), Time + STDepots::NoWayRetrySeconds);
+				mDepotTrips.Remove(Train);
+				SettleIdle(State, TEXT("no way to the depot signal"));
 			}
 		}
 		// A held train whose autopilot someone switched on again is no longer held.

@@ -49,10 +49,12 @@ namespace STDepots
 {
 	// A train needs this much more siding than its own length. [cm]
 	constexpr float Margin = 800.f;
+	// A depot signal Auto Trains found no way to isn't offered to that train again for this long. [s]
+	constexpr double NoWayRetrySeconds = 600.0;
 
 	// Signal's parking spot. Facing into a dead end: the track beyond it to the next depot signal or the track end.
-	// Otherwise (passing siding): back from it to the siding's entry, its switch (with Auto Trains) or a signal. No station
-	// may lie on the way.
+	// Otherwise (passing siding): back from it to the siding's entry, its switch or a signal. No station may lie on the
+	// way. Auto Trains drives trains to it, so it can't be used without Auto Trains.
 	SMARTTRAINS_API FSTDepotSiding Check(const AFGBuildableRailroadSignal* Signal);
 
 	// Every depot signal's spot in World, linked to its neighbours on the same siding, with the trains standing on it.

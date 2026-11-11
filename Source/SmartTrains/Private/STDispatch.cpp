@@ -1271,17 +1271,18 @@ bool ASTSubsystem::SendToDepotSignal(FSTTrainState& State, const TCHAR* Why)
 	AFGTrain* Train = State.Train;
 	AFGLocomotive* Locomotive = IsValid(Train) ? Cast<AFGLocomotive>(Train->GetMultipleUnitMaster()) : nullptr;
 	const AFGBuildableRailroadTrack* Here = Locomotive ? Locomotive->GetTrackPosition().Track.Get() : nullptr;
-	if (!Here || mSettings.bObserveOnly)
+	// Auto Trains drives trains to depot signals; without it there is no depot parking.
+	if (!Here || mSettings.bObserveOnly || !STAt::IsAvailable(GetWorld()))
 	{
 		return false;
 	}
-	// Already on its way to a depot signal with its path: left alone (sending it again would empty its timetable and
-	// replace its path every dispatch round).
+	// Already on its way to a depot signal: left alone.
 	if (const FDepotTrip* Trip = mDepotTrips.Find(Train); Trip && Trip->Signal.IsValid() && State.Phase != ESTTrainPhase::Parked
-		&& Train->IsSelfDrivingEnabled() && FSTPlatformAccess::HasTrainPath(Train))
+		&& STAt::GetDriveState(GetWorld(), Train) == STAt::EDriveState::UnderWay)
 	{
 		return true;
 	}
+	const double Clock = Now();
 	const float Needed = STLayout::GetTrainLength(Train) + STDepots::Margin;
 	TSet<const UFGRailroadTrackConnectionComponent*> Goals;
 	TMap<const UFGRailroadTrackConnectionComponent*, ASTBuildableDepotSignal*> ByGoal;
@@ -1311,7 +1312,8 @@ bool ASTSubsystem::SendToDepotSignal(FSTTrainState& State, const TCHAR* Why)
 	};
 	for (int32 Index = 0; Index < Spots.Num(); ++Index)
 	{
-		if (!Fits(Index) || Taken(Index))
+		const double* NoWayUntil = mDepotNoWay.Find(TPair<const AFGTrain*, const ASTBuildableDepotSignal*>(Train, Spots[Index].Signal));
+		if (!Fits(Index) || Taken(Index) || (NoWayUntil && *NoWayUntil > Clock))
 		{
 			continue;
 		}
@@ -1343,26 +1345,27 @@ bool ASTSubsystem::SendToDepotSignal(FSTTrainState& State, const TCHAR* Why)
 		UE_LOG(LogSmartTrains, Log, TEXT("DEPOT %s: no way ahead to any of %d free depot signals that fit it"), *STLayout::Name(Train), Goals.Num());
 		return false;
 	}
-	// An empty timetable first (the game drops a path when the timetable changes), then the path to the signal.
+	// No timetable stop (the game would head for the old one); Auto Trains drives it to the spot.
 	if (AFGRailroadTimeTable* TimeTable = Train->GetTimeTable())
 	{
 		TimeTable->SetStops(TArray<FTimeTableStop>());
 	}
-	if (!FSTPlatformAccess::SetTrainPath(Train, Route))
-	{
-		UE_LOG(LogSmartTrains, Warning, TEXT("DEPOT %s: the train refused the path to the depot signal"), *STLayout::Name(Train));
-		return false;
-	}
 	if (!Train->IsSelfDrivingEnabled())
 	{
 		Train->SetSelfDrivingEnabled(true);
+	}
+	if (!STAt::DriveTo(GetWorld(), Train, const_cast<UFGRailroadTrackConnectionComponent*>(Reached)))
+	{
+		UE_LOG(LogSmartTrains, Warning, TEXT("DEPOT %s: Auto Trains can't drive it to the depot signal at %s"), *STLayout::Name(Train), *Signal->GetActorLocation().ToCompactString());
+		mDepotNoWay.Add(TPair<const AFGTrain*, const ASTBuildableDepotSignal*>(Train, Signal), Clock + STDepots::NoWayRetrySeconds);
+		return false;
 	}
 	State.bHasJob = false;
 	State.Phase = ESTTrainPhase::Idle;
 	State.LastStation = nullptr;
 	State.WrittenStopKeys.Reset();
 	State.WrittenStations.Reset();
-	mDepotTrips.Add(Train, FDepotTrip{Signal, Now(), Reached ? Reached->GetComponentLocation() : Signal->GetActorLocation()});
+	mDepotTrips.Add(Train, FDepotTrip{Signal, Clock});
 	UE_LOG(LogSmartTrains, Log, TEXT("DEPOT %s: to the depot signal at %s, %.0f m along %d tracks (%s)"), *STLayout::Name(Train),
 		*Signal->GetActorLocation().ToCompactString(), Length / 100.f, Route.Num(), Why);
 	UpdateTrainName(State);
@@ -1707,7 +1710,10 @@ void ASTSubsystem::WriteJob(FSTTrainState& State, const TCHAR* Why)
 		TimeTable->SetStops(Stops);
 	}
 	TimeTable->SetCurrentStop(0);
-	mDepotTrips.Remove(Train);
+	if (mDepotTrips.Remove(Train) > 0)
+	{
+		STAt::CancelDrive(GetWorld(), Train);
+	}
 	if (!Train->IsSelfDrivingEnabled() && !State.bHeld)
 	{
 		Train->SetSelfDrivingEnabled(true);

@@ -7,6 +7,7 @@ class AFGBuildableRailroadStation;
 class AFGRailroadVehicle;
 class AFGTrain;
 class AFGTrainStationIdentifier;
+class UFGRailroadTrackConnectionComponent;
 class UWorld;
 
 // Freight Car Control, called by reflection so it stays optional (Docs/Architecture.md, "Freight Car Control").
@@ -81,6 +82,28 @@ namespace STAt
 
 	// Tells Auto Trains that Train's timetable changed, so it predicts the next leg from the new one.
 	void TimeTableChanged(const UWorld* World, AFGTrain* Train);
+
+	// Has Auto Trains drive Train until its front stops at Goal, a track's end connection that isn't a station (a depot
+	// signal's parking spot). False if Auto Trains can't (not loaded, no way there).
+	bool DriveTo(const UWorld* World, AFGTrain* Train, UFGRailroadTrackConnectionComponent* Goal);
+
+	enum class EDriveState : uint8
+	{
+		// Auto Trains isn't loaded or has no such function.
+		Unavailable,
+		// No goal given (or it was dropped).
+		None,
+		UnderWay,
+		// Standing at its goal.
+		Arrived,
+		// No way to the goal; the reason is in Auto Trains' log.
+		NoWay,
+	};
+	// Where Train stands with the goal given to DriveTo.
+	EDriveState GetDriveState(const UWorld* World, AFGTrain* Train);
+
+	// Drops Train's goal from DriveTo (it got a trip, or isn't managed any more).
+	void CancelDrive(const UWorld* World, AFGTrain* Train);
 
 	enum class ELegCheck : uint8
 	{

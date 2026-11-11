@@ -26,13 +26,6 @@ public:
 
 	// Index of Connection among a splitter's or merger's outputs, as its sort rules count them, or INDEX_NONE.
 	static int32 GetAttachmentOutputIndex(const class AFGBuildableConveyorAttachment* Attachment, const class UFGFactoryConnectionComponent* Connection);
-
-	// Gives Train's automatic control the path along Route (track exits in order) to its last connection, with no
-	// station at the end. False if the train refused it.
-	static bool SetTrainPath(AFGTrain* Train, const TArray<class UFGRailroadTrackConnectionComponent*>& Route);
-
-	// True if Train's automatic control has a path now.
-	static bool HasTrainPath(const AFGTrain* Train);
 };
 
 // Station layouts and consists, read the way the game docks a train (Docs/Architecture.md, "Fit model").
