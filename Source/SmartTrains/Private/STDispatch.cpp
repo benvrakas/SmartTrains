@@ -1239,7 +1239,14 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 	const bool bStaysHere = !bMoving && Here && !Needed.Contains(Here) && !IsStationBlocked(Here);
 	if (!bStaysHere)
 	{
-		if (AFGTrainStationIdentifier* Target = FindParkingStation(State, Here, Needed, {}))
+		AFGTrainStationIdentifier* Target = FindParkingStation(State, Here, Needed, {});
+		// A train under way is never stopped where it is (others plan around it as driven): with no station free of
+		// trains, the nearest other one.
+		if (!Target && (bMoving || !Here))
+		{
+			Target = FindParkingStation(State, Here, {}, {});
+		}
+		if (Target)
 		{
 			SendToStation(State, Target, *FString::Printf(TEXT("%s, %s"), Why, bMoving ? TEXT("still moving") : (Here ? TEXT("its station is needed") : TEXT("not at a station"))));
 			return;
@@ -1645,14 +1652,16 @@ void ASTSubsystem::ClearNeededBays()
 
 	for (FSTTrainState& State : mTrains)
 	{
+		// Parked in a station, or out on the line (no station).
 		AFGTrainStationIdentifier* Here = State.LastStation.Get();
-		if (!State.bManaged || State.Phase != ESTTrainPhase::Parked || !Here || !IsValid(State.Train))
+		if (!State.bManaged || State.Phase != ESTTrainPhase::Parked || !IsValid(State.Train))
 		{
 			continue;
 		}
+		const FString Where = Here ? STLayout::Name(Here) : FString(TEXT("on the line"));
 		// Why it has to move: a trip needs its station, or Auto Trains reports a train waiting for it.
 		FString Why;
-		if (Needed.Contains(Here))
+		if (Here && Needed.Contains(Here))
 		{
 			Why = FString::Printf(TEXT("making room at %s"), *STLayout::Name(Here));
 		}
