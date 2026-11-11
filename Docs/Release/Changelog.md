@@ -8,6 +8,8 @@
   group. Cargo lines up when everything in the car is in its set. `/st patterns` shows sets as "Iron Plate + Coal".
 - Trains start with an open pattern after updating (0.18.0's one-item patterns aren't read any more) and take their
   sets from their first trips.
+- Fixed in the trip planner: a car offered several items at one stop that filled up on the first counted the others
+  as loaded and never delivered, so the car skipped the stop entirely.
 
 ## 0.19.2 (beta)
 
