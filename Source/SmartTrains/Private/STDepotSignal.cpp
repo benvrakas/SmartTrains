@@ -263,6 +263,22 @@ FText ASTBuildableDepotSignal::GetLookAtDecription_Implementation(AFGCharacterPl
 	return Vanilla.IsEmpty() ? FText::FromString(Depot) : FText::FromString(Vanilla.ToString() + TEXT("\n") + Depot);
 }
 
+void ASTBuildableDepotSignal::PostInitProperties()
+{
+	Super::PostInitProperties();
+	if (HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject))
+	{
+		return;
+	}
+	const ASTBuildableDepotSignal* Defaults = GetDefault<ASTBuildableDepotSignal>();
+	CopyEditable(Defaults, this, AFGBuildableRailroadSignal::StaticClass(), AFGBuildable::StaticClass(), {});
+	mRailroadSignalSparesDataCDO = Defaults->mRailroadSignalSparesDataCDO;
+	if (!mRailroadSignalSparesDataCDO)
+	{
+		UE_LOG(LogSmartTrains, Error, TEXT("DEPOT signal %s: no signal data (the vanilla block signal's wasn't copied); it can't work"), *GetName());
+	}
+}
+
 void ASTBuildableDepotSignal::ResolveVanillaAssets()
 {
 	UClass* Vanilla = LoadClass<AFGBuildableRailroadSignal>(nullptr, BlockSignalClass);

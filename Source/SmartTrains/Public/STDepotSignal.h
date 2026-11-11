@@ -60,6 +60,9 @@ class SMARTTRAINS_API ASTBuildableDepotSignal : public AFGBuildableRailroadSigna
 
 public:
 	virtual FText GetLookAtDecription_Implementation(AFGCharacterPlayer* ByCharacter, const FUseState& State) const override;
+	// Every new depot signal takes the settings ResolveVanillaAssets put on the class default: actors of a native class
+	// don't get the default's runtime changes by themselves.
+	virtual void PostInitProperties() override;
 
 	// Copies the vanilla block signal's settings and mesh onto this class's defaults.
 	static void ResolveVanillaAssets();

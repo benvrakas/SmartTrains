@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.19.2 (beta)
+
+- **Fixed: placing a depot signal crashed the server** (and would have crashed every client that saw it). The settings
+  copied from the vanilla Block Signal at startup only reached the depot signal's class defaults, not the signals
+  built from it; each new depot signal now takes them as it's created.
+
 ## 0.19.1 (beta)
 
 - **Fixed: equipping the depot signal crashed the game.** Its left/right-handed mesh data wasn't copied from the

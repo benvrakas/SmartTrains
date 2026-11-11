@@ -185,7 +185,9 @@ window's Rename stations); never automatic.
 - **Depot signal** (`STDepotSignal.*`): `ASTBuildableDepotSignal`, a C++ subclass of the native
   `AFGBuildableRailroadSignal`. At game instance post-initialization (`STDepots::ResolveVanillaAssets`) its class
   default gets every editable setting the vanilla `Build_RailroadBlockSignal_C` default has (declared in `AFGBuildable`
-  and below: hologram, interact widget, block or path, sounds; plus `mRailroadSignalSparesDataCDO`, the left/right-handed meshes, which isn't editable and is copied by hand: without it the hologram crashes on spawn (0.19.1)), and the vanilla signal component's mesh,
+  and below: hologram, interact widget, block or path, sounds; plus `mRailroadSignalSparesDataCDO`, the left/right-handed meshes, which isn't editable and is copied by hand: without it the hologram crashes on spawn (0.19.1)). Actors of a native class don't take the default's runtime changes,
+  so `ASTBuildableDepotSignal::PostInitProperties` copies the same settings from the default onto every new signal
+  (0.19.2; without it `AFGBuildableRailroadSignal::BeginPlay` read null signal data and crashed the server), and the vanilla signal component's mesh,
   transform and materials. The vanilla blueprint has no components of its own beyond that one (dump:
   `Tools/dump_signal_assets.py`), and the lights are the native class's. Descriptor and recipe copy the vanilla block
   signal's (icons, build category, ingredients); since 0.19.0 it unlocks with the vanilla block signal: every 5 s the server makes its recipe available once the block
