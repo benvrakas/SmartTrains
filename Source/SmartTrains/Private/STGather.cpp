@@ -1,4 +1,4 @@
-// Car patterns (Docs/Architecture.md, "0.18.0: car patterns"): every managed train has a pattern, the item each of its
+// Car patterns (Docs/Architecture.md, "Car patterns"): every managed train has a pattern, the items each of its
 // freight cars carries, and only takes trips to consumer stations whose demand platforms line up with it. Every trip is
 // built around one such consumer. A train that finds no trip in its pattern for a while may change group: cars whose
 // cargo doesn't line up with the new consumer are unloaded first.
