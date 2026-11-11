@@ -6,7 +6,7 @@
   to the signal into the game's automatic control. The game then flagged "no timetable", Auto Trains didn't manage the
   train, and on the IB save most depot-bound trains stood on the main line: 27 sent in an hour, 2 arrived, the network
   went from 85 % of its trains moving to about 20 %, and Auto Trains deadlocked. Now SmartTrains hands the spot to Auto
-  Trains (its new drive-to API), which plans and drives the trip like any other, and parks the train once Auto Trains
+  Trains (its drive-to API, Auto Trains 1.4.15 or later), which plans and drives the trip like any other, and parks the train once Auto Trains
   reports it arrived. If Auto Trains finds no way there, that depot signal isn't offered to the train for 10 minutes.
 - **Depot signals need Auto Trains** (they say so when it isn't installed). The entry-signal and track-end-signal
   rules for networks without Auto Trains are gone.

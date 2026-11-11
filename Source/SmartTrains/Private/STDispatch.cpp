@@ -1345,11 +1345,7 @@ bool ASTSubsystem::SendToDepotSignal(FSTTrainState& State, const TCHAR* Why)
 		UE_LOG(LogSmartTrains, Log, TEXT("DEPOT %s: no way ahead to any of %d free depot signals that fit it"), *STLayout::Name(Train), Goals.Num());
 		return false;
 	}
-	// No timetable stop (the game would head for the old one); Auto Trains drives it to the spot.
-	if (AFGRailroadTimeTable* TimeTable = Train->GetTimeTable())
-	{
-		TimeTable->SetStops(TArray<FTimeTableStop>());
-	}
+	// Auto Trains drives it to the spot (and empties its timetable); it only takes self-driving trains.
 	if (!Train->IsSelfDrivingEnabled())
 	{
 		Train->SetSelfDrivingEnabled(true);

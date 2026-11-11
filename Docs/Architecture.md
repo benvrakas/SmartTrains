@@ -210,8 +210,8 @@ window's Rename stations); never automatic.
   on its way out: the spots `Ahead` on a passing siding, `Behind` on a dead end. `MonitorTrains` parks a depot-bound
   train near the spot's goal (`FDepotTrip::Goal`), not the signal, since a dead end's goal lies deep inside.
 - **Driving (0.22.0)**: Auto Trains drives a train to its spot (`STAt::DriveTo`, `GetDriveState`, `CancelDrive`; Auto
-  Trains' `ExternalDriveTo` API). SmartTrains empties the timetable, switches the autopilot on and hands Auto Trains the
-  spot's goal connection; `MonitorTrains` parks the train (autopilot off) once Auto Trains reports it arrived, and if
+  Trains' `ExternalDriveTo` API). SmartTrains switches the autopilot on and hands Auto Trains the spot's goal connection
+  (Auto Trains empties the timetable; the drive isn't saved, so after loading an idle train is simply sent again); `MonitorTrains` parks the train (autopilot off) once Auto Trains reports it arrived, and if
   Auto Trains drops it (no way, goal dropped) that signal isn't offered to the train for `STDepots::NoWayRetrySeconds`
   (`mDepotNoWay`) and the train settles again. `WriteJob` and unmanaging cancel the drive. Without Auto Trains there is
   no depot parking. Before 0.22.0 SmartTrains forced a path with no station into the game's automatic control
