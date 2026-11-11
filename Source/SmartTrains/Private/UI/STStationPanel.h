@@ -9,7 +9,7 @@ class USTButton;
 class UTextBlock;
 
 // "SmartTrains" section added under the train and station lists of the vanilla station menu (Widget_TrainStationNew):
-// depot and pool tag, the station's platform roles and the fleet status.
+// the station's platform roles and the fleet status.
 UCLASS()
 class USTStationPanel : public USTPanel
 {
@@ -25,17 +25,10 @@ protected:
 
 	AFGTrainStationIdentifier* GetStation() const;
 
-	void SendStation(bool bNewDepot);
 	// Station name from its factory: shows it (bApply false) or renames the station.
 	void SendRename(bool bApply);
 	// Shows the lines and turns the rename button into its confirm step while its preview can be applied (Ready 1).
 	void ShowSetUp(const TArray<FString>& Lines, uint8 Ready);
-	// The depot button's text.
-	virtual FText GetDepotText(bool bOn) const;
-
-	UPROPERTY()
-	TObjectPtr<USTButton> mDepot;
-
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mLines;
 
@@ -48,15 +41,14 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mSetUpLines;
 
-	bool bDepot = false;
 	// 1 while the rename button may confirm its preview.
 	uint8 mSetupReady = 0;
 };
 
-// Depot switch and Rename from factory, side by side under the station name on the station menu's first tab
-// (Widget_TrainStationNew, VerticalBox_0). One row: that box doesn't push the rest of the menu down.
+// Rename from factory, under the station name on the station menu's first tab (Widget_TrainStationNew,
+// VerticalBox_0). One row: that box doesn't push the rest of the menu down.
 UCLASS()
-class USTStationDepotBar : public USTStationPanel
+class USTStationRenameBar : public USTStationPanel
 {
 	GENERATED_BODY()
 
@@ -64,5 +56,4 @@ protected:
 	virtual void BuildContent(UVerticalBox* Root) override;
 	virtual bool OnShown() override;
 	virtual FMargin GetOuterPadding() const override { return FMargin(0.f, 6.f, 0.f, 0.f); }
-	virtual FText GetDepotText(bool bOn) const override;
 };

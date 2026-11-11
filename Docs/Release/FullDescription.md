@@ -67,15 +67,14 @@ them (see below).
   (measured from the track), and never more than **Most trains waiting before a station** (2), so trains don't queue
   across junctions. Switch **Trains leave stations at once** off for the old behaviour: deliveries and pickups wait
   up to their longest wait, and a train whose next station is busy waits in its station.
-- **Trains with nothing to move park** at the nearest free **Depot Signal** whose siding fits them, else at the
-  nearest free station **depot**, else where they are, and leave as soon as they get a trip. One train per depot.
+- **Trains with nothing to move park** at the nearest free **Depot Signal** whose siding fits them, else where they
+  stopped, and leave as soon as they get a trip. One train per depot signal.
   - **Depot Signal** (AWESOME Shop, 1 coupon): a block signal that marks the siding behind it as a depot. Put it at
     the exit of a passing siding, with a signal at the siding's entry. No switch or station may lie between the two,
     and the siding must be at least 8 m longer than the train. Look at it to see whether it's ready and which trains
-    fit, or why not; `/st depots` lists them all. New in 0.17.0 and not yet tried in game.
-  - **Station depot** (switch it on under the station's name in the station menu): a station used as a rail yard. It
-    may have sink or other platforms too: it is booked like any station, so a train coming to unload and a train
-    coming to park never queue behind each other.
+    fit, or why not; `/st depots` lists them all.
+  - A train parked in a station that a trip needs moves to a free depot signal, else to the nearest station no trip
+    needs.
 - **Dead ends:** a train parked in a dead-end station keeps it until it leaves, so no second train is sent into a
   bay it couldn't enter.
 

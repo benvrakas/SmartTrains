@@ -1219,17 +1219,10 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 			return;
 		}
 	}
-	// Idle: to the nearest free depot signal whose siding fits it, else the nearest depot station no other train is at or
-	// heading for. With none free it parks where it is, and moves when a trip needs that station or (with Auto Trains)
-	// a train waits for it (ClearNeededBays).
+	// Idle: to the nearest free depot signal whose siding fits it. With none free it parks where it is, and moves when a
+	// trip needs that station or (with Auto Trains) a train waits for it (ClearNeededBays).
 	if (SendToDepotSignal(State, Why))
 	{
-		return;
-	}
-	AFGTrainStationIdentifier* Depot = FindDepot(State, State.LastStation.Get());
-	if (Depot && Depot != State.LastStation)
-	{
-		SendToStation(State, Depot, Why);
 		return;
 	}
 	const AFGRailroadVehicle* First = State.Train->GetFirstVehicle();
@@ -1399,49 +1392,6 @@ void ASTSubsystem::Park(FSTTrainState& State, const TCHAR* Why)
 	UpdateTrainName(State);
 }
 
-bool ASTSubsystem::IsDepotTaken(const AFGTrainStationIdentifier* Station, const AFGTrain* Except) const
-{
-	for (const FSTTrainState& Other : mTrains)
-	{
-		if (Other.Train == Except || !IsValid(Other.Train))
-		{
-			continue;
-		}
-		if ((Other.Train->IsDocked() && Other.DockedStation.Get() == Station) || (Other.bManaged && Other.Phase == ESTTrainPhase::Parked && Other.LastStation.Get() == Station))
-		{
-			return true;
-		}
-		for (int32 Leg = Other.Job.Leg; Other.bManaged && Other.bHasJob && Leg < Other.Job.Legs.Num(); ++Leg)
-		{
-			if (Other.Job.Legs[Leg].Station.Get() == Station)
-			{
-				return true;
-			}
-		}
-	}
-	return false;
-}
-
-AFGTrainStationIdentifier* ASTSubsystem::FindDepot(const FSTTrainState& State, const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* Except) const
-{
-	AFGTrainStationIdentifier* Best = nullptr;
-	float BestTime = TNumericLimits<float>::Max();
-	for (const FSTStationConfig& Config : mStations)
-	{
-		if (!Config.bDepot || !IsValid(Config.Station) || Config.Station == Except || !CanServe(State, Config.Station) || IsDepotTaken(Config.Station, State.Train))
-		{
-			continue;
-		}
-		const float Time = From ? EstimateTravelSeconds(From, Config.Station, IsPushPull(State.Train)) : 0.f;
-		if (Time >= 0.f && Time < BestTime)
-		{
-			BestTime = Time;
-			Best = Config.Station;
-		}
-	}
-	return Best;
-}
-
 void ASTSubsystem::ClearNeededBays()
 {
 	const double Clock = Now();
@@ -1511,11 +1461,14 @@ void ASTSubsystem::ClearNeededBays()
 		{
 			continue;
 		}
-		AFGTrainStationIdentifier* Target = FindDepot(State, Here, Here);
-		if (!Target)
+		// Out of the way: a free depot signal, else the nearest station no trip needs.
+		if (SendToDepotSignal(State, *Why))
+		{
+			continue;
+		}
+		AFGTrainStationIdentifier* Target = nullptr;
 		{
 			float BestTime = TNumericLimits<float>::Max();
-			Target = nullptr;
 			TArray<AFGTrainStationIdentifier*> Stations;
 			if (Railroad)
 			{
@@ -1537,7 +1490,7 @@ void ASTSubsystem::ClearNeededBays()
 		}
 		if (!Target)
 		{
-			UE_LOG(LogSmartTrains, Warning, TEXT("%s is parked at %s, which a job needs, and there is nowhere to move it: add a depot (/st station depot on)"),
+			UE_LOG(LogSmartTrains, Warning, TEXT("%s is parked at %s, which a job needs, and there is nowhere to move it: build a depot signal (AWESOME Shop)"),
 				*STLayout::Name(State.Train), *STLayout::Name(Here));
 			continue;
 		}

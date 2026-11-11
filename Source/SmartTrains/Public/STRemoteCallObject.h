@@ -34,8 +34,6 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_PastePlatformSettings(AFGBuildableTrainPlatformCargo* Platform, bool bFromGameKey, int32 Edit);
 
-	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_SetStation(AFGTrainStationIdentifier* Station, bool bDepot, int32 Edit);
 
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_SetTrain(AFGTrain* Train, ESTTrainAction Action, int32 Edit);

@@ -40,7 +40,6 @@ Setting a role switches the platform to load (supply) or unload (demand).
 
 ## Stations (look at a station or one of its platforms)
 
-- `/st station depot on|off`: idle managed trains park at the nearest depot.
 
 ## Station set-up
 

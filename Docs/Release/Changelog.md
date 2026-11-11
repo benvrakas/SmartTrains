@@ -1,7 +1,12 @@
 # Changelog
 
-## 0.18.1 (beta)
+## 0.19.0 (beta)
 
+- **Station depots are gone; depot signals replace them.** The station menu has no depot switch any more (the bar
+  under the station's name is just **Rename from factory...**), and `/st station depot` is gone. Idle managed trains
+  park at the nearest free depot signal whose siding fits them, else where they stopped. A parked train in a station
+  a trip needs moves to a free depot signal, else to the nearest station no trip needs. Stations switched to depot in
+  older saves simply stop being depots.
 - **Platforms keep the item they hold.** Autodetect, the station set-up and the migration now always give a platform
   the item or fluid it holds (the one it holds most of); the belt and pipe trace only picks the item for an empty
   platform. Before, the trace won whenever it found machines that don't use the held item. Where they disagree, the

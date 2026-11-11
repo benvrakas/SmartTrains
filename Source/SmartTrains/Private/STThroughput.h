@@ -38,7 +38,7 @@ private:
 		int32 Parking = 0;
 		int32 Idle = 0;
 		// Running their last job again: free for new trips.
-		// Of Idle: parked in a station that isn't a depot.
+		// Of Idle: parked anywhere but at a depot signal.
 		int32 ParkedOutside = 0;
 	};
 	enum ENodeFlag : uint8

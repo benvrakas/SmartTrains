@@ -309,13 +309,6 @@ TArray<FString> ASTSubsystem::DescribeStationGroups(const AFGTrainStationIdentif
 	if (const void* Junction = GetJunction(Station))
 	{
 		TArray<FString> Shared;
-		for (const FSTStationConfig& Each : mStations)
-		{
-			if (Each.Station && Each.Station.Get() != Station && GetJunction(Each.Station) == Junction)
-			{
-				Shared.Add(STLayout::Name(Each.Station.Get()));
-			}
-		}
 		for (const FSTPlatformConfig& Each : mPlatforms)
 		{
 			const AFGTrainStationIdentifier* Other = STLayout::GetIdentifier(STLayout::FindStation(Each.Platform));

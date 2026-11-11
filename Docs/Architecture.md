@@ -193,7 +193,7 @@ window's Rename stations); never automatic.
   signal is this one; from there back along whole tracks until a signal at a joint (the siding's entry). A switch, a
   platform's track or a track end before that makes it unusable. Shown in the look-at text (runs on every client: tracks
   and signals are replicated) and `/st depots`.
-- **Parking** (`SendToDepotSignal`, first in `SettleIdle`): free depot signals (no other train in `mDepotTrips`) whose
+- **Parking** (`SendToDepotSignal`, in `SettleIdle` and `ClearNeededBays`): free depot signals (no other train in `mDepotTrips`) whose
   siding fits the train (length + `STDepots::Margin`) on its track graph are goals of one Dijkstra over track exits from
   the MU master's exit ahead (`STDepots::FindRoute`). The train's timetable is emptied, then the route is given to its
   automatic control (`FSTPlatformAccess::SetTrainPath`, friend of `AFGTrain`: `mAtcData.SetPath`, no station, as Auto
@@ -243,8 +243,10 @@ fix exposed the next problem through how they interacted. 0.8.0 replaces them wi
   regret insertion, re-plans and the search all optimise one thing. Value is the forecast cost removed (shortfall x
   priority x `CostScale`, plus lost production x 0.25), less the stop cost, plus or minus tied cars. The over-target
   bonus (0.2) and sink value (0.1) are gone; a re-plan now has to beat the kept rest by `ReplanMarginValue` in score.
-- **Idle trains park** (`SettleIdle`): a free depot (`FindDepot`), else park where it is; `ClearNeededBays` moves a
-  parked train when a trip needs its station or Auto Trains reports a train waiting for it.
+- **Idle trains park** (`SettleIdle`): a free depot signal (`SendToDepotSignal`), else park where it is;
+  `ClearNeededBays` moves a parked train when a trip needs its station or Auto Trains reports a train waiting for it
+  (to a free depot signal, else the nearest station no trip needs). Station depots (`FSTStationConfig::bDepot`,
+  `/st station depot`) were removed in 0.19.0; the saved `mStations` of older saves is ignored on load.
 - **Waiting room** (`FSTTravel::WalkApproach`, `GetWaitingRoom`): from each station's platform end, the walk follows the
   track out until the first switch (a connection with more than one track), a track end or another station, adding
   the length of track not owned by platforms. Room = that length / (train length + 5 m). The queue limit is the smaller

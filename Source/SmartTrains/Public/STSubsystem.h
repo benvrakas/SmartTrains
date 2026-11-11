@@ -133,7 +133,6 @@ public:
 	//~ Settings, server only. Cause names the player or tool for the log.
 	FSTPlatformConfig* FindPlatformConfig(const AFGBuildableTrainPlatformCargo* Platform);
 	const FSTPlatformConfig* FindPlatformConfig(const AFGBuildableTrainPlatformCargo* Platform) const;
-	FSTStationConfig* FindStationConfig(const AFGTrainStationIdentifier* Station);
 	FSTTrainState* FindTrainState(const AFGTrain* Train);
 	FSTTrainState& FindOrAddTrainState(AFGTrain* Train);
 
@@ -142,7 +141,6 @@ public:
 	// Keeps the machines Platform's trace reached (for its recipe rate); only Autodetect, station set-up and the
 	// migration trace platforms.
 	void SetPlatformMachines(AFGBuildableTrainPlatformCargo* Platform, const TArray<TWeakObjectPtr<const AActor>>& Machines);
-	void SetStationDepot(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Cause);
 
 	// Starts or ends management of Train. Starting saves its timetable; ending puts it back and lets it drive on.
 	// Returns false with OutWhy set if it can't be managed (kept vanilla, no locomotive).
@@ -364,11 +362,6 @@ private:
 	void SendToStation(FSTTrainState& State, AFGTrainStationIdentifier* Station, const TCHAR* Why);
 	// Switches the train's autopilot off where it stands until it gets a job.
 	void Park(FSTTrainState& State, const TCHAR* Why);
-	// Nearest depot for State's train, or nullptr.
-	// The nearest depot (but Except) Train can reach that no other train is at or heading for.
-	AFGTrainStationIdentifier* FindDepot(const FSTTrainState& State, const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* Except = nullptr) const;
-	// Another train is docked or parked at Station, or a managed train's job still goes there.
-	bool IsDepotTaken(const AFGTrainStationIdentifier* Station, const AFGTrain* Except) const;
 	// Moves parked trains off stations a job needs.
 	void ClearNeededBays();
 	// For a train without a job: hands out jobs now, else sends it to a depot or parks it.
@@ -419,9 +412,6 @@ private:
 
 	UPROPERTY(SaveGame)
 	TArray<FSTPlatformConfig> mPlatforms;
-
-	UPROPERTY(SaveGame)
-	TArray<FSTStationConfig> mStations;
 
 	UPROPERTY(SaveGame)
 	TArray<FSTTrainState> mTrains;

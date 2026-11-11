@@ -142,8 +142,8 @@ void ASTSubsystem::BeginPlay()
 	{
 		Managed += State.bManaged ? 1 : 0;
 	}
-	UE_LOG(LogSmartTrains, Log, TEXT("Subsystem ready: %d platform settings, %d stations, %d trains (%d managed), %d dock maps, %d timed trips; Freight Car Control %s; DynamicTimeTable %s"),
-		mPlatforms.Num(), mStations.Num(), mTrains.Num(), Managed, mDockMaps.Num(), mTrips.Num(),
+	UE_LOG(LogSmartTrains, Log, TEXT("Subsystem ready: %d platform settings, %d trains (%d managed), %d dock maps, %d timed trips; Freight Car Control %s; DynamicTimeTable %s"),
+		mPlatforms.Num(), mTrains.Num(), Managed, mDockMaps.Num(), mTrips.Num(),
 		IsFccAvailable() ? TEXT("available") : TEXT("not available"), STDtt::IsInstalled(GetWorld()) ? TEXT("installed") : TEXT("not installed"));
 }
 
@@ -160,7 +160,6 @@ void ASTSubsystem::PreSaveGame_Implementation(int32 SaveVersion, int32 GameVersi
 {
 	mClockAtSave = Now();
 	mPlatforms.RemoveAll([](const FSTPlatformConfig& Config) { return !IsValid(Config.Platform) || (Config.Role == ESTRole::Off && Config.Items.Num() == 0); });
-	mStations.RemoveAll([](const FSTStationConfig& Config) { return !IsValid(Config.Station) || !Config.bDepot; });
 	mTrains.RemoveAll([](const FSTTrainState& State) { return !IsValid(State.Train) || (!State.bManaged && !State.bKeepVanilla); });
 	mDockMaps.RemoveAll([](const FSTDockMap& Map) { return !IsValid(Map.Train) || !IsValid(Map.Station); });
 	mTrips.RemoveAll([](const FSTTripTime& Trip) { return !IsValid(Trip.From) || !IsValid(Trip.To); });
@@ -189,8 +188,8 @@ void ASTSubsystem::PostLoadGame_Implementation(int32 SaveVersion, int32 GameVers
 	{
 		State.bWasDocked = false;
 	}
-	UE_LOG(LogSmartTrains, Log, TEXT("Loaded: %d platform settings, %d stations, %d trains, %d dock maps, %d timed trips, %d timed stays"),
-		mPlatforms.Num(), mStations.Num(), mTrains.Num(), mDockMaps.Num(), mTrips.Num(), mStays.Num());
+	UE_LOG(LogSmartTrains, Log, TEXT("Loaded: %d platform settings, %d trains, %d dock maps, %d timed trips, %d timed stays"),
+		mPlatforms.Num(), mTrains.Num(), mDockMaps.Num(), mTrips.Num(), mStays.Num());
 }
 
 double ASTSubsystem::Now() const
@@ -257,11 +256,6 @@ FSTPlatformConfig* ASTSubsystem::FindPlatformConfig(const AFGBuildableTrainPlatf
 const FSTPlatformConfig* ASTSubsystem::FindPlatformConfig(const AFGBuildableTrainPlatformCargo* Platform) const
 {
 	return mPlatforms.FindByPredicate([Platform](const FSTPlatformConfig& Config) { return Config.Platform == Platform; });
-}
-
-FSTStationConfig* ASTSubsystem::FindStationConfig(const AFGTrainStationIdentifier* Station)
-{
-	return mStations.FindByPredicate([Station](const FSTStationConfig& Config) { return Config.Station == Station; });
 }
 
 FSTTrainState* ASTSubsystem::FindTrainState(const AFGTrain* Train)
@@ -346,22 +340,6 @@ void ASTSubsystem::SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, E
 	}
 	bDispatchSoon = true;
 	bReplanAll = true;
-}
-
-void ASTSubsystem::SetStationDepot(AFGTrainStationIdentifier* Station, bool bDepot, const FString& Cause)
-{
-	if (!Station)
-	{
-		return;
-	}
-	FSTStationConfig* Config = FindStationConfig(Station);
-	if (!Config)
-	{
-		Config = &mStations.AddDefaulted_GetRef();
-		Config->Station = Station;
-	}
-	Config->bDepot = bDepot;
-	UE_LOG(LogSmartTrains, Log, TEXT("STATION %s: depot %s by %s"), *STLayout::Name(Station), bDepot ? TEXT("on") : TEXT("off"), *Cause);
 }
 
 bool ASTSubsystem::SetTrainManaged(AFGTrain* Train, bool bManaged, const FString& Cause, FString& OutWhy)
@@ -1477,8 +1455,7 @@ TArray<FString> ASTSubsystem::DescribeStation(const AFGTrainStationIdentifier* S
 {
 	TArray<FString> Lines;
 	const AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
-	const FSTStationConfig* Config = mStations.FindByPredicate([Station](const FSTStationConfig& Each) { return Each.Station == Station; });
-	Lines.Add(FString::Printf(TEXT("Station %s%s"), *STLayout::Name(Station), Config && Config->bDepot ? TEXT(" (depot)") : TEXT("")));
+	Lines.Add(FString::Printf(TEXT("Station %s"), *STLayout::Name(Station)));
 	Lines.Append(DescribeStationGroups(Station));
 	FString Layout;
 	for (const AFGBuildableTrainPlatform* Platform : STLayout::GetPlatforms(Building))

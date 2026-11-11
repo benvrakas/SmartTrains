@@ -116,8 +116,6 @@ struct SMARTTRAINS_API FSTStationView
 	UPROPERTY()
 	TObjectPtr<AFGTrainStationIdentifier> Station = nullptr;
 
-	UPROPERTY()
-	bool bDepot = false;
 
 	// Layout and platform roles.
 	UPROPERTY()

@@ -18,8 +18,7 @@
 void USTStationPanel::BuildContent(UVerticalBox* Root)
 {
 	MakeHeading(Root, LOCTEXT("StationHeading", "SmartTrains"));
-	mDepot = MakeButton(Root, GetDepotText(false), [this]() { SendStation(!bDepot); });
-	MakeText(Root, LOCTEXT("DepotHint", "Managed trains with nothing to do wait at the nearest depot. With no depot they keep running their last trip."), 10);
+	MakeText(Root, LOCTEXT("DepotHint", "Managed trains with nothing to do wait at the nearest free Depot Signal (AWESOME Shop) whose siding fits them; with none, where they stopped."), 10);
 	mLines = MakeText(Root, LOCTEXT("Loading", "Asking the server..."), 10, true, FMargin(0.f, 6.f, 0.f, 0.f));
 	mNetwork = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 6.f, 0.f, 0.f));
 }
@@ -46,20 +45,6 @@ void USTStationPanel::RequestView(USTRemoteCallObject* RCO)
 	{
 		RCO->Server_RequestStation(Station);
 	}
-}
-
-void USTStationPanel::SendStation(bool bNewDepot)
-{
-	USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
-	AFGTrainStationIdentifier* Station = GetStation();
-	if (!RCO || !Station)
-	{
-		return;
-	}
-	bDepot = bNewDepot;
-	UE_LOG(LogSmartTrains, Log, TEXT("Station menu: %s depot %s"), *STLayout::Name(Station), bDepot ? TEXT("on") : TEXT("off"));
-	RCO->Server_SetStation(Station, bDepot, RCO->NextEdit());
-	mDepot->SetText(GetDepotText(bDepot));
 }
 
 void USTStationPanel::SendRename(bool bApply)
@@ -118,17 +103,10 @@ void USTStationPanel::ShowSetUp(const TArray<FString>& Lines, uint8 Ready)
 	}
 }
 
-FText USTStationPanel::GetDepotText(bool bOn) const
-{
-	return bOn ? LOCTEXT("DepotOn", "Depot: on") : LOCTEXT("DepotOff", "Depot: off");
-}
-
 void USTStationPanel::Refresh(USTRemoteCallObject* RCO)
 {
 	if (const FSTStationView* View = RCO->GetStationView(GetStation()))
 	{
-		bDepot = View->bDepot;
-		mDepot->SetText(GetDepotText(bDepot));
 		if (mLines)
 		{
 			SetLines(mLines, View->Lines);
@@ -141,34 +119,24 @@ void USTStationPanel::Refresh(USTRemoteCallObject* RCO)
 	}
 }
 
-void USTStationDepotBar::BuildContent(UVerticalBox* Root)
+void USTStationRenameBar::BuildContent(UVerticalBox* Root)
 {
 	// One row, as tall as a single button: the space under the name plate doesn't push the rest of the menu down.
 	UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
 	Root->AddChildToVerticalBox(Row);
-	mDepot = MakeButton(nullptr, GetDepotText(false), [this]() { SendStation(!bDepot); }, FMargin(0.f));
 	// Shows the name it would give first (in its own text); a second click renames.
 	mRename = MakeButton(nullptr, FText::GetEmpty(), [this]() { SendRename(mSetupReady == 1); }, FMargin(0.f));
-	for (USTButton* Button : {mDepot.Get(), mRename.Get()})
+	if (UHorizontalBoxSlot* ButtonSlot = Row->AddChildToHorizontalBox(mRename))
 	{
-		if (UHorizontalBoxSlot* ButtonSlot = Row->AddChildToHorizontalBox(Button))
-		{
-			ButtonSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-			ButtonSlot->SetPadding(FMargin(0.f, 0.f, Button == mDepot ? 4.f : 0.f, 0.f));
-		}
+		ButtonSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
 	}
 	ShowSetUp(TArray<FString>(), 0);
 }
 
-bool USTStationDepotBar::OnShown()
+bool USTStationRenameBar::OnShown()
 {
-	UE_LOG(LogSmartTrains, Log, TEXT("Station depot bar for %s"), *STLayout::Name(GetStation()));
+	UE_LOG(LogSmartTrains, Log, TEXT("Station rename bar for %s"), *STLayout::Name(GetStation()));
 	return GetStation() != nullptr;
-}
-
-FText USTStationDepotBar::GetDepotText(bool bOn) const
-{
-	return bOn ? LOCTEXT("DepotBarOn", "SmartTrains depot: on") : LOCTEXT("DepotBarOff", "SmartTrains depot: off");
 }
 
 #undef LOCTEXT_NAMESPACE

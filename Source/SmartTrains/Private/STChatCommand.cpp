@@ -203,7 +203,7 @@ namespace
 		TEXT("/st status | jobs | fit"),
 		TEXT("/st monitor [text]   (what limits throughput: supply, trains, fit or congestion; text prints it in chat)"),
 		TEXT("/st platform [supply|demand|off] [item, item...] [target %] [sendat %] [priority low|normal|high|critical] [rate n/min] | /st platform copy"),
-		TEXT("/st station [depot on|off] | /st depots   (depot signals and their sidings)"),
+		TEXT("/st station | /st depots   (depot signals and their sidings)"),
 		TEXT("/st setup [apply] [keepname]   (platform roles, items and a name for the station you look at, from its factory)"),
 		TEXT("/st setup all [apply] [keepname]   (every station; report in Saved/SmartTrains; apply is admin only)"),
 		TEXT("/st setup format <text> | words <loads> <unloads several> <unloads one> [both] | default   (how stations are named)"),
@@ -468,18 +468,6 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		{
 			Sender->SendChatMessage(TEXT("Look at a station or one of its platforms first."), FLinearColor::Red);
 			return EExecutionStatus::UNCOMPLETED;
-		}
-		if (Arguments.Num() >= 3 && !Allowed(Sender, *Subsystem, STAccess::EChange::Edit, TEXT("change station settings")))
-		{
-			return EExecutionStatus::UNCOMPLETED;
-		}
-		for (int32 Index = 1; Index + 1 < Arguments.Num(); Index += 2)
-		{
-			const FString Word = Arguments[Index].ToLower();
-			if (Word == TEXT("depot"))
-			{
-				Subsystem->SetStationDepot(Station, IsOn(Arguments[Index + 1]), Who);
-			}
 		}
 		Send(Sender, Subsystem->DescribeStation(Station));
 		return EExecutionStatus::COMPLETED;

@@ -140,19 +140,6 @@ struct SMARTTRAINS_API FSTPlatformConfig
 };
 
 // A station's SmartTrains settings.
-USTRUCT()
-struct SMARTTRAINS_API FSTStationConfig
-{
-	GENERATED_BODY()
-
-	UPROPERTY(SaveGame)
-	TObjectPtr<AFGTrainStationIdentifier> Station = nullptr;
-
-	// Idle managed trains park here.
-	UPROPERTY(SaveGame)
-	bool bDepot = false;
-};
-
 // How the station set-up names stations (Docs/Architecture.md, "Station set-up"), per world. {area}, {product},
 // {role}, {n} and {rate} are filled in; empty ones and their brackets drop out.
 USTRUCT()

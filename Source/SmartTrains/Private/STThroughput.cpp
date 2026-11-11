@@ -113,8 +113,7 @@ void FSTThroughput::Sample(const ASTSubsystem& Subsystem)
 		if (!State.bHasJob)
 		{
 			++Fleet.Idle;
-			const FSTStationConfig* Here = Subsystem.mStations.FindByPredicate([&](const FSTStationConfig& Each) { return Each.Station == State.LastStation.Get(); });
-			Fleet.ParkedOutside += State.Phase == ESTTrainPhase::Parked && !(Here && Here->bDepot) ? 1 : 0;
+			Fleet.ParkedOutside += State.Phase == ESTTrainPhase::Parked && !Subsystem.mDepotTrips.Contains(State.Train.Get()) ? 1 : 0;
 		}
 		else if (State.Job.bPark)
 		{
@@ -347,13 +346,8 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 		}
 		if (Last.ParkedOutside > 0)
 		{
-			int32 Depots = 0;
-			for (const FSTStationConfig& Config : Subsystem.mStations)
-			{
-				Depots += Config.bDepot && IsValid(Config.Station) ? 1 : 0;
-			}
-			View.Summary.Add(FString::Printf(TEXT("%d idle trains are parked in stations that aren't depots, because no depot is free (%d depots). They move when a trip needs the station, but a depot for each (one train per depot, best without supply or demand platforms, off the main line) keeps stations clear."),
-				Last.ParkedOutside, Depots));
+			View.Summary.Add(FString::Printf(TEXT("%d idle trains are parked where they stopped, because no depot signal is free or fits them (/st depots). They move when a trip needs their station, but a depot signal for each (AWESOME Shop; a passing siding off the main line, one train each) keeps stations clear."),
+				Last.ParkedOutside));
 		}
 	}
 	else

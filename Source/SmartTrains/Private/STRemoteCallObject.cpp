@@ -334,33 +334,6 @@ void USTRemoteCallObject::Server_CopyPlatformToStation_Implementation(AFGBuildab
 	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
 }
 
-bool USTRemoteCallObject::Server_SetStation_Validate(AFGTrainStationIdentifier* Station, bool bDepot, int32 Edit)
-{
-	return true;
-}
-
-void USTRemoteCallObject::Server_SetStation_Implementation(AFGTrainStationIdentifier* Station, bool bDepot, int32 Edit)
-{
-	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
-	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
-	if (!Subsystem || !IsValid(Station))
-	{
-		return;
-	}
-	if (!Allowed(*this, *Subsystem, STAccess::EChange::Edit, TEXT("change station settings")))
-	{
-		Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
-		return;
-	}
-	const FString Cause = FString::Printf(TEXT("station menu (%s)"), *GetPlayerName());
-	const FSTStationConfig* Config = Subsystem->FindStationConfig(Station);
-	if (!Config || Config->bDepot != bDepot)
-	{
-		Subsystem->SetStationDepot(Station, bDepot, Cause);
-	}
-	Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
-}
-
 bool USTRemoteCallObject::Server_SetUpStation_Validate(AFGTrainStationIdentifier* Station, uint8 Mode, int32 Edit)
 {
 	return Mode <= 1;

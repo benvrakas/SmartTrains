@@ -18,8 +18,8 @@ Test builds are installed locally (SmartTrains is not on SMR). Use a test copy (
    - `/st platform demand Iron Plate` on a platform at station B.
    - Drive a train, `/st train manage`, get out, `/st job Iron Plate from A to B`.
 
-   The train should drive to A, load only iron plates, drive to B, unload, and then park (no depot) or go to a
-   depot. Check the `WRITE`, `docked`, `left` and `DONE` lines.
+   The train should drive to A, load only iron plates, drive to B, unload, and then park (no depot signal) or go to a
+   depot signal. Check the `WRITE`, `docked`, `left` and `DONE` lines.
 3. **Stop rules.** At A, does the train leave once full or after 30 s? At B, once empty or after 120 s? Do platforms
    at A in unload mode leave it alone (unload filter none)?
 4. **Re-docking at the same station.** Give a job whose pickup is the station the train stands at. Does it dock
@@ -32,8 +32,8 @@ Test builds are installed locally (SmartTrains is not on SMR). Use a test copy (
    minutes). Trains should pick up and deliver on their own (`JOB` lines), the consumer should stay near its
    target, and `/st status` should show the planned flow and trains needed.
 2. Set a Critical consumer that runs empty: it should be served first, even with part loads.
-3. Add a depot: idle trains should go there and park.
-4. Without a depot, make a parked train stand in a station a job needs: it should move to a free station.
+3. Build a depot signal on a passing siding: idle trains should drive onto it and park at the signal.
+4. Without a free depot signal, make a parked train stand in a station a job needs: it should move to a free station.
 5. With Freight Car Control 1.0.4 or later: a station where only some cars fit should send the others as Skip
    (`skipped cars` in `WRITE`). Without it, the same job should be refused (`NO FIT` at VeryVerbose).
 6. Observe only on: jobs are logged as `WOULD JOB`, trains untouched.
@@ -69,7 +69,7 @@ On a test copy of the user's network:
 4. Locomotive menu (0.4.0): the SmartTrains section is in the Timetable column under the stop list; the power and
    speed stats are clear. Turning Managed on locks "Edit timetable"; turning it off unlocks it and puts the old
    timetable back. A train with `/st train keepvanilla on` shows why it can't be managed.
-5. Station menu: depot switch; no pool tag and no migration tool there.
+5. Station menu: Rename from factory under the name; no depot switch, no pool tag and no migration tool there.
 6. `/st migrate`: the migration window opens over the game with the mouse free, and the player doesn't move while it
    is open. Preview, untick a row, Apply (it asks for a second click without a test copy), Undo. Save a test copy and
    a backup (beta tools on). Close and Escape both give the controls back.

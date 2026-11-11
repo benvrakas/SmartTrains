@@ -362,10 +362,6 @@ FSTStationView ASTSubsystem::MakeStationView(const AFGTrainStationIdentifier* St
 	View.Station = const_cast<AFGTrainStationIdentifier*>(Station);
 	View.AppliedEdit = AppliedEdit;
 	View.bBetaTools = mSettings.bBetaTools;
-	if (const FSTStationConfig* Config = mStations.FindByPredicate([Station](const FSTStationConfig& Each) { return Each.Station == Station; }))
-	{
-		View.bDepot = Config->bDepot;
-	}
 	if (const TArray<FString>* Setup = mSetupLines.Find(const_cast<AFGTrainStationIdentifier*>(Station)))
 	{
 		View.SetupLines = *Setup;
@@ -375,7 +371,7 @@ FSTStationView ASTSubsystem::MakeStationView(const AFGTrainStationIdentifier* St
 	TArray<FString> Lines = DescribeStation(Station);
 	if (Lines.Num() > 0)
 	{
-		// The first line repeats the station name, depot and pool, which the menu shows itself.
+		// The first line repeats the station name, which the menu shows itself.
 		Lines.RemoveAt(0);
 	}
 	for (FString& Line : Lines)
