@@ -24,6 +24,27 @@ namespace
 	// A train's pattern is checked against every consumer station at most this often while it finds nothing. [s]
 	constexpr double PatternHomeCheckSeconds = 60.0;
 
+	// True if A and B give every car the same items, front to back or back to front (a train turned round).
+	bool SamePattern(const TArray<TArray<UClass*>>& A, const TArray<TArray<UClass*>>& B)
+	{
+		auto SameCar = [](const TArray<UClass*>& X, const TArray<UClass*>& Y)
+		{
+			return X.Num() == Y.Num() && !X.ContainsByPredicate([&Y](UClass* Item) { return !Y.Contains(Item); });
+		};
+		if (A.Num() != B.Num())
+		{
+			return false;
+		}
+		bool bForward = true;
+		bool bBackward = true;
+		for (int32 Car = 0; Car < A.Num(); ++Car)
+		{
+			bForward &= SameCar(A[Car], B[Car]);
+			bBackward &= SameCar(A[Car], B[A.Num() - 1 - Car]);
+		}
+		return bForward || bBackward;
+	}
+
 	// True if some consumer station's demand platforms take Pattern: a car with pattern items beside a demand platform
 	// for the same items, and no car beside one for other items.
 	bool HasPatternHome(const FSTTripPlanner& Planner, const TArray<FSTNode>& Nodes, const TArray<TArray<UClass*>>& Pattern)
@@ -284,13 +305,23 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			}
 			bHomeless = State.bPatternHomeless;
 		}
+		// A spare train: its cars are empty, nothing in its own group is worth a trip, and another managed train keeps the
+		// group. It may move at once, but only to a consumer station no train serves; else it waits as before.
+		bool bSpare = false;
+		if (!BestConsumer && !bOpen && !bMayChange && !bHomeless && GetCargo(State.Train).Num() == 0)
+		{
+			bSpare = mTrains.ContainsByPredicate([&](const FSTTrainState& Other)
+			{
+				return Other.bManaged && Other.Train != State.Train && IsValid(Other.Train) && SamePattern(Other.GetPattern(), Pattern);
+			});
+		}
 		bool bChanging = false;
-		if (!BestConsumer && !bOpen && (bMayChange || bHomeless))
+		if (!BestConsumer && !bOpen && (bMayChange || bHomeless || bSpare))
 		{
 			bChanging = true;
 			TryConsumers(true, true);
 			bUnservedChosen = BestConsumer != nullptr;
-			if (!BestConsumer)
+			if (!BestConsumer && !bSpare)
 			{
 				TryConsumers(true, false);
 			}
@@ -315,7 +346,8 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			if (After != Before)
 			{
 				UE_LOG(LogSmartTrains, Log, TEXT("PATTERN %s: %s -> %s (%s%s)"), *STLayout::Name(State.Train), *Before, *After,
-					bChanging ? (bHomeless ? TEXT("changes group: no consumer station takes its pattern any more") : TEXT("changes group: nothing to do in its own for a while"))
+					bChanging ? (bHomeless ? TEXT("changes group: no consumer station takes its pattern any more")
+						: (bMayChange ? TEXT("changes group: nothing to do in its own for a while") : TEXT("changes group: spare, empty with nothing to do, another train keeps its group")))
 						: TEXT("a trip gives open cars their items"),
 					bUnservedChosen ? *FString::Printf(TEXT("; %s had no train"), *STLayout::Name(BestConsumer)) : TEXT(""));
 			}

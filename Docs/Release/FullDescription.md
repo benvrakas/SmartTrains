@@ -50,7 +50,9 @@ them (see below).
   - A train choosing a pattern (a new train, or one changing group) goes first to stations no train serves: no
     train is on a trip for them and none had a trip in the last 10 minutes. Only if none of those has work does it
     take the best trip anywhere, so a starved station gets a train even when others pay more.
-  - A train with nothing to do in its pattern for 5 minutes may change group. Cars whose cargo doesn't line up with
+  - A train with nothing to do in its pattern for 5 minutes may change group.
+  - A train with empty cars and nothing to do, whose pattern another train shares, moves at once to a station no
+    train serves. Cars whose cargo doesn't line up with
     the new consumer are unloaded first, at consumers of that cargo, else at a sink platform. Cars that already line
     up keep their cargo.
   - `/st patterns` lists the train groups and every consumer station's platforms in order.

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.27.0 (beta)
+
+- **Spare trains move to starved stations at once.** A train that finishes its work empty, finds nothing to do in its
+  own car pattern, and shares that pattern with another train no longer waits 5 minutes: it changes group straight
+  away, but only to a consumer station no train serves. The last train of a group stays with it, so groups don't run
+  dry and trains don't hop between groups every trip.
+
 ## 0.26.0 (beta)
 
 - **Fixed: a train whose car pattern no station takes any more waited 5 minutes for nothing.** Changing a station's

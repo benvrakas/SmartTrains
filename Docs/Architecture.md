@@ -212,6 +212,13 @@ window's Rename stations); never automatic.
   trip. If consumers were blocked only by cargo, a clearing trip runs: `SetNoLoads`, any consumer (`SetSinksForCargo`
   lets sinks take cargo a consumer exists for), no anchor; the pattern starts open. `ReplanTrip` applies the same car
   items from the job's anchor (no anchor: no loads, sinks allowed).
+- **Spare trains (0.27.0)**: a train whose cars are empty, that finds no trip in its own pattern, and whose pattern
+  another managed train shares (`SamePattern`, also back to front for a train turned round) changes group at once,
+  but only to a consumer station no train serves (`TryConsumers(true, true)`, no second pass over all consumers); with
+  none it waits as before. The last train of a group never leaves this way, so a group keeps a train and a train that
+  just moved to an unserved station (no mate there) stays. Why: a group with more trains than its flow needs kept the
+  extras parked for `STPatternIdleSeconds` while another station starved; re-picking a group after every trip would
+  bring back mixed cargo, which the sticky patterns stopped.
 - **Homeless patterns (0.26.0)**: a train finding no trip in its pattern, with no consumer station tried at all, checks
   (at most once a minute, `HasPatternHome`) whether any consumer station's demand platforms still take its pattern
   (`MakeCarItems` with `OutMatched` > 0: a patterned car beside a demand platform for the same items, none for other
