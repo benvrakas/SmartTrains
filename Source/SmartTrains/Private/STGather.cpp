@@ -180,13 +180,18 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		int32 Tried = 0;
 		int32 OtherPattern = 0;
 		int32 Blocked = 0;
-		auto TryConsumers = [&](bool bIgnorePattern)
+		// bUnserved: only consumer stations no train serves (a train choosing a pattern tries those first).
+		auto TryConsumers = [&](bool bIgnorePattern, bool bUnserved)
 		{
 			for (const AFGTrainStationIdentifier* Consumer : Planner.GetConsumerStations())
 			{
 				if (Tried > 0 && Planner.IsOverBudget())
 				{
 					break;
+				}
+				if (bUnserved && IsConsumerServed(Consumer))
+				{
+					continue;
 				}
 				// A parked train can't clear its door: no new trip there until it has.
 				if (IsStationBlocked(Consumer))
@@ -226,12 +231,27 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				}
 			}
 		};
-		TryConsumers(false);
+		// Choosing a pattern (open, or changing group): stations no train serves first, then any.
+		bool bUnservedChosen = false;
+		if (bOpen)
+		{
+			TryConsumers(false, true);
+			bUnservedChosen = BestConsumer != nullptr;
+		}
+		if (!BestConsumer)
+		{
+			TryConsumers(false, false);
+		}
 		bool bChanging = false;
 		if (!BestConsumer && !bOpen && bMayChange)
 		{
 			bChanging = true;
-			TryConsumers(true);
+			TryConsumers(true, true);
+			bUnservedChosen = BestConsumer != nullptr;
+			if (!BestConsumer)
+			{
+				TryConsumers(true, false);
+			}
 		}
 		if (BestConsumer)
 		{
@@ -250,8 +270,9 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			const FString After = State.DescribePattern();
 			if (After != Before)
 			{
-				UE_LOG(LogSmartTrains, Log, TEXT("PATTERN %s: %s -> %s (%s)"), *STLayout::Name(State.Train), *Before, *After,
-					bChanging ? TEXT("changes group: nothing to do in its own for a while") : TEXT("a trip gives open cars their items"));
+				UE_LOG(LogSmartTrains, Log, TEXT("PATTERN %s: %s -> %s (%s%s)"), *STLayout::Name(State.Train), *Before, *After,
+					bChanging ? TEXT("changes group: nothing to do in its own for a while") : TEXT("a trip gives open cars their items"),
+					bUnservedChosen ? *FString::Printf(TEXT("; %s had no train"), *STLayout::Name(BestConsumer)) : TEXT(""));
 			}
 			CommitTrip(State, Planner, BestStops, BestResult, true, MostUnloaded(BestResult), BestConsumer);
 			continue;

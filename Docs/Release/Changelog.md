@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.23.0 (beta)
+
+- **Starved stations get trains: a train choosing a pattern goes to stations no train serves first.** A new train,
+  or one changing group after 5 minutes without work, used to take whichever trip scored best, so a small, far
+  consumer lost every time to big, near ones. On the IB save Dune Desert Crystal Oscillator In 1 got no Rubber for
+  hours, and a newly built train took a Uranium pattern instead. Now such a train first tries consumer stations no
+  train is on a trip for and none had a trip in the last 10 minutes; only if none of them has work does it take the
+  best trip anywhere.
+- **Autodetect all platforms** in the station menu (next to Rename from factory): Autodetect for every platform of
+  the station at once. Click twice, since it also redoes platforms set up already.
+
 ## 0.22.3 (beta)
 
 - **Fixed: a parked train moved back and forth between two stations every 45 s** (0.22.2; on the IB save between

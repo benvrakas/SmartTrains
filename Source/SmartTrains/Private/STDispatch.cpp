@@ -111,6 +111,9 @@ namespace
 	constexpr float DepotArriveDistance = 6000.f;
 	constexpr double DepotPathRetrySeconds = 5.0;
 
+	// A consumer station given a trip this recently counts as served (trains choosing a pattern try the others first). [s]
+	constexpr double ServedSeconds = 600.0;
+
 	// A trip is planned again because a parked train can't leave a station it needs at most this often. [s]
 	constexpr double RerouteAgainSeconds = 60.0;
 
@@ -899,6 +902,10 @@ void ASTSubsystem::CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, con
 	Planner.MakeLegs(Stops, Result, Job.Legs);
 	Job.GroupItem = GroupItem;
 	Job.AnchorStation = Anchor;
+	if (Anchor)
+	{
+		mLastTripTo.Add(Anchor, Time);
+	}
 	Job.Summary = SummarizeLegs(Job.Legs);
 	const FString Line = FString::Printf(TEXT("%s: %s [%s], %d moved, value %.2f, score %.4f"), *STLayout::Name(State.Train), *Job.Summary,
 		*Planner.Describe(Stops, Result), Result.Moved, Result.Value, Result.Score);
@@ -1311,6 +1318,16 @@ AFGTrainStationIdentifier* ASTSubsystem::FindParkingStation(const FSTTrainState&
 		}
 	}
 	return Best;
+}
+
+bool ASTSubsystem::IsConsumerServed(const AFGTrainStationIdentifier* Station) const
+{
+	const double* Last = Station ? mLastTripTo.Find(const_cast<AFGTrainStationIdentifier*>(Station)) : nullptr;
+	if (Last && Now() - *Last < ServedSeconds)
+	{
+		return true;
+	}
+	return mTrains.ContainsByPredicate([Station](const FSTTrainState& Each) { return Each.bManaged && Each.bHasJob && Each.Job.AnchorStation.Get() == Station; });
 }
 
 bool ASTSubsystem::IsStationBlocked(const AFGTrainStationIdentifier* Station) const

@@ -363,7 +363,8 @@ TArray<FString> STSetup::ApplyProposal(ASTSubsystem& Subsystem, const STMigratio
 
 //~ Platforms
 
-STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsystem, AFGTrainStationIdentifier* Station, const AFGBuildableTrainPlatformCargo* Redo, bool bShare)
+STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsystem, AFGTrainStationIdentifier* Station, const AFGBuildableTrainPlatformCargo* Redo, bool bShare,
+	bool bRedoAll)
 {
 	STMigration::FStationProposal Proposal;
 	Proposal.Station = Station;
@@ -399,7 +400,7 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 			continue;
 		}
 		// A platform a player (or an earlier set-up) gave a role keeps it.
-		if (const FSTPlatformConfig* Config = Subsystem.FindPlatformConfig(Cargo); Cargo != Redo && Config && Config->Role != ESTRole::Off)
+		if (const FSTPlatformConfig* Config = Subsystem.FindPlatformConfig(Cargo); !bRedoAll && Cargo != Redo && Config && Config->Role != ESTRole::Off)
 		{
 			Platform.bKept = true;
 			for (const TObjectPtr<AActor>& Machine : Config->Machines)
@@ -1388,6 +1389,33 @@ TArray<FString> ASTSubsystem::SetUpStation(AFGTrainStationIdentifier* Station, b
 	}
 	mSetupLines.Add(Station, Lines);
 	return Lines;
+}
+
+FString ASTSubsystem::AutodetectStation(AFGTrainStationIdentifier* Station, const FString& Cause)
+{
+	if (!Station)
+	{
+		return TEXT("No station.");
+	}
+	const STMigration::FStationProposal Proposal = STSetup::ProposeStation(*this, Station, nullptr, true, true);
+	const TArray<FString> Done = STSetup::ApplyProposal(*this, Proposal, false, Cause);
+	TArray<FString> Parts;
+	for (const STMigration::FPlatformProposal& Platform : Proposal.Platforms)
+	{
+		if (!Platform.bCargo)
+		{
+			continue;
+		}
+		TArray<FString> Items;
+		for (const TSubclassOf<UFGItemDescriptor>& Item : Platform.Items)
+		{
+			Items.Add(STNames::Item(Item));
+		}
+		Parts.Add(FString::Printf(TEXT("P%d %s%s%s"), Platform.Index + 1, STNames::Role(Platform.Role), Items.Num() > 0 ? TEXT(" ") : TEXT(""), *FString::Join(Items, TEXT(", "))));
+	}
+	const FString Message = FString::Printf(TEXT("Autodetect all: %s (%d changed)."), Parts.Num() > 0 ? *FString::Join(Parts, TEXT("; ")) : TEXT("no cargo platforms"), Done.Num());
+	UE_LOG(LogSmartTrains, Log, TEXT("SETUP station %s: %s (%s)"), *STLayout::Name(Station), *Message, *Cause);
+	return Message;
 }
 
 FString ASTSubsystem::AutodetectPlatform(AFGBuildableTrainPlatformCargo* Platform, const FString& Cause)

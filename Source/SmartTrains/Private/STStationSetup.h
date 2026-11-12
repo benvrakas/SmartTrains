@@ -33,10 +33,10 @@ namespace STSetup
 
 	// Roles and items for Station's cargo platforms: role from what is attached, items from the connection trace,
 	// leaving out items the factory makes itself. Platforms that already have a role are kept as they are (but Redo,
-	// proposed afresh). bShare: platforms of one role serving the same machines share the items out (the migration
-	// does that once for all stations instead).
+	// or every one with bRedoAll, proposed afresh). bShare: platforms of one role serving the same machines share the
+	// items out (the migration does that once for all stations instead).
 	STMigration::FStationProposal ProposeStation(const ASTSubsystem& Subsystem, AFGTrainStationIdentifier* Station,
-		const AFGBuildableTrainPlatformCargo* Redo = nullptr, bool bShare = true);
+		const AFGBuildableTrainPlatformCargo* Redo = nullptr, bool bShare = true, bool bRedoAll = false);
 
 	// The factory behind a proposed station: machines reached through its platforms and on through machines (flood
 	// fills), until other train platforms.

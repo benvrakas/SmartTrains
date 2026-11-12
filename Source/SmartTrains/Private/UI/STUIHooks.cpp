@@ -93,7 +93,7 @@ void STUIHooks::Register(UObject* Outer, TArray<UWidgetBlueprintHookData*>& OutH
 	Keep(AddHook(Outer, Manager, STWidgetUtils::StationMenuClass, TEXT("VerticalBox_2"),
 		USTStationPanel::StaticClass(), TEXT("ST_StationPanel")));
 	Keep(AddHook(Outer, Manager, STWidgetUtils::StationMenuClass, TEXT("VerticalBox_0"),
-		USTStationRenameBar::StaticClass(), TEXT("ST_StationRenameBar")));
+		USTStationSetupBar::StaticClass(), TEXT("ST_StationSetupBar")));
 	UE_LOG(LogSmartTrains, Log, TEXT("%d of 5 UI hooks registered"), OutHooks.Num());
 #endif
 }

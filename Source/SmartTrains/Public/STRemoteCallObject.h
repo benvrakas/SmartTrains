@@ -46,6 +46,10 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_AutodetectPlatform(AFGBuildableTrainPlatformCargo* Platform, int32 Edit);
 
+	// Autodetect for every cargo platform of the station.
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_AutodetectStation(AFGTrainStationIdentifier* Station, int32 Edit);
+
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_Migrate(ESTMigrationStep Step, const TArray<FString>& Selection);
 

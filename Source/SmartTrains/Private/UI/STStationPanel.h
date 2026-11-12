@@ -45,10 +45,10 @@ protected:
 	uint8 mSetupReady = 0;
 };
 
-// Rename from factory, under the station name on the station menu's first tab (Widget_TrainStationNew,
-// VerticalBox_0). One row: that box doesn't push the rest of the menu down.
+// Autodetect all platforms and Rename from factory, side by side under the station name on the station menu's first
+// tab (Widget_TrainStationNew, VerticalBox_0). One row: that box doesn't push the rest of the menu down.
 UCLASS()
-class USTStationRenameBar : public USTStationPanel
+class USTStationSetupBar : public USTStationPanel
 {
 	GENERATED_BODY()
 
@@ -56,4 +56,12 @@ protected:
 	virtual void BuildContent(UVerticalBox* Root) override;
 	virtual bool OnShown() override;
 	virtual FMargin GetOuterPadding() const override { return FMargin(0.f, 6.f, 0.f, 0.f); }
+
+	// First click asks to confirm (it overwrites platforms set up already), the second runs it.
+	void ClickAutodetect();
+
+	UPROPERTY()
+	TObjectPtr<USTButton> mAutodetect;
+
+	bool bAutodetectArmed = false;
 };

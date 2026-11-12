@@ -257,6 +257,8 @@ public:
 	TArray<FString> SetUpStation(AFGTrainStationIdentifier* Station, bool bApply, bool bRename, bool bPlatforms, const FString& Cause);
 	// Sets one platform's role and items from what it is connected to. Returns what it did.
 	FString AutodetectPlatform(AFGBuildableTrainPlatformCargo* Platform, const FString& Cause);
+	// Autodetect for every cargo platform of Station, set up already or not (station menu). Returns what it did.
+	FString AutodetectStation(AFGTrainStationIdentifier* Station, const FString& Cause);
 	// Starts the set-up of every station with cargo platforms, a few per step; the report goes to
 	// Saved/SmartTrains/StationSetup-*.csv. Returns chat lines.
 	TArray<FString> SetUpAllStations(bool bApply, bool bRename, const FString& Cause);
@@ -384,6 +386,11 @@ private:
 	// A station whose door a parked train can't clear: offered to no new trip until then (Now()).
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mBlockedStations;
 	bool IsStationBlocked(const AFGTrainStationIdentifier* Station) const;
+	// When a trip built around each consumer station was last given to a train (Now()).
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mLastTripTo;
+	// A consumer station some train serves: one is on a trip built around it, or one was given such a trip lately.
+	// Trains choosing a pattern (open, or changing group) try the others first (Docs/Architecture.md, "Car patterns").
+	bool IsConsumerServed(const AFGTrainStationIdentifier* Station) const;
 
 	// Where Train will be free and when (game seconds); false if it isn't free soon.
 	bool GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifier*& OutStation, double& OutTime) const;

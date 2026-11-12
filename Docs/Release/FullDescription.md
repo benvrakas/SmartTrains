@@ -24,7 +24,8 @@ them (see below).
 - **Set up a station from its factory:** build the station and its platforms, connect the belts and pipes, and open
   the station menu. Each platform's menu has **Autodetect**: it follows the belts and pipes to the machines and sets
   the platform to load or unload. The item is what the platform holds; an empty platform gets the item its machines
-  take or make.
+  take or make. **Autodetect all platforms**, under the station's name, does that for every platform of the station
+  (click twice: it redoes platforms set up already).
   **Rename station from its factory**, under the station's name, names it from what the factory makes, its map area,
   a number and its most per minute, e.g. "Grass Fields Modular Frame Out 1 (288)". Each shows what it would do first;
   click again to do it. The rate is the factory's theoretical most, limited by its
@@ -42,6 +43,9 @@ them (see below).
   - **Sushi platforms** work too: a platform taking iron and coal makes that car's part of the pattern "iron + coal",
     and the car carries both. Only platforms taking exactly the same items line up with it.
   - A new train starts open and takes its pattern from its first trips.
+  - A train choosing a pattern (a new train, or one changing group) goes first to stations no train serves: no
+    train is on a trip for them and none had a trip in the last 10 minutes. Only if none of those has work does it
+    take the best trip anywhere, so a starved station gets a train even when others pay more.
   - A train with nothing to do in its pattern for 5 minutes may change group. Cars whose cargo doesn't line up with
     the new consumer are unloaded first, at consumers of that cargo, else at a sink platform. Cars that already line
     up keep their cargo.

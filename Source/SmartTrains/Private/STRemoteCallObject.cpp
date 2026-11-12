@@ -377,6 +377,26 @@ void USTRemoteCallObject::Server_AutodetectPlatform_Implementation(AFGBuildableT
 	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
 }
 
+bool USTRemoteCallObject::Server_AutodetectStation_Validate(AFGTrainStationIdentifier* Station, int32 Edit)
+{
+	return true;
+}
+
+void USTRemoteCallObject::Server_AutodetectStation_Implementation(AFGTrainStationIdentifier* Station, int32 Edit)
+{
+	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	if (!Subsystem || !IsValid(Station))
+	{
+		return;
+	}
+	if (Allowed(*this, *Subsystem, STAccess::EChange::Edit, TEXT("change platform settings")))
+	{
+		Client_Message(Subsystem->AutodetectStation(Station, FString::Printf(TEXT("station menu (%s)"), *GetPlayerName())), false);
+	}
+	Client_Station(Subsystem->MakeStationView(Station, mAppliedEdit));
+}
+
 void USTRemoteCallObject::PushMigrationView(const TArray<FString>& Lines)
 {
 	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());

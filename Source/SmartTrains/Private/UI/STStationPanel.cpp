@@ -119,23 +119,53 @@ void USTStationPanel::Refresh(USTRemoteCallObject* RCO)
 	}
 }
 
-void USTStationRenameBar::BuildContent(UVerticalBox* Root)
+void USTStationSetupBar::BuildContent(UVerticalBox* Root)
 {
 	// One row, as tall as a single button: the space under the name plate doesn't push the rest of the menu down.
 	UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
 	Root->AddChildToVerticalBox(Row);
+	mAutodetect = MakeButton(nullptr, LOCTEXT("AutodetectAll", "Autodetect all platforms"), [this]() { ClickAutodetect(); }, FMargin(0.f));
 	// Shows the name it would give first (in its own text); a second click renames.
 	mRename = MakeButton(nullptr, FText::GetEmpty(), [this]() { SendRename(mSetupReady == 1); }, FMargin(0.f));
-	if (UHorizontalBoxSlot* ButtonSlot = Row->AddChildToHorizontalBox(mRename))
+	for (USTButton* Button : {mAutodetect.Get(), mRename.Get()})
 	{
-		ButtonSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		if (UHorizontalBoxSlot* ButtonSlot = Row->AddChildToHorizontalBox(Button))
+		{
+			ButtonSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+			ButtonSlot->SetPadding(FMargin(0.f, 0.f, Button == mAutodetect ? 4.f : 0.f, 0.f));
+		}
 	}
 	ShowSetUp(TArray<FString>(), 0);
 }
 
-bool USTStationRenameBar::OnShown()
+void USTStationSetupBar::ClickAutodetect()
 {
-	UE_LOG(LogSmartTrains, Log, TEXT("Station rename bar for %s"), *STLayout::Name(GetStation()));
+	USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
+	AFGTrainStationIdentifier* Station = GetStation();
+	if (!RCO || !Station)
+	{
+		return;
+	}
+	if (!bAutodetectArmed)
+	{
+		bAutodetectArmed = true;
+		mAutodetect->SetText(LOCTEXT("AutodetectAllConfirm", "Click again: redo every platform"));
+		return;
+	}
+	bAutodetectArmed = false;
+	mAutodetect->SetText(LOCTEXT("AutodetectAll", "Autodetect all platforms"));
+	UE_LOG(LogSmartTrains, Log, TEXT("Station menu: autodetect all platforms of %s"), *STLayout::Name(Station));
+	RCO->Server_AutodetectStation(Station, RCO->NextEdit());
+}
+
+bool USTStationSetupBar::OnShown()
+{
+	UE_LOG(LogSmartTrains, Log, TEXT("Station set-up bar for %s"), *STLayout::Name(GetStation()));
+	bAutodetectArmed = false;
+	if (mAutodetect)
+	{
+		mAutodetect->SetText(LOCTEXT("AutodetectAll", "Autodetect all platforms"));
+	}
 	return GetStation() != nullptr;
 }
 

@@ -123,6 +123,9 @@ window's Rename stations); never automatic.
   factory's product and rate. A loading station's rate is its share of the factory: its belts or pipes into its
   platforms against all loading platforms for the product that the factory's machines feed (`DownPlatforms`), so
   two stations loading from one factory don't both claim all of it.
+- **Autodetect all platforms** (station menu, `USTStationSetupBar`, `Server_AutodetectStation`,
+  `ASTSubsystem::AutodetectStation`): `ProposeStation` with `bRedoAll` (every cargo platform proposed afresh, as a
+  platform's own Autodetect does for one), then `ApplyProposal` without renaming. The first click arms the button.
 - **Name** (`NameStation`): `FSTNamingConfig` (saved per world): `Format` with `{area}`, `{product}`, `{role}`,
   `{n}`, `{rate}`; `{role}` from `SupplyWord` (only loads), `FactoryWord` (unloads several items: a factory's inputs),
   `ConsumerWord` (unloads one item), `MixedWord` (both). `{rate}`: the one item's use for a station unloading one
@@ -181,6 +184,11 @@ window's Rename stations); never automatic.
   trip. If consumers were blocked only by cargo, a clearing trip runs: `SetNoLoads`, any consumer (`SetSinksForCargo`
   lets sinks take cargo a consumer exists for), no anchor; the pattern starts open. `ReplanTrip` applies the same car
   items from the job's anchor (no anchor: no loads, sinks allowed).
+- **Unserved first (0.23.0)**: a train choosing a pattern (open, or changing group) first tries only consumers no
+  train serves (`IsConsumerServed`: no managed train on a trip anchored there, none given since `ServedSeconds`, 600 s,
+  `mLastTripTo` set in `CommitTrip`); only with no worthwhile trip among them, all consumers. Before, the best score
+  won, so a small far consumer (IB: Dune Desert Crystal Oscillator In 1, Rubber starved for hours) lost every open and
+  changing train to big near ones (a new train took a Uranium pattern).
 - Why: platforms fill cars past the plan, so leftovers are normal; within a pattern they always line up.
 
 ## 0.17.0: depot signals, hold, new trains
