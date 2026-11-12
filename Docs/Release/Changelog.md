@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.30.0 (beta)
+
+- **Automatic demand targets.** A demand platform is now kept stocked with enough to last until a train can bring more:
+  how fast its factory uses the item, times the time a train needs to come from the nearest supplier and back, with a
+  margin (between 10 % and 90 % of the platform). A fixed 50 % meant very different things per item: a big, slowly
+  used stack (Silica at the IB High-Speed Connector factory) counted as short with 15 minutes left and pulled trains
+  into detours, while a fast one (its Copper) counted only when nearly gone. Targets left at the old default 50 % become
+  automatic when the save loads; targets you set to anything else stay. The platform menu shows "automatic" and steps
+  below 10 % back to it; `/st platform demand <item> target auto` does the same.
+
 ## 0.29.0 (beta)
 
 - **Trips no longer detour for items a station won't need before the next train.** A delivery was valued by the

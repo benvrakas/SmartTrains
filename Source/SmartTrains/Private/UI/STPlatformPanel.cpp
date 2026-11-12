@@ -316,14 +316,16 @@ void USTPlatformPanel::StepAmount(int32 Index, int32 Step)
 		return;
 	}
 	FSTItemRule& Rule = mItems[Index];
-	const float Value = FMath::Clamp(GetPercent(Rule, mRole) + Step * PercentStep, PercentStep, 100.f);
 	if (mRole == ESTRole::Supply)
 	{
-		Rule.SendAtPercent = Value;
+		Rule.SendAtPercent = FMath::Clamp(GetPercent(Rule, mRole) + Step * PercentStep, PercentStep, 100.f);
 	}
 	else
 	{
-		Rule.TargetPercent = Value;
+		// Automatic below the lowest share; from automatic the steps start at 50 %.
+		const float From = Rule.TargetPercent > 0.f ? Rule.TargetPercent : 50.f;
+		const float Value = From + Step * PercentStep;
+		Rule.TargetPercent = Value < PercentStep ? 0.f : FMath::Min(Value, 100.f);
 	}
 	SendEdit(TEXT("amount"));
 }
@@ -382,7 +384,8 @@ void USTPlatformPanel::RefreshEditor()
 		{
 			Row.Amount->SetText(mRole == ESTRole::Supply
 				? FText::Format(LOCTEXT("SendAt", "Least per visit: {0}% of the cars here"), FText::AsNumber(FMath::RoundToInt(GetPercent(Rule, mRole))))
-				: FText::Format(LOCTEXT("Target", "Keep stocked at {0}%"), FText::AsNumber(FMath::RoundToInt(GetPercent(Rule, mRole)))));
+				: (Rule.TargetPercent > 0.f ? FText::Format(LOCTEXT("Target", "Keep stocked at {0}%"), FText::AsNumber(FMath::RoundToInt(GetPercent(Rule, mRole))))
+					: LOCTEXT("TargetAuto", "Keep stocked: automatic (lasts until a train can bring more)")));
 		}
 		if (Row.AmountRow.IsValid())
 		{

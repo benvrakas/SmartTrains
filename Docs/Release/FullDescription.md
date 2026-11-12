@@ -18,6 +18,8 @@ them (see below).
   - **Sink:** managed trains unload cargo here that has nowhere else to go, any item: cargo a car can't unload at any
     consumer of it, and production nobody on the network uses.
   - **Off:** vanilla.
+  - Each demand item is kept stocked automatically: enough to last until a train can bring more, from how fast the
+    factory uses it and how far its nearest supplier is (or a fixed share you set).
   - Each item gets a target and a priority (demand), or a **Least per visit** (supply, 50 % by default): a train
     only picks up there when it can load at least that share of what its cars there carry.
   - **Copy**, **Paste** and **Copy to the station's other platforms** carry every setting of the platform. Copy and

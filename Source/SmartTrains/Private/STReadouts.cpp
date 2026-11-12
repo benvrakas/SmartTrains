@@ -47,7 +47,7 @@ FString ASTSubsystem::DescribeItemRule(const AFGBuildableTrainPlatformCargo* Pla
 	const int32 Capacity = STLayout::GetCapacity(Inventory, Rule.Item);
 	const FString Goal = Config.Role == ESTRole::Supply
 		? FString::Printf(TEXT("least per visit %.0f%% of a load"), STNames::SendAtPercent(Rule.SendAtPercent))
-		: FString::Printf(TEXT("target %.0f%%"), Rule.TargetPercent);
+		: (Rule.TargetPercent > 0.f ? FString::Printf(TEXT("target %.0f%%"), Rule.TargetPercent) : FString(TEXT("target automatic")));
 	// Priority counts only where cargo is delivered.
 	const FString Priority = Config.Role == ESTRole::Supply ? FString() : FString::Printf(TEXT(", %s priority"), STNames::Priority(Rule.Priority));
 	return FString::Printf(TEXT("%s / %s, %s%s/min%s, %s%s"), *STNames::Amount(Rule.Item, Stock), *STNames::Amount(Rule.Item, Capacity),
@@ -313,9 +313,9 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 			const double Target = Node.Capacity * Node.TargetPercent / 100.0;
 			if (Node.Stock + Node.Reserved >= Target)
 			{
-				Lines.Add(FString::Printf(TEXT("%s: stocked. The station's %d platforms for it hold %s%s, target %s."), *Name, Node.Platforms.Num(),
+				Lines.Add(FString::Printf(TEXT("%s: stocked. The station's %d platforms for it hold %s%s, target %s%s."), *Name, Node.Platforms.Num(),
 					*STNames::Amount(Rule.Item, Node.Stock), Node.Reserved > 0 ? *FString::Printf(TEXT(" with %s on the way"), *STNames::Amount(Rule.Item, Node.Reserved)) : TEXT(""),
-					*STNames::Amount(Rule.Item, Target)));
+					*STNames::Amount(Rule.Item, Target), Node.bAutoTarget ? *FString::Printf(TEXT(" (automatic, %.0f %%: lasts until a train can bring more)"), Node.TargetPercent) : TEXT("")));
 				continue;
 			}
 			const bool bReady = Partners.ContainsByPredicate([&](int32 Partner) { return Nodes[Partner].Stock > Nodes[Partner].Reserved; });

@@ -51,7 +51,9 @@ struct FSTNode
 	// Demand ran dry a while ago, so its measured rate is only a lower bound.
 	bool bStarved = false;
 	ESTPriority Priority = ESTPriority::Normal;
+	// Demand: the share of Capacity kept stocked; worked out by ApplyAutoTargets when bAutoTarget. [%]
 	float TargetPercent = 50.f;
+	bool bAutoTarget = false;
 	float SendAtPercent = 0.f;
 	int32 TrackGraph = INDEX_NONE;
 	// Amounts already promised: to be picked up (supply) or on the way (demand).
@@ -372,6 +374,12 @@ private:
 
 	// Builds the supply and demand nodes from the platform settings and current jobs.
 	void BuildNodes(TArray<FSTNode>& OutNodes) const;
+	// Targets of demand nodes left automatic: their use over the time a train needs to bring more (from the nearest
+	// supplier and back, a stay at each end), with a margin, as a share of capacity.
+	void ApplyAutoTargets(TArray<FSTNode>& Nodes) const;
+	// What a demand node uses per second for planning: measured, or for a starved one (whose measured rate is only a
+	// lower bound) its machines' recipes, else a guess. [/s]
+	static double GetDemandRate(const FSTNode& Node);
 	int32 FindNode(const TArray<FSTNode>& Nodes, const AFGTrainStationIdentifier* Station, TSubclassOf<UFGItemDescriptor> Item, ESTRole NodeRole) const;
 
 	// Station nearest to Train's first vehicle on its rail network, for trains that haven't docked anywhere yet.
@@ -510,6 +518,14 @@ private:
 	// Now() when the world was saved, so the clock carries on after loading instead of restarting at 0. [s]
 	UPROPERTY(SaveGame)
 	double mClockAtSave = 0.0;
+
+	// 1 once demand targets left at the old default (50 %) were made automatic (0.30.0).
+	UPROPERTY(SaveGame)
+	int32 mTargetsVersion = 0;
+
+	// Per demand station and item: the time a train needs to bring more, and when it was worked out (ApplyAutoTargets
+	// asks again after AutoTargetLeadSeconds). [s]
+	mutable TMap<TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, TWeakObjectPtr<UClass>>, TPair<double, double>> mLeadTimes;
 
 	// Fleet advice per item from the last flow plan.
 	struct FAdvice

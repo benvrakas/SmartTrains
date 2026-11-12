@@ -158,6 +158,7 @@ void ASTSubsystem::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ASTSubsystem::PreSaveGame_Implementation(int32 SaveVersion, int32 GameVersion)
 {
 	mClockAtSave = Now();
+	mTargetsVersion = 1;
 	mPlatforms.RemoveAll([](const FSTPlatformConfig& Config) { return !IsValid(Config.Platform) || (Config.Role == ESTRole::Off && Config.Items.Num() == 0); });
 	mTrains.RemoveAll([](const FSTTrainState& State) { return !IsValid(State.Train) || (!State.bManaged && !State.bKeepVanilla); });
 	mDockMaps.RemoveAll([](const FSTDockMap& Map) { return !IsValid(Map.Train) || !IsValid(Map.Station); });
@@ -182,6 +183,23 @@ void ASTSubsystem::PostLoadGame_Implementation(int32 SaveVersion, int32 GameVers
 	mClockBase = Saved - (World ? World->GetTimeSeconds() : 0.0);
 	mStartTime = Now();
 	UE_LOG(LogSmartTrains, Log, TEXT("Clock continues at %.0f s%s"), Saved, mClockAtSave > 0.0 ? TEXT("") : TEXT(" (save without a clock: latest saved train time)"));
+	if (mTargetsVersion < 1)
+	{
+		// Before 0.30.0 every demand target was 50 % unless set otherwise; those become automatic.
+		int32 Made = 0;
+		for (FSTPlatformConfig& Config : mPlatforms)
+		{
+			for (FSTItemRule& Rule : Config.Items)
+			{
+				if (FMath::IsNearlyEqual(Rule.TargetPercent, 50.f))
+				{
+					Rule.TargetPercent = 0.f;
+					++Made;
+				}
+			}
+		}
+		UE_LOG(LogSmartTrains, Log, TEXT("Loaded: %d demand targets at the old default 50 %% are now automatic"), Made);
+	}
 	PreSaveGame_Implementation(SaveVersion, GameVersion);
 	for (FSTTrainState& State : mTrains)
 	{
@@ -326,8 +344,8 @@ void ASTSubsystem::SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, E
 	FString NewItems;
 	for (const FSTItemRule& Rule : Items)
 	{
-		NewItems += FString::Printf(TEXT("%s%s (%s, target %.0f%%, send at %.0f%%)"), NewItems.IsEmpty() ? TEXT("") : TEXT(", "), *STNames::Item(Rule.Item),
-			STNames::Priority(Rule.Priority), Rule.TargetPercent, Rule.SendAtPercent);
+		NewItems += FString::Printf(TEXT("%s%s (%s, target %s, send at %.0f%%)"), NewItems.IsEmpty() ? TEXT("") : TEXT(", "), *STNames::Item(Rule.Item),
+			STNames::Priority(Rule.Priority), Rule.TargetPercent > 0.f ? *FString::Printf(TEXT("%.0f%%"), Rule.TargetPercent) : TEXT("auto"), Rule.SendAtPercent);
 	}
 	int32 Index = INDEX_NONE;
 	const AFGBuildableRailroadStation* Station = STLayout::FindStation(Platform, &Index);

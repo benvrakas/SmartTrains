@@ -526,6 +526,15 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   and fairness weights: a delivery that ends a shortfall sooner is worth more, one to a platform that stays above its
   target within the hour is worth nothing. Moves only go to consumers that fall below target within the hour
   (`Deadline`). Trips still score value / time; the send-at batch rule stays.
+- **Automatic target (0.30.0)**: a demand item's `TargetPercent` 0 means automatic (the default; on loading an older
+  save, targets at the old default 50 % become 0, `mTargetsVersion`). `ApplyAutoTargets` (end of `BuildNodes`) sets the
+  node's target to its use (`GetDemandRate`: measured, or its machines' recipes when starved or still measuring) over
+  the lead time, x `AutoTargetMargin` 1.25, as a share of capacity, kept within 10-90 % (50 % while no supplier is
+  reachable). Lead time: from the nearest supplier of the item there and back plus a stay at each end
+  (`EstimateTravelSeconds`, `EstimateStaySeconds`), cached per station and item for 5 minutes (`mLeadTimes`). Why:
+  a fixed 50 % meant very different times per item: on the IB save a High-Speed Connector factory's Silica platform
+  (9,600, at 324/min) counted as short with 15 minutes of use left, while its Copper (4,800, drained fast) counted only
+  when nearly gone. Manual targets (1-100 %) still apply; the platform menu steps below 10 % to automatic.
 - **Until the next train (0.29.0)**: a delivery's gain counts only the shortfall it prevents until another train
   could bring the item (`NextDeliveryTime`: one more trip as long as this one, at least `NextDeliveryMinSeconds`,
   10 minutes, after its arrival); pickups still use the whole hour. Over the whole hour a top-up looked valuable for

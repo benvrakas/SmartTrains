@@ -86,9 +86,10 @@ struct SMARTTRAINS_API FSTItemRule
 	UPROPERTY(SaveGame)
 	float SendAtPercent = 0.f;
 
-	// Demand: the platform is kept stocked at this share of its capacity. [%]
+	// Demand: the platform is kept stocked at this share of its capacity; 0: automatic, enough to last until a train can
+	// bring more (Docs/Architecture.md, "Automatic target"). [%]
 	UPROPERTY(SaveGame)
-	float TargetPercent = 50.f;
+	float TargetPercent = 0.f;
 
 	UPROPERTY(SaveGame)
 	ESTPriority Priority = ESTPriority::Normal;

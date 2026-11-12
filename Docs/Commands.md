@@ -29,7 +29,7 @@ Who may use which command is in [Admin-only commands](#admin-only-commands) belo
 - `/st platform demand Coal target 60 priority high`: managed trains keep it at 60%.
 - `/st platform demand any`: a sink that takes surplus of any item (lowest priority).
 - Options:
-  - `target <percent>` (demand);
+  - `target <percent>` or `target auto` (demand; automatic, the default, keeps enough to last until a train can bring more);
   - `sendat <percent of a train load>` (supply; 0 = the default, 50 %);
   - `priority low|normal|high|critical`;
   - `rate <per minute>`, which replaces the measured rate (m³ for fluids).

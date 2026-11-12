@@ -222,7 +222,7 @@ void USTRemoteCallObject::Server_SetPlatform_Implementation(AFGBuildableTrainPla
 			continue;
 		}
 		FSTItemRule& Kept = Clean.Add_GetRef(Rule);
-		Kept.TargetPercent = FMath::Clamp(Kept.TargetPercent, 1.f, 100.f);
+		Kept.TargetPercent = Kept.TargetPercent <= 0.f ? 0.f : FMath::Clamp(Kept.TargetPercent, 1.f, 100.f);
 		Kept.SendAtPercent = FMath::Clamp(Kept.SendAtPercent, 0.f, 100.f);
 		Kept.ManualRatePerMinute = FMath::Max(0.f, Kept.ManualRatePerMinute);
 		Kept.Priority = static_cast<ESTPriority>(FMath::Min(static_cast<uint8>(Kept.Priority), static_cast<uint8>(ESTPriority::Critical)));

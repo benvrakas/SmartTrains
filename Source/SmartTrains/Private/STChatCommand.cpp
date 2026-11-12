@@ -202,7 +202,7 @@ namespace
 	const TCHAR* Help[] = {
 		TEXT("/st status | jobs | fit"),
 		TEXT("/st monitor [text]   (what limits throughput: supply, trains, fit or congestion; text prints it in chat)"),
-		TEXT("/st platform [supply|demand|off] [item, item...] [target %] [sendat %] [priority low|normal|high|critical] [rate n/min] | /st platform copy"),
+		TEXT("/st platform [supply|demand|off] [item, item...] [target %|auto] [sendat %] [priority low|normal|high|critical] [rate n/min] | /st platform copy"),
 		TEXT("/st station | /st depots   (depot signals and their sidings)"),
 		TEXT("/st setup [apply] [keepname]   (platform roles, items and a name for the station you look at, from its factory)"),
 		TEXT("/st setup all [apply] [keepname]   (every station; report in Saved/SmartTrains; apply is admin only)"),
@@ -395,7 +395,9 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 				const bool bHasValue = Index + 1 < Arguments.Num();
 				if (Word == TEXT("target") && bHasValue)
 				{
-					Target = FCString::Atof(*Arguments[++Index].Replace(TEXT("%"), TEXT("")));
+					// "auto" (or 0): enough to last until a train can bring more.
+					const FString Value = Arguments[++Index].ToLower();
+					Target = Value == TEXT("auto") ? 0.f : FMath::Max(0.f, FCString::Atof(*Value.Replace(TEXT("%"), TEXT(""))));
 				}
 				else if (Word == TEXT("sendat") && bHasValue)
 				{
@@ -450,7 +452,7 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			}
 			for (FSTItemRule& Rule : Rules)
 			{
-				Rule.TargetPercent = Target >= 0.f ? FMath::Clamp(Target, 1.f, 100.f) : Rule.TargetPercent;
+				Rule.TargetPercent = Target > 0.f ? FMath::Clamp(Target, 1.f, 100.f) : (Target == 0.f ? 0.f : Rule.TargetPercent);
 				Rule.SendAtPercent = SendAt >= 0.f ? FMath::Clamp(SendAt, 0.f, 100.f) : Rule.SendAtPercent;
 				Rule.ManualRatePerMinute = Rate >= 0.f ? (STNames::IsFluid(Rule.Item) ? Rate * 1000.f : Rate) : Rule.ManualRatePerMinute;
 				Rule.Priority = Priority.IsSet() ? Priority.GetValue() : Rule.Priority;

@@ -29,6 +29,14 @@
 
 namespace
 {
+	// Automatic demand targets (ApplyAutoTargets): use over the lead time times this margin, kept between these shares of
+	// capacity; the fallback while no supplier is reachable. Lead times are worked out again after AutoTargetLeadSeconds.
+	constexpr double AutoTargetMargin = 1.25;
+	constexpr float AutoTargetMinPercent = 10.f;
+	constexpr float AutoTargetMaxPercent = 90.f;
+	constexpr float AutoTargetFallbackPercent = 50.f;
+	constexpr double AutoTargetLeadSeconds = 300.0;
+
 	// What one written stop is: station, rules and the cars that skip it.
 	FString StopKey(const FTimeTableStop& Stop, const TArray<TObjectPtr<AFGRailroadVehicle>>& SkipCars)
 	{
@@ -232,6 +240,7 @@ void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 				New.bAnyItem = !Rule.Item;
 				New.Priority = Rule.Priority;
 				New.TargetPercent = Rule.TargetPercent;
+				New.bAutoTarget = Rule.TargetPercent <= 0.f;
 				New.SendAtPercent = Rule.SendAtPercent;
 				New.TrackGraph = Station->GetTrackGraphID();
 				New.bRateKnown = true;
@@ -276,6 +285,7 @@ void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 		Node.RecipeRate = GetRecipeRate(Node.Machines, Node.Item.Get(), Node.Role == ESTRole::Supply);
 	}
 	LinkSupplyChain(OutNodes);
+	ApplyAutoTargets(OutNodes);
 	// Amounts promised by jobs still to come.
 	for (const FSTTrainState& State : mTrains)
 	{
@@ -334,6 +344,64 @@ void ASTSubsystem::LinkSupplyChain(TArray<FSTNode>& Nodes)
 				break;
 			}
 		}
+	}
+}
+
+double ASTSubsystem::GetDemandRate(const FSTNode& Node)
+{
+	if (!Node.bStarved)
+	{
+		return Node.Rate;
+	}
+	return Node.RecipeRate > 0.0 ? FMath::Max(Node.Rate, Node.RecipeRate) : FMath::Max(Node.Rate, 1.0 / 60.0) * 1.5;
+}
+
+void ASTSubsystem::ApplyAutoTargets(TArray<FSTNode>& Nodes) const
+{
+	const double Time = Now();
+	for (FSTNode& Node : Nodes)
+	{
+		if (Node.Role != ESTRole::Demand || Node.bAnyItem || !Node.bAutoTarget || !Node.Item || !Node.Station.IsValid())
+		{
+			continue;
+		}
+		Node.TargetPercent = AutoTargetFallbackPercent;
+		if (Node.Capacity <= 0)
+		{
+			continue;
+		}
+		// The time a train needs to bring more: from the nearest supplier of the item and back, a stay at each end.
+		const TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, TWeakObjectPtr<UClass>> Key(Node.Station, Node.Item.Get());
+		TPair<double, double>* Lead = mLeadTimes.Find(Key);
+		if (!Lead || Time - Lead->Value > AutoTargetLeadSeconds)
+		{
+			double Best = -1.0;
+			for (const FSTNode& Supplier : Nodes)
+			{
+				if (Supplier.Role != ESTRole::Supply || Supplier.Item != Node.Item || Supplier.TrackGraph != Node.TrackGraph || Supplier.Station == Node.Station
+					|| !Supplier.Station.IsValid())
+				{
+					continue;
+				}
+				float Travel = EstimateTravelSeconds(Supplier.Station.Get(), Node.Station.Get(), false);
+				Travel = Travel >= 0.f ? Travel : EstimateTravelSeconds(Supplier.Station.Get(), Node.Station.Get(), true);
+				if (Travel < 0.f)
+				{
+					continue;
+				}
+				const double Seconds = 2.0 * Travel + EstimateStaySeconds(Supplier.Station.Get()) + EstimateStaySeconds(Node.Station.Get());
+				Best = Best < 0.0 ? Seconds : FMath::Min(Best, Seconds);
+			}
+			Lead = &mLeadTimes.Add(Key, TPair<double, double>(Best, Time));
+		}
+		if (Lead->Key < 0.0)
+		{
+			continue;
+		}
+		// Still measuring: its machines' recipes tell, if known.
+		const double Use = !Node.bRateKnown && Node.RecipeRate > 0.0 ? FMath::Max(Node.Rate, Node.RecipeRate) : GetDemandRate(Node);
+		const double Percent = 100.0 * Use * Lead->Key * AutoTargetMargin / Node.Capacity;
+		Node.TargetPercent = FMath::Clamp(static_cast<float>(Percent), AutoTargetMinPercent, AutoTargetMaxPercent);
 	}
 }
 
@@ -1987,11 +2055,7 @@ void ASTSubsystem::PlanFlows()
 				continue;
 			}
 			// A starved consumer and a full supplier can't measure their rates: their machines' recipes tell, else a guess.
-			double Rate = Node.Rate;
-			if (Node.Role == ESTRole::Demand && Node.bStarved)
-			{
-				Rate = Node.RecipeRate > 0.0 ? FMath::Max(Node.Rate, Node.RecipeRate) : FMath::Max(Node.Rate, 1.0 / 60.0) * 1.5;
-			}
+			double Rate = Node.Role == ESTRole::Demand ? GetDemandRate(Node) : Node.Rate;
 			if (Node.Role == ESTRole::Supply && Node.Capacity > 0 && Node.Stock >= FullSupplyShare * Node.Capacity)
 			{
 				Rate = FMath::Max(Rate, Node.RecipeRate) + Node.Stock / FullStockSeconds;
