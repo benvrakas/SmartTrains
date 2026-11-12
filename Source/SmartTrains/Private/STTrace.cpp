@@ -1,4 +1,5 @@
 #include "STTrace.h"
+#include "STMinCostFlow.h"
 #include "Buildables/FGBuildableConveyorBase.h"
 #include "Buildables/FGBuildableConveyorLift.h"
 #include "Buildables/FGBuildableManufacturer.h"
@@ -900,6 +901,191 @@ STTrace::FFlood STTrace::Flood(const TArray<const AActor*>& Starts, bool bUpstre
 		}
 	}
 	Result.Nodes = Visited.Num();
+	return Result;
+}
+
+STTrace::FBeltCapacity STTrace::BeltCapacity(const TArray<const AActor*>& Sources, const TSet<const AActor*>& Sinks, int32 Limit)
+{
+	FBeltCapacity Result;
+	// A link with no belt on it (a splitter plugged straight into a machine).
+	constexpr double Unlimited = 1e12;
+	constexpr int32 SourceNode = 0;
+	constexpr int32 SinkNode = 1;
+	struct FLink
+	{
+		int32 From = 0;
+		int32 To = 0;
+		double Capacity = Unlimited;
+	};
+	TArray<FLink> Links;
+	// One node per building; a balancer group is one node (its leader).
+	TMap<const AActor*, int32> NodeOf;
+	TArray<const AActor*> Open;
+	int32 NodeCount = 2;
+	int32 Steps = 0;
+	// Machines and platforms take what arrives; anything else passes it on through its outputs.
+	auto PassesOn = [](const AActor* Actor)
+	{
+		return !Actor->IsA<AFGBuildableTrainPlatform>() && !Actor->IsA<AFGBuildableManufacturer>() && !Actor->IsA<AFGBuildableResourceExtractorBase>();
+	};
+	auto NodeFor = [&](const AActor* Actor) -> int32
+	{
+		const AActor* Key = Actor;
+		if (IsBalancer(Actor))
+		{
+			if (const AActor* Leader = Cast<AActor>(GetObjectField(Actor, TEXT("GroupLeader"))))
+			{
+				Key = Leader;
+			}
+		}
+		if (const int32* Found = NodeOf.Find(Key))
+		{
+			return *Found;
+		}
+		const int32 Node = NodeCount++;
+		NodeOf.Add(Key, Node);
+		if (Sinks.Contains(Actor))
+		{
+			Links.Add({Node, SinkNode, Unlimited});
+		}
+		else if (PassesOn(Actor))
+		{
+			Open.Add(Key);
+		}
+		return Node;
+	};
+	// From one output through a run of belts and lifts (and the floor holes lifts end in) to the next building.
+	auto Follow = [&](int32 From, const UFGFactoryConnectionComponent* Output)
+	{
+		const UFGFactoryConnectionComponent* Partner = Output->GetConnection();
+		double Capacity = Unlimited;
+		TSet<const AActor*> Run;
+		while (Partner)
+		{
+			if (++Steps > Limit)
+			{
+				Result.bCut = true;
+				return;
+			}
+			AFGBuildable* Owner = Partner->GetOuterBuildable();
+			// Against the flow (an "any" connection into the end of a belt), or round a loop of belts.
+			if (!Owner || Partner->GetDirection() == EFactoryConnectionDirection::FCD_OUTPUT || Run.Contains(Owner))
+			{
+				return;
+			}
+			AFGBuildableConveyorBase* Conveyor = Cast<AFGBuildableConveyorBase>(Owner);
+			if (!Conveyor)
+			{
+				Links.Add({From, NodeFor(Owner), Capacity});
+				return;
+			}
+			Run.Add(Conveyor);
+			// Belt speed is in cm/s; items sit ITEM_SPACING apart.
+			Capacity = FMath::Min(Capacity, Conveyor->GetSpeed() * 60.0 / AFGBuildableConveyorBase::ITEM_SPACING);
+			const UFGFactoryConnectionComponent* Other = Conveyor->GetConnection0() == Partner ? Conveyor->GetConnection1() : Conveyor->GetConnection0();
+			Partner = nullptr;
+			if (Other && Other->IsConnected())
+			{
+				Partner = Other->GetConnection();
+			}
+			else if (AFGBuildableConveyorLift* Lift = Cast<AFGBuildableConveyorLift>(Conveyor))
+			{
+				for (AFGBuildablePassthrough* Hole : Lift->GetSnappedPassthroughs())
+				{
+					for (UFGFactoryConnectionComponent* Far : {Hole ? Hole->GetTopSnappedConnection<UFGFactoryConnectionComponent>() : nullptr,
+						Hole ? Hole->GetBottomSnappedConnection<UFGFactoryConnectionComponent>() : nullptr})
+					{
+						if (Far && Far->GetOuterBuildable() != Lift)
+						{
+							Partner = Far;
+						}
+					}
+				}
+			}
+		}
+	};
+	// A building's outputs: a platform's output connections; for the rest also "any" ones (storage, mod buildings).
+	auto Expand = [&](const AActor* Actor, int32 Node)
+	{
+		TArray<AFGBuildable*> Modules;
+		if (IsBalancer(Actor))
+		{
+			Modules = GetBalancerGroup(const_cast<AFGBuildable*>(Cast<AFGBuildable>(Actor)));
+		}
+		else
+		{
+			Modules.Add(const_cast<AFGBuildable*>(Cast<AFGBuildable>(Actor)));
+		}
+		const bool bAnyToo = !Actor->IsA<AFGBuildableTrainPlatform>();
+		for (const AFGBuildable* Module : Modules)
+		{
+			if (!Module)
+			{
+				continue;
+			}
+			TInlineComponentArray<UFGFactoryConnectionComponent*> Connections;
+			Module->GetComponents(Connections);
+			for (const UFGFactoryConnectionComponent* Connection : Connections)
+			{
+				const EFactoryConnectionDirection Direction = Connection ? Connection->GetDirection() : EFactoryConnectionDirection::FCD_INPUT;
+				if (Connection && Connection->IsConnected() && (Direction == EFactoryConnectionDirection::FCD_OUTPUT || (bAnyToo && Direction == EFactoryConnectionDirection::FCD_ANY)))
+				{
+					Follow(Node, Connection);
+				}
+			}
+		}
+	};
+	for (const AActor* Source : Sources)
+	{
+		if (Source && !NodeOf.Contains(Source))
+		{
+			const int32 Node = NodeCount++;
+			NodeOf.Add(Source, Node);
+			Links.Add({SourceNode, Node, Unlimited});
+			Expand(Source, Node);
+		}
+	}
+	while (Open.Num() > 0 && !Result.bCut)
+	{
+		const AActor* Actor = Open.Pop(EAllowShrinking::No);
+		Expand(Actor, NodeOf[Actor]);
+	}
+	if (!Links.ContainsByPredicate([](const FLink& Link) { return Link.To == SinkNode; }))
+	{
+		return Result;
+	}
+
+	FSTMinCostFlow Flow(NodeCount);
+	for (const FLink& Link : Links)
+	{
+		Flow.AddEdge(Link.From, Link.To, Link.Capacity, 0.0);
+	}
+	const double Total = Flow.SolveMaxFlow(SourceNode, SinkNode);
+	if (Total <= 0.0 || Total >= Unlimited * 0.5)
+	{
+		// Nothing gets through, or something reaches a sink without any belt on the way: no belt limit to state.
+		Result.PerMinute = Total <= 0.0 ? 0.0 : -1.0;
+		return Result;
+	}
+	Result.PerMinute = Total;
+	// The belt runs from the reachable side to the rest: the narrowest set the flow has to pass.
+	const TArray<bool> Side = Flow.GetSourceSide(SourceNode);
+	TMap<int32, int32> BySpeed;
+	for (const FLink& Link : Links)
+	{
+		if (Side[Link.From] && !Side[Link.To] && Link.Capacity < Unlimited)
+		{
+			++BySpeed.FindOrAdd(FMath::RoundToInt(Link.Capacity));
+			++Result.CutBelts;
+		}
+	}
+	BySpeed.KeySort([](int32 A, int32 B) { return A > B; });
+	TArray<FString> Parts;
+	for (const TPair<int32, int32>& Each : BySpeed)
+	{
+		Parts.Add(FString::Printf(TEXT("%d belt%s at %d/min"), Each.Value, Each.Value == 1 ? TEXT("") : TEXT("s"), Each.Key));
+	}
+	Result.Cut = FString::Join(Parts, TEXT(" + "));
 	return Result;
 }
 

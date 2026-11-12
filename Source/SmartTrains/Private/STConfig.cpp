@@ -83,6 +83,8 @@ namespace
 				LOCTEXT("QueueTrainsTip", "While trains leave stations at once, no trip is planned that would make more than this many trains wait before a station at the same time, the new one included, nor more than fit on the track in front of the station before its switch (measured from the track). Long queues block junctions and cause deadlocks. 0 to 10 trains; 0 means only the track decides.")},
 			{TEXT("ArrivalGapSeconds"), &FSTSettings::ArrivalGapSeconds, 0.f, 300.f, LOCTEXT("ArrivalGap", "Gap between trains at a station (seconds)"),
 				LOCTEXT("ArrivalGapTip", "Trips are timed so the next train arrives at a station at least this long after the last one left, 0 to 300 seconds. A train whose first stop is busy waits where it is instead of queueing on the line.")},
+			{TEXT("ScanDepth"), &FSTSettings::ScanDepth, 1000.f, 500000.f, LOCTEXT("ScanDepth", "Factory scan depth (buildings and belts)"),
+				LOCTEXT("ScanDepthTip", "Station set-up, Autodetect and the rates in station names follow belts, pipes and machines through a factory for at most this many buildings and belt segments, 1,000 to 500,000. Raise it if a large factory's rate or items come out incomplete (the set-up says when a scan stopped early); lower it if setting up a station makes the game hitch.")},
 		};
 		return Settings;
 	}

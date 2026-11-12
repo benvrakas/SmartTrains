@@ -620,6 +620,32 @@ bool FSTMinCostFlowTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// Belt capacity's max flow: two platforms' belts (780 each) and a third merged onto two belts before a manifold of
+// machine belts; the two belts are the narrowest cut (the Dune Desert Circuit Board case, 2026-11-11).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTBeltMaxFlowTest, "SmartTrains.Setup.BeltMaxFlow", TestFlags)
+bool FSTBeltMaxFlowTest::RunTest(const FString& Parameters)
+{
+	// 0 source, 1 sink, 2..4 platform outputs, 5 merger, 6 manifold, 7..9 machines.
+	FSTMinCostFlow Flow(10);
+	for (int32 Platform = 2; Platform <= 4; ++Platform)
+	{
+		Flow.AddEdge(0, Platform, 1e12, 0.0);
+		Flow.AddEdge(Platform, 5, 780.0, 0.0);
+	}
+	Flow.AddEdge(5, 6, 780.0, 0.0);
+	Flow.AddEdge(5, 6, 780.0, 0.0);
+	for (int32 Machine = 7; Machine <= 9; ++Machine)
+	{
+		Flow.AddEdge(6, Machine, 780.0, 0.0);
+		Flow.AddEdge(Machine, 1, 1e12, 0.0);
+	}
+	TestEqual(TEXT("two belts carry 1,560/min"), Flow.SolveMaxFlow(0, 1), 1560.0, 0.01);
+	const TArray<bool> Side = Flow.GetSourceSide(0);
+	TestTrue(TEXT("the merger is on the source side"), Side[5]);
+	TestFalse(TEXT("the manifold is past the cut"), Side[6]);
+	return true;
+}
+
 // The forecast cost: a delivery is worth more the sooner it ends a shortfall, a pickup only where the supplier would be
 // full, and the deadline is when the stock first falls below target.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTForecastTest, "SmartTrains.Planner.Forecast", TestFlags)

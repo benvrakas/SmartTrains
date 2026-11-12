@@ -27,6 +27,10 @@ public:
 	// Makes the button exactly Width wide; 0 sizes it to its text.
 	void SetFixedWidth(float Width);
 
+	// The button asks for no more width than MaxWidth and takes what its slot gives it; text that doesn't fit stays on
+	// one line and ends in "...", in full in the tooltip.
+	void SetFitToSlot(float MaxWidth);
+
 	TFunction<void()> OnClick;
 
 	// Called on a right click; unset means a right click does nothing.
@@ -52,6 +56,7 @@ private:
 	TObjectPtr<UTextBlock> mFallbackText;
 
 	FText mText;
+	bool bFitToSlot = false;
 };
 
 // A one-line text field: the game's input box, or a plain one if it is missing. Reports Enter and focus loss.

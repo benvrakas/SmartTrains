@@ -34,8 +34,6 @@
 
 namespace
 {
-	// Buildings and belt segments one flood fill through a factory may visit.
-	constexpr int32 FactoryFloodLimit = 50000;
 	// An item the factory makes upstream of its unloading platforms' machines at least this share as fast as those
 	// machines use it is made there, not brought by train.
 	constexpr double LocalSupplyShare = 0.9;
@@ -45,6 +43,12 @@ namespace
 	constexpr int32 RateSearchSteps = 40;
 	// A preview is applied as shown if confirmed within this long. [s]
 	constexpr double PreviewKeepSeconds = 120.0;
+
+	// Buildings and belt segments one scan through a factory may visit (the ScanDepth setting).
+	int32 SetupScanDepth(const ASTSubsystem& Subsystem)
+	{
+		return FMath::Clamp(FMath::RoundToInt(Subsystem.GetSettings().ScanDepth), STTrace::MinLimit, STTrace::MaxLimit);
+	}
 
 	bool SetupIsFluid(UClass* Item)
 	{
@@ -448,7 +452,7 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 				}
 			}
 		}
-		const STTrace::FResult Trace = STTrace::Trace(Cargo, bSupply);
+		const STTrace::FResult Trace = STTrace::Trace(Cargo, bSupply, SetupScanDepth(Subsystem));
 		Platform.TraceText = Trace.Summary();
 		Platform.Machines = Trace.MachineActors;
 		Each.Summary = Trace.Summary();
@@ -496,7 +500,7 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 					Used.FindOrAdd(Ingredient.Key) += Ingredient.Value * Pair.Value.Capacity;
 				}
 			}
-			const STTrace::FFlood Up = STTrace::Flood(Seeds, true, FactoryFloodLimit);
+			const STTrace::FFlood Up = STTrace::Flood(Seeds, true, SetupScanDepth(Subsystem));
 			TMap<FString, FSetupMachineGroup> Makers;
 			for (const AActor* Machine : Up.Machines)
 			{
@@ -675,7 +679,7 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 				}
 			}
 		}
-		Down = STTrace::Flood(Seeds, false, FactoryFloodLimit);
+		Down = STTrace::Flood(Seeds, false, SetupScanDepth(Subsystem));
 		bCut |= Down.bCut;
 		const TArray<FSetupMachineGroup> Groups = GroupsOf(Down.Machines);
 		TMap<UClass*, int32> Makers;
@@ -754,7 +758,7 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 			}
 		}
 	}
-	const STTrace::FFlood Up = STTrace::Flood(MakerSeeds, true, FactoryFloodLimit);
+	const STTrace::FFlood Up = STTrace::Flood(MakerSeeds, true, SetupScanDepth(Subsystem));
 	bCut |= Up.bCut;
 	const TArray<const AActor*>& Machines = Up.Machines;
 	TSet<const AFGBuildableTrainPlatformCargo*> InputPlatforms;
@@ -768,7 +772,8 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 	Factory.Machines = Machines.Num();
 	if (bCut)
 	{
-		Factory.Notes.Add(FString::Printf(TEXT("the factory is larger than %d buildings and belts; the rate counts what was reached"), FactoryFloodLimit));
+		Factory.Notes.Add(FString::Printf(TEXT("the factory is larger than the scan depth (%d buildings and belts); the rate counts what was reached (raise it in the mod settings)"),
+			SetupScanDepth(Subsystem)));
 	}
 	TArray<FSetupMachineGroup> Groups = GroupsOf(Machines);
 	TMap<UClass*, TArray<int32>> Producers;
@@ -785,6 +790,8 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 	TMap<UClass*, double> Caps;
 	TMap<UClass*, double> OwnCaps;
 	TMap<UClass*, FString> CapText;
+	TMap<UClass*, TArray<const AActor*>> CapSources;
+	TMap<UClass*, TArray<FString>> CapStations;
 	for (const AFGBuildableTrainPlatformCargo* Cargo : InputPlatforms)
 	{
 		TArray<UClass*> Items;
@@ -806,7 +813,7 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 		else
 		{
 			const EFreightCargoType CargoType = STLayout::GetPlatformCargoType(Cargo);
-			for (const STTrace::FFlow& Flow : STTrace::Trace(Cargo, false).Flows)
+			for (const STTrace::FFlow& Flow : STTrace::Trace(Cargo, false, SetupScanDepth(Subsystem)).Flows)
 			{
 				if (Flow.Item && STLayout::ItemFitsCargoType(Flow.Item.Get(), CargoType))
 				{
@@ -827,6 +834,45 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 			OwnCaps.FindOrAdd(Item) += Own ? PerMinute : 0.0;
 			FString& Where = CapText.FindOrAdd(Item);
 			Where += FString::Printf(TEXT("%s%s out of %s"), Where.IsEmpty() ? TEXT("") : TEXT(" + "), *Text, *STLayout::Name(Station));
+			CapSources.FindOrAdd(Item).Add(Cargo);
+			CapStations.FindOrAdd(Item).AddUnique(STLayout::Name(Station));
+		}
+	}
+
+	// On from those platforms to the machines that use each item, belts may narrow (a merge onto fewer belts, a slower
+	// belt): what they carry at most there is the cap.
+	for (TPair<UClass*, double>& Cap : Caps)
+	{
+		if (SetupIsFluid(Cap.Key))
+		{
+			continue;
+		}
+		TSet<const AActor*> Users;
+		for (const AActor* Machine : Machines)
+		{
+			TMap<FString, FSetupMachineGroup> One;
+			SetupAddMachine(Machine, One);
+			for (const TPair<FString, FSetupMachineGroup>& Each : One)
+			{
+				if (Each.Value.Ingredients.Contains(Cap.Key))
+				{
+					Users.Add(Machine);
+				}
+			}
+		}
+		const STTrace::FBeltCapacity Belts = STTrace::BeltCapacity(CapSources.FindRef(Cap.Key), Users, SetupScanDepth(Subsystem));
+		UE_LOG(LogSmartTrains, Log, TEXT("SETUP belts for %s: %.1f/min out of platforms, %.1f/min to %d machines (narrowest: %s)%s"), *STNames::Item(Cap.Key), Cap.Value,
+			Belts.PerMinute, Users.Num(), Belts.Cut.IsEmpty() ? TEXT("none") : *Belts.Cut, Belts.bCut ? TEXT(", scan stopped at the scan depth") : TEXT(""));
+		if (Belts.bCut)
+		{
+			Factory.Notes.Add(FString::Printf(TEXT("the belts carrying %s are larger than the scan depth (%d buildings and belts); raise it in the mod settings"),
+				*STNames::Item(Cap.Key), SetupScanDepth(Subsystem)));
+		}
+		if (Belts.PerMinute >= 0.0 && Belts.PerMinute < Cap.Value * 0.999)
+		{
+			OwnCaps.FindOrAdd(Cap.Key) *= Cap.Value > 0.0 ? Belts.PerMinute / Cap.Value : 0.0;
+			CapText.Add(Cap.Key, FString::Printf(TEXT("%s on the way from %s"), *Belts.Cut, *FString::Join(CapStations.FindRef(Cap.Key), TEXT(", "))));
+			Cap.Value = Belts.PerMinute;
 		}
 	}
 
@@ -1029,7 +1075,7 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 				Makers.Add(Machine);
 			}
 		}
-		const STTrace::FFlood Fed = STTrace::Flood(Makers, false, FactoryFloodLimit);
+		const STTrace::FFlood Fed = STTrace::Flood(Makers, false, SetupScanDepth(Subsystem));
 		for (const AActor* Each : Fed.Platforms)
 		{
 			const AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Each);
@@ -1566,7 +1612,7 @@ bool ASTSubsystem::StepMachineFill(double BudgetMs)
 		const FSTPlatformConfig* Config = Platform ? FindPlatformConfig(Platform) : nullptr;
 		if (Config && (Config->Role == ESTRole::Supply || Config->Role == ESTRole::Demand) && Config->Machines.Num() == 0)
 		{
-			SetPlatformMachines(Platform, STTrace::Trace(Platform, Config->Role == ESTRole::Supply).MachineActors);
+			SetPlatformMachines(Platform, STTrace::Trace(Platform, Config->Role == ESTRole::Supply, SetupScanDepth(*this)).MachineActors);
 		}
 	}
 	while (mMachineFillQueue.Num() > 0 && FPlatformTime::Seconds() < Until);

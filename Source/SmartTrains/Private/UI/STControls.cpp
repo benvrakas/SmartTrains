@@ -19,6 +19,10 @@
 void USTButton::SetText(const FText& Text)
 {
 	mText = Text;
+	if (bFitToSlot)
+	{
+		SetToolTipText(Text);
+	}
 	if (mVanillaButton)
 	{
 		STWidgetUtils::SetWidgetText(mVanillaButton, Text);
@@ -40,6 +44,23 @@ void USTButton::SetFixedWidth(float Width)
 	{
 		mFrame->ClearWidthOverride();
 	}
+}
+
+void USTButton::SetFitToSlot(float MaxWidth)
+{
+	BuildTree();
+	bFitToSlot = true;
+	mFrame->SetMaxDesiredWidth(MaxWidth);
+	UTextBlock* Text = mVanillaButton ? Cast<UTextBlock>(STWidgetUtils::GetObjectProperty(mVanillaButton, TEXT("mTextObject"))) : mFallbackText.Get();
+	if (!Text)
+	{
+		UE_LOG(LogSmartTrains, Warning, TEXT("Button has no text block to shorten; long text may be cut off"));
+		return;
+	}
+	Text->SetAutoWrapText(false);
+	Text->SetClipping(EWidgetClipping::ClipToBounds);
+	Text->SetTextOverflowPolicy(ETextOverflowPolicy::Ellipsis);
+	SetText(mText);
 }
 
 TSharedRef<SWidget> USTButton::RebuildWidget()

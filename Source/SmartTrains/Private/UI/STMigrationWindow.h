@@ -63,7 +63,7 @@ private:
 	static void Create(APlayerController* Controller);
 
 	void SendMigration(uint8 Step, const TArray<FString>& Selection = TArray<FString>());
-	// Preview with the trace limit from the field.
+	// Asks the server for a preview.
 	void SendPreview();
 	void ShowRenameMode();
 	void ApplyTicked();
@@ -128,7 +128,6 @@ private:
 	// The platform whose items are being picked ("S3/2": station row key and platform number), the picker's search
 	// text and its rows with their item names.
 
-	// Trace limit and items mode for this session's previews; the open tab and filters.
 	// Apply also renames the ticked stations (station set-up names).
 	static bool sRename;
 	// Apply sets the platforms (with sRename: and renames; without: platforms only); false: names only.

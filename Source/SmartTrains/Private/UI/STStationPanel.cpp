@@ -15,6 +15,14 @@
 
 #define LOCTEXT_NAMESPACE "SmartTrains"
 
+namespace
+{
+	// Width each set-up bar button asks for at most; the row shares out whatever the station menu gives it. [px]
+	constexpr float BarButtonMaxWidth = 120.f;
+	// How long the Autodetect all button shows its result. [s]
+	constexpr double BarResultSeconds = 8.0;
+}
+
 void USTStationPanel::BuildContent(UVerticalBox* Root)
 {
 	MakeHeading(Root, LOCTEXT("StationHeading", "SmartTrains"));
@@ -129,6 +137,8 @@ void USTStationSetupBar::BuildContent(UVerticalBox* Root)
 	mRename = MakeButton(nullptr, FText::GetEmpty(), [this]() { SendRename(mSetupReady == 1); }, FMargin(0.f));
 	for (USTButton* Button : {mAutodetect.Get(), mRename.Get()})
 	{
+		// Both share the width under the name plate whatever their text; asking for more widened the menu past its frame.
+		Button->SetFitToSlot(BarButtonMaxWidth);
 		if (UHorizontalBoxSlot* ButtonSlot = Row->AddChildToHorizontalBox(Button))
 		{
 			ButtonSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
@@ -153,7 +163,9 @@ void USTStationSetupBar::ClickAutodetect()
 		return;
 	}
 	bAutodetectArmed = false;
-	mAutodetect->SetText(LOCTEXT("AutodetectAll", "Autodetect all platforms"));
+	mAutodetect->SetText(LOCTEXT("AutodetectAllWorking", "Autodetecting..."));
+	const UWorld* World = GetWorld();
+	mAutodetectSentAt = World ? World->GetTimeSeconds() : 0.0;
 	UE_LOG(LogSmartTrains, Log, TEXT("Station menu: autodetect all platforms of %s"), *STLayout::Name(Station));
 	RCO->Server_AutodetectStation(Station, RCO->NextEdit());
 }
@@ -162,11 +174,52 @@ bool USTStationSetupBar::OnShown()
 {
 	UE_LOG(LogSmartTrains, Log, TEXT("Station set-up bar for %s"), *STLayout::Name(GetStation()));
 	bAutodetectArmed = false;
+	mAutodetectSentAt = -1.0;
+	mResultUntil = -1.0;
 	if (mAutodetect)
 	{
 		mAutodetect->SetText(LOCTEXT("AutodetectAll", "Autodetect all platforms"));
 	}
 	return GetStation() != nullptr;
+}
+
+void USTStationSetupBar::ShowServerMessage(USTRemoteCallObject* RCO)
+{
+	if (mMessage)
+	{
+		mMessage->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	const UWorld* World = GetWorld();
+	if (!World || !mAutodetect)
+	{
+		return;
+	}
+	const double Time = World->GetTimeSeconds();
+	if (mAutodetectSentAt >= 0.0 && RCO && RCO->GetLastMessageTime() >= mAutodetectSentAt)
+	{
+		// "Autodetect all: P1 Demand Copper Ingot; ... (3 changed)." or an error such as "Only admins may ...".
+		mAutodetectSentAt = -1.0;
+		mResultUntil = Time + BarResultSeconds;
+		const FString& Message = RCO->GetLastMessage();
+		FString Changed;
+		if (RCO->IsLastMessageError() || !Message.StartsWith(TEXT("Autodetect all")))
+		{
+			mAutodetect->SetText(FText::FromString(Message));
+		}
+		else if (Message.Split(TEXT("("), nullptr, &Changed, ESearchCase::CaseSensitive, ESearchDir::FromEnd) && Changed.StartsWith(TEXT("0 ")))
+		{
+			mAutodetect->SetText(LOCTEXT("AutodetectAllSame", "Done: nothing changed"));
+		}
+		else
+		{
+			mAutodetect->SetText(FText::Format(LOCTEXT("AutodetectAllDone", "Done: {0} platforms changed"), FText::FromString(Changed.Left(Changed.Find(TEXT(" "))))));
+		}
+	}
+	else if (mResultUntil >= 0.0 && Time > mResultUntil && !bAutodetectArmed)
+	{
+		mResultUntil = -1.0;
+		mAutodetect->SetText(LOCTEXT("AutodetectAll", "Autodetect all platforms"));
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

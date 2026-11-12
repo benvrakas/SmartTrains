@@ -69,7 +69,7 @@ protected:
 	static void SetLines(UTextBlock* Text, const TArray<FString>& Lines);
 
 	// Shows the server's last message for a few seconds, red if it is an error.
-	void ShowServerMessage(USTRemoteCallObject* RCO);
+	virtual void ShowServerMessage(USTRemoteCallObject* RCO);
 
 	// Requests and refreshes right away (after a click).
 	void RefreshSoon();

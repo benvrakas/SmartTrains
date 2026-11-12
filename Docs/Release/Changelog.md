@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.24.0 (beta)
+
+- **Station rates count the narrowest belts on the way to the machines**, not only the belts out of the platforms.
+  Four belts out of the platforms merged onto two Mk5 belts carry 1,560/min, not 3,120: on the IB save Dune Desert
+  Circuit Board Out 1 was named 945 where its copper lets 874 run (8.3 of its 9 layers). The set-up readout names the
+  limit, e.g. "Copper Ingot: 2 belts at 780/min on the way from Train Station 119". Use Rename from factory (or
+  `/st setup all`) to update existing names.
+- **New setting: Factory scan depth** (buildings and belt segments, default 50,000, up to 500,000): how far set-up,
+  Autodetect and rates follow a factory. The set-up notes say when a scan stopped early.
+- **Fixed: the station menu's Autodetect all / Rename bar** ran past the menu's right edge with a long name, and its
+  result message covered the menu below. The buttons now share the width under the name and shorten their text
+  (full text on hover); Autodetect all shows its result on the button.
+
 ## 0.23.0 (beta)
 
 - **Starved stations get trains: a train choosing a pattern goes to stations no train serves first.** A new train,

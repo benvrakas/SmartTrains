@@ -57,6 +57,10 @@ protected:
 	virtual bool OnShown() override;
 	virtual FMargin GetOuterPadding() const override { return FMargin(0.f, 6.f, 0.f, 0.f); }
 
+	// The bar has no room for the message line (the SmartTrains section further down shows it in full): the Autodetect
+	// button shows its own result for a few seconds instead.
+	virtual void ShowServerMessage(USTRemoteCallObject* RCO) override;
+
 	// First click asks to confirm (it overwrites platforms set up already), the second runs it.
 	void ClickAutodetect();
 
@@ -64,4 +68,8 @@ protected:
 	TObjectPtr<USTButton> mAutodetect;
 
 	bool bAutodetectArmed = false;
+	// When Autodetect all was sent (world seconds); its answer is the first server message after it. -1: none awaited.
+	double mAutodetectSentAt = -1.0;
+	// Until when the button shows the result (world seconds).
+	double mResultUntil = -1.0;
 };

@@ -111,18 +111,35 @@ window's Rename stations); never automatic.
     12), taking byproducts made earlier in the same step first (canister and water loops) and then what trains
     bring. A share proportional to full capacity made the weakest recipe of a loop bind early (plastic and rubber
     factories at a third of their rate on the IB save). What trains bring is each unloading platform's belts or pipes out of it (belt speed x 60 / item
-    spacing, pipe flow limit x 60), for the items it is set to. The target fails when a machine group would run over
+    spacing, pipe flow limit x 60), for the items it is set to, and for belts no more than they carry on to the
+    machines that use the item (0.24.0, `STTrace::BeltCapacity`): a maximum flow downstream from all platforms bringing
+    the item, each run of belts and lifts one link as fast as its slowest belt, splitters, mergers, storage and
+    balancers joining links, the machines using the item as sinks (`FSTMinCostFlow::SolveMaxFlow`, breadth-first
+    augmenting paths; the min-cost solver's Bellman-Ford is too slow on belt networks). The minimum cut names the
+    limit ("2 belts at 780/min on the way from ..."). Without it, platforms with four belts out merged onto two Mk5
+    belts into a manifold counted as four (IB: Dune Desert Circuit Board Out 1 named 945 where 874 can run). Splitter
+    filters aren't followed, so it is an upper bound; pipes keep the platform's own limit (pipe networks have no
+    direction to follow). The target fails when a machine group would run over
     its capacity or a train-fed item over its belts. The first failing one is the limit named in the readout.
     Ingredients nothing in the factory makes and no train brings are assumed to arrive (noted). A station that only
     loads is also capped by the belts or pipes into its platforms. Unloading into machines that make nothing (power
     plants), the rate is the station's own belts or pipes; loading what no reached machine makes, it is unknown and
     the name has no rate.
+  - **Scan depth** (`ScanDepth` setting, 50,000 buildings and belt segments, 1,000 to 500,000): the limit of every
+    flood fill, platform trace and belt capacity walk in set-up (`SetupScanDepth`); a walk cut short says so in the
+    set-up notes.
 - **Which item names a station:** what it loads (only loading); the one item it unloads, with
   `FFactory::InputRate`, how much of it the factory uses at its most rate (its share of all trains bringing that
   item, within its own belts), or its own belts when nothing is made (power plants); several unloaded items: the
   factory's product and rate. A loading station's rate is its share of the factory: its belts or pipes into its
   platforms against all loading platforms for the product that the factory's machines feed (`DownPlatforms`), so
   two stations loading from one factory don't both claim all of it.
+- **Set-up bar layout**: the bar sits in the name plate's box, which takes its width from its widest child, so its two
+  buttons ask for at most 120 px each (`USTButton::SetFitToSlot`, a size box's max desired width) and share whatever
+  the menu gives them; their text stays on one line and ends in "..." (full text in the tooltip). A long "Rename to:
+  ..." widened the menu past its frame (0.23.0). The bar shows no message line (it covered the menu below): the
+  Autodetect button shows "Done: N platforms changed" or the error for 8 s; the SmartTrains section further down
+  shows the full message.
 - **Autodetect all platforms** (station menu, `USTStationSetupBar`, `Server_AutodetectStation`,
   `ASTSubsystem::AutodetectStation`): `ProposeStation` with `bRedoAll` (every cargo platform proposed afresh, as a
   platform's own Autodetect does for one), then `ApplyProposal` without renaming. The first click arms the button.

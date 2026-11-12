@@ -4,6 +4,7 @@
 
 // Minimum-cost maximum flow on a small directed graph with real capacities (successive shortest paths with
 // Bellman-Ford, so negative edge costs are allowed). Used by the flow plan (Docs/Architecture.md, "Dispatching").
+// SolveMaxFlow ignores costs, for larger graphs (belt networks, Docs/Architecture.md, "Station set-up").
 class FSTMinCostFlow
 {
 public:
@@ -14,6 +15,13 @@ public:
 
 	// Sends as much flow as possible from Source to Sink at the least total cost; returns the amount sent.
 	double Solve(int32 Source, int32 Sink);
+
+	// Sends as much flow as possible from Source to Sink, costs ignored (shortest augmenting paths by breadth-first
+	// search); returns the amount sent.
+	double SolveMaxFlow(int32 Source, int32 Sink);
+
+	// After solving: true for each node still reachable from Source with room left, the source side of a minimum cut.
+	TArray<bool> GetSourceSide(int32 Source) const;
 
 	double GetFlow(int32 Edge) const;
 

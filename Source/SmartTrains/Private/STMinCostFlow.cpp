@@ -87,3 +87,76 @@ double FSTMinCostFlow::Solve(int32 Source, int32 Sink)
 	}
 	return Total;
 }
+
+double FSTMinCostFlow::SolveMaxFlow(int32 Source, int32 Sink)
+{
+	const int32 Count = mOut.Num();
+	double Total = 0.0;
+	TArray<int32> Via;
+	TArray<int32> Queue;
+	for (int32 Round = 0; Round < MaxAugmentations; ++Round)
+	{
+		Via.Init(INDEX_NONE, Count);
+		Queue.Reset();
+		Queue.Add(Source);
+		Via[Source] = -2;
+		for (int32 Head = 0; Head < Queue.Num() && Via[Sink] == INDEX_NONE; ++Head)
+		{
+			for (const int32 EdgeIndex : mOut[Queue[Head]])
+			{
+				const FEdge& Edge = mEdges[EdgeIndex];
+				if (Via[Edge.To] == INDEX_NONE && Edge.Capacity - Edge.Flow > FlowEpsilon)
+				{
+					Via[Edge.To] = EdgeIndex;
+					Queue.Add(Edge.To);
+				}
+			}
+		}
+		if (Via[Sink] == INDEX_NONE)
+		{
+			break;
+		}
+		double Push = TNumericLimits<double>::Max();
+		for (int32 Node = Sink; Node != Source; Node = mEdges[Via[Node] ^ 1].To)
+		{
+			const FEdge& Edge = mEdges[Via[Node]];
+			Push = FMath::Min(Push, Edge.Capacity - Edge.Flow);
+		}
+		if (Push <= FlowEpsilon)
+		{
+			break;
+		}
+		for (int32 Node = Sink; Node != Source; Node = mEdges[Via[Node] ^ 1].To)
+		{
+			mEdges[Via[Node]].Flow += Push;
+			mEdges[Via[Node] ^ 1].Flow -= Push;
+		}
+		Total += Push;
+	}
+	return Total;
+}
+
+TArray<bool> FSTMinCostFlow::GetSourceSide(int32 Source) const
+{
+	TArray<bool> Side;
+	Side.Init(false, mOut.Num());
+	if (!Side.IsValidIndex(Source))
+	{
+		return Side;
+	}
+	TArray<int32> Queue = {Source};
+	Side[Source] = true;
+	for (int32 Head = 0; Head < Queue.Num(); ++Head)
+	{
+		for (const int32 EdgeIndex : mOut[Queue[Head]])
+		{
+			const FEdge& Edge = mEdges[EdgeIndex];
+			if (!Side[Edge.To] && Edge.Capacity - Edge.Flow > FlowEpsilon)
+			{
+				Side[Edge.To] = true;
+				Queue.Add(Edge.To);
+			}
+		}
+	}
+	return Side;
+}
