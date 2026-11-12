@@ -1616,7 +1616,6 @@ void ASTSubsystem::Park(FSTTrainState& State, const TCHAR* Why)
 void ASTSubsystem::ClearNeededBays()
 {
 	const double Clock = Now();
-	const TSet<const AFGTrainStationIdentifier*> Needed = GetNeededStations(nullptr);
 
 	// With Auto Trains: per train it reports as holding another up, the one held up and for how long.
 	TMap<const AFGTrain*, TPair<const AFGTrain*, float>> HeldUp;
@@ -1659,6 +1658,8 @@ void ASTSubsystem::ClearNeededBays()
 			continue;
 		}
 		const FString Where = Here ? STLayout::Name(Here) : FString(TEXT("on the line"));
+		// Stations the other trains need (its own parking spot isn't a reason to move).
+		const TSet<const AFGTrainStationIdentifier*> Needed = GetNeededStations(&State);
 		// Why it has to move: a trip needs its station, or Auto Trains reports a train waiting for it.
 		FString Why;
 		if (Here && Needed.Contains(Here))

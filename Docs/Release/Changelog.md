@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.3 (beta)
+
+- **Fixed: a parked train moved back and forth between two stations every 45 s** (0.22.2; on the IB save between
+  Dune Desert Crystal Oscillator In 1 and Out 1, through a roundabout, keeping both stations busy so the factory got no
+  deliveries). "Parked trains give way" counted the train's own parking station as needed by someone else, so it
+  always had to make room for itself.
+
 ## 0.22.2 (beta)
 
 Fixes for the gridlock on the IB save (from about 14:00, down from about 200 finished jobs an hour to about 30):
