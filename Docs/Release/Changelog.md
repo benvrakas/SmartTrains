@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.28.0 (beta)
+
+- **Fixed: trains left their group when a supplier was busy.** A train whose trips were turned away because other
+  trains already waited at a supplier counted that as "nothing to do" and, after 5 minutes, moved to another group,
+  often leaving a starved station with no train at all (IB save: Dune Desert High-Speed Connector In 1 lost its only
+  train while Grass Fields Copper Ingot Out 1 was busy). Work turned away by a queue now keeps the train in its group;
+  it tries again at the next dispatch round.
+
 ## 0.27.0 (beta)
 
 - **Spare trains move to starved stations at once.** A train that finishes its work empty, finds nothing to do in its

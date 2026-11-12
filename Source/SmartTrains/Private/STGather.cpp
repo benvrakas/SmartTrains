@@ -288,6 +288,9 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		{
 			TryConsumers(false, false);
 		}
+		// Trips in its own group turned away only by trains already waiting at a station: the group has work, a station
+		// is busy. It keeps its group (no idle time towards changing it) and tries again next round.
+		const bool bQueuedInGroup = !bOpen && !BestConsumer && Planner.CountQueueRejections() > 0;
 		// A pattern no consumer station takes any more (a player changed the platforms it came from) has no group to wait
 		// for: the train changes group at once.
 		bool bHomeless = false;
@@ -316,7 +319,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			});
 		}
 		bool bChanging = false;
-		if (!BestConsumer && !bOpen && (bMayChange || bHomeless || bSpare))
+		if (!BestConsumer && !bOpen && ((bMayChange && !bQueuedInGroup) || bHomeless || bSpare))
 		{
 			bChanging = true;
 			TryConsumers(true, true);
@@ -354,7 +357,11 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			CommitTrip(State, Planner, BestStops, BestResult, true, MostUnloaded(BestResult), BestConsumer);
 			continue;
 		}
-		if (!bOpen && State.PatternIdleSince <= 0.0)
+		if (bQueuedInGroup)
+		{
+			State.PatternIdleSince = 0.0;
+		}
+		else if (!bOpen && State.PatternIdleSince <= 0.0)
 		{
 			State.PatternIdleSince = Time;
 		}
@@ -396,6 +403,10 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		if (bHomeless)
 		{
 			Why += TEXT("; no consumer station takes its pattern any more, so it may change group now");
+		}
+		else if (bQueuedInGroup)
+		{
+			Why += TEXT("; its group has work but stations on the way are busy, so it keeps its group");
 		}
 		else if (!bOpen && !bMayChange)
 		{

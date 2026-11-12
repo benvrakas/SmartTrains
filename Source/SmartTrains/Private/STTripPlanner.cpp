@@ -17,6 +17,10 @@
 
 namespace
 {
+	// How queue-limit rejections start (CountQueueRejections tells them from the rest).
+	const TCHAR* const QueueWaitText = TEXT("would wait before");
+	const TCHAR* const QueueAtText = TEXT("would queue at");
+
 	// Moves kept per train, best solo score first (cargo already on board is always kept).
 	constexpr int32 MaxMovesPerTrain = 24;
 	// Least a car unloads at a stop, in car slots (or all it holds when that is less). [slots]
@@ -409,6 +413,19 @@ double FSTTripPlanner::GetPlatformAvailable(int32 Node, int32 Info, double Until
 	}
 	const double Unassigned = FMath::Max(0, Supplier.Reserved - Assigned);
 	return FMath::Max(0.0, Stock + Share * (Supplier.Rate * Until - Unassigned) - Supplier.PlatformReserved.FindRef(Platform.Platform));
+}
+
+int32 FSTTripPlanner::CountQueueRejections() const
+{
+	int32 Count = 0;
+	for (const TPair<FString, int32>& Each : mProblems)
+	{
+		if (Each.Key.StartsWith(QueueWaitText) || Each.Key.StartsWith(QueueAtText))
+		{
+			Count += Each.Value;
+		}
+	}
+	return Count;
 }
 
 FString FSTTripPlanner::DescribeProblems() const
@@ -1099,8 +1116,8 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 			if (Ahead > Limit)
 			{
 				return Fail(Room >= 0 && Room == Limit
-					? FString::Printf(TEXT("would wait before %s behind %d trains (room for %d before its switch)"), *STLayout::Name(Station), Ahead, Room)
-					: FString::Printf(TEXT("would queue at %s behind %d trains (most %d waiting)"), *STLayout::Name(Station), Ahead, Limit));
+					? FString::Printf(TEXT("%s %s behind %d trains (room for %d before its switch)"), QueueWaitText, *STLayout::Name(Station), Ahead, Room)
+					: FString::Printf(TEXT("%s %s behind %d trains (most %d waiting)"), QueueAtText, *STLayout::Name(Station), Ahead, Limit));
 			}
 		}
 		Clock = Result.Arrive[Index] + mSubsystem.EstimateStaySeconds(Station);

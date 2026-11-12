@@ -212,6 +212,14 @@ window's Rename stations); never automatic.
   trip. If consumers were blocked only by cargo, a clearing trip runs: `SetNoLoads`, any consumer (`SetSinksForCargo`
   lets sinks take cargo a consumer exists for), no anchor; the pattern starts open. `ReplanTrip` applies the same car
   items from the job's anchor (no anchor: no loads, sinks allowed).
+- **Queued work keeps the group (0.28.0)**: when a train finds no trip in its own pattern but trips there were
+  turned away by the queue limit (`FSTTripPlanner::CountQueueRejections`: "would wait before ..." / "would queue at
+  ..."), its group has work and a station is busy, so `PatternIdleSince` is reset instead of started and it doesn't
+  change group by idle time; it tries again next round. Homeless and spare changes still apply (a spare leaves only
+  while another train keeps the group). Why: on the IB save the only train of Dune Desert High-Speed Connector In 1's
+  group was turned away for 5 minutes by trains waiting before Grass Fields Copper Ingot Out 1 (689 such rejections
+  in that log), counted that as nothing to do, and moved to Crystal Oscillator In 1, leaving the starved station with
+  no train; busy suppliers made trains drop busy groups across the network.
 - **Spare trains (0.27.0)**: a train whose cars are empty, that finds no trip in its own pattern, and whose pattern
   another managed train shares (`SamePattern`, also back to front for a train turned round) changes group at once,
   but only to a consumer station no train serves (`TryConsumers(true, true)`, no second pass over all consumers); with

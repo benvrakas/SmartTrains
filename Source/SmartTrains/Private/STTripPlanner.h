@@ -158,9 +158,11 @@ public:
 	void GiveTime(double Milliseconds);
 	// Milliseconds spent since the planner was made.
 	double GetElapsedMs() const;
-	// Why the last trip tried for the current train didn't work, empty if none failed.
 	// Why trips tried for the current train were rejected: the most frequent reasons with their counts, or empty.
 	FString DescribeProblems() const;
+	// How many trips tried for the current train were rejected only because trains already wait before a station (the
+	// queue limit): the work is there, a supplier or consumer is busy.
+	int32 CountQueueRejections() const;
 
 private:
 	struct FPlatformInfo
