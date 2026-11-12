@@ -124,11 +124,9 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 	mMain->AddChildToVerticalBox(Tools)->SetPadding(FMargin(0.f, 8.f, 0.f, 2.f));
 	AddToLine(Tools, MakeButton(nullptr, LOCTEXT("Copy", "Copy"), [this]()
 	{
-		USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
-		if (RCO && GetPlatform())
+		if (USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this))
 		{
-			UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: copy settings of %s"), *GetPlatform()->GetName());
-			RCO->Server_CopyPlatformSettings(GetPlatform(), false);
+			RCO->CopyPlatformFromMenu(GetPlatform());
 		}
 	}), true);
 	mPaste = MakeButton(nullptr, LOCTEXT("Paste", "Paste"), [this]()
@@ -136,9 +134,7 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 		USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
 		if (RCO && GetPlatform())
 		{
-			mLastEdit = RCO->NextEdit();
-			UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: paste settings onto %s (edit %d)"), *GetPlatform()->GetName(), mLastEdit);
-			RCO->Server_PastePlatformSettings(GetPlatform(), false, mLastEdit);
+			mLastEdit = RCO->PastePlatformFromMenu(GetPlatform());
 		}
 	});
 	AddToLine(Tools, mPaste, true, FMargin(0.f));

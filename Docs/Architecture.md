@@ -87,6 +87,17 @@ window's Rename stations); never automatic.
     each while there are enough; largest remainder), counting settled platforms (one item, what they hold, kept). The
     rest, in station and platform order, take the item furthest below its share, then one already at that station,
     then the faster item. Test: `SmartTrains.Setup.ShareOutByRate`.
+  - **0.25.0, lanes (elimination by machine input):** the trace records which machine connection it reaches
+    (`FResult::MachineInputs`, "<machine path>|<connection>", before the visited check so a second input of a machine
+    counts too), and set-up records each platform's belt or pipe rate on the factory side (`BeltRate`). Kept platforms
+    with a role are traced as well, so a single Autodetect knows its neighbours. Within a group in which every
+    platform was traced, platforms reaching a connection in common form a lane. With two lanes or more: a lane with
+    one settled item gives it to its free platforms; the open lanes, by belt rate, take the remaining items by use per
+    minute (most used to most belts) when there are as many items left as open lanes (or one item for all). Platforms
+    left free go on to the car-load share-out. Why: on the IB save Dune Desert Computer In 1 feeds its assemblers
+    through two balancers, three platforms into input 1 (Circuit Board, 810/min) and one into input 2 (Crystal
+    Oscillator, 270/min); every trace reached the same machines with both items, so the share-out alternated them and
+    the player had to clear three platforms. Test: `SmartTrains.Setup.ShareOutLanes`.
 - **Factory** (`AnalyzeFactory`), in flood fills (`STTrace::Flood`): one walk from a set of machines through belts,
   pipes, splitters, storage and machines, downstream or upstream, that visits each building once and stops at train
   platforms (noting the machine it last passed before each, `PlatformsByMachine`), up to 50,000 buildings and belts.

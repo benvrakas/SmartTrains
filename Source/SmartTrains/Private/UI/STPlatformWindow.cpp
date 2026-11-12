@@ -192,6 +192,33 @@ void USTPlatformLauncher::BuildContent(UVerticalBox* Root)
 	Root->AddChildToVerticalBox(mItemRows)->SetPadding(FMargin(0.f, 2.f, 0.f, 0.f));
 	mStatus = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 2.f, 0.f, 6.f));
 	MakeButton(Root, LOCTEXT("OpenPlatformWindow", "Open SmartTrains settings"), [this]() { USTPlatformWindow::Open(GetMenu()); });
+	// Copy and Paste, half the width each, as in the settings window.
+	UHorizontalBox* Clipboard = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
+	Root->AddChildToVerticalBox(Clipboard)->SetPadding(FMargin(0.f, 4.f, 0.f, 0.f));
+	USTButton* Copy = MakeButton(nullptr, LOCTEXT("Copy", "Copy"), [this]()
+	{
+		if (USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this))
+		{
+			RCO->CopyPlatformFromMenu(STWidgetUtils::GetMenuPlatform(GetMenu()));
+		}
+	}, FMargin(0.f));
+	mPaste = MakeButton(nullptr, LOCTEXT("Paste", "Paste"), [this]()
+	{
+		if (USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this))
+		{
+			RCO->PastePlatformFromMenu(STWidgetUtils::GetMenuPlatform(GetMenu()));
+			RefreshSoon();
+		}
+	}, FMargin(0.f));
+	mPaste->SetIsEnabled(false);
+	for (USTButton* Button : {Copy, mPaste.Get()})
+	{
+		if (UHorizontalBoxSlot* ButtonSlot = Clipboard->AddChildToHorizontalBox(Button))
+		{
+			ButtonSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+			ButtonSlot->SetPadding(FMargin(0.f, 0.f, Button == Copy ? 4.f : 0.f, 0.f));
+		}
+	}
 }
 
 bool USTPlatformLauncher::OnShown()
@@ -238,6 +265,7 @@ void USTPlatformLauncher::Refresh(USTRemoteCallObject* RCO)
 			: FString::Printf(TEXT("%s: no items"), STNames::Role(View->Role))));
 	}
 	ShowItems(View->Role == ESTRole::Off || View->Role == ESTRole::Sink ? TArray<FSTItemRule>() : View->Items);
+	mPaste->SetIsEnabled(RCO->HasClipboard(View->bFluid));
 	// The readout's last line is the first reason or the inbound trains; one line is enough here.
 	mStatus->SetText(View->Lines.Num() > 0 ? FText::FromString(View->Lines.Last()) : FText::GetEmpty());
 	mStatus->SetVisibility(View->Lines.Num() > 0 ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);

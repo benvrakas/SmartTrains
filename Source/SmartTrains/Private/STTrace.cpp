@@ -474,6 +474,11 @@ namespace
 				AddUnique(Result.Notes, FString::Printf(TEXT("%s faces the wrong way"), *Label(Owner)));
 				return;
 			}
+			// Before the visited check: a machine reached again through another of its inputs counts that one too.
+			if (Owner->IsA<AFGBuildableManufacturer>())
+			{
+				Result.MachineInputs.AddUnique(Owner->GetPathName() + TEXT("|") + Neighbour->GetName());
+			}
 			if (Visited.Contains(Owner))
 			{
 				return;
@@ -625,6 +630,10 @@ namespace
 			{
 				AddUnique(Result.Notes, TEXT("a pipe connection leads nowhere"));
 				return;
+			}
+			if (Owner->IsA<AFGBuildableManufacturer>() && Neighbour->GetPipeConnectionType() != (bUpstream ? EPipeConnectionType::PCT_CONSUMER : EPipeConnectionType::PCT_PRODUCER))
+			{
+				Result.MachineInputs.AddUnique(Owner->GetPathName() + TEXT("|") + Neighbour->GetName());
 			}
 			if (Visited.Contains(Owner))
 			{

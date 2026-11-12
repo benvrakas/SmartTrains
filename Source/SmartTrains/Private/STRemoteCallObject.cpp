@@ -231,6 +231,27 @@ void USTRemoteCallObject::Server_SetPlatform_Implementation(AFGBuildableTrainPla
 	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
 }
 
+void USTRemoteCallObject::CopyPlatformFromMenu(AFGBuildableTrainPlatformCargo* Platform)
+{
+	if (Platform)
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: copy settings of %s"), *Platform->GetName());
+		Server_CopyPlatformSettings(Platform, false);
+	}
+}
+
+int32 USTRemoteCallObject::PastePlatformFromMenu(AFGBuildableTrainPlatformCargo* Platform)
+{
+	if (!Platform)
+	{
+		return 0;
+	}
+	const int32 Edit = NextEdit();
+	UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: paste settings onto %s (edit %d)"), *Platform->GetName(), Edit);
+	Server_PastePlatformSettings(Platform, false, Edit);
+	return Edit;
+}
+
 bool USTRemoteCallObject::Server_CopyPlatformSettings_Validate(AFGBuildableTrainPlatformCargo* Platform, bool bFromGameKey)
 {
 	return true;

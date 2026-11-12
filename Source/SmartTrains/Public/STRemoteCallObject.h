@@ -130,6 +130,11 @@ public:
 	// True once this player copied settings from a platform of that form.
 	bool HasClipboard(bool bFluid) const { return bFluid ? bHasFluidClipboard : bHasFreightClipboard; }
 
+	// Copy and Paste buttons (platform menu and settings window): copies Platform's SmartTrains settings to this
+	// player's clipboard, or pastes the clipboard onto it and returns the edit number sent.
+	void CopyPlatformFromMenu(AFGBuildableTrainPlatformCargo* Platform);
+	int32 PastePlatformFromMenu(AFGBuildableTrainPlatformCargo* Platform);
+
 	// Changes whenever a view or message arrives.
 	uint32 GetRevision() const { return mRevision; }
 

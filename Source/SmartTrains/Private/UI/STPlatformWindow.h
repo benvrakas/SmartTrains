@@ -65,6 +65,10 @@ private:
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mStatus;
 
+	// Enabled while this player has copied settings of a platform of the same kind (freight or fluid).
+	UPROPERTY()
+	TObjectPtr<USTButton> mPaste;
+
 	// The items shown in mItemRows, to rebuild them only when they change.
 	TArray<TSubclassOf<UFGItemDescriptor>> mShownItems;
 	bool bItemsShown = false;

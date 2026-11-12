@@ -42,6 +42,10 @@ namespace STMigration
 		TArray<float> SpreadRates;
 		// The machines its connection trace reached.
 		TArray<TWeakObjectPtr<const AActor>> Machines;
+		// The machine inputs (outputs, loading) its trace reached (STTrace::FResult::MachineInputs).
+		TArray<FString> MachineInputs;
+		// What its belts or pipes on the factory side carry at most per minute.
+		double BeltRate = 0.0;
 	};
 
 	struct FStationProposal

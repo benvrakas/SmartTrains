@@ -220,6 +220,126 @@ void STMigration::ShareOutItems(FPreview& Preview)
 		{
 			continue;
 		}
+
+		// Lanes: platforms feeding the same machines through different inputs (a balancer per ingredient) carry
+		// different items. Platforms reaching a machine input in common are one lane. A lane with one settled item gives
+		// it to its other platforms; the other lanes take the items left, the most used item to the lane with the most
+		// belts (Docs/Architecture.md, "Lanes"). Only when every platform of the group was traced.
+		const bool bAllTraced = !Group.Value.ContainsByPredicate([&](int32 Index) { return Get(Refs[Index]).MachineInputs.Num() == 0; });
+		if (bAllTraced && Group.Value.Num() >= 2)
+		{
+			TArray<int32> LaneParent;
+			for (int32 Member = 0; Member < Group.Value.Num(); ++Member)
+			{
+				LaneParent.Add(Member);
+			}
+			TFunction<int32(int32)> LaneFind = [&LaneParent, &LaneFind](int32 Member) { return LaneParent[Member] == Member ? Member : (LaneParent[Member] = LaneFind(LaneParent[Member])); };
+			TMap<FString, int32> ByInput;
+			for (int32 Member = 0; Member < Group.Value.Num(); ++Member)
+			{
+				for (const FString& Input : Get(Refs[Group.Value[Member]]).MachineInputs)
+				{
+					if (const int32* First = ByInput.Find(Input))
+					{
+						LaneParent[LaneFind(Member)] = LaneFind(*First);
+					}
+					else
+					{
+						ByInput.Add(Input, Member);
+					}
+				}
+			}
+			struct FLane
+			{
+				TArray<int32> Free;
+				TSet<UClass*> Settled;
+				double Belts = 0.0;
+			};
+			TMap<int32, FLane> Lanes;
+			TMap<UClass*, double> Used;
+			for (int32 Member = 0; Member < Group.Value.Num(); ++Member)
+			{
+				const int32 Index = Group.Value[Member];
+				const STMigration::FPlatformProposal& Each = Get(Refs[Index]);
+				FLane& Lane = Lanes.FindOrAdd(LaneFind(Member));
+				Lane.Belts += Each.BeltRate;
+				if (Free.Contains(Index))
+				{
+					Lane.Free.Add(Index);
+				}
+				else
+				{
+					for (const TSubclassOf<UFGItemDescriptor>& Item : Each.Items)
+					{
+						Lane.Settled.Add(Item.Get());
+					}
+				}
+				for (int32 Choice = 0; Choice < Each.SpreadChoices.Num(); ++Choice)
+				{
+					const double Rate = Each.SpreadRates.IsValidIndex(Choice) ? Each.SpreadRates[Choice] : 0.0;
+					Used.FindOrAdd(Each.SpreadChoices[Choice].Get()) = FMath::Max(Used.FindRef(Each.SpreadChoices[Choice].Get()), Rate);
+				}
+			}
+			if (Lanes.Num() >= 2)
+			{
+				TArray<UClass*> Pool;
+				Used.GetKeys(Pool);
+				TArray<FLane*> Open;
+				TArray<TPair<FLane*, UClass*>> Picks;
+				for (TPair<int32, FLane>& Lane : Lanes)
+				{
+					if (Lane.Value.Settled.Num() == 1)
+					{
+						UClass* Item = *Lane.Value.Settled.CreateConstIterator();
+						Picks.Add({&Lane.Value, Item});
+						Pool.Remove(Item);
+					}
+					else if (Lane.Value.Settled.Num() == 0)
+					{
+						Open.Add(&Lane.Value);
+					}
+				}
+				Open.Sort([](const FLane& A, const FLane& B) { return A.Belts > B.Belts; });
+				Pool.Sort([&Used](const UClass& A, const UClass& B) { return Used.FindRef(const_cast<UClass*>(&A)) > Used.FindRef(const_cast<UClass*>(&B)); });
+				if (Open.Num() > 0 && (Open.Num() == Pool.Num() || Pool.Num() == 1))
+				{
+					for (int32 Lane = 0; Lane < Open.Num(); ++Lane)
+					{
+						Picks.Add({Open[Lane], Pool[FMath::Min(Lane, Pool.Num() - 1)]});
+					}
+				}
+				for (const TPair<FLane*, UClass*>& Pick : Picks)
+				{
+					for (const int32 Index : Pick.Key->Free)
+					{
+						STMigration::FPlatformProposal& Each = Get(Refs[Index]);
+						if (!Each.SpreadChoices.Contains(Pick.Value))
+						{
+							continue;
+						}
+						Each.OneItemNote = FString::Printf(TEXT("its machines take several items, but its belts go to other machine inputs than the rest (%d lanes): by elimination %s"),
+							Lanes.Num(), *STNames::Item(Pick.Value));
+						Each.Note = Each.OneItemNote;
+						if (Each.Items[0].Get() != Pick.Value)
+						{
+							UE_LOG(LogSmartTrains, Log, TEXT("MIGRATION %s platform %d: %s (%s)"), *STLayout::Name(Preview.Stations[Refs[Index].Station].Station.Get()), Each.Index + 1,
+								*STNames::Item(Pick.Value), *Each.OneItemNote);
+							Each.Items = {Pick.Value};
+							Each.Confidence = TEXT("medium");
+							++Changed;
+						}
+						++Given.FindOrAdd(Pick.Value);
+						AtStation.FindOrAdd(Refs[Index].Station).Add(Pick.Value);
+						Free.Remove(Index);
+					}
+				}
+			}
+		}
+		if (Free.Num() == 0)
+		{
+			continue;
+		}
+
 		TArray<UClass*> Items;
 		Weight.GetKeys(Items);
 		Items.Sort([&Weight](const UClass& A, const UClass& B) { return Weight.FindRef(const_cast<UClass*>(&A)) > Weight.FindRef(const_cast<UClass*>(&B)); });

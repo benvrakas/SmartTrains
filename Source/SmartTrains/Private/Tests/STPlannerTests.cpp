@@ -1488,4 +1488,52 @@ bool FSTShareOutByRateTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// Lanes: four platforms reach the same machines, one through their second input and three through their first (a
+// balancer per ingredient, IB Dune Desert Computer In 1). The three-platform lane takes the item used most, the
+// single one the other, whatever their order; a lane with a platform set up already gives its item to the rest.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTShareOutLanesTest, "SmartTrains.Setup.ShareOutLanes", TestFlags)
+bool FSTShareOutLanesTest::RunTest(const FString& Parameters)
+{
+	UClass* Boards = USTTestSolid::StaticClass();
+	UClass* Oscillators = USTTestSolidB::StaticClass();
+	AActor* Machine = NewObject<AActor>(GetTransientPackage());
+	auto MakePreview = [&](bool bKeptBoard)
+	{
+		STMigration::FPreview Preview;
+		STMigration::FStationProposal& Station = Preview.Stations.AddDefaulted_GetRef();
+		for (int32 Index = 0; Index < 4; ++Index)
+		{
+			STMigration::FPlatformProposal& Platform = Station.Platforms.AddDefaulted_GetRef();
+			Platform.Index = Index;
+			Platform.Role = ESTRole::Demand;
+			Platform.Machines.Add(Machine);
+			Platform.MachineInputs = {Index == 0 ? TEXT("Assembler|Input1") : TEXT("Assembler|Input0")};
+			Platform.BeltRate = 1560.0;
+			if (bKeptBoard && Index == 2)
+			{
+				Platform.bKept = true;
+				Platform.Items = {Boards};
+				continue;
+			}
+			// What the share-out by car loads alone would give: alternating.
+			Platform.Items = {Index % 2 == 0 ? Boards : Oscillators};
+			Platform.SpreadChoices = {Boards, Oscillators};
+			Platform.SpreadRates = {810.f, 270.f};
+		}
+		STMigration::ShareOutItems(Preview);
+		return Preview;
+	};
+	for (const bool bKept : {false, true})
+	{
+		const STMigration::FPreview Preview = MakePreview(bKept);
+		const TArray<STMigration::FPlatformProposal>& Platforms = Preview.Stations[0].Platforms;
+		TestTrue(FString::Printf(TEXT("the single-platform lane takes the less used item (kept: %d)"), bKept), Platforms[0].Items[0].Get() == Oscillators);
+		for (int32 Index = 1; Index < 4; ++Index)
+		{
+			TestTrue(FString::Printf(TEXT("platform %d in the three-platform lane takes the most used item (kept: %d)"), Index + 1, bKept), Platforms[Index].Items[0].Get() == Boards);
+		}
+	}
+	return true;
+}
+
 #endif

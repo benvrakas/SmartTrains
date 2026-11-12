@@ -20,11 +20,13 @@ them (see below).
   - **Off:** vanilla.
   - Each item gets a target and a priority (demand), or a **Least per visit** (supply, 50 % by default): a train
     only picks up there when it can load at least that share of what its cars there carry.
-  - **Copy**, **Paste** and **Copy to the station's other platforms** carry every setting of the platform.
+  - **Copy**, **Paste** and **Copy to the station's other platforms** carry every setting of the platform. Copy and
+    Paste are also right in the platform's own menu.
 - **Set up a station from its factory:** build the station and its platforms, connect the belts and pipes, and open
   the station menu. Each platform's menu has **Autodetect**: it follows the belts and pipes to the machines and sets
   the platform to load or unload. The item is what the platform holds; an empty platform gets the item its machines
-  take or make. **Autodetect all platforms**, under the station's name, does that for every platform of the station
+  take or make; platforms whose belts go to different inputs of the same machines (a balancer per ingredient) get
+  different items, the most used one where the most belts go. **Autodetect all platforms**, under the station's name, does that for every platform of the station
   (click twice: it redoes platforms set up already).
   **Rename station from its factory**, under the station's name, names it from what the factory makes, its map area,
   a number and its most per minute, e.g. "Grass Fields Modular Frame Out 1 (288)". Each shows what it would do first;

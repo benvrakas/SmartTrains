@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.25.0 (beta)
+
+- **Autodetect tells platforms apart by the machine input their belts go to.** Platforms feeding the same machines
+  through separate balancers, one per ingredient, now get different items: the lane with the most belts gets the most
+  used item, and a lane with a platform set up already gives its item to the rest of the lane. On the IB save Dune
+  Desert Computer In 1 (three platforms into the assemblers' first input, one into the second) got Circuit Board,
+  Crystal Oscillator, Circuit Board, Crystal Oscillator; it now gets three Circuit Board platforms and one Crystal
+  Oscillator. Use Autodetect all platforms there (or on the platforms you cleared) to set them.
+- **Copy and Paste in the platform menu**, under Open SmartTrains settings: no need to open the settings window to
+  copy one platform's settings onto another.
+
 ## 0.24.0 (beta)
 
 - **Station rates count the narrowest belts on the way to the machines**, not only the belts out of the platforms.

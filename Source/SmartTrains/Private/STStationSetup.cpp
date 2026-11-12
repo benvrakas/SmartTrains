@@ -421,6 +421,18 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 			}
 			Platform.Confidence = TEXT("set up");
 			Platform.Evidence = TEXT("already set up; kept as it is");
+			if (Config->Role == ESTRole::Supply || Config->Role == ESTRole::Demand)
+			{
+				// Kept platforms count for which machine inputs carry which item (ShareOutItems, lanes).
+				const STTrace::FResult Trace = STTrace::Trace(Cargo, Config->Role == ESTRole::Supply, SetupScanDepth(Subsystem));
+				Platform.MachineInputs = Trace.MachineInputs;
+				if (Platform.Machines.Num() == 0)
+				{
+					Platform.Machines = Trace.MachineActors;
+				}
+				FString Unused;
+				Platform.BeltRate = SetupThroughput(Cargo, Config->Role == ESTRole::Demand, Unused);
+			}
 			continue;
 		}
 		int32 Inputs = 0;
@@ -455,6 +467,11 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 		const STTrace::FResult Trace = STTrace::Trace(Cargo, bSupply, SetupScanDepth(Subsystem));
 		Platform.TraceText = Trace.Summary();
 		Platform.Machines = Trace.MachineActors;
+		Platform.MachineInputs = Trace.MachineInputs;
+		{
+			FString Unused;
+			Platform.BeltRate = SetupThroughput(Cargo, !bSupply, Unused);
+		}
 		Each.Summary = Trace.Summary();
 		Each.Confidence = STTrace::ConfidenceName(Trace.Confidence);
 		Each.PipeFluidHint = Trace.PipeFluidHint;

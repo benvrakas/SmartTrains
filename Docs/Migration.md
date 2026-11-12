@@ -56,6 +56,9 @@ through belts, lifts, splitters, mergers, pipes, junctions and pumps and stops a
   - A platform whose trace reached no machine groups with its station's platforms of that role.
   - Each platform takes the best item no other platform of its group has yet. Platforms settled by their stock keep
     their item and count as taken.
+  - Within a group, platforms whose belts reach different inputs of the machines (a balancer per ingredient) carry
+    different items: the lane with the most belts gets the most used item, and a lane with a platform set up already
+    gives that item to the rest of the lane (Architecture.md, "lanes").
   - A group with more platforms than items gives the rest their best item again.
   - A changed platform is marked medium, "one no other platform for the same machines has yet; check it", and logged
     as `MIGRATION <station> platform <n>: <item> instead of <item>`.

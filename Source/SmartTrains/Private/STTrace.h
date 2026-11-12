@@ -40,6 +40,9 @@ namespace STTrace
 		TArray<TWeakObjectPtr<const AActor>> MachineActors;
 		// Train platforms reached (the walk stops at them).
 		TArray<TWeakObjectPtr<const AActor>> PlatformActors;
+		// The machine connections reached ("<machine path>|<connection name>"): platforms feeding different inputs of
+		// the same machines carry different items (STMigration::ShareOutItems, lanes).
+		TArray<FString> MachineInputs;
 		// Machine items stopped by a splitter or balancer filter on the way.
 		int32 Filtered = 0;
 		int32 Nodes = 0;
