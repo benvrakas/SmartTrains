@@ -894,8 +894,12 @@ TArray<UClass*> FSTTripPlanner::GetCarCargo(int32 Index) const
 }
 
 bool FSTTripPlanner::MakeCarItems(const AFGTrainStationIdentifier* Consumer, const TArray<TArray<UClass*>>& Pattern, bool bIgnorePattern, TArray<TArray<UClass*>>& OutAllowed,
-	int32& OutMismatched) const
+	int32& OutMismatched, int32* OutMatched) const
 {
+	if (OutMatched)
+	{
+		*OutMatched = 0;
+	}
 	auto SameItems = [](const TArray<UClass*>& A, const TArray<UClass*>& B)
 	{
 		return A.Num() == B.Num() && !A.ContainsByPredicate([&B](UClass* Item) { return !B.Contains(Item); });
@@ -939,6 +943,10 @@ bool FSTTripPlanner::MakeCarItems(const AFGTrainStationIdentifier* Consumer, con
 		if (Fixed.Num() > 0 && Demand.Num() > 0 && !SameItems(Fixed, Demand))
 		{
 			return false;
+		}
+		if (OutMatched && Fixed.Num() > 0 && Demand.Num() > 0)
+		{
+			++*OutMatched;
 		}
 		TArray<UClass*>& Allowed = OutAllowed.AddDefaulted_GetRef();
 		Allowed = Fixed.Num() > 0 ? Fixed : (Demand.Num() > 0 ? Demand : Cargo);

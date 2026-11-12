@@ -284,6 +284,9 @@ struct SMARTTRAINS_API FSTCarItems
 	TArray<TSubclassOf<UFGItemDescriptor>> Items;
 };
 
+// A train may change group once it has found no trip in its car pattern for this long. [s]
+inline constexpr double STPatternIdleSeconds = 300.0;
+
 USTRUCT()
 struct SMARTTRAINS_API FSTTrainState
 {
@@ -389,6 +392,11 @@ struct SMARTTRAINS_API FSTTrainState
 
 	// Runtime only: since when the train has found no trip in its pattern (0: it has one), for changing group.
 	double PatternIdleSince = 0.0;
+
+	// Runtime only: no consumer station takes its pattern any more (its platforms were changed), so it may change
+	// group at once; checked at most once a minute (PatternHomeCheckedAt).
+	bool bPatternHomeless = false;
+	double PatternHomeCheckedAt = -1.0e9;
 
 	// Runtime only: moves that moved nothing at their station lately.
 	TArray<FSTNoProgress> NoProgress;

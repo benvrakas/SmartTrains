@@ -20,8 +20,33 @@ namespace
 	constexpr double GatherJustLeftSeconds = 60.0;
 	// The first train of every dispatch round gets at least this much planning time. [ms]
 	constexpr double GatherMinTurnMs = 15.0;
-	// A train may change group once it has found no trip in its pattern for this long. [s]
-	constexpr double PatternIdleSeconds = 300.0;
+	constexpr double PatternIdleSeconds = STPatternIdleSeconds;
+	// A train's pattern is checked against every consumer station at most this often while it finds nothing. [s]
+	constexpr double PatternHomeCheckSeconds = 60.0;
+
+	// True if some consumer station's demand platforms take Pattern: a car with pattern items beside a demand platform
+	// for the same items, and no car beside one for other items.
+	bool HasPatternHome(const FSTTripPlanner& Planner, const TArray<FSTNode>& Nodes, const TArray<TArray<UClass*>>& Pattern)
+	{
+		TSet<const AFGTrainStationIdentifier*> Seen;
+		for (const FSTNode& Node : Nodes)
+		{
+			const AFGTrainStationIdentifier* Station = Node.Station.Get();
+			if (Node.Role != ESTRole::Demand || Node.bAnyItem || !Station || Seen.Contains(Station))
+			{
+				continue;
+			}
+			Seen.Add(Station);
+			TArray<TArray<UClass*>> Allowed;
+			int32 Mismatched = 0;
+			int32 Matched = 0;
+			if (Planner.MakeCarItems(Station, Pattern, false, Allowed, Mismatched, &Matched) && Matched > 0)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
 
 	// The item a trip unloads most of, in car loads (null if it unloads nothing).
 	UClass* MostUnloaded(const FSTPlanResult& Result)
@@ -242,8 +267,25 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		{
 			TryConsumers(false, false);
 		}
+		// A pattern no consumer station takes any more (a player changed the platforms it came from) has no group to wait
+		// for: the train changes group at once.
+		bool bHomeless = false;
+		if (!BestConsumer && !bOpen && !bMayChange && Tried == 0 && Blocked == 0)
+		{
+			if (Time - State.PatternHomeCheckedAt >= PatternHomeCheckSeconds)
+			{
+				State.PatternHomeCheckedAt = Time;
+				State.bPatternHomeless = !HasPatternHome(Planner, Nodes, Pattern);
+				if (State.bPatternHomeless)
+				{
+					UE_LOG(LogSmartTrains, Log, TEXT("PATTERN %s: no consumer station takes %s any more; it may change group now"), *STLayout::Name(State.Train),
+						*State.DescribePattern());
+				}
+			}
+			bHomeless = State.bPatternHomeless;
+		}
 		bool bChanging = false;
-		if (!BestConsumer && !bOpen && bMayChange)
+		if (!BestConsumer && !bOpen && (bMayChange || bHomeless))
 		{
 			bChanging = true;
 			TryConsumers(true, true);
@@ -267,11 +309,14 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			const FString Before = State.DescribePattern();
 			State.CarSets = PatternAfter(State, BestAllowed, Planner.GetCarCount(), !bChanging);
 			State.PatternIdleSince = 0.0;
+			State.bPatternHomeless = false;
+			State.PatternHomeCheckedAt = -1.0e9;
 			const FString After = State.DescribePattern();
 			if (After != Before)
 			{
 				UE_LOG(LogSmartTrains, Log, TEXT("PATTERN %s: %s -> %s (%s%s)"), *STLayout::Name(State.Train), *Before, *After,
-					bChanging ? TEXT("changes group: nothing to do in its own for a while") : TEXT("a trip gives open cars their items"),
+					bChanging ? (bHomeless ? TEXT("changes group: no consumer station takes its pattern any more") : TEXT("changes group: nothing to do in its own for a while"))
+						: TEXT("a trip gives open cars their items"),
 					bUnservedChosen ? *FString::Printf(TEXT("; %s had no train"), *STLayout::Name(BestConsumer)) : TEXT(""));
 			}
 			CommitTrip(State, Planner, BestStops, BestResult, true, MostUnloaded(BestResult), BestConsumer);
@@ -283,7 +328,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		}
 		// Consumers need work its cargo is in the way of: it unloads the cars first (at consumers of the cargo, else at a
 		// sink), then takes trips to any consumer that lines up.
-		if (bMayChange && Blocked > 0 && GetCargo(State.Train).Num() > 0 && !(Tried > 0 && Planner.IsOverBudget()))
+		if ((bMayChange || bHomeless) && Blocked > 0 && GetCargo(State.Train).Num() > 0 && !(Tried > 0 && Planner.IsOverBudget()))
 		{
 			TArray<FSTPlanStop> Stops;
 			Planner.SetNoLoads();
@@ -298,6 +343,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 					*STLayout::Name(State.Train), *State.DescribePattern(), Blocked);
 				State.CarSets.Init(FSTCarItems(), Planner.GetCarCount());
 				State.PatternIdleSince = 0.0;
+				State.bPatternHomeless = false;
 				CommitTrip(State, Planner, Stops, Result, true, MostUnloaded(Result), nullptr);
 				continue;
 			}
@@ -315,7 +361,11 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		{
 			Why += FString::Printf(TEXT(", %d where cargo on board doesn't line up"), Blocked);
 		}
-		if (!bOpen && !bMayChange)
+		if (bHomeless)
+		{
+			Why += TEXT("; no consumer station takes its pattern any more, so it may change group now");
+		}
+		else if (!bOpen && !bMayChange)
 		{
 			Why += FString::Printf(TEXT("; may change group in %.0f min"), FMath::Max(0.0, PatternIdleSeconds - (Time - State.PatternIdleSince)) / 60.0);
 		}

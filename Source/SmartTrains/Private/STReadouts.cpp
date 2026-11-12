@@ -195,9 +195,55 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 			continue;
 		}
 
+		// The item sets of this station's demand platforms, for car patterns.
+		TArray<TArray<UClass*>> DemandSets;
+		for (AFGBuildableTrainPlatform* Each : STLayout::GetPlatforms(Station))
+		{
+			const AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Each);
+			const FSTPlatformConfig* PlatformConfig = Cargo ? FindPlatformConfig(Cargo) : nullptr;
+			if (PlatformConfig && PlatformConfig->Role == ESTRole::Demand)
+			{
+				TArray<UClass*>& Set = DemandSets.AddDefaulted_GetRef();
+				for (const FSTItemRule& ItemRule : PlatformConfig->Items)
+				{
+					Set.AddUnique(ItemRule.Item.Get());
+				}
+			}
+		}
+		// A free train can take a trip for this item: its pattern is open, it may change group, or (demand) each of its
+		// patterned cars has a platform here for the same items, (supply) a car carries the item (Docs/Architecture.md,
+		// "Car patterns").
+		auto PatternMayCome = [&](const FSTTrainState& State)
+		{
+			if (State.IsPatternOpen() || State.bPatternHomeless || (State.PatternIdleSince > 0.0 && Now() - State.PatternIdleSince >= STPatternIdleSeconds))
+			{
+				return true;
+			}
+			for (const TArray<UClass*>& Car : State.GetPattern())
+			{
+				if (bSupply)
+				{
+					if (Car.Contains(Rule.Item.Get()))
+					{
+						return true;
+					}
+					continue;
+				}
+				if (Car.Num() > 0 && !DemandSets.ContainsByPredicate([&Car](const TArray<UClass*>& Set)
+					{
+						return Set.Num() == Car.Num() && !Car.ContainsByPredicate([&Set](UClass* Item) { return !Set.Contains(Item); });
+					}))
+				{
+					return false;
+				}
+			}
+			return !bSupply;
+		};
+
 		int32 Serving = 0;
 		int32 Fitting = 0;
 		int32 FreeFitting = 0;
+		int32 FreeLinedUp = 0;
 		int32 BestCapacity = 0;
 		FString Problem;
 		for (const FSTTrainState& State : mTrains)
@@ -229,6 +275,7 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 			Fitting += bFits ? 1 : 0;
 			// Free: no job.
 			FreeFitting += bFits && !State.bHasJob ? 1 : 0;
+			FreeLinedUp += bFits && !State.bHasJob && PatternMayCome(State) ? 1 : 0;
 		}
 		if (Serving == 0)
 		{
@@ -283,7 +330,13 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 			Lines.Add(FString::Printf(TEXT("%s: all %d managed trains that fit are busy."), *Name, Fitting));
 			continue;
 		}
-		Lines.Add(FString::Printf(TEXT("%s: %d free trains fit; a job should follow at the next dispatch round."), *Name, FreeFitting));
+		if (FreeLinedUp == 0)
+		{
+			Lines.Add(FString::Printf(TEXT("%s: %d free trains fit, but their car patterns are for other stations. One takes this station's after %.0f minutes without work in its own, or at once when no station takes its pattern any more."),
+				*Name, FreeFitting, STPatternIdleSeconds / 60.0));
+			continue;
+		}
+		Lines.Add(FString::Printf(TEXT("%s: %d free trains fit and their car patterns line up; a job should follow at the next dispatch round."), *Name, FreeLinedUp));
 	}
 	return Lines;
 }

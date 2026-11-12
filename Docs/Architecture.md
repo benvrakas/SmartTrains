@@ -212,6 +212,15 @@ window's Rename stations); never automatic.
   trip. If consumers were blocked only by cargo, a clearing trip runs: `SetNoLoads`, any consumer (`SetSinksForCargo`
   lets sinks take cargo a consumer exists for), no anchor; the pattern starts open. `ReplanTrip` applies the same car
   items from the job's anchor (no anchor: no loads, sinks allowed).
+- **Homeless patterns (0.26.0)**: a train finding no trip in its pattern, with no consumer station tried at all, checks
+  (at most once a minute, `HasPatternHome`) whether any consumer station's demand platforms still take its pattern
+  (`MakeCarItems` with `OutMatched` > 0: a patterned car beside a demand platform for the same items, none for other
+  items). If none does, it changes group at once instead of after `STPatternIdleSeconds` (`bPatternHomeless`). Why:
+  on the IB save a train took "Circuit Board | Steel | - | Steel" from Dune Desert Computer In 1 while the player was
+  still setting its platforms; once they were set, no station took that pattern, its trip was dropped and it waited
+  5 minutes for a group that no longer existed. The platform readout counts only free trains whose pattern can come
+  (open, free to change group, homeless, or each patterned car with a platform for the same items at the station);
+  before, "19 free trains fit; a job should follow" counted trains of other groups.
 - **Unserved first (0.23.0)**: a train choosing a pattern (open, or changing group) first tries only consumers no
   train serves (`IsConsumerServed`: no managed train on a trip anchored there, none given since `ServedSeconds`, 600 s,
   `mLastTripTo` set in `CommitTrip`); only with no worthwhile trip among them, all consumers. Before, the best score

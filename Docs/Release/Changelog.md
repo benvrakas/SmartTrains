@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.26.0 (beta)
+
+- **Fixed: a train whose car pattern no station takes any more waited 5 minutes for nothing.** Changing a station's
+  platforms (as on the IB save while setting up Dune Desert Computer In 1) can leave trains with a pattern that no
+  consumer lines up with; their trips were dropped and they sat idle until the 5-minute group change. Such a train now
+  changes group at once.
+- **Fixed: the platform readout promised a job no train could take.** "19 free trains fit; a job should follow"
+  counted trains whose car patterns belong to other stations. It now counts only trains that can come (open, free to
+  change group, or with a pattern that lines up here) and otherwise says that one will take this station's pattern
+  after 5 minutes without work in its own.
+
 ## 0.25.0 (beta)
 
 - **Autodetect tells platforms apart by the machine input their belts go to.** Platforms feeding the same machines

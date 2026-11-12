@@ -106,9 +106,10 @@ public:
 	// out (a train changing group). A car with items in its pattern may only take those; an open car may take the demand
 	// items of the platform beside it at Consumer, or (beside none) the items it holds. Returns false if a demand
 	// platform's items at Consumer differ from the pattern items of the car beside it. OutMismatched: cars holding an
-	// item outside their pattern items or outside what the demand platform beside them takes.
+	// item outside their pattern items or outside what the demand platform beside them takes. OutMatched: cars with
+	// pattern items beside a demand platform for the same items (the station is one of the pattern's group).
 	bool MakeCarItems(const AFGTrainStationIdentifier* Consumer, const TArray<TArray<UClass*>>& Pattern, bool bIgnorePattern, TArray<TArray<UClass*>>& OutAllowed,
-		int32& OutMismatched) const;
+		int32& OutMismatched, int32* OutMatched = nullptr) const;
 	// While set (one entry per car), simulated trips only load a car with the items its entry holds; empty: no limit.
 	void SetCarItems(TArray<TArray<UClass*>> InAllowed) { mCarAllowed = MoveTemp(InAllowed); }
 	// Simulated trips load nothing (a trip that only unloads cargo on board).
