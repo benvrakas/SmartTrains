@@ -526,6 +526,13 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   and fairness weights: a delivery that ends a shortfall sooner is worth more, one to a platform that stays above its
   target within the hour is worth nothing. Moves only go to consumers that fall below target within the hour
   (`Deadline`). Trips still score value / time; the send-at batch rule stays.
+- **Until the next train (0.29.0)**: a delivery's gain counts only the shortfall it prevents until another train
+  could bring the item (`NextDeliveryTime`: one more trip as long as this one, at least `NextDeliveryMinSeconds`,
+  10 minutes, after its arrival); pickups still use the whole hour. Over the whole hour a top-up looked valuable for
+  any platform that would dip below target some time in it, as if no train would come before then, so trips detoured
+  for slow items: on the IB save a High-Speed Connector trip went Copper -> Caterium -> Silica with Caterium about 18
+  minutes from its target at 63/min, delaying the copper the factory was starving for. Slow items now get a stop when
+  they would run short before the next train, i.e. close to their target and nearly a car load at a time.
 - **Queue limit look-ahead** (0.7.4): other trains' bookings count towards **Queue trains** only for arrivals within
   `QueueLookSeconds` (5 minutes); later arrivals still wait for bookings but aren't rejected. In the 0.7.3 log trains
   stood still only 3 % of their trip time, while 292 trips were rejected for "would queue at RockPow- Sulfur SNK" in

@@ -45,11 +45,11 @@ namespace
 		double Deadline = 0.0;
 	};
 
-	// Walks Node's stock from Now through Events (sorted here) to the horizon's end.
-	FWalk Walk(const FSTNode& Node, TArray<FSTNodeEvent> Events, double Now, double CarCapacity)
+	// Walks Node's stock from Now through Events (sorted here) to the horizon's end, or to Until if that is sooner.
+	FWalk Walk(const FSTNode& Node, TArray<FSTNodeEvent> Events, double Now, double CarCapacity, double Until = 0.0)
 	{
 		FWalk Out;
-		const double End = Now + STForecast::HorizonSeconds;
+		const double End = Until > Now ? FMath::Min(Until, Now + STForecast::HorizonSeconds) : Now + STForecast::HorizonSeconds;
 		Out.Deadline = End;
 		const bool bDemand = Node.Role == ESTRole::Demand;
 		const double Capacity = FMath::Max(1.0, static_cast<double>(Node.Capacity));
@@ -115,20 +115,25 @@ double STForecast::GetRate(const FSTNode& Node, double CarCapacity)
 	return Rate;
 }
 
-double STForecast::Cost(const FSTNode& Node, const TArray<FSTNodeEvent>& Events, double Now, double CarCapacity)
+double STForecast::Cost(const FSTNode& Node, const TArray<FSTNodeEvent>& Events, double Now, double CarCapacity, double Until)
 {
 	if (Node.bAnyItem || Node.Capacity <= 0 || (Node.Role != ESTRole::Demand && Node.Role != ESTRole::Supply))
 	{
 		return 0.0;
 	}
-	return Walk(Node, Events, Now, CarCapacity).Cost;
+	return Walk(Node, Events, Now, CarCapacity, Until).Cost;
 }
 
-double STForecast::Gain(const FSTNode& Node, const TArray<FSTNodeEvent>& Events, const FSTNodeEvent& Added, double Now, double CarCapacity)
+double STForecast::Gain(const FSTNode& Node, const TArray<FSTNodeEvent>& Events, const FSTNodeEvent& Added, double Now, double CarCapacity, double Until)
 {
 	TArray<FSTNodeEvent> With = Events;
 	With.Add(Added);
-	return FMath::Max(0.0, Cost(Node, Events, Now, CarCapacity) - Cost(Node, With, Now, CarCapacity));
+	return FMath::Max(0.0, Cost(Node, Events, Now, CarCapacity, Until) - Cost(Node, With, Now, CarCapacity, Until));
+}
+
+double STForecast::NextDeliveryTime(double Now, double Arrive)
+{
+	return Arrive + FMath::Max(Arrive - Now, NextDeliveryMinSeconds);
 }
 
 double STForecast::Deadline(const FSTNode& Node, const TArray<FSTNodeEvent>& Events, double Now, double CarCapacity)

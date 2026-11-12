@@ -1148,14 +1148,15 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 	// What this trip delivers to or picks up from each node, in order: later stops are valued on top of earlier ones.
 	TMap<int32, TArray<FSTNodeEvent>> TripEvents;
 	// The drop in Node's forecast cost when Amount of Item is delivered or picked up at Time (Docs/Architecture.md,
-	// "Forecast cost").
+	// "Forecast cost"). A delivery counts only the shortfall it prevents until another train could bring the item.
 	auto ForecastGain = [&](int32 Node, UClass* Item, double Time, double Amount)
 	{
 		TArray<FSTNodeEvent>& Mine = TripEvents.FindOrAdd(Node);
 		TArray<FSTNodeEvent> Events = mNodes[Node].Planned;
 		Events.Append(Mine);
 		const FSTNodeEvent Added{Time, Amount};
-		const double Gain = STForecast::Gain(mNodes[Node], Events, Added, mTime, STLayout::GetCarCapacity(mCars.Num() > 0 ? mCars[0].Car : nullptr, Item));
+		const double Until = mNodes[Node].Role == ESTRole::Demand ? STForecast::NextDeliveryTime(mTime, Time) : 0.0;
+		const double Gain = STForecast::Gain(mNodes[Node], Events, Added, mTime, STLayout::GetCarCapacity(mCars.Num() > 0 ? mCars[0].Car : nullptr, Item), Until);
 		Mine.Add(Added);
 		return Gain;
 	};

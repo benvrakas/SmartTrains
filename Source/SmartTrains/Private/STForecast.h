@@ -19,14 +19,22 @@ namespace STForecast
 	// What a second of a train's time costs against the forecast cost a trip removes: a trip's score is its value less
 	// this times its duration. [car-load minutes per second]
 	constexpr double TrainSecondCost = 0.01;
+	// A delivery is valued only for the shortfall it prevents until another train could bring the item: one more trip
+	// as long as this one, and at least this long. [s]
+	constexpr double NextDeliveryMinSeconds = 600.0;
 
 	// Cost of Node over [Now, Now + HorizonSeconds] with Events (any order) on top of its stock, in car-load minutes
 	// (amount / CarCapacity): demand, priority weight x shortfall below target over time; supply, production lost while
 	// it is full (x LostLoadMinutes).
-	double Cost(const FSTNode& Node, const TArray<FSTNodeEvent>& Events, double Now, double CarCapacity);
+	// Until: count only up to then (0 or past the horizon: the whole horizon).
+	double Cost(const FSTNode& Node, const TArray<FSTNodeEvent>& Events, double Now, double CarCapacity, double Until = 0.0);
 
-	// The drop in Node's cost when Added joins Events: what a delivery or pickup is worth.
-	double Gain(const FSTNode& Node, const TArray<FSTNodeEvent>& Events, const FSTNodeEvent& Added, double Now, double CarCapacity);
+	// The drop in Node's cost when Added joins Events: what a delivery or pickup is worth. Until as for Cost.
+	double Gain(const FSTNode& Node, const TArray<FSTNodeEvent>& Events, const FSTNodeEvent& Added, double Now, double CarCapacity, double Until = 0.0);
+
+	// Until for valuing a delivery arriving at Arrive on a trip planned at Now: when another train could bring the item
+	// (NextDeliveryMinSeconds).
+	double NextDeliveryTime(double Now, double Arrive);
 
 	// When Node's stock with Events first falls below its target (demand) or reaches capacity (supply), or Now +
 	// HorizonSeconds if not within the horizon. [game seconds]

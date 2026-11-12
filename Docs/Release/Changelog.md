@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.29.0 (beta)
+
+- **Trips no longer detour for items a station won't need before the next train.** A delivery was valued by the
+  shortfall it prevents over a whole hour, as if no other train would come, so trains topped up slow items on the
+  way: on the IB save a High-Speed Connector trip went Copper -> Caterium -> Silica with the Caterium platform still
+  well stocked, delaying the copper the factory was short of. A delivery now counts only what it prevents until
+  another train could bring the item (one more trip like it, at least 10 minutes), so slow items get a stop when they
+  are close to running short, and the main item comes straight.
+
 ## 0.28.0 (beta)
 
 - **Fixed: trains left their group when a supplier was busy.** A train whose trips were turned away because other

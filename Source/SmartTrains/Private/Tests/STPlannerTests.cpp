@@ -676,6 +676,18 @@ bool FSTForecastTest::RunTest(const FString& Parameters)
 	Using.Rate = 1.0;
 	TestEqual(TEXT("falls below its target of 500 after 300 s"), STForecast::Deadline(Using, {}, Now, Car), Now + 300.0, 0.01);
 	TestEqual(TEXT("a delivery of 200 then puts it off by 200 s"), STForecast::Deadline(Using, {{Now + 100.0, 200.0}}, Now, Car), Now + 500.0, 0.01);
+
+	// Until the next train could come (0.29.0): a top-up for a platform that stays above target until then is worth
+	// nothing (IB: a High-Speed Connector trip detoured for Caterium 18 minutes from its target); one that falls below
+	// before then still is.
+	const double Arrive = Now + 60.0;
+	const double Until = STForecast::NextDeliveryTime(Now, Arrive);
+	TestEqual(TEXT("the next train could come at least 10 minutes after this one"), Until, Arrive + STForecast::NextDeliveryMinSeconds, 0.01);
+	FSTNode Slow = FSTTestAccess::Node(Station, Item, ESTRole::Demand, 800, 1000, 1);
+	Slow.Rate = 0.1;
+	TestTrue(TEXT("over the hour a top-up for a slow platform looks worth something"), STForecast::Gain(Slow, {}, {Arrive, 200.0}, Now, Car) > 0.0);
+	TestEqual(TEXT("until the next train it is worth nothing"), STForecast::Gain(Slow, {}, {Arrive, 200.0}, Now, Car, Until), 0.0, 1e-9);
+	TestTrue(TEXT("a platform below target before the next train is still worth a delivery"), STForecast::Gain(Using, {}, {Arrive, 200.0}, Now, Car, Until) > 0.0);
 	return true;
 }
 
