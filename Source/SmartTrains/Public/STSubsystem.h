@@ -393,6 +393,9 @@ private:
 		const TSet<const AFGTrainStationIdentifier*>& Skip) const;
 	// A station whose door a parked train can't clear: offered to no new trip until then (Now()).
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mBlockedStations;
+	// Stations a trip tried lately would use but for the train parked there, until when (Now()): they count as needed,
+	// so ClearNeededBays moves that train out (Docs/Architecture.md, "Parked trains in the way").
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mWantedStations;
 	bool IsStationBlocked(const AFGTrainStationIdentifier* Station) const;
 	// When a trip built around each consumer station was last given to a train (Now()).
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mLastTripTo;

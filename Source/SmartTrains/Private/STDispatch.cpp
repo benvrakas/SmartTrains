@@ -66,6 +66,8 @@ namespace
 
 	// A parked train's booking of its station: about how long moving it out takes. [s]
 	constexpr double ParkedLeaveSeconds = 60.0;
+	// A station a trip was kept from by a parked train counts as needed this long after the last such try. [s]
+	constexpr double WantedStationSeconds = 60.0;
 	// A consumer whose machines wait on another starved item counts its shortfall this much (Docs/Architecture.md,
 	// "Supply chain").
 	constexpr double WaitingCostScale = 0.25;
@@ -835,7 +837,13 @@ void ASTSubsystem::BuildBookings(const TArray<FSTNode>& Nodes, double Time, TMap
 		{
 			// In a dead end it holds the station until it leaves: a train arriving there could neither get in nor let it out.
 			const double Hold = IsDeadEnd(State.LastStation.Get()) ? DeadEndHoldSeconds : ParkedLeaveSeconds;
-			Out.FindOrAdd(State.LastStation.Get()).Add({TrainIndex, Time, Time + Hold});
+			Out.FindOrAdd(State.LastStation.Get()).Add({TrainIndex, Time, Time + Hold, true});
+		}
+		// Told to leave but still standing there: it holds the station while it pulls out.
+		else if (State.bManaged && State.bHasJob && State.Job.bPark && State.LastStation && IsValid(State.Train) && STLayout::IsTrainAt(State.Train, State.LastStation.Get())
+			&& !State.Job.Legs.ContainsByPredicate([&State](const FSTJobLeg& Leg) { return Leg.Station == State.LastStation; }))
+		{
+			Out.FindOrAdd(State.LastStation.Get()).Add({TrainIndex, Time, Time + ParkedLeaveSeconds});
 		}
 	}
 	if (STAt::IsAvailable(GetWorld()))
@@ -927,6 +935,15 @@ void ASTSubsystem::DispatchRound()
 	}
 	// Free trains: trips built around one consumer each.
 	GatherRound(Planner, Nodes);
+	for (const AFGTrainStationIdentifier* Station : Planner.GetParkedInWay())
+	{
+		double& Until = mWantedStations.FindOrAdd(const_cast<AFGTrainStationIdentifier*>(Station), 0.0);
+		if (Until <= Time)
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("WANTED %s: a trip would use it but for the train parked there; that train is moved out"), *STLayout::Name(Station));
+		}
+		Until = Time + WantedStationSeconds;
+	}
 	if (!mSettings.bObserveOnly)
 	{
 		ClearNeededBays();
@@ -1353,6 +1370,14 @@ TSet<const AFGTrainStationIdentifier*> ASTSubsystem::GetNeededStations(const FST
 		if (Other.bManaged && Other.Phase == ESTTrainPhase::Parked && Other.LastStation)
 		{
 			Needed.Add(Other.LastStation.Get());
+		}
+	}
+	const double Time = Now();
+	for (const TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, double>& Wanted : mWantedStations)
+	{
+		if (Wanted.Value > Time)
+		{
+			Needed.Add(Wanted.Key.Get());
 		}
 	}
 	Needed.Remove(nullptr);

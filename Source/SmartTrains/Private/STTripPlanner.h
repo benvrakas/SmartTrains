@@ -19,6 +19,8 @@ struct FSTBooking
 	int32 Train = INDEX_NONE;
 	double From = 0.0;
 	double Until = 0.0;
+	// Held by a train parked there with no job (it leaves once the station is wanted).
+	bool bParked = false;
 };
 
 // One stop of a trip being planned: the station and the items moved there.
@@ -124,6 +126,8 @@ public:
 	// The current train's planning inputs (cars, platforms, dock maps, start), for /st snapshot.
 	TSharedRef<class FJsonObject> DescribeForReplay() const;
 	const TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& GetBookings() const { return mBookings; }
+	// Stations where a parked train made a stop tried for some trip wait: the dispatcher moves those trains out.
+	const TSet<const AFGTrainStationIdentifier*>& GetParkedInWay() const { return mParkedInWay; }
 
 	// Drops items that move nothing and stops left with nothing to do, from FirstMovable on.
 	static void Trim(TArray<FSTPlanStop>& InOutStops, const FSTPlanResult& Result, int32 FirstMovable);
@@ -209,6 +213,8 @@ private:
 	// Other trains booked at Station that are still there at Reach (when this train could get there) or dock before
 	// Dock (when it can dock): the docked one and those waiting with it.
 	int32 CountAhead(const AFGTrainStationIdentifier* Station, double Reach, double Dock) const;
+	// True if a train parked at Station holds it between Reach and Dock.
+	bool IsParkedInWay(const AFGTrainStationIdentifier* Station, double Reach, double Dock) const;
 	// Other trains booked at Station between From and Until.
 	int32 CountNear(const AFGTrainStationIdentifier* Station, double From, double Until) const;
 	// How much Cargo ties its car down: 0 empty, NeededSoonShare if every item is wanted soon, else 1.
@@ -248,6 +254,7 @@ private:
 	double mDeadline = 0.0;
 	// Rejection reason -> how often it came up for the current train.
 	mutable TMap<FString, int32> mProblems;
+	mutable TSet<const AFGTrainStationIdentifier*> mParkedInWay;
 	bool bFcc = false;
 	const AFGTrainStationIdentifier* mOnlyStation = nullptr;
 	// Per car, the items it may load (SetCarItems); empty: no limit.

@@ -244,6 +244,8 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 		int32 Fitting = 0;
 		int32 FreeFitting = 0;
 		int32 FreeLinedUp = 0;
+		// Why the first such train got no trip at its last turn.
+		FString LastTry;
 		int32 BestCapacity = 0;
 		FString Problem;
 		for (const FSTTrainState& State : mTrains)
@@ -275,7 +277,15 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 			Fitting += bFits ? 1 : 0;
 			// Free: no job.
 			FreeFitting += bFits && !State.bHasJob ? 1 : 0;
-			FreeLinedUp += bFits && !State.bHasJob && PatternMayCome(State) ? 1 : 0;
+			if (bFits && !State.bHasJob && PatternMayCome(State))
+			{
+				++FreeLinedUp;
+				const FString* Reason = mIdleReasons.Find(State.Train);
+				if (Reason && LastTry.IsEmpty())
+				{
+					LastTry = *Reason;
+				}
+			}
 		}
 		if (Serving == 0)
 		{
@@ -336,7 +346,9 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 				*Name, FreeFitting, STPatternIdleSeconds / 60.0));
 			continue;
 		}
-		Lines.Add(FString::Printf(TEXT("%s: %d free trains fit and their car patterns line up; a job should follow at the next dispatch round."), *Name, FreeLinedUp));
+		Lines.Add(LastTry.IsEmpty()
+			? FString::Printf(TEXT("%s: %d free trains fit and their car patterns line up; a job should follow at the next dispatch round."), *Name, FreeLinedUp)
+			: FString::Printf(TEXT("%s: %d free trains fit and their car patterns line up, but the last one tried got no trip: %s"), *Name, FreeLinedUp, *LastTry.Left(300)));
 	}
 	return Lines;
 }

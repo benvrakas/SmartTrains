@@ -212,6 +212,18 @@ window's Rename stations); never automatic.
   trip. If consumers were blocked only by cargo, a clearing trip runs: `SetNoLoads`, any consumer (`SetSinksForCargo`
   lets sinks take cargo a consumer exists for), no anchor; the pattern starts open. `ReplanTrip` applies the same car
   items from the job's anchor (no anchor: no loads, sinks allowed).
+- **Parked trains in the way (0.31.0)**: a parked train's booking is marked (`FSTBooking::bParked`); when it makes a
+  stop of any trip tried wait (`IsParkedInWay` in `SimulateWithSkips`), the planner notes the station
+  (`GetParkedInWay`), the dispatcher keeps it in `mWantedStations` for `WantedStationSeconds` (60 s, WANTED line), and
+  `GetNeededStations` counts it, so `ClearNeededBays` moves the parked train out; while it pulls out it holds the
+  station for `ParkedLeaveSeconds`. Before, a station counted as needed only once a job had a stop there, but a
+  parked train in a dead-end station holds it for `DeadEndHoldSeconds` (an hour), so every trip there was rejected
+  ("would wait before ... behind 1 trains (room for 0 before its switch)") and no job ever needed it. IB save,
+  2026-11-13: 32 of 38 trains idle, parked in stations for want of depot signals, suppliers full and consumers
+  starved, about two trips a minute.
+- **Own group's queue rejections only (0.31.0)**: `bQueuedInGroup` (0.28.0) counted every queue rejection since the
+  train was set up, so trains with "0 tried" kept a group they had no trips in and never changed; it now needs a
+  consumer tried and rejections made during its own pattern's passes.
 - **Queued work keeps the group (0.28.0)**: when a train finds no trip in its own pattern but trips there were
   turned away by the queue limit (`FSTTripPlanner::CountQueueRejections`: "would wait before ..." / "would queue at
   ..."), its group has work and a station is busy, so `PatternIdleSince` is reset instead of started and it doesn't

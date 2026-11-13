@@ -277,6 +277,8 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				}
 			}
 		};
+		// Queue rejections so far (setting the train up), to tell those of its own group's trips from them.
+		const int32 QueuedBefore = Planner.CountQueueRejections();
 		// Choosing a pattern (open, or changing group): stations no train serves first, then any.
 		bool bUnservedChosen = false;
 		if (bOpen)
@@ -290,7 +292,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		}
 		// Trips in its own group turned away only by trains already waiting at a station: the group has work, a station
 		// is busy. It keeps its group (no idle time towards changing it) and tries again next round.
-		const bool bQueuedInGroup = !bOpen && !BestConsumer && Planner.CountQueueRejections() > 0;
+		const bool bQueuedInGroup = !bOpen && !BestConsumer && Tried > 0 && Planner.CountQueueRejections() > QueuedBefore;
 		// A pattern no consumer station takes any more (a player changed the platforms it came from) has no group to wait
 		// for: the train changes group at once.
 		bool bHomeless = false;

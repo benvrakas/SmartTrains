@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.31.0 (beta)
+
+- **Fixed: the network stalled with most trains parked in stations.** A train parked in a dead-end station holds it,
+  and every trip that would use the station was rejected for that ("would wait before ... behind 1 trains"), so no
+  job ever needed the station and the parked train was never moved out. With many idle trains and few depot signals
+  nearly every station ended up held this way (IB save: 32 of 38 trains idle, suppliers full, consumers starved). Now
+  a station a trip is kept from by a parked train counts as needed, and that train is moved out (WANTED lines in the
+  log).
+- **Fixed: trains kept a group they had nothing to do in** because queue rejections from setting the train up counted
+  as its own group's work (0.28.0).
+- **The platform readout says why no job follows**: where it said "free trains fit ... a job should follow" for a
+  station that got none, it now shows why the last train tried got no trip.
+- The network monitor no longer prints absurd "minutes to fill" for an item whose supply makes next to nothing.
+- Depot signals still matter: trains with nothing to do park in stations when no depot signal is free, and are moved
+  whenever a trip wants their station. A siding with a depot signal per idle train avoids that shuffling.
+
 ## 0.30.0 (beta)
 
 - **Automatic demand targets.** A demand platform is now kept stocked with enough to last until a train can bring more:

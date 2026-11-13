@@ -216,6 +216,12 @@ int32 FSTTripPlanner::CountAhead(const AFGTrainStationIdentifier* Station, doubl
 	return Ahead;
 }
 
+bool FSTTripPlanner::IsParkedInWay(const AFGTrainStationIdentifier* Station, double Reach, double Dock) const
+{
+	const TArray<FSTBooking>* Bookings = mBookings.Find(Station);
+	return Bookings && Bookings->ContainsByPredicate([&](const FSTBooking& Each) { return Each.bParked && Each.Train != mTrainIndex && Each.Until > Reach && Each.From < Dock; });
+}
+
 int32 FSTTripPlanner::CountNear(const AFGTrainStationIdentifier* Station, double From, double Until) const
 {
 	// Other trains at the station, and at stations whose only way in is through the same switch: they cross it too.
@@ -1100,6 +1106,11 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 				bPushPull ? TEXT(" (push-pull)") : TEXT(" (one way only)")));
 		}
 		Result.Arrive[Index] = FirstFreeArrival(Station, Clock + Travel, mSubsystem.EstimateStaySeconds(Station));
+		// A train parked there makes this stop wait: the station is wanted, so the dispatcher moves that train out.
+		if (Result.Arrive[Index] > Clock + Travel && IsParkedInWay(Station, Clock + Travel, Result.Arrive[Index]))
+		{
+			mParkedInWay.Add(Station);
+		}
 		// Leaving at once, a train that has to wait for a booked station waits on the line before it: so do all the trains
 		// still there or not yet docked when it gets there, but the one docked (the waiting time itself only lowers the
 		// score, since it counts as trip time).

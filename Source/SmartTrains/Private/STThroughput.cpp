@@ -696,10 +696,10 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			// Starved consumers use nothing, so their demand can't be measured; the supply alone shows the limit.
 			Row.Verdict = TEXT("Low supply");
 			Row.Severity = 2;
-			Row.Details.Add(SupplyRate > 0.0
+			Row.Details.Add(SupplyRate > 0.0 && STLayout::GetCarCapacity(AnyWagon, Item) / SupplyRate < 6000.0
 				? FString::Printf(TEXT("Its supply makes %s/min; one freight car of it takes %.0f minutes to fill, so a trip for it carries a nearly empty car and is rarely worth a train."),
 					*STNames::Amount(Item, SupplyRate), STLayout::GetCarCapacity(AnyWagon, Item) / SupplyRate)
-				: FString(TEXT("Its supply platforms get none of it.")));
+				: FString(TEXT("Its supply platforms get next to none of it.")));
 			Row.Advice = TEXT("Build more production, or set its demand platforms to a higher priority so smaller loads go.");
 		}
 		else if (Advice && Advice->TrainsNeeded > Advice->TrainsFitting + 0.5 && BusyShareNow >= BusyShare && IdleShareNow < IdleShareForShort)
