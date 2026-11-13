@@ -875,6 +875,24 @@ void ASTSubsystem::DispatchRound()
 	TArray<FSTNode> Nodes;
 	BuildNodes(Nodes);
 	const double Time = Now();
+	{
+		TSet<UClass*> Demanded;
+		for (const FSTNode& Node : Nodes)
+		{
+			if (Node.Role == ESTRole::Demand && Node.Item)
+			{
+				Demanded.Add(Node.Item.Get());
+			}
+		}
+		mWorkStations.Reset();
+		for (const FSTNode& Node : Nodes)
+		{
+			if (Node.Role == ESTRole::Demand || Demanded.Contains(Node.Item.Get()))
+			{
+				mWorkStations.Add(Node.Station.Get());
+			}
+		}
+	}
 	// Jobs with a stop whose station was dismantled are written again without it (or end) before anything plans with them.
 	for (FSTTrainState& State : mTrains)
 	{
@@ -1407,6 +1425,7 @@ AFGTrainStationIdentifier* ASTSubsystem::FindParkingStation(const FSTTrainState&
 	Railroad->GetAllTrainStations(Stations);
 	AFGTrainStationIdentifier* Best = nullptr;
 	float BestTime = TNumericLimits<float>::Max();
+	bool bBestQuiet = false;
 	for (AFGTrainStationIdentifier* Candidate : Stations)
 	{
 		if (!Candidate || Candidate == From || Needed.Contains(Candidate) || Skip.Contains(Candidate) || IsStationBlocked(Candidate) || !CanServe(State, Candidate))
@@ -1414,10 +1433,13 @@ AFGTrainStationIdentifier* ASTSubsystem::FindParkingStation(const FSTTrainState&
 			continue;
 		}
 		const float Time = Candidate == Origin ? 0.f : EstimateTravelSeconds(Origin, Candidate, IsPushPull(State.Train));
-		if (Time >= 0.f && Time < BestTime)
+		// A station no train has work at beats any that has; then the nearest.
+		const bool bQuiet = !mWorkStations.Contains(Candidate);
+		if (Time >= 0.f && (!Best || (bQuiet && !bBestQuiet) || (bQuiet == bBestQuiet && Time < BestTime)))
 		{
 			BestTime = Time;
 			Best = Candidate;
+			bBestQuiet = bQuiet;
 		}
 	}
 	return Best;

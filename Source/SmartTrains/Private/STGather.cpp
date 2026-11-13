@@ -200,7 +200,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		const bool bOpen = State.IsPatternOpen();
 		// A train may change group when it has none yet or found nothing in its own for a while.
 		const bool bMayChange = bOpen || (State.PatternIdleSince > 0.0 && Time - State.PatternIdleSince >= PatternIdleSeconds);
-		Planner.SetSinksForCargo(bMayChange);
+		Planner.SetSinksForCargo(bMayChange || State.bPatternHomeless);
 		const bool bBegun = Planner.BeginTrain(Each.TrainIndex, Each.Anchor, Each.FreeAt, Each.bDocked);
 		Planner.SetSinksForCargo(false);
 		if (!bBegun)
@@ -310,10 +310,12 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			}
 			bHomeless = State.bPatternHomeless;
 		}
+		// A train never changes group while it holds cargo: it first delivers what it holds (below), loading nothing.
+		const bool bCarrying = GetCargo(State.Train).Num() > 0;
 		// A spare train: its cars are empty, nothing in its own group is worth a trip, and another managed train keeps the
 		// group. It may move at once, but only to a consumer station no train serves; else it waits as before.
 		bool bSpare = false;
-		if (!BestConsumer && !bOpen && !bMayChange && !bHomeless && GetCargo(State.Train).Num() == 0)
+		if (!BestConsumer && !bOpen && !bMayChange && !bHomeless && !bCarrying)
 		{
 			bSpare = mTrains.ContainsByPredicate([&](const FSTTrainState& Other)
 			{
@@ -321,7 +323,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			});
 		}
 		bool bChanging = false;
-		if (!BestConsumer && !bOpen && ((bMayChange && !bQueuedInGroup) || bHomeless || bSpare))
+		if (!BestConsumer && !bOpen && !bCarrying && ((bMayChange && !bQueuedInGroup) || bHomeless || bSpare))
 		{
 			bChanging = true;
 			TryConsumers(true, true);
@@ -367,9 +369,10 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		{
 			State.PatternIdleSince = Time;
 		}
-		// Consumers need work its cargo is in the way of: it unloads the cars first (at consumers of the cargo, else at a
-		// sink), then takes trips to any consumer that lines up.
-		if ((bMayChange || bHomeless) && Blocked > 0 && GetCargo(State.Train).Num() > 0 && !(Tried > 0 && Planner.IsOverBudget()))
+		// Free to change group (or open) but holding cargo: it only delivers until it is empty (at consumers of the
+		// cargo, else at a sink), loading nothing. Its pattern changes once its cars are empty.
+		bool bHeldByCargo = false;
+		if ((bMayChange || bHomeless) && bCarrying && !(Tried > 0 && Planner.IsOverBudget()))
 		{
 			TArray<FSTPlanStop> Stops;
 			Planner.SetNoLoads();
@@ -380,14 +383,12 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			if (Result.bValid && Stops.Num() > 0 && Result.Moved > 0)
 			{
 				++Planned;
-				UE_LOG(LogSmartTrains, Log, TEXT("PATTERN %s: %s -> open; unloads its cars first (%d consumers it could serve need other items in them)"),
-					*STLayout::Name(State.Train), *State.DescribePattern(), Blocked);
-				State.CarSets.Init(FSTCarItems(), Planner.GetCarCount());
-				State.PatternIdleSince = 0.0;
-				State.bPatternHomeless = false;
+				UE_LOG(LogSmartTrains, Log, TEXT("PATTERN %s: %s keeps its pattern and only delivers its cargo; it may change group once its cars are empty"),
+					*STLayout::Name(State.Train), *State.DescribePattern());
 				CommitTrip(State, Planner, Stops, Result, true, MostUnloaded(Result), nullptr);
 				continue;
 			}
+			bHeldByCargo = true;
 		}
 		// Nothing anywhere: it waits (a free depot, else parked where it is).
 		if (GetCargo(State.Train).Num() > 0 && State.UnwantedCargoSince <= 0.0)
@@ -402,7 +403,11 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		{
 			Why += FString::Printf(TEXT(", %d where cargo on board doesn't line up"), Blocked);
 		}
-		if (bHomeless)
+		if (bHeldByCargo)
+		{
+			Why += TEXT("; it may change group, but not while it holds cargo, and no consumer or Sink platform takes that cargo now");
+		}
+		else if (bHomeless)
 		{
 			Why += TEXT("; no consumer station takes its pattern any more, so it may change group now");
 		}

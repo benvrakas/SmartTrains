@@ -398,6 +398,9 @@ private:
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mWantedStations;
 	// Marks Station as wanted for a while (Why for the log, once per stretch).
 	void WantStation(const AFGTrainStationIdentifier* Station, const TCHAR* Why);
+	// Stations trains have work at: a demand platform, or a supply of an item some platform demands. Idle trains park
+	// at the others first (FindParkingStation). From the last dispatch round's nodes.
+	TSet<TWeakObjectPtr<const AFGTrainStationIdentifier>> mWorkStations;
 	bool IsStationBlocked(const AFGTrainStationIdentifier* Station) const;
 	// When a trip built around each consumer station was last given to a train (Now()).
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mLastTripTo;

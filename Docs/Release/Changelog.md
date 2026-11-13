@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.32.0 (beta)
+
+- **A train never changes group while it holds cargo.** When it may change group it first only delivers what it
+  holds to consumer stations, loading nothing, until its cars are empty; then it changes. Platforms fill cars past
+  what was planned, so trains often carry leftovers: fine inside their group, but after a group change those
+  leftovers lined up nowhere and trains stood idle with them (six on the IB save). If nothing takes the cargo, the
+  idle note of the train says so: build a consumer or a Sink platform for it.
+- **Idle trains park at stations with no work first** (outputs nobody demands, stations without SmartTrains
+  platforms), then the nearest, so they are seldom in the way of a trip.
+
 ## 0.31.1 (beta)
 
 - **Fixed: a train parked in the station its next trip starts at stayed stuck.** A train can't dock where it already

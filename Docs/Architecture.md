@@ -221,6 +221,16 @@ window's Rename stations); never automatic.
   ("would wait before ... behind 1 trains (room for 0 before its switch)") and no job ever needed it. IB save,
   2026-11-13: 32 of 38 trains idle, parked in stations for want of depot signals, suppliers full and consumers
   starved, about two trips a minute.
+- **No group change with cargo (0.32.0)**: a train holding cargo never changes group. When it may change (idle
+  time, homeless) it plans a trip that loads nothing (`SetNoLoads`, sinks allowed) to consumers of its cargo and keeps
+  its pattern; once its cars are empty the change goes ahead. Before, it went open at once ("unloads its cars first")
+  only when a consumer was blocked by the cargo, and otherwise changed pattern with cargo on board. Why: platforms
+  fill cars past the plan (IB log, 2026-11-13: 561 pickups over plan, 260 of 1,481 unloads short, mostly Coal and
+  Sulfur), harmless inside a group, but after a change the leftovers lined up nowhere and six trains stood open with
+  cargo.
+- **Quiet stations for parking (0.32.0)**: `FindParkingStation` prefers stations no train has work at
+  (`mWorkStations`: a demand platform, or a supply of an item some platform demands; rebuilt each dispatch round),
+  then the nearest. Parked trains then seldom stand where a trip will want to go.
 - **Parked in its own pickup station (0.31.1)**: a train can't dock at the station it stands in, so trips starting
   there are rejected ("first stop is the station the train stands in", 0.9.5); a train parked at its supplier stayed
   stuck (130 of the last 400 idle notes on the IB save, 2026-11-13). `WasKeptFromOwnStation` now marks its station
