@@ -396,6 +396,8 @@ private:
 	// Stations a trip tried lately would use but for the train parked there, until when (Now()): they count as needed,
 	// so ClearNeededBays moves that train out (Docs/Architecture.md, "Parked trains in the way").
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mWantedStations;
+	// Marks Station as wanted for a while (Why for the log, once per stretch).
+	void WantStation(const AFGTrainStationIdentifier* Station, const TCHAR* Why);
 	bool IsStationBlocked(const AFGTrainStationIdentifier* Station) const;
 	// When a trip built around each consumer station was last given to a train (Now()).
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mLastTripTo;

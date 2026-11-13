@@ -416,6 +416,12 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		}
 		Why += TEXT(")");
 		NoteNoTrip(State, Problems.IsEmpty() ? Why : FString::Printf(TEXT("%s; trips tried were rejected: %s"), *Why, *Problems));
+		// Parked in the very station its trips would start at: it can't dock where it stands, so it parks elsewhere and
+		// comes back.
+		if (State.Phase == ESTTrainPhase::Parked && Planner.WasKeptFromOwnStation())
+		{
+			WantStation(Each.Anchor, TEXT("the train parked there has trips starting at it"));
+		}
 		if (!State.bHasJob && State.Phase != ESTTrainPhase::Parked && !(State.Train->IsPlayerDriven() && !State.Train->IsSelfDrivingEnabled()))
 		{
 			SettleIdle(State, TEXT("nothing to move"), false);

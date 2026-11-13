@@ -167,6 +167,8 @@ public:
 	// How many trips tried for the current train were rejected only because trains already wait before a station (the
 	// queue limit): the work is there, a supplier or consumer is busy.
 	int32 CountQueueRejections() const;
+	// True if a trip tried for the current train was rejected because it starts at the station the train stands in.
+	bool WasKeptFromOwnStation() const;
 
 private:
 	struct FPlatformInfo

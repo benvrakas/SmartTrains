@@ -937,17 +937,27 @@ void ASTSubsystem::DispatchRound()
 	GatherRound(Planner, Nodes);
 	for (const AFGTrainStationIdentifier* Station : Planner.GetParkedInWay())
 	{
-		double& Until = mWantedStations.FindOrAdd(const_cast<AFGTrainStationIdentifier*>(Station), 0.0);
-		if (Until <= Time)
-		{
-			UE_LOG(LogSmartTrains, Log, TEXT("WANTED %s: a trip would use it but for the train parked there; that train is moved out"), *STLayout::Name(Station));
-		}
-		Until = Time + WantedStationSeconds;
+		WantStation(Station, TEXT("a trip would use it but for the train parked there"));
 	}
 	if (!mSettings.bObserveOnly)
 	{
 		ClearNeededBays();
 	}
+}
+
+void ASTSubsystem::WantStation(const AFGTrainStationIdentifier* Station, const TCHAR* Why)
+{
+	if (!Station)
+	{
+		return;
+	}
+	const double Time = Now();
+	double& Until = mWantedStations.FindOrAdd(const_cast<AFGTrainStationIdentifier*>(Station), 0.0);
+	if (Until <= Time)
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("WANTED %s: %s; the train parked there is moved out"), *STLayout::Name(Station), Why);
+	}
+	Until = Time + WantedStationSeconds;
 }
 
 void ASTSubsystem::NoteNoTrip(const FSTTrainState& State, const FString& Reason)

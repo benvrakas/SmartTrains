@@ -1,6 +1,6 @@
 # SmartTrains: methods and emergent behaviour
 
-State: 0.12.0 beta (consumer-anchored trips). Architecture.md has the implementation details; this file lists the methods in one
+State: 0.31.1 beta (car patterns, automatic targets; reviewed against the code and the IB server log of 2026-11-13). Architecture.md has the implementation details; this file lists the methods in one
 place and the behaviour that comes out of them working together.
 
 Status tags for behaviour: **seen** (in a test log), **designed** (intended, not yet seen), **risk** (possible
@@ -29,7 +29,7 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 | Dijkstra on a directed graph of track exits | Dijkstra (1959) | `FSTTravel`: distances between stations, separately for departing forward, backing out (push-pull), and arriving at the far end (push-pull). |
 | Exponential moving averages | standard | Rates (window = **Rate window**), trip times and stays (weight 0.3, first sample taken as is). |
 | Observation overrides prediction | own | Dock maps: predicted from couplers and platform chains, replaced by what a real dock showed, per orientation and consist. |
-| Aging for fairness (urgency grows with waiting time), as in OS scheduling | standard | Delivery value urgency: up to +2 for time since the last delivery (full after an hour). |
+| Unserved first, spare trains | own (0.23.0, 0.27.0) | A train choosing a car pattern first tries consumer stations no train serves; a spare train (empty, nothing to do, its group kept by another) moves to one at once. Replaced the urgency aging removed with the forecast cost (0.8.0). |
 | Resource booking | own | `Reserved` amounts per node and `BusyUntil` per station, so trips planned later see what earlier trips promised. |
 | Graph search over belts and pipes, with filter propagation | adapted from FlowDirector's trace | `STTrace`: from a platform to the machines and their recipes, through splitters, mergers, lifts, floor holes, smart splitters and Modular Load Balancer filters. |
 | Evidence ranking with confidence | own | Migration: trace first, then platform stock, then timetable filters, then pipe contents. |
@@ -45,8 +45,8 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 
 1. **Shortest trips win first** (designed). Score = value ÷ time, so near pairs are served before far ones of equal
    need.
-2. **Far starving consumers catch up** (designed). Urgency grows with time since the last delivery and with
-   starvation, until a far consumer beats nearer ones.
+2. **Far starving consumers catch up** (designed). Its shortfall cost grows the longer it is short, and trains
+   choosing a pattern go to stations no train serves first (0.23.0), so a far consumer isn't left out.
 3. **Milk runs** (designed). Regret insertion adds a second pickup of the same item when one supplier can't fill the
    cars, or a second drop when one consumer can't take it all.
 4. **Mixed trips through one station** (designed). With Freight Car Control, cars for different items or stops skip
@@ -70,15 +70,17 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 ### Inventory patterns
 
 11. **Pulse deliveries around the target** (designed). A consumer is served below its target, filled past it, then
-    left until it drops again. A higher target means earlier and more frequent deliveries.
+    left until it drops again. The target is automatic by default (0.30.0): its use over the time a train needs to
+    bring more. A delivery counts only until the next train could come (0.29.0), so slow items aren't topped up early.
 12. **Trains wait at slow suppliers** (designed). Pickups are "fully load" up to **Pickup: longest wait**. With a
     low send-at, a train may leave part-full and come back sooner.
 13. **Full suppliers push** (designed). A nearly full supplier ignores the batch rule and may go to consumers over
     target or to sinks, so production doesn't stall.
 14. **Fluid platforms count as filling during the stay** (designed, since aaa465e). The planner expects a pipe-fed
     platform to keep filling while the train loads, so it plans bigger fluid pickups.
-15. **Unwanted cargo finds a home** (designed). Cargo no trip delivers may go to consumers over target or to sinks
-    after **Unwanted cargo after** (30 min).
+15. **Unwanted cargo finds a home** (seen stuck, 2026-11-13). Cargo no trip delivers goes to a consumer of it or to
+    a Sink platform; with neither reachable the train keeps it and can't take a new pattern (six open trains on the IB
+    save held such cargo). A network needs at least one Sink platform per cargo type.
 
 ### Fleet behaviour
 
@@ -88,8 +90,11 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
     a station. When a trip needs that station, the parked train is sent to a depot signal or the nearest unused station
     (log: "drive to Alclad Aluminum Sheet SRC (4680) and park (making room at Heavy Oil Residue SNK (640))"). Since
     0.22.2 an idle train doesn't park in a station trips are heading for in the first place.
-18. **Eviction chains** (risk). A train sent away to make room may park in a station the next trip needs. Depot
-    signals prevent this. Moves because a train stood near a parked one happen at most every 5 minutes per parked train.
+18. **Eviction chains** (seen, 2026-11-13). A train sent away to make room may park in a station the next trip needs.
+    Without depot signals 32 of 38 trains stood in stations; until 0.31.0 a parked train in a dead-end station even
+    kept every trip from being planned there, which stalled the network. Now a station a trip is kept from counts as
+    needed and its parked train moves, also when it is the parked train's own pickup station (0.31.1). Depot
+    signals prevent the shuffling. Moves because a train stood near a parked one happen at most every 5 minutes per parked train.
 18a. **Parked trains give way** (designed, after 2026-11-05). With Auto Trains, a parked train moves when a train has
     waited 20 s for it, after checking its way out. In a dead-end station a parked train keeps the station until it
     leaves, so a second train isn't sent into a bay it couldn't enter.
@@ -149,10 +154,21 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 
 ### Station set-up and migration
 
-33. **The trace decides items** (seen). The machines behind the belts and pipes decide; what a platform holds and the
-    fluid in its pipes only fill in when the trace reaches no machine. Timetables and train routes aren't used.
+33. **What a platform holds decides its item** (designed, 0.15.1). The trace to the machines only gives an empty
+    platform its item; platforms feeding different inputs of the same machines get different items, the most used one
+    where the most belts go (lanes, 0.25.0). Timetables and train routes aren't used.
 34. **One item per platform** (designed). A platform fed by a multi-input machine gets the largest traced flow; the
     platforms of one role reaching the same machines share the items out, so a factory's four input platforms get
     its four inputs.
 35. **Direction from the belts** (designed). A platform with belts only going in loads, only coming out unloads,
     whatever its load/unload switch said; with both, the switch decides.
+
+### Car patterns (0.18.0 on)
+
+37. **Trains keep a group** (seen). Each car carries one set of items; a train serves the consumer stations whose
+    platforms line up with its cars. It changes group when no station takes its pattern (0.26.0), as a spare (0.27.0),
+    or after 5 minutes with nothing to do; trips turned away by a busy station don't count as nothing to do (0.28.0,
+    own group's trips only since 0.31.0).
+38. **Patterns taken from a half-set station go stale** (seen, 2026-11-12). A train that takes its pattern while a
+    player is still setting a station's platforms ends up with one no station takes; it then changes group at once.
+

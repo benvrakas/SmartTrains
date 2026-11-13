@@ -221,6 +221,10 @@ window's Rename stations); never automatic.
   ("would wait before ... behind 1 trains (room for 0 before its switch)") and no job ever needed it. IB save,
   2026-11-13: 32 of 38 trains idle, parked in stations for want of depot signals, suppliers full and consumers
   starved, about two trips a minute.
+- **Parked in its own pickup station (0.31.1)**: a train can't dock at the station it stands in, so trips starting
+  there are rejected ("first stop is the station the train stands in", 0.9.5); a train parked at its supplier stayed
+  stuck (130 of the last 400 idle notes on the IB save, 2026-11-13). `WasKeptFromOwnStation` now marks its station
+  wanted (`WantStation`), so it parks elsewhere and can come back for the trip.
 - **Own group's queue rejections only (0.31.0)**: `bQueuedInGroup` (0.28.0) counted every queue rejection since the
   train was set up, so trains with "0 tried" kept a group they had no trips in and never changed; it now needs a
   consumer tried and rejections made during its own pattern's passes.

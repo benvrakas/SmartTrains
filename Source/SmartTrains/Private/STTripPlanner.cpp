@@ -20,6 +20,8 @@ namespace
 	// How queue-limit rejections start (CountQueueRejections tells them from the rest).
 	const TCHAR* const QueueWaitText = TEXT("would wait before");
 	const TCHAR* const QueueAtText = TEXT("would queue at");
+	// A train can't dock at the station it already stands in (WasKeptFromOwnStation).
+	const TCHAR* const OwnStationText = TEXT("first stop is the station the train stands in");
 
 	// Moves kept per train, best solo score first (cargo already on board is always kept).
 	constexpr int32 MaxMovesPerTrain = 24;
@@ -419,6 +421,11 @@ double FSTTripPlanner::GetPlatformAvailable(int32 Node, int32 Info, double Until
 	}
 	const double Unassigned = FMath::Max(0, Supplier.Reserved - Assigned);
 	return FMath::Max(0.0, Stock + Share * (Supplier.Rate * Until - Unassigned) - Supplier.PlatformReserved.FindRef(Platform.Platform));
+}
+
+bool FSTTripPlanner::WasKeptFromOwnStation() const
+{
+	return mProblems.Contains(OwnStationText);
 }
 
 int32 FSTTripPlanner::CountQueueRejections() const
@@ -1081,7 +1088,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 	}
 	if ((bAnchorDocked || bAnchorHere) && Stops[0].Station == mAnchor)
 	{
-		return Fail(bAnchorDocked ? TEXT("first stop is the station the train is docked at") : TEXT("first stop is the station the train stands in"));
+		return Fail(bAnchorDocked ? TEXT("first stop is the station the train is docked at") : OwnStationText);
 	}
 
 	// Times, and what the stops cost: each one holds its station from other trains.

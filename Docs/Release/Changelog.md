@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.31.1 (beta)
+
+- **Fixed: a train parked in the station its next trip starts at stayed stuck.** A train can't dock where it already
+  stands, so such trips were rejected again and again ("first stop is the station the train stands in"). It now parks
+  elsewhere and comes back for the trip.
+
 ## 0.31.0 (beta)
 
 - **Fixed: the network stalled with most trains parked in stations.** A train parked in a dead-end station holds it,
