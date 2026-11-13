@@ -210,12 +210,12 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 				}
 			}
 		}
-		// A free train can take a trip for this item: its pattern is open, it may change group, or (demand) each of its
+		// A free train can take a trip for this item: it is empty (no group), or it holds cargo and (demand) each of its
 		// patterned cars has a platform here for the same items, (supply) a car carries the item (Docs/Architecture.md,
 		// "Car patterns").
 		auto PatternMayCome = [&](const FSTTrainState& State)
 		{
-			if (State.IsPatternOpen() || State.bPatternHomeless || (State.PatternIdleSince > 0.0 && Now() - State.PatternIdleSince >= STPatternIdleSeconds))
+			if (State.IsPatternOpen() || GetCargo(State.Train).Num() == 0)
 			{
 				return true;
 			}
@@ -342,8 +342,8 @@ TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCar
 		}
 		if (FreeLinedUp == 0)
 		{
-			Lines.Add(FString::Printf(TEXT("%s: %d free trains fit, but their car patterns are for other stations. One takes this station's after %.0f minutes without work in its own, or at once when no station takes its pattern any more."),
-				*Name, FreeFitting, STPatternIdleSeconds / 60.0));
+			Lines.Add(FString::Printf(TEXT("%s: %d free trains fit, but all hold cargo for other stations. One comes once it has delivered that; an empty train goes anywhere."),
+				*Name, FreeFitting));
 			continue;
 		}
 		Lines.Add(LastTry.IsEmpty()

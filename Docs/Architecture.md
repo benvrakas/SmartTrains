@@ -205,68 +205,40 @@ window's Rename stations); never automatic.
   The result goes to `SetCarItems`; in `SimulateWithSkips` a car beside a supply platform offering a planned item
   outside its set, or holding something outside it, counts as harm, so it skips (FCC) or the trip fails. Within its set
   a car may carry several items (loaded at one stop or several); without a set (tests) a car still never mixes.
-- **Dispatch** (`GatherRound`): consumers that line up with the pattern and have no mismatched cargo are tried as before
-  (one trip per consumer, the best runs). The pattern then takes, per car, the set the trip allowed it (`PatternAfter`),
-  else keeps its set. With none found, `PatternIdleSince` starts; after `PatternIdleSeconds` (300 s), or at once for an
-  open train, consumers are tried ignoring the pattern (still no mismatched cargo), and the pattern is rebuilt from that
-  trip. If consumers were blocked only by cargo, a clearing trip runs: `SetNoLoads`, any consumer (`SetSinksForCargo`
-  lets sinks take cargo a consumer exists for), no anchor; the pattern starts open. `ReplanTrip` applies the same car
-  items from the job's anchor (no anchor: no loads, sinks allowed).
+- **Groups come from cargo (0.33.0)**. One rule decides what a free train may do (`GatherRound`):
+  - **Holding cargo**, it keeps its pattern and tries the consumers that line up with it (one trip per consumer, the
+    best runs). With none worth a trip it plans a trip that loads nothing (`SetNoLoads`, no anchor) and delivers what
+    it holds: to consumers of it, to a Sink platform when nothing consumes it, and also to a Sink once the cargo
+    counts as unwanted (`UnwantedCargoSince` older than the `LeftoverMinutes` setting, `SetSinksForCargo`). It never
+    takes another pattern while it holds cargo.
+  - **Empty**, it has no group: its pattern is cleared at its turn, and it tries every consumer station, first those
+    no train serves (`IsConsumerServed`: no managed train on a trip anchored there, none given in the last
+    `ServedSeconds`, 600 s), then all. The trip chosen gives its cars their items (`PatternAfter`).
+  - `ReplanTrip` applies the car items from the job's anchor (no anchor: no loads).
+  - What this replaced: an idle clock (5 minutes without a trip), "homeless" patterns no station takes, "spare" trains
+    whose group another train keeps, and queue rejections that reset the clock (0.18.0 to 0.32.0). Each was a patch
+    for a case the one before it made: trains waited for groups that no longer existed, left busy groups when a
+    supplier was full, or kept groups they had no trips in; the 0.28.0 patch helped stall the IB network on
+    2026-11-13. They all answered "when may a train leave its group", and the only real reason to stay is cargo that
+    lines up nowhere else. Platforms fill cars past the plan (that log: 561 pickups over plan, 260 of 1,481 unloads
+    short), so leftovers are normal; a train that changed group with them stood idle.
+  - A train parked in the station its trips would start at can't dock where it stands ("first stop is the station
+    the train stands in"): `WasKeptFromOwnStation` marks that station wanted, so it parks elsewhere and comes back
+    (0.31.1).
 - **Parked trains in the way (0.31.0)**: a parked train's booking is marked (`FSTBooking::bParked`); when it makes a
   stop of any trip tried wait (`IsParkedInWay` in `SimulateWithSkips`), the planner notes the station
   (`GetParkedInWay`), the dispatcher keeps it in `mWantedStations` for `WantedStationSeconds` (60 s, WANTED line), and
   `GetNeededStations` counts it, so `ClearNeededBays` moves the parked train out; while it pulls out it holds the
   station for `ParkedLeaveSeconds`. Before, a station counted as needed only once a job had a stop there, but a
-  parked train in a dead-end station holds it for `DeadEndHoldSeconds` (an hour), so every trip there was rejected
-  ("would wait before ... behind 1 trains (room for 0 before its switch)") and no job ever needed it. IB save,
+  parked train's booking always runs from now for `ParkedLeaveSeconds` (an hour, `DeadEndHoldSeconds`, in a dead-end
+  station), so a trip arriving within that time at a station with no waiting room was rejected ("would wait before
+  ... behind 1 trains (room for 0 before its switch)") and no job ever needed it. (The 0.31.0 notes blamed dead-end
+  stations; the main IB network has none, see the DEAD ENDS log line.) IB save,
   2026-11-13: 32 of 38 trains idle, parked in stations for want of depot signals, suppliers full and consumers
   starved, about two trips a minute.
-- **No group change with cargo (0.32.0)**: a train holding cargo never changes group. When it may change (idle
-  time, homeless) it plans a trip that loads nothing (`SetNoLoads`, sinks allowed) to consumers of its cargo and keeps
-  its pattern; once its cars are empty the change goes ahead. Before, it went open at once ("unloads its cars first")
-  only when a consumer was blocked by the cargo, and otherwise changed pattern with cargo on board. Why: platforms
-  fill cars past the plan (IB log, 2026-11-13: 561 pickups over plan, 260 of 1,481 unloads short, mostly Coal and
-  Sulfur), harmless inside a group, but after a change the leftovers lined up nowhere and six trains stood open with
-  cargo.
 - **Quiet stations for parking (0.32.0)**: `FindParkingStation` prefers stations no train has work at
   (`mWorkStations`: a demand platform, or a supply of an item some platform demands; rebuilt each dispatch round),
   then the nearest. Parked trains then seldom stand where a trip will want to go.
-- **Parked in its own pickup station (0.31.1)**: a train can't dock at the station it stands in, so trips starting
-  there are rejected ("first stop is the station the train stands in", 0.9.5); a train parked at its supplier stayed
-  stuck (130 of the last 400 idle notes on the IB save, 2026-11-13). `WasKeptFromOwnStation` now marks its station
-  wanted (`WantStation`), so it parks elsewhere and can come back for the trip.
-- **Own group's queue rejections only (0.31.0)**: `bQueuedInGroup` (0.28.0) counted every queue rejection since the
-  train was set up, so trains with "0 tried" kept a group they had no trips in and never changed; it now needs a
-  consumer tried and rejections made during its own pattern's passes.
-- **Queued work keeps the group (0.28.0)**: when a train finds no trip in its own pattern but trips there were
-  turned away by the queue limit (`FSTTripPlanner::CountQueueRejections`: "would wait before ..." / "would queue at
-  ..."), its group has work and a station is busy, so `PatternIdleSince` is reset instead of started and it doesn't
-  change group by idle time; it tries again next round. Homeless and spare changes still apply (a spare leaves only
-  while another train keeps the group). Why: on the IB save the only train of Dune Desert High-Speed Connector In 1's
-  group was turned away for 5 minutes by trains waiting before Grass Fields Copper Ingot Out 1 (689 such rejections
-  in that log), counted that as nothing to do, and moved to Crystal Oscillator In 1, leaving the starved station with
-  no train; busy suppliers made trains drop busy groups across the network.
-- **Spare trains (0.27.0)**: a train whose cars are empty, that finds no trip in its own pattern, and whose pattern
-  another managed train shares (`SamePattern`, also back to front for a train turned round) changes group at once,
-  but only to a consumer station no train serves (`TryConsumers(true, true)`, no second pass over all consumers); with
-  none it waits as before. The last train of a group never leaves this way, so a group keeps a train and a train that
-  just moved to an unserved station (no mate there) stays. Why: a group with more trains than its flow needs kept the
-  extras parked for `STPatternIdleSeconds` while another station starved; re-picking a group after every trip would
-  bring back mixed cargo, which the sticky patterns stopped.
-- **Homeless patterns (0.26.0)**: a train finding no trip in its pattern, with no consumer station tried at all, checks
-  (at most once a minute, `HasPatternHome`) whether any consumer station's demand platforms still take its pattern
-  (`MakeCarItems` with `OutMatched` > 0: a patterned car beside a demand platform for the same items, none for other
-  items). If none does, it changes group at once instead of after `STPatternIdleSeconds` (`bPatternHomeless`). Why:
-  on the IB save a train took "Circuit Board | Steel | - | Steel" from Dune Desert Computer In 1 while the player was
-  still setting its platforms; once they were set, no station took that pattern, its trip was dropped and it waited
-  5 minutes for a group that no longer existed. The platform readout counts only free trains whose pattern can come
-  (open, free to change group, homeless, or each patterned car with a platform for the same items at the station);
-  before, "19 free trains fit; a job should follow" counted trains of other groups.
-- **Unserved first (0.23.0)**: a train choosing a pattern (open, or changing group) first tries only consumers no
-  train serves (`IsConsumerServed`: no managed train on a trip anchored there, none given since `ServedSeconds`, 600 s,
-  `mLastTripTo` set in `CommitTrip`); only with no worthwhile trip among them, all consumers. Before, the best score
-  won, so a small far consumer (IB: Dune Desert Crystal Oscillator In 1, Rubber starved for hours) lost every open and
-  changing train to big near ones (a new train took a Uranium pattern).
 - Why: platforms fill cars past the plan, so leftovers are normal; within a pattern they always line up.
 
 ## 0.17.0: depot signals, hold, new trains

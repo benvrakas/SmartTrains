@@ -78,7 +78,7 @@ namespace
 			{TEXT("MaxTripMinutes"), &FSTSettings::MaxTripMinutes, 5.f, 120.f, LOCTEXT("MaxTrip", "Longest trip (minutes)"),
 				LOCTEXT("MaxTripTip", "Trips are planned at most this long, 5 to 120 minutes. Stock forecasts get unreliable over long trips.")},
 			{TEXT("LeftoverMinutes"), &FSTSettings::LeftoverMinutes, 5.f, 240.f, LOCTEXT("Leftover", "Unwanted cargo after (minutes)"),
-				LOCTEXT("LeftoverTip", "After this long carrying cargo no trip delivers, a train counts as holding unwanted cargo in the monitor and /st status, 5 to 240 minutes. Where cargo may go doesn't depend on it.")},
+				LOCTEXT("LeftoverTip", "After this long carrying cargo no trip delivers, a train counts as holding unwanted cargo in the monitor and /st status, 5 to 240 minutes. From then on that cargo may also go to a Sink platform, or to a consumer already over its target.")},
 			{TEXT("QueueTrains"), &FSTSettings::QueueTrains, 0.f, 10.f, LOCTEXT("QueueTrains", "Most trains waiting before a station"),
 				LOCTEXT("QueueTrainsTip", "While trains leave stations at once, no trip is planned that would make more than this many trains wait before a station at the same time, the new one included, nor more than fit on the track in front of the station before its switch (measured from the track). Long queues block junctions and cause deadlocks. 0 to 10 trains; 0 means only the track decides.")},
 			{TEXT("ArrivalGapSeconds"), &FSTSettings::ArrivalGapSeconds, 0.f, 300.f, LOCTEXT("ArrivalGap", "Gap between trains at a station (seconds)"),

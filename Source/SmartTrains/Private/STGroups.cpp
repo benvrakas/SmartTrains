@@ -184,7 +184,7 @@ FString ASTSubsystem::DescribeWork(const FSTTrainState& State) const
 	if (State.bHasJob && !State.Job.bPark)
 	{
 		return (State.Job.AnchorStation ? FString::Printf(TEXT("Trip for %s."), *STLayout::Name(State.Job.AnchorStation.Get()))
-			: FString(TEXT("Unloading cars to change group."))) + Cars;
+			: FString(TEXT("Delivering the cargo it holds; empty, it is free for any station."))) + Cars;
 	}
 	const FString* Why = mIdleReasons.Find(State.Train.Get());
 	return (Why ? TEXT("Waiting: ") + *Why + TEXT(".") : FString(TEXT("Waiting for a trip."))) + Cars;

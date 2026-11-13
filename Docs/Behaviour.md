@@ -1,6 +1,6 @@
 # SmartTrains: methods and emergent behaviour
 
-State: 0.31.1 beta (car patterns, automatic targets; reviewed against the code and the IB server log of 2026-11-13). Architecture.md has the implementation details; this file lists the methods in one
+State: 0.33.0 beta (groups from cargo, automatic targets; reviewed against the code and the IB server log of 2026-11-13). Architecture.md has the implementation details; this file lists the methods in one
 place and the behaviour that comes out of them working together.
 
 Status tags for behaviour: **seen** (in a test log), **designed** (intended, not yet seen), **risk** (possible
@@ -91,8 +91,8 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
     (log: "drive to Alclad Aluminum Sheet SRC (4680) and park (making room at Heavy Oil Residue SNK (640))"). Since
     0.22.2 an idle train doesn't park in a station trips are heading for in the first place.
 18. **Eviction chains** (seen, 2026-11-13). A train sent away to make room may park in a station the next trip needs.
-    Without depot signals 32 of 38 trains stood in stations; until 0.31.0 a parked train in a dead-end station even
-    kept every trip from being planned there, which stalled the network. Now a station a trip is kept from counts as
+    Without depot signals 32 of 38 trains stood in stations; until 0.31.0 a parked train kept every trip that would
+    arrive within a minute from being planned at a station with no waiting room, which stalled the network. Now a station a trip is kept from counts as
     needed and its parked train moves, also when it is the parked train's own pickup station (0.31.1). Depot
     signals prevent the shuffling. Moves because a train stood near a parked one happen at most every 5 minutes per parked train.
 18a. **Parked trains give way** (designed, after 2026-11-05). With Auto Trains, a parked train moves when a train has
@@ -165,10 +165,9 @@ problem, not seen), **bug?** (seen symptom, cause not confirmed).
 
 ### Car patterns (0.18.0 on)
 
-37. **Trains keep a group** (seen). Each car carries one set of items; a train serves the consumer stations whose
-    platforms line up with its cars. It changes group when no station takes its pattern (0.26.0), as a spare (0.27.0),
-    or after 5 minutes with nothing to do; trips turned away by a busy station don't count as nothing to do (0.28.0,
-    own group's trips only since 0.31.0).
-38. **Patterns taken from a half-set station go stale** (seen, 2026-11-12). A train that takes its pattern while a
-    player is still setting a station's platforms ends up with one no station takes; it then changes group at once.
-
+37. **Cargo decides the group** (designed, 0.33.0). A train holding cargo keeps its pattern and serves the stations
+    that line up with it, or delivers what it holds; an empty train has no group and takes the best trip anywhere,
+    unserved stations first. This replaced the idle clock and the homeless, spare and queued rules (0.26.0 to 0.32.0),
+    which patched one another.
+38. **Patterns taken from a half-set station** (seen, 2026-11-12) no longer matter once the train is empty: it has no
+    pattern then.

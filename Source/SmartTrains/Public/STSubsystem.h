@@ -401,6 +401,8 @@ private:
 	// Stations trains have work at: a demand platform, or a supply of an item some platform demands. Idle trains park
 	// at the others first (FindParkingStation). From the last dispatch round's nodes.
 	TSet<TWeakObjectPtr<const AFGTrainStationIdentifier>> mWorkStations;
+	// The dead-end stations last written to the log (DEAD ENDS line).
+	FString mDeadEndsLogged;
 	bool IsStationBlocked(const AFGTrainStationIdentifier* Station) const;
 	// When a trip built around each consumer station was last given to a train (Now()).
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mLastTripTo;

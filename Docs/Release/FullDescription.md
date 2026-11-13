@@ -48,15 +48,11 @@ them (see below).
   - Cargo that lines up stays on board: a car the platform couldn't empty just takes less next time.
   - **Sushi platforms** work too: a platform taking iron and coal makes that car's part of the pattern "iron + coal",
     and the car carries both. Only platforms taking exactly the same items line up with it.
-  - A new train starts open and takes its pattern from its first trips.
-  - A train choosing a pattern (a new train, or one changing group) goes first to stations no train serves: no
-    train is on a trip for them and none had a trip in the last 10 minutes. Only if none of those has work does it
-    take the best trip anywhere, so a starved station gets a train even when others pay more.
-  - A train with nothing to do in its pattern for 5 minutes may change group.
-  - A train with empty cars and nothing to do, whose pattern another train shares, moves at once to a station no
-    train serves. Cars whose cargo doesn't line up with
-    the new consumer are unloaded first, at consumers of that cargo, else at a sink platform. Cars that already line
-    up keep their cargo.
+  - Cargo is what ties a train to its pattern. A train holding cargo only takes trips its cars line up with; if there
+    is none, it delivers what it holds and loads nothing until it is empty.
+  - An empty train has no pattern and takes the best trip anywhere, going first to stations no train serves (no
+    train on a trip for them and none in the last 10 minutes), so a starved station gets a train before a busy one
+    gets a second.
   - `/st patterns` lists the train groups and every consumer station's platforms in order.
 - **Trips:** every trip is built around one consumer station. A free train looks at each consumer in its pattern,
   fills the cars that line up with that station's unloading platforms from the suppliers that pay best, and unloads

@@ -893,6 +893,24 @@ void ASTSubsystem::DispatchRound()
 			}
 		}
 	}
+	// Which stations count as dead ends (a parked train holds one for DeadEndHoldSeconds), logged when the list changes.
+	{
+		TArray<FString> DeadEnds;
+		for (const TWeakObjectPtr<const AFGTrainStationIdentifier>& Station : mWorkStations)
+		{
+			if (Station.IsValid() && IsDeadEnd(Station.Get()))
+			{
+				DeadEnds.Add(STLayout::Name(Station.Get()));
+			}
+		}
+		DeadEnds.Sort();
+		const FString List = FString::Join(DeadEnds, TEXT(", "));
+		if (List != mDeadEndsLogged)
+		{
+			mDeadEndsLogged = List;
+			UE_LOG(LogSmartTrains, Log, TEXT("DEAD ENDS: %d stations with work are dead ends (trains back out): %s"), DeadEnds.Num(), List.IsEmpty() ? TEXT("none") : *List);
+		}
+	}
 	// Jobs with a stop whose station was dismantled are written again without it (or end) before anything plans with them.
 	for (FSTTrainState& State : mTrains)
 	{

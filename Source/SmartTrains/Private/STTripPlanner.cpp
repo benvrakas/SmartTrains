@@ -17,9 +17,6 @@
 
 namespace
 {
-	// How queue-limit rejections start (CountQueueRejections tells them from the rest).
-	const TCHAR* const QueueWaitText = TEXT("would wait before");
-	const TCHAR* const QueueAtText = TEXT("would queue at");
 	// A train can't dock at the station it already stands in (WasKeptFromOwnStation).
 	const TCHAR* const OwnStationText = TEXT("first stop is the station the train stands in");
 
@@ -428,19 +425,6 @@ bool FSTTripPlanner::WasKeptFromOwnStation() const
 	return mProblems.Contains(OwnStationText);
 }
 
-int32 FSTTripPlanner::CountQueueRejections() const
-{
-	int32 Count = 0;
-	for (const TPair<FString, int32>& Each : mProblems)
-	{
-		if (Each.Key.StartsWith(QueueWaitText) || Each.Key.StartsWith(QueueAtText))
-		{
-			Count += Each.Value;
-		}
-	}
-	return Count;
-}
-
 FString FSTTripPlanner::DescribeProblems() const
 {
 	TArray<TPair<FString, int32>> Sorted;
@@ -657,8 +641,8 @@ void FSTTripPlanner::BuildMoves()
 				{
 					continue;
 				}
-				// A sink only takes what this car can't unload at any consumer of the item, unless the train is clearing
-				// cars to change group.
+				// A sink only takes what this car can't unload at any consumer of the item, unless the cargo counts as
+				// unwanted (SetSinksForCargo).
 				if (Consumer.bAnyItem && !bSinksForCargo && CarHasConsumer(CarIndex, Carried.Key))
 				{
 					continue;
@@ -1134,8 +1118,8 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 			if (Ahead > Limit)
 			{
 				return Fail(Room >= 0 && Room == Limit
-					? FString::Printf(TEXT("%s %s behind %d trains (room for %d before its switch)"), QueueWaitText, *STLayout::Name(Station), Ahead, Room)
-					: FString::Printf(TEXT("%s %s behind %d trains (most %d waiting)"), QueueAtText, *STLayout::Name(Station), Ahead, Limit));
+					? FString::Printf(TEXT("would wait before %s behind %d trains (room for %d before its switch)"), *STLayout::Name(Station), Ahead, Room)
+					: FString::Printf(TEXT("would queue at %s behind %d trains (most %d waiting)"), *STLayout::Name(Station), Ahead, Limit));
 			}
 		}
 		Clock = Result.Arrive[Index] + mSubsystem.EstimateStaySeconds(Station);

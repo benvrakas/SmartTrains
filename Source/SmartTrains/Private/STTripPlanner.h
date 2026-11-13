@@ -104,8 +104,8 @@ public:
 	TArray<const AFGTrainStationIdentifier*> GetConsumerStations() const;
 
 	// Car patterns (Docs/Architecture.md, "Car patterns"). Per car of the current train, front to back: the items a trip
-	// to Consumer may load into it. Pattern holds the train's items per car (empty: none yet); bIgnorePattern leaves it
-	// out (a train changing group). A car with items in its pattern may only take those; an open car may take the demand
+	// to Consumer may load into it. Pattern holds the train's items per car (empty: none); bIgnorePattern leaves it
+	// out. A car with items in its pattern may only take those; an open car may take the demand
 	// items of the platform beside it at Consumer, or (beside none) the items it holds. Returns false if a demand
 	// platform's items at Consumer differ from the pattern items of the car beside it. OutMismatched: cars holding an
 	// item outside their pattern items or outside what the demand platform beside them takes. OutMatched: cars with
@@ -164,9 +164,6 @@ public:
 	double GetElapsedMs() const;
 	// Why trips tried for the current train were rejected: the most frequent reasons with their counts, or empty.
 	FString DescribeProblems() const;
-	// How many trips tried for the current train were rejected only because trains already wait before a station (the
-	// queue limit): the work is there, a supplier or consumer is busy.
-	int32 CountQueueRejections() const;
 	// True if a trip tried for the current train was rejected because it starts at the station the train stands in.
 	bool WasKeptFromOwnStation() const;
 

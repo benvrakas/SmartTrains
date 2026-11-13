@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.33.0 (beta)
+
+- **One rule for train groups: cargo decides.** A train holding cargo keeps its car pattern: it takes trips its cars
+  line up with, and when there is none it only delivers what it holds, loading nothing, until it is empty. An empty
+  train has no group and takes the best trip anywhere, going first to stations no train serves. This replaces four
+  rules that had piled up since 0.26.0 (the 5-minute idle clock, patterns no station takes, spare trains, busy
+  stations keeping a group) and kept causing each other's bugs. Expect trains to move between factories much more
+  freely; a train never carries one factory's leftovers to another.
+- Cargo nothing has delivered for **Unwanted cargo after** minutes may now go to a Sink platform even while a
+  consumer of it exists (the setting used to be for display only).
+- The log lists which stations count as dead ends (`DEAD ENDS`), and the notes no longer blame dead-end stations for
+  the 0.31.0 stall: a parked train holds any station with no waiting room.
+
 ## 0.32.0 (beta)
 
 - **A train never changes group while it holds cargo.** When it may change group it first only delivers what it
@@ -18,8 +31,8 @@
 
 ## 0.31.0 (beta)
 
-- **Fixed: the network stalled with most trains parked in stations.** A train parked in a dead-end station holds it,
-  and every trip that would use the station was rejected for that ("would wait before ... behind 1 trains"), so no
+- **Fixed: the network stalled with most trains parked in stations.** A parked train holds its station, and a trip
+  that would reach a station with no waiting room while it is held was rejected for that ("would wait before ... behind 1 trains"), so no
   job ever needed the station and the parked train was never moved out. With many idle trains and few depot signals
   nearly every station ended up held this way (IB save: 32 of 38 trains idle, suppliers full, consumers starved). Now
   a station a trip is kept from by a parked train counts as needed, and that train is moved out (WANTED lines in the
