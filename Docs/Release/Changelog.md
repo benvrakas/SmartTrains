@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.34.0 (beta)
+
+- **Idle trains no longer park on through lines.** SmartTrains now knows which stations other trains drive through
+  (stations whose track lies on the shortest way between two other stations) and never parks an idle train in one; a
+  train already parked there is moved off. In the VM tests every train Auto Trains reported as blocking traffic was
+  a SmartTrains train parked on a through line.
+
 ## 0.33.3 (beta)
 
 - New server console command `SmartTrains.EmptyPlatforms`: deletes everything in every freight and fluid platform, for

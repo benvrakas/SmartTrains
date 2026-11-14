@@ -937,7 +937,8 @@ void ASTSubsystem::DispatchRound()
 			}
 		}
 	}
-	// Which stations count as dead ends (a parked train holds one for DeadEndHoldSeconds), logged when the list changes.
+	// Which stations count as dead ends (a parked train holds one for DeadEndHoldSeconds) and which lie on through lines,
+	// logged when the lists change.
 	{
 		TArray<FString> DeadEnds;
 		for (const TWeakObjectPtr<const AFGTrainStationIdentifier>& Station : mWorkStations)
@@ -948,11 +949,28 @@ void ASTSubsystem::DispatchRound()
 			}
 		}
 		DeadEnds.Sort();
-		const FString List = FString::Join(DeadEnds, TEXT(", "));
+		TArray<FString> Through;
+		TArray<AFGTrainStationIdentifier*> AllStations;
+		if (AFGRailroadSubsystem* Railroad = AFGRailroadSubsystem::Get(GetWorld()))
+		{
+			Railroad->GetAllTrainStations(AllStations);
+		}
+		for (const AFGTrainStationIdentifier* Station : AllStations)
+		{
+			if (IsThroughStation(Station))
+			{
+				Through.Add(STLayout::Name(Station));
+			}
+		}
+		Through.Sort();
+		const FString List = FString::Join(DeadEnds, TEXT(", ")) + TEXT("|") + FString::Join(Through, TEXT(", "));
 		if (List != mDeadEndsLogged)
 		{
 			mDeadEndsLogged = List;
-			UE_LOG(LogSmartTrains, Log, TEXT("DEAD ENDS: %d stations with work are dead ends (trains back out): %s"), DeadEnds.Num(), List.IsEmpty() ? TEXT("none") : *List);
+			UE_LOG(LogSmartTrains, Log, TEXT("DEAD ENDS: %d stations with work are dead ends (trains back out): %s"), DeadEnds.Num(),
+				DeadEnds.Num() == 0 ? TEXT("none") : *FString::Join(DeadEnds, TEXT(", ")));
+			UE_LOG(LogSmartTrains, Log, TEXT("THROUGH: %d of %d stations lie on other trains' shortest ways (no parking there): %s"), Through.Num(), AllStations.Num(),
+				Through.Num() == 0 ? TEXT("none") : *FString::Join(Through, TEXT(", ")));
 		}
 	}
 	// Jobs with a stop whose station was dismantled are written again without it (or end) before anything plans with them.
@@ -1418,7 +1436,7 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 	const bool bMoving = First && First->GetVelocity().Size() > 300.0;
 	const AFGTrainStationIdentifier* Here = State.Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation.Get() : State.LastStation.Get();
 	const TSet<const AFGTrainStationIdentifier*> Needed = GetNeededStations(&State);
-	const bool bStaysHere = !bMoving && Here && !Needed.Contains(Here) && !IsStationBlocked(Here);
+	const bool bStaysHere = !bMoving && Here && !Needed.Contains(Here) && !IsStationBlocked(Here) && !IsThroughStation(Here);
 	if (!bStaysHere)
 	{
 		AFGTrainStationIdentifier* Target = FindParkingStation(State, Here, Needed, {});
@@ -1430,7 +1448,8 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 		}
 		if (Target)
 		{
-			SendToStation(State, Target, *FString::Printf(TEXT("%s, %s"), Why, bMoving ? TEXT("still moving") : (Here ? TEXT("its station is needed") : TEXT("not at a station"))));
+			SendToStation(State, Target, *FString::Printf(TEXT("%s, %s"), Why, bMoving ? TEXT("still moving")
+				: (!Here ? TEXT("not at a station") : (IsThroughStation(Here) ? TEXT("its station is on a through line") : TEXT("its station is needed")))));
 			return;
 		}
 	}
@@ -1486,8 +1505,7 @@ AFGTrainStationIdentifier* ASTSubsystem::FindParkingStation(const FSTTrainState&
 	TArray<AFGTrainStationIdentifier*> Stations;
 	Railroad->GetAllTrainStations(Stations);
 	AFGTrainStationIdentifier* Best = nullptr;
-	float BestTime = TNumericLimits<float>::Max();
-	bool bBestQuiet = false;
+	TTuple<bool, bool, float> BestKey(false, false, -TNumericLimits<float>::Max());
 	for (AFGTrainStationIdentifier* Candidate : Stations)
 	{
 		if (!Candidate || Candidate == From || Needed.Contains(Candidate) || Skip.Contains(Candidate) || IsStationBlocked(Candidate) || !CanServe(State, Candidate))
@@ -1495,13 +1513,14 @@ AFGTrainStationIdentifier* ASTSubsystem::FindParkingStation(const FSTTrainState&
 			continue;
 		}
 		const float Time = Candidate == Origin ? 0.f : EstimateTravelSeconds(Origin, Candidate, IsPushPull(State.Train));
-		// A station no train has work at beats any that has; then the nearest.
+		// A station off the through lines beats one on them, then a station no train has work at, then the nearest.
+		const bool bOff = !IsThroughStation(Candidate);
 		const bool bQuiet = !mWorkStations.Contains(Candidate);
-		if (Time >= 0.f && (!Best || (bQuiet && !bBestQuiet) || (bQuiet == bBestQuiet && Time < BestTime)))
+		const TTuple<bool, bool, float> Key(bOff, bQuiet, -Time);
+		if (Time >= 0.f && (!Best || BestKey < Key))
 		{
-			BestTime = Time;
+			BestKey = Key;
 			Best = Candidate;
-			bBestQuiet = bQuiet;
 		}
 	}
 	return Best;
@@ -1864,13 +1883,20 @@ void ASTSubsystem::ClearNeededBays()
 		const FString Where = Here ? STLayout::Name(Here) : FString(TEXT("on the line"));
 		// Stations the other trains need (its own parking spot isn't a reason to move).
 		const TSet<const AFGTrainStationIdentifier*> Needed = GetNeededStations(&State);
-		// Why it has to move: a trip needs its station, or Auto Trains reports a train waiting for it.
+		// Why it has to move: a trip needs its station, it stands on a through line, or Auto Trains reports a train waiting
+		// for it.
 		FString Why;
 		if (Here && Needed.Contains(Here))
 		{
 			Why = FString::Printf(TEXT("making room at %s"), *STLayout::Name(Here));
 		}
-		else if (const TPair<const AFGTrain*, float>* Held = HeldUp.Find(State.Train.Get()))
+		bool bThroughLine = false;
+		if (Why.IsEmpty() && Here && IsThroughStation(Here))
+		{
+			bThroughLine = true;
+			Why = FString::Printf(TEXT("%s is on a through line"), *STLayout::Name(Here));
+		}
+		else if (const TPair<const AFGTrain*, float>* Held = Why.IsEmpty() ? HeldUp.Find(State.Train.Get()) : nullptr)
 		{
 			Why = FString::Printf(TEXT("%s has waited %.0f s for it (Auto Trains)"), *STLayout::Name(Held->Key), Held->Value);
 		}
@@ -1897,6 +1923,11 @@ void ASTSubsystem::ClearNeededBays()
 			}
 		}
 		AFGTrainStationIdentifier* Target = FindParkingStation(State, Here, Needed, Tried);
+		// Off a through line only to a station off them; one through station is as much in the way as another.
+		if (bThroughLine && Target && IsThroughStation(Target))
+		{
+			Target = nullptr;
+		}
 		auto Report = [&State](const FString& Line)
 		{
 			if (Line != State.LastExitReport)

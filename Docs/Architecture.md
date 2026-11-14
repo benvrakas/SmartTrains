@@ -253,6 +253,13 @@ window's Rename stations); never automatic.
   stations; the main IB network has none, see the DEAD ENDS log line.) IB save,
   2026-11-13: 32 of 38 trains idle, parked in stations for want of depot signals, suppliers full and consumers
   starved, about two trips a minute.
+- **Never park on a through line (0.34.0)**: the travel search notes, from each station's forward search, every other
+  station whose track the shortest ways to the others run over (`FSTTravel::IsThroughStation`, Dijkstra with
+  predecessors). A train doesn't park in such a station (`SettleIdle`), `FindParkingStation` ranks stations off the
+  through lines first, and a train parked on one is moved (`ClearNeededBays`: "<station> is on a through line"). Why:
+  joint VM run 10 (2026-11-14): every BLOCKED report of Auto Trains was a SmartTrains train parked in a station on a
+  through line (unnamed Train Station 91-94 among them), chosen by 0.32.0's quiet-station preference; each was moved
+  only after a train had waited 20-35 s.
 - **Quiet stations for parking (0.32.0)**: `FindParkingStation` prefers stations no train has work at
   (`mWorkStations`: a demand platform, or a supply of an item some platform demands; rebuilt each dispatch round),
   then the nearest. Parked trains then seldom stand where a trip will want to go.

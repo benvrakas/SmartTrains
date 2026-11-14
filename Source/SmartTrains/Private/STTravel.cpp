@@ -84,6 +84,7 @@ void FSTTravel::Step(const TArray<AFGTrainStationIdentifier*>& Stations)
 	TMap<UFGRailroadTrackConnectionComponent*, AFGTrainStationIdentifier*> Arrivals;
 	TMap<UFGRailroadTrackConnectionComponent*, AFGTrainStationIdentifier*> BackArrivals;
 	TMap<AFGTrainStationIdentifier*, float> ArrivalExtra;
+	TMap<const AFGBuildableRailroadTrack*, AFGTrainStationIdentifier*> StationTracks;
 	for (AFGTrainStationIdentifier* Station : Stations)
 	{
 		UFGRailroadTrackConnectionComponent* PlatformEnd = nullptr;
@@ -94,6 +95,7 @@ void FSTTravel::Step(const TArray<AFGTrainStationIdentifier*>& Stations)
 			Arrivals.Add(PlatformEnd, Station);
 			BackArrivals.Add(FarEnd, Station);
 			ArrivalExtra.Add(Station, Length);
+			StationTracks.Add(PlatformEnd->GetTrack(), Station);
 		}
 	}
 
@@ -118,7 +120,7 @@ void FSTTravel::Step(const TArray<AFGTrainStationIdentifier*>& Stations)
 	const FApproach Approach = WalkApproach(PlatformEnd, StationEnds);
 	mApproaches.Add(Source, Approach);
 	FRow Row;
-	Search(FarEnd, Arrivals, BackArrivals, ArrivalExtra, Row.Forward, Row.ForwardBack);
+	Search(FarEnd, Arrivals, BackArrivals, ArrivalExtra, Row.Forward, Row.ForwardBack, &StationTracks, Source, &Row.PassedThrough);
 	Search(PlatformEnd, Arrivals, BackArrivals, ArrivalExtra, Row.Reverse, Row.ReverseBack);
 	// Small networks get the stations by name, to check dead ends and shuttles.
 	auto Names = [](const TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& Map)
@@ -134,16 +136,21 @@ void FSTTravel::Step(const TArray<AFGTrainStationIdentifier*>& Stations)
 		}
 		return FString::Printf(TEXT(" [%s]"), *FString::Join(Parts, TEXT(", ")));
 	};
-	UE_LOG(LogSmartTrains, Verbose, TEXT("Travel: from %s reaches %d stations forward%s, %d reversing%s; push-pull trains also %d forward%s, %d reversing%s from the far end; %.0f m to wait on before its switch (%.1f ms)"),
+	UE_LOG(LogSmartTrains, Verbose, TEXT("Travel: from %s reaches %d stations forward%s, %d reversing%s; push-pull trains also %d forward%s, %d reversing%s from the far end; %.0f m to wait on before its switch; its ways pass through %d stations (%.1f ms)"),
 		*STLayout::Name(Source), Row.Forward.Num(), *Names(Row.Forward), Row.Reverse.Num(), *Names(Row.Reverse), Row.ForwardBack.Num(), *Names(Row.ForwardBack),
-		Row.ReverseBack.Num(), *Names(Row.ReverseBack), Approach.WaitLength / 100.f, (FPlatformTime::Seconds() - Started) * 1000.0);
+		Row.ReverseBack.Num(), *Names(Row.ReverseBack), Approach.WaitLength / 100.f, Row.PassedThrough.Num(), (FPlatformTime::Seconds() - Started) * 1000.0);
 	mRows.Add(Source, MoveTemp(Row));
 }
 
 void FSTTravel::Search(UFGRailroadTrackConnectionComponent* Exit, const TMap<UFGRailroadTrackConnectionComponent*, AFGTrainStationIdentifier*>& Arrivals,
 	const TMap<UFGRailroadTrackConnectionComponent*, AFGTrainStationIdentifier*>& BackArrivals, const TMap<AFGTrainStationIdentifier*, float>& ArrivalExtra,
-	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& Out, TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& OutBack)
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& Out, TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& OutBack,
+	const TMap<const AFGBuildableRailroadTrack*, AFGTrainStationIdentifier*>* StationTracks, AFGTrainStationIdentifier* Source,
+	TSet<TWeakObjectPtr<AFGTrainStationIdentifier>>* OutPassed)
 {
+	// For OutPassed: the node each node was reached from, and the node the best arrival at each station was made from.
+	TMap<UFGRailroadTrackConnectionComponent*, UFGRailroadTrackConnectionComponent*> Previous;
+	TMap<AFGTrainStationIdentifier*, UFGRailroadTrackConnectionComponent*> ArrivedFrom;
 	// Dijkstra over track exits: a node is "about to leave a track through this connection".
 	struct FEntry
 	{
@@ -176,7 +183,11 @@ void FSTTravel::Search(UFGRailroadTrackConnectionComponent* Exit, const TMap<UFG
 			{
 				const float Arrival = Entry.Distance + ArrivalExtra.FindRef(*Station);
 				float& Recorded = Out.FindOrAdd(*Station, TNumericLimits<float>::Max());
-				Recorded = FMath::Min(Recorded, Arrival);
+				if (Arrival < Recorded)
+				{
+					Recorded = Arrival;
+					ArrivedFrom.Add(*Station, Entry.Exit);
+				}
 			}
 			if (AFGTrainStationIdentifier* const* Station = BackArrivals.Find(Entrance))
 			{
@@ -195,8 +206,26 @@ void FSTTravel::Search(UFGRailroadTrackConnectionComponent* Exit, const TMap<UFG
 			if (Distance < Recorded)
 			{
 				Recorded = Distance;
+				Previous.Add(Next, Entry.Exit);
 				Heap.HeapPush({Distance, Next});
 			}
+		}
+	}
+	if (!StationTracks || !OutPassed)
+	{
+		return;
+	}
+	// Back along each best way: every station track on it (but the source's and the arrival's own) is passed through.
+	for (const TPair<AFGTrainStationIdentifier*, UFGRailroadTrackConnectionComponent*>& Arrived : ArrivedFrom)
+	{
+		UFGRailroadTrackConnectionComponent* Node = Arrived.Value;
+		for (int32 Step = 0; Node && Node != Exit && Step < 400000; ++Step)
+		{
+			if (AFGTrainStationIdentifier* const* Passed = StationTracks->Find(Node->GetTrack()); Passed && *Passed != Source && *Passed != Arrived.Key)
+			{
+				OutPassed->Add(*Passed);
+			}
+			Node = Previous.FindRef(Node);
 		}
 	}
 }
@@ -247,6 +276,19 @@ bool FSTTravel::GetApproach(const AFGTrainStationIdentifier* Station, FApproach&
 	{
 		Out = *Found;
 		return true;
+	}
+	return false;
+}
+
+bool FSTTravel::IsThroughStation(const AFGTrainStationIdentifier* Station) const
+{
+	const TWeakObjectPtr<AFGTrainStationIdentifier> Key(const_cast<AFGTrainStationIdentifier*>(Station));
+	for (const TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, FRow>& Row : mRows)
+	{
+		if (Row.Value.PassedThrough.Contains(Key))
+		{
+			return true;
+		}
 	}
 	return false;
 }

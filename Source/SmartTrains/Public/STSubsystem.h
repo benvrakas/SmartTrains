@@ -212,6 +212,8 @@ public:
 	float EstimateStaySeconds(const AFGTrainStationIdentifier* Station) const;
 	// True if Station is a dead end: a train in it can only leave the way trains come in.
 	bool IsDeadEnd(const AFGTrainStationIdentifier* Station) const;
+	// Other trains' shortest ways run over Station's track (FSTTravel::IsThroughStation): no place to park.
+	bool IsThroughStation(const AFGTrainStationIdentifier* Station) const;
 
 	// /st snapshot: the next dispatch round writes its planning inputs to a file.
 	void RequestSnapshot() { bSnapshotNext = true; }
@@ -404,7 +406,7 @@ private:
 	// Stations trains have work at: a demand platform, or a supply of an item some platform demands. Idle trains park
 	// at the others first (FindParkingStation). From the last dispatch round's nodes.
 	TSet<TWeakObjectPtr<const AFGTrainStationIdentifier>> mWorkStations;
-	// The dead-end stations last written to the log (DEAD ENDS line).
+	// The dead-end and through stations last written to the log (DEAD ENDS and THROUGH lines).
 	FString mDeadEndsLogged;
 	bool IsStationBlocked(const AFGTrainStationIdentifier* Station) const;
 	// When a trip built around each consumer station was last given to a train (Now()).

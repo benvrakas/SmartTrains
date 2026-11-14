@@ -1306,6 +1306,11 @@ const void* ASTSubsystem::GetJunction(const AFGTrainStationIdentifier* Station) 
 	return mTravel && Station && mTravel->GetApproach(Station, Approach) ? Approach.Junction : nullptr;
 }
 
+bool ASTSubsystem::IsThroughStation(const AFGTrainStationIdentifier* Station) const
+{
+	return mTravel && Station && mTravel->IsThroughStation(Station);
+}
+
 bool ASTSubsystem::IsDeadEnd(const AFGTrainStationIdentifier* Station) const
 {
 	return mTravel && Station && mTravel->IsDeadEnd(Station);
