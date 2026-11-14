@@ -113,9 +113,10 @@ public:
 	bool MakeCarItems(const AFGTrainStationIdentifier* Consumer, const TArray<TArray<UClass*>>& Pattern, bool bIgnorePattern, TArray<TArray<UClass*>>& OutAllowed,
 		int32& OutMismatched, int32* OutMatched = nullptr) const;
 	// While set (one entry per car), simulated trips only load a car with the items its entry holds; empty: no limit.
-	void SetCarItems(TArray<TArray<UClass*>> InAllowed) { mCarAllowed = MoveTemp(InAllowed); }
-	// Simulated trips load nothing (a trip that only unloads cargo on board).
-	void SetNoLoads() { mCarAllowed.Init(TArray<UClass*>(), mCars.Num()); }
+	void SetCarItems(TArray<TArray<UClass*>> InAllowed) { mCarAllowed = MoveTemp(InAllowed); bEmptying = false; }
+	// Simulated trips load nothing and are worth what they unload (a train emptying its cars, Docs/Architecture.md,
+	// "Car patterns"); SetCarItems ends it.
+	void SetNoLoads() { mCarAllowed.Init(TArray<UClass*>(), mCars.Num()); bEmptying = true; }
 	// Set before BeginTrain: cargo on board may also go to sinks (any-item platforms) when a consumer of it exists.
 	void SetSinksForCargo(bool bInSinks) { bSinksForCargo = bInSinks; }
 	int32 GetCarCount() const { return mCars.Num(); }
@@ -258,6 +259,8 @@ private:
 	const AFGTrainStationIdentifier* mOnlyStation = nullptr;
 	// Per car, the items it may load (SetCarItems); empty: no limit.
 	TArray<TArray<UClass*>> mCarAllowed;
+	// Set by SetNoLoads: unloading is worth EmptyLoadValue per car load and EmptyCarValue per car emptied.
+	bool bEmptying = false;
 	bool bSinksForCargo = false;
 	// Automation tests: every station counts as on the train's track network (they have no world).
 	bool bServeAll = false;

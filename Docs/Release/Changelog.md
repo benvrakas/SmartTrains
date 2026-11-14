@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.33.1 (beta)
+
+- **Fixed: trains holding leftovers stood idle (0.33.0).** A train that has to empty its cars now counts every load it
+  unloads as worth the trip, so it delivers leftovers to any consumer or Sink platform with room. In 0.33.0 those
+  trips almost never looked worth it: on the IB server 33 of 38 trains stood idle holding cargo, and trips fell from
+  about 22 to 6 per 10 minutes.
+- **Fixed: a managed train with its autopilot off blocked the line.** After a server restart one train with a job
+  stood 25 minutes on a through line with autopilot off, and 12 trains queued behind it. SmartTrains now switches
+  autopilot back on for a managed train with a job, unless it is held, parked or driven by a player (AUTOPILOT line
+  in the log).
+
 ## 0.33.0 (beta)
 
 - **One rule for train groups: cargo decides.** A train holding cargo keeps its car pattern: it takes trips its cars

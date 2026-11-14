@@ -215,6 +215,11 @@ window's Rename stations); never automatic.
     no train serves (`IsConsumerServed`: no managed train on a trip anchored there, none given in the last
     `ServedSeconds`, 600 s), then all. The trip chosen gives its cars their items (`PatternAfter`).
   - `ReplanTrip` applies the car items from the job's anchor (no anchor: no loads).
+  - **Emptying trips are worth what they unload (0.33.1)**: with `SetNoLoads` the planner adds `EmptyLoadValue` (2)
+    per car load unloaded and `EmptyCarValue` (10) per car emptied, so the trip goes to any consumer or sink with room
+    whatever its target. Without it, 0.33.0's emptying trips were valued like any trip (forecast gain, a quarter of
+    `TiedCarValue` for items needed soon) and rarely beat the stop cost: on the IB server, 2026-11-14, 33 of 38
+    trains stood idle holding leftovers and trips fell from about 22 to 6 per 10 minutes.
   - What this replaced: an idle clock (5 minutes without a trip), "homeless" patterns no station takes, "spare" trains
     whose group another train keeps, and queue rejections that reset the clock (0.18.0 to 0.32.0). Each was a patch
     for a case the one before it made: trains waited for groups that no longer existed, left busy groups when a
@@ -225,6 +230,10 @@ window's Rename stations); never automatic.
   - A train parked in the station its trips would start at can't dock where it stands ("first stop is the station
     the train stands in"): `WasKeptFromOwnStation` marks that station wanted, so it parks elsewhere and comes back
     (0.31.1).
+- **Autopilot fault (0.33.1)**: `MonitorTrains` switches autopilot back on for a managed train with a job that isn't
+  held, parked, derailed or driven by a player (AUTOPILOT warning). IB, 2026-11-14: after a restart one such train
+  stood 25 minutes on a through line and 12 trains queued behind it; Auto Trains reported it BLOCKED ("nobody
+  drives") but can't move a train, and SmartTrains only turned autopilot on when writing a timetable.
 - **Parked trains in the way (0.31.0)**: a parked train's booking is marked (`FSTBooking::bParked`); when it makes a
   stop of any trip tried wait (`IsParkedInWay` in `SimulateWithSkips`), the planner notes the station
   (`GetParkedInWay`), the dispatcher keeps it in `mWantedStations` for `WantedStationSeconds` (60 s, WANTED line), and

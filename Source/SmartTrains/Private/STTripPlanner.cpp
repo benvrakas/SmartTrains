@@ -36,6 +36,10 @@ namespace
 	constexpr double QueueLookSeconds = 300.0;
 	// Value of a car left holding cargo after a trip (a car emptied is worth the same). [car-load minutes]
 	constexpr double TiedCarValue = 2.0;
+	// A train emptying its cars (SetNoLoads) values every car load it unloads, and each car it empties, so it delivers
+	// leftovers to any consumer or sink with room, whatever the consumer's target. [car-load minutes]
+	constexpr double EmptyLoadValue = 2.0;
+	constexpr double EmptyCarValue = 10.0;
 	// Share of TiedCarValue for a car holding only items a demand platform needs within the horizon.
 	constexpr double NeededSoonShare = 0.25;
 
@@ -1449,6 +1453,10 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 							*STNames::Item(Item), *STLayout::Name(Stop.Station)));
 					}
 					FItemTotals& Total = TotalsFor(Item);
+					if (bEmptying)
+					{
+						Result.Value += EmptyLoadValue * Amount / FMath::Max(1.0, STLayout::GetCarCapacity(mCars[CarIndex].Car, Item));
+					}
 					if (mNodes[Node].bAnyItem)
 					{
 						continue;
@@ -1489,6 +1497,10 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 	for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
 	{
 		Result.Value += TiedCarValue * (GetTiedShare(mCars[CarIndex].Cargo) - GetTiedShare(Cargo[CarIndex]));
+		if (bEmptying && GetTiedShare(mCars[CarIndex].Cargo) > 0.0 && GetTiedShare(Cargo[CarIndex]) == 0.0)
+		{
+			Result.Value += EmptyCarValue;
+		}
 	}
 	Result.Value -= StopCost;
 	Result.bValid = true;

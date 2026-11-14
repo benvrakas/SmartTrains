@@ -628,6 +628,16 @@ void ASTSubsystem::MonitorTrains()
 				SettleIdle(State, TEXT("no way to the depot signal"));
 			}
 		}
+		// A managed train with a job drives itself: autopilot off while it isn't held, parked, derailed or driven by a
+		// player is a fault, put right here (IB, 2026-11-14: after a restart one stood 25 minutes on a through line with
+		// autopilot off and 12 trains queued behind it; nothing else turns it back on until its timetable is written).
+		if (State.bManaged && State.bHasJob && !State.bHeld && State.Phase != ESTTrainPhase::Parked && !Train->IsSelfDrivingEnabled() && !Train->IsPlayerDriven()
+			&& !Train->IsDerailed())
+		{
+			UE_LOG(LogSmartTrains, Warning, TEXT("AUTOPILOT %s: off on a train with a job (job %d, leg %d); switched back on"), *STLayout::Name(Train), State.Job.Id,
+				State.Job.Leg + 1);
+			Train->SetSelfDrivingEnabled(true);
+		}
 		// A held train whose autopilot someone switched on again is no longer held.
 		if (State.bHeld && Train->IsSelfDrivingEnabled())
 		{
