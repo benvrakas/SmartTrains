@@ -1746,6 +1746,41 @@ namespace
 		TEXT("Deletes the cargo of every managed train (no undo), as /st emptycars all confirm."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&RunEmptyCarsCommand));
 
+	// SmartTrains.EmptyPlatforms: deletes everything in every freight and fluid platform of the world, so a test save
+	// starts with stations waiting for trains instead of full and backed up (Docs/Testing.md, "Test saves").
+	void RunEmptyPlatformsCommand(const TArray<FString>& Args, UWorld* World)
+	{
+		if (!World)
+		{
+			return;
+		}
+		int32 Platforms = 0;
+		int64 Removed = 0;
+		for (TActorIterator<AFGBuildableTrainPlatformCargo> It(World); It; ++It)
+		{
+			UFGInventoryComponent* Inventory = It->GetInventory();
+			if (!Inventory)
+			{
+				continue;
+			}
+			for (int32 Index = 0; Index < Inventory->GetSizeLinear(); ++Index)
+			{
+				FInventoryStack Stack;
+				if (Inventory->GetStackFromIndex(Index, Stack) && Stack.HasItems())
+				{
+					Removed += Stack.NumItems;
+				}
+			}
+			Inventory->Empty();
+			++Platforms;
+		}
+		UE_LOG(LogSmartTrains, Log, TEXT("SmartTrains.EmptyPlatforms: %d platforms emptied, %lld items and litres removed"), Platforms, Removed);
+	}
+
+	FAutoConsoleCommandWithWorldAndArgs GEmptyPlatformsCommand(TEXT("SmartTrains.EmptyPlatforms"),
+		TEXT("Deletes everything in every freight and fluid platform (no undo), for test saves."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&RunEmptyPlatformsCommand));
+
 	// SmartTrains.MigratePreview: the migration preview from the server console (names follow a few stations per step).
 	void RunMigratePreviewCommand(const TArray<FString>& Args, UWorld* World)
 	{

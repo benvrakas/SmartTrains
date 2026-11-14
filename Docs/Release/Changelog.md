@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.33.3 (beta)
+
+- New server console command `SmartTrains.EmptyPlatforms`: deletes everything in every freight and fluid platform, for
+  making test saves where stations wait for trains. Nothing else changes.
+
 ## 0.33.2 (beta)
 
 - **Cargo on idle trains counts as stock on its way.** Trains waiting with full cars now count towards the consumers

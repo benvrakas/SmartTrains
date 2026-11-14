@@ -111,6 +111,14 @@ On a test copy of the user's network:
    monitor's Trains tab, then leave so they arrive a gap after the train before. Fewer Auto Trains DEADLOCK and
    "can't stop short" lines near that station.
 
+## Test saves
+
+Test runs on the VM start from one save each series, so runs compare like with like
+(`D:\SFMod\TestEnv\LinuxServer\TESTING.md`). A save copied from a running network has most platforms full and
+factories backed up, so few trains have work. To make a starting save: load it, run `SmartTrains.EmptyCars` (managed
+trains' cargo) and `SmartTrains.EmptyPlatforms` (every freight and fluid platform) on the server console, then save
+it under a new name and use that as the series' baseline. Its runs don't compare with runs from other saves.
+
 ## Automated tests
 
 `D:\SFMod\Tools\BuildScripts\sfmod test SmartTrains` builds the editor (FactoryEditor, Development), runs the
