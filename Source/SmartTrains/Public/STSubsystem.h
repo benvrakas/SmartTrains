@@ -32,6 +32,9 @@ struct FSTNodeEvent
 {
 	double Time = 0.0;
 	double Amount = 0.0;
+	// Cargo held by this train with no job (stock on its way, BuildNodes); INDEX_NONE for a planned job's stop. The
+	// planner leaves a train's own held cargo out when it plans that train.
+	int32 HeldBy = INDEX_NONE;
 };
 
 // One station's supply or demand of one item, gathered from its platforms (Docs/Architecture.md, "Dispatching").

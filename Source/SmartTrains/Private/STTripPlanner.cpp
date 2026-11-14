@@ -1159,6 +1159,8 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 	{
 		TArray<FSTNodeEvent>& Mine = TripEvents.FindOrAdd(Node);
 		TArray<FSTNodeEvent> Events = mNodes[Node].Planned;
+		// Its own held cargo isn't stock on its way to itself.
+		Events.RemoveAll([this](const FSTNodeEvent& Event) { return Event.HeldBy == mTrainIndex; });
 		Events.Append(Mine);
 		const FSTNodeEvent Added{Time, Amount};
 		const double Until = mNodes[Node].Role == ESTRole::Demand ? STForecast::NextDeliveryTime(mTime, Time) : 0.0;
@@ -1747,6 +1749,11 @@ void FSTTripPlanner::MakeLegs(const TArray<FSTPlanStop>& Stops, const FSTPlanRes
 
 void FSTTripPlanner::Reserve(const TArray<FSTPlanStop>& Stops, const FSTPlanResult& Result)
 {
+	// Its held cargo now goes where this trip takes it.
+	for (FSTNode& Node : mNodes)
+	{
+		Node.Planned.RemoveAll([this](const FSTNodeEvent& Event) { return Event.HeldBy == mTrainIndex; });
+	}
 	for (int32 StopIndex = 0; StopIndex < Stops.Num() && Result.Steps.IsValidIndex(StopIndex); ++StopIndex)
 	{
 		const AFGTrainStationIdentifier* Station = Stops[StopIndex].Station;

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.33.2 (beta)
+
+- **Cargo on idle trains counts as stock on its way.** Trains waiting with full cars now count towards the consumers
+  of what they carry, so SmartTrains stops loading more trains for a factory that idle trains can already supply. In
+  the VM test from the IB save, a dozen trains stood full of Coal and Sulfur for two full consumers while more were
+  sent to load Coal.
+
 ## 0.33.1 (beta)
 
 - **Fixed: trains holding leftovers stood idle (0.33.0).** A train that has to empty its cars now counts every load it

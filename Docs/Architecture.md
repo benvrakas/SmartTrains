@@ -230,6 +230,14 @@ window's Rename stations); never automatic.
   - A train parked in the station its trips would start at can't dock where it stands ("first stop is the station
     the train stands in"): `WasKeptFromOwnStation` marks that station wanted, so it parks elsewhere and comes back
     (0.31.1).
+- **Cargo in transit (0.33.2)**: cargo on managed trains with no job counts as stock on its way (`BuildNodes`): each
+  item goes to its consumers on the same rail network, up to their room after planned deliveries, as a `Planned` event
+  a travel time from the train's last station (`HeldCargoArriveSeconds`, 600 s, when unknown) with `HeldBy` set. The
+  forecast then sees those consumers covered, so no other train is loaded for them; the planner leaves a train's own
+  held cargo out when it plans that train, and `Reserve` drops it once the train has a trip. Why: VM joint run 2
+  (2026-11-14, 0.33.1) ended with 55 of 64 idle trains holding cargo, a dozen of them full of Coal and Sulfur for two
+  consumers that were full, while more trains were sent to load Coal; held cargo was invisible to everyone but the
+  train holding it.
 - **Autopilot fault (0.33.1)**: `MonitorTrains` switches autopilot back on for a managed train with a job that isn't
   held, parked, derailed or driven by a player (AUTOPILOT warning). IB, 2026-11-14: after a restart one such train
   stood 25 minutes on a through line and 12 trains queued behind it; Auto Trains reported it BLOCKED ("nobody

@@ -66,6 +66,8 @@ namespace
 
 	// A parked train's booking of its station: about how long moving it out takes. [s]
 	constexpr double ParkedLeaveSeconds = 60.0;
+	// Cargo held by a train with no job counts as delivered this long from now when its travel time isn't known. [s]
+	constexpr double HeldCargoArriveSeconds = 600.0;
 	// A station a trip was kept from by a parked train counts as needed this long after the last such try. [s]
 	constexpr double WantedStationSeconds = 60.0;
 	// A consumer whose machines wait on another starved item counts its shortfall this much (Docs/Architecture.md,
@@ -208,6 +210,7 @@ namespace
 
 void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 {
+	const double Time = Now();
 	OutNodes.Reset();
 	for (const FSTPlatformConfig& Config : mPlatforms)
 	{
@@ -314,6 +317,47 @@ void ASTSubsystem::BuildNodes(TArray<FSTNode>& OutNodes) const
 						OutNodes[Index].PlatformReserved.FindOrAdd(Work.Platform.Get()) += Work.PlannedAmount;
 					}
 				}
+			}
+		}
+	}
+	// Cargo on managed trains with no job is stock on its way as well: it counts towards the consumers of its item, as
+	// a delivery a travel time from where the train stands, up to their room. So no other train is loaded for a
+	// consumer that idle trains' cargo already covers (Docs/Architecture.md, "Cargo in transit").
+	for (int32 TrainIndex = 0; TrainIndex < mTrains.Num(); ++TrainIndex)
+	{
+		const FSTTrainState& State = mTrains[TrainIndex];
+		if (!State.bManaged || State.bHasJob || !IsValid(State.Train))
+		{
+			continue;
+		}
+		const AFGTrainStationIdentifier* From = State.LastStation.Get();
+		const int32 Graph = State.Train->GetTrackGraphID();
+		for (const TPair<UClass*, int32>& Held : GetCargo(State.Train))
+		{
+			double Left = Held.Value;
+			for (FSTNode& Node : OutNodes)
+			{
+				if (Left <= 0.0)
+				{
+					break;
+				}
+				if (Node.Role != ESTRole::Demand || Node.bAnyItem || Node.Item.Get() != Held.Key || Node.TrackGraph != Graph || !Node.Station.IsValid())
+				{
+					continue;
+				}
+				double Room = Node.Capacity - Node.Stock;
+				for (const FSTNodeEvent& Event : Node.Planned)
+				{
+					Room -= Event.Amount;
+				}
+				if (Room <= 0.0)
+				{
+					continue;
+				}
+				const float Travel = From ? EstimateTravelSeconds(From, Node.Station.Get(), IsPushPull(State.Train)) : -1.f;
+				const double Amount = FMath::Min(Room, Left);
+				Node.Planned.Add({Time + (Travel >= 0.f ? Travel : HeldCargoArriveSeconds), Amount, TrainIndex});
+				Left -= Amount;
 			}
 		}
 	}
