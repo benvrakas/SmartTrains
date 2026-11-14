@@ -131,12 +131,34 @@ tests are compiled only where `WITH_DEV_AUTOMATION_TESTS` is on, so not into the
 |---|---|
 | `SmartTrains.Planner.FirstFreeArrival` | Bookings with start and end and the arrival gap: a slot before, between or after bookings. |
 | `SmartTrains.Planner.PushPullIdenticalPlatforms` | A push-pull train at four identical platforms in both ways round: no car skipped, each platform's stock and room counted once per way round. |
+| `SmartTrains.Planner.WrongPlatformNeedsSkip` | A car beside a load-mode platform without a supply role: the trip is invalid without Freight Car Control, and the car skips with it. |
+| `SmartTrains.Planner.NoMixedCars` | A car holding one item skips a pickup of another and a consumer that would take its cargo too; an empty car still loads. Without Freight Car Control the trip is refused. |
 | `SmartTrains.Planner.PlatformReservations` | Pickups promised at one platform leave another platform's stock to the car beside it; promises with no platform are still shared out. |
 | `SmartTrains.Planner.DeliveryReservations` | A delivery promised to one platform uses up that platform's room only. |
-| `SmartTrains.Planner.NoMixedCars` | A car holding one item skips a pickup of another and a consumer that would take its cargo too; an empty car still loads. Without Freight Car Control the trip is refused. |
-| `SmartTrains.Planner.WrongPlatformNeedsSkip` | A car beside a load-mode platform without a supply role: the trip is invalid without Freight Car Control, and the car skips with it. |
-| `SmartTrains.Planner.Assignment` | The Hungarian assignment beats the greedy choice; rows worth nothing get nothing. |
+| `SmartTrains.Planner.SlotValue` | A full car is worth the same whatever it carries (fluids in litres no longer outscore solids). |
+| `SmartTrains.Planner.QueueTrains` | The queue limit counts the trains a train would wait behind: two are fine with the default, a third is too many. |
+| `SmartTrains.Planner.QueueLookAhead` | Bookings count towards the queue limit only for arrivals within five minutes. |
+| `SmartTrains.Planner.Forecast` | A delivery is worth more the sooner it ends a shortfall, a pickup only where the supplier would be full; the deadline is when stock first falls below target; a delivery counts only until the next train could come. |
+| `SmartTrains.Planner.TiedCarsAndBusyStations` | Cars holding cargo tie the train down, less so for items wanted soon; other trains' bookings near a visit count, the train's own don't. |
+| `SmartTrains.Planner.SmallLoad` | A car doesn't load less than a twentieth of a car of an item. |
+| `SmartTrains.Planner.SinkKeepsNeeded` | A sink only gets what a car can't unload at any consumer of it. |
+| `SmartTrains.Planner.SupplyChain` | A consumer whose machine also waits on a starved item counts its shortfall less. |
+| `SmartTrains.Planner.LongTripUnderWay` | A trip under way is checked against its own length, not the Most stops setting. |
 | `SmartTrains.FlowPlan.MinCostFlow` | The flow plan fills the cheap route first and sends all the consumer takes. |
+| `SmartTrains.Groups.Shortfall` | A group is short only while it has fewer trains than it wants and no fitting train is idle. |
+| `SmartTrains.Gather.MixedFactory` | A gathering trip for a factory with two inputs ends there, even when a nearer consumer of one item would score more alone. |
+| `SmartTrains.Gather.CarPattern` | A consumer whose platforms don't line up with the pattern is another group; a car skips a platform offering an item outside its pattern; cargo that doesn't line up is reported. |
+| `SmartTrains.Gather.SushiPattern` | Item sets per car: one car loads both items of a two-item platform; a car holding both lines up only where its platform takes both. |
+| `SmartTrains.Setup.ShareOutByRate` | Platforms feeding the same machines share items by car loads per minute; a set-up platform counts and is left alone. |
+| `SmartTrains.Setup.ShareOutLanes` | Platforms reaching different inputs of the same machines get different items: the most used item where the most belts go. |
+| `SmartTrains.Setup.BeltMaxFlow` | The belt network's maximum flow and its narrowest cut (two belts after a merge). |
+| `SmartTrains.Setup.Format` | Station names fill the format, drop empty values with their brackets, format rates like the game. |
+| `SmartTrains.Setup.Number` | A station keeps its number; a new one takes the smallest free number. |
+| `SmartTrains.Replay.Snapshots` | Every snapshot in `Tests/Snapshots` is planned again; every plan must be valid (below). |
+
+Not covered by an automated test: the dispatcher's group rule (`GatherRound`: cargo keeps a pattern, empty trains take
+any trip), parking and moving parked trains, automatic targets, and cargo in transit. They need a live world; the VM
+runs check them (`D:\SFMod\TestEnv\JOINT-RUNS-2026-11-14.md`).
 
 **Replay** (`SmartTrains.Replay.Snapshots`, 0.8.0): every `*.json` in `Mods/SmartTrains/Tests/Snapshots` (written on the
 server by `/st snapshot`) is loaded and each free train in it is planned again: moves (`BuildMoves`, which needs no
