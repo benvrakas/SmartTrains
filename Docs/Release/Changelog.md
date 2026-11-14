@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.34.1 (beta)
+
+- **Routes respect one-way signals.** SmartTrains' own route search (travel times, dead ends, through stations)
+  ignored signals, so on a signalled network without Auto Trains it could count routes trains can't drive. It now
+  follows the game's one-way rule.
+
 ## 0.34.0 (beta)
 
 - **Idle trains no longer park on through lines.** SmartTrains now knows which stations other trains drive through

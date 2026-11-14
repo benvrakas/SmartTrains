@@ -173,6 +173,11 @@ void FSTTravel::Search(UFGRailroadTrackConnectionComponent* Exit, const TMap<UFG
 			continue;
 		}
 		++Visited;
+		// The game's one-way rule: a connection with a signal trailing it but none facing it can't be driven through.
+		if (Entry.Exit->GetTrailingSignal() && !Entry.Exit->GetFacingSignal())
+		{
+			continue;
+		}
 		for (UFGRailroadTrackConnectionComponent* Entrance : Entry.Exit->GetConnections())
 		{
 			if (!Entrance)

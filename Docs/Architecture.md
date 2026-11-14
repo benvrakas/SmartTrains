@@ -739,6 +739,9 @@ at the cost of that track's length.
   platform end, which is `GetStationOutputConnection()->GetRailroadConnectionReference()` or the station track's end
   nearest it.
 - A second search starts from the platform end, for push-pull trains that back out. Those routes get 30 s added.
+- One-way signals (0.34.1): a connection with a trailing signal and no facing signal is not driven through (the game's
+  one-way rule), so routes, dead ends and through stations hold on signalled networks without Auto Trains. Before,
+  the search ignored signals.
 
 Time = distance ÷ **Speed estimate** + 20 s. It is replaced by the learned trip time once a train has driven that
 pair: the first sample, then a 0.3-weight moving average. Stays per station are learned the same way.
