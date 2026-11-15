@@ -155,6 +155,12 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 			break;
 		}
 	}
+	return CheckAt(Approach, Signal);
+}
+
+FSTDepotSiding STDepots::CheckAt(UFGRailroadTrackConnectionComponent* Approach, const AFGBuildableRailroadSignal* Signal)
+{
+	FSTDepotSiding Siding;
 	if (!Approach || !Approach->GetTrack())
 	{
 		Siding.Problem = TEXT("not on a track yet");
@@ -279,6 +285,7 @@ FSTDepotSiding STDepots::Check(const AFGBuildableRailroadSignal* Signal)
 				break;
 			}
 			bEntry = true;
+			Siding.Entry = Entry;
 			break;
 		}
 		Exit = Before[0];
@@ -644,14 +651,209 @@ namespace
 		return Signal;
 	}
 
+	// The connection a train leaving through Exit enters at the next merge (a joint where several tracks end); null if a
+	// track end, a station or a diverging switch comes first. OutLength: the way there [cm]; OutTracks gets its tracks.
+	UFGRailroadTrackConnectionComponent* FindMerge(UFGRailroadTrackConnectionComponent* Exit, float& OutLength, TSet<const AFGBuildableRailroadTrack*>& OutTracks)
+	{
+		OutLength = 0.f;
+		for (int32 Step = 0; Step < 200 && Exit; ++Step)
+		{
+			const TArray<UFGRailroadTrackConnectionComponent*> Next = Exit->GetConnections();
+			if (Next.Num() != 1 || !Next[0])
+			{
+				return nullptr;
+			}
+			UFGRailroadTrackConnectionComponent* In = Next[0];
+			if (In->GetConnections().Num() > 1)
+			{
+				return In;
+			}
+			const AFGBuildableRailroadTrack* Track = In->GetTrack();
+			if (!Track || Track->GetIsOwnedByPlatform())
+			{
+				return nullptr;
+			}
+			OutTracks.Add(Track);
+			OutLength += Track->GetLength();
+			Exit = In->GetOpposite();
+		}
+		return nullptr;
+	}
+
+	// Shortest way from any of Starts (connections trains enter tracks by) to Target avoiding Avoid, at most MaxLength;
+	// negative if none. [cm]
+	float FindBypass(const TArray<UFGRailroadTrackConnectionComponent*>& Starts, const UFGRailroadTrackConnectionComponent* Target,
+		const TSet<const AFGBuildableRailroadTrack*>& Avoid, float MaxLength)
+	{
+		using FEntry = TPair<float, UFGRailroadTrackConnectionComponent*>;
+		auto Less = [](const FEntry& A, const FEntry& B) { return A.Key < B.Key; };
+		TMap<const UFGRailroadTrackConnectionComponent*, float> Best;
+		TArray<FEntry> Open;
+		for (UFGRailroadTrackConnectionComponent* Start : Starts)
+		{
+			Open.HeapPush(FEntry(0.f, Start), Less);
+			Best.Add(Start, 0.f);
+		}
+		for (int32 Pops = 0; Open.Num() > 0 && Pops < 5000; ++Pops)
+		{
+			FEntry Top;
+			Open.HeapPop(Top, Less);
+			if (Top.Value == Target)
+			{
+				return Top.Key;
+			}
+			const AFGBuildableRailroadTrack* Track = Top.Value->GetTrack();
+			UFGRailroadTrackConnectionComponent* Out = Top.Value->GetOpposite();
+			if (!Track || !Out || Avoid.Contains(Track) || Track->GetIsOwnedByPlatform())
+			{
+				continue;
+			}
+			const float Cost = Top.Key + Track->GetLength();
+			if (Cost > MaxLength)
+			{
+				continue;
+			}
+			for (UFGRailroadTrackConnectionComponent* Next : Out->GetConnections())
+			{
+				const float* Known = Next ? Best.Find(Next) : nullptr;
+				if (Next && (!Known || *Known > Cost))
+				{
+					Best.Add(Next, Cost);
+					Open.HeapPush(FEntry(Cost, Next), Less);
+				}
+			}
+		}
+		return -1.f;
+	}
+
+	// SmartTrains.PlaceDepotSignal auto <count> [min length m]: builds depot signals on passing sidings that fit a train of
+	// the minimum length (default: the longest train + the margin) and are the longer way round their loop, so through
+	// trains take the other branch; one per siding, longest spots first.
+	void PlaceAutoDepotSignals(UWorld* World, int32 Count, float MinLength)
+	{
+		if (MinLength <= 0.f)
+		{
+			for (TActorIterator<AFGTrain> It(World); It; ++It)
+			{
+				MinLength = FMath::Max(MinLength, STLayout::GetTrainLength(*It));
+			}
+			MinLength += STDepots::Margin;
+		}
+		struct FCandidate
+		{
+			UFGRailroadTrackConnectionComponent* Approach = nullptr;
+			float Length = 0.f;
+			float Bypass = 0.f;
+		};
+		TMap<const UFGRailroadTrackConnectionComponent*, FCandidate> BySwitch;
+		int32 Joints = 0;
+		int32 Usable = 0;
+		int32 Long = 0;
+		int32 Loops = 0;
+		for (TActorIterator<AFGBuildableRailroadTrack> It(World); It; ++It)
+		{
+			for (int32 End = 0; End < 2; ++End)
+			{
+				UFGRailroadTrackConnectionComponent* Approach = It->GetConnection(End);
+				if (!PlainMate(Approach))
+				{
+					continue;
+				}
+				++Joints;
+				const FSTDepotSiding Siding = STDepots::CheckAt(Approach, nullptr);
+				if (!Siding.Problem.IsEmpty() || Siding.bDeadEnd || !Siding.Entry)
+				{
+					continue;
+				}
+				++Usable;
+				if (Siding.Length < MinLength)
+				{
+					continue;
+				}
+				++Long;
+				// The entry switch: one track comes in and splits; the other branches are the ways round.
+				const TArray<UFGRailroadTrackConnectionComponent*> Before = Siding.Entry->GetConnections();
+				UFGRailroadTrackConnectionComponent* Incoming = Before.Num() == 1 ? Before[0] : nullptr;
+				if (!Incoming)
+				{
+					continue;
+				}
+				TArray<UFGRailroadTrackConnectionComponent*> Others = Incoming->GetConnections();
+				Others.Remove(Siding.Entry);
+				TSet<const AFGBuildableRailroadTrack*> Branch;
+				for (const AFGBuildableRailroadTrack* Track : Siding.Tracks)
+				{
+					Branch.Add(Track);
+				}
+				float Ahead = 0.f;
+				const UFGRailroadTrackConnectionComponent* Merge = FindMerge(Approach, Ahead, Branch);
+				if (Others.Num() == 0 || !Merge)
+				{
+					continue;
+				}
+				const float Mine = Siding.Length + Ahead;
+				const float Bypass = FindBypass(Others, Merge, Branch, Mine + 100.f);
+				if (Bypass < 0.f)
+				{
+					continue;
+				}
+				++Loops;
+				FCandidate& Best = BySwitch.FindOrAdd(Incoming);
+				if (Siding.Length > Best.Length)
+				{
+					Best.Approach = Approach;
+					Best.Length = Siding.Length;
+					Best.Bypass = Bypass;
+				}
+			}
+		}
+		TArray<FCandidate> Sidings;
+		BySwitch.GenerateValueArray(Sidings);
+		Sidings.Sort([](const FCandidate& A, const FCandidate& B) { return A.Length > B.Length; });
+		UE_LOG(LogSmartTrains, Log, TEXT("SmartTrains.PlaceDepotSignal auto: %d plain joint sides, %d make a passing-siding spot, %d at least %.0f m, %d the longer way round a loop, on %d sidings"),
+			Joints, Usable, Long, MinLength / 100.f, Loops, Sidings.Num());
+		int32 Built = 0;
+		for (const FCandidate& Candidate : Sidings)
+		{
+			if (Built >= Count)
+			{
+				break;
+			}
+			if (!PlainMate(Candidate.Approach))
+			{
+				continue;
+			}
+			ASTBuildableDepotSignal* Signal = SpawnDepotSignal(World, Candidate.Approach);
+			const FSTDepotSiding Siding = Signal ? STDepots::Check(Signal) : FSTDepotSiding();
+			if (!Signal || !Siding.Problem.IsEmpty())
+			{
+				UE_LOG(LogSmartTrains, Warning, TEXT("SmartTrains.PlaceDepotSignal auto: the signal at %s doesn't make the spot it should (%s)"),
+					*Candidate.Approach->GetConnectorLocation().ToCompactString(), Signal ? *Siding.Problem : TEXT("not spawned"));
+				if (Signal)
+				{
+					Signal->Destroy();
+				}
+				continue;
+			}
+			++Built;
+			UE_LOG(LogSmartTrains, Log, TEXT("SmartTrains.PlaceDepotSignal auto: built at %s: %s; the way round is %.0f m"), *Signal->GetActorLocation().ToCompactString(),
+				*STDepots::Describe(Siding), Candidate.Bypass / 100.f);
+		}
+	}
+
 	// SmartTrains.PlaceDepotSignal X Y Z [radius m]: builds a depot signal on the plain track joint nearest to the point
 	// (world cm, as the log prints locations) that makes a usable parking spot, for test saves on a server without a
 	// player (Docs/Testing.md, "Test saves").
 	void RunPlaceDepotSignalCommand(const TArray<FString>& Args, UWorld* World)
 	{
+		if (World && World->GetNetMode() != NM_Client && Args.Num() >= 2 && Args[0] == TEXT("auto"))
+		{
+			PlaceAutoDepotSignals(World, FCString::Atoi(*Args[1]), Args.Num() > 2 ? FCString::Atof(*Args[2]) * 100.f : 0.f);
+			return;
+		}
 		if (!World || World->GetNetMode() == NM_Client || Args.Num() < 3)
 		{
-			UE_LOG(LogSmartTrains, Warning, TEXT("SmartTrains.PlaceDepotSignal: usage X Y Z [radius m] (world cm), on the server"));
+			UE_LOG(LogSmartTrains, Warning, TEXT("SmartTrains.PlaceDepotSignal: usage X Y Z [radius m] (world cm) or auto <count> [min length m], on the server"));
 			return;
 		}
 		const FVector Point(FCString::Atod(*Args[0]), FCString::Atod(*Args[1]), FCString::Atod(*Args[2]));
@@ -699,7 +901,7 @@ namespace
 	}
 
 	FAutoConsoleCommandWithWorldAndArgs GPlaceDepotSignalCommand(TEXT("SmartTrains.PlaceDepotSignal"),
-		TEXT("X Y Z [radius m]: builds a depot signal on the nearest track joint that makes a usable parking spot, for test saves."),
+		TEXT("X Y Z [radius m] | auto <count> [min length m]: builds depot signals that make usable parking spots, for test saves."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&RunPlaceDepotSignalCommand));
 }
 

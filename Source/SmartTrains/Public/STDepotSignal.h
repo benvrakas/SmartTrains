@@ -29,6 +29,8 @@ struct FSTDepotSiding
 	bool bDeadEnd = false;
 	// The next depot signal on the same siding: toward the entrance (passing siding) or deeper in (dead end).
 	const AFGBuildableRailroadSignal* Neighbour = nullptr;
+	// Passing siding: the siding's first track's end at its entry switch (null at an entry signal or a dead end).
+	UFGRailroadTrackConnectionComponent* Entry = nullptr;
 	// The signal a parked train's front stops before (null: the track end). Without Auto Trains it is held at stop while
 	// a train drives there, so the game's automatic control brakes for it.
 	const AFGBuildableRailroadSignal* StopSignal = nullptr;
@@ -74,6 +76,8 @@ namespace STDepots
 	// way. Without Auto Trains the game's signals keep trains apart: a passing siding needs an entry signal after its
 	// switch, and a dead end a signal at its far end, facing in.
 	SMARTTRAINS_API FSTDepotSiding Check(const AFGBuildableRailroadSignal* Signal);
+	// Check for a depot signal a train passes leaving through Approach (Signal: that signal, or null for one not built).
+	SMARTTRAINS_API FSTDepotSiding CheckAt(UFGRailroadTrackConnectionComponent* Approach, const AFGBuildableRailroadSignal* Signal);
 
 	// Every depot signal's spot in World, linked to its neighbours on the same siding, with the trains standing on it.
 	SMARTTRAINS_API TArray<FSTDepotSpot> Survey(UWorld* World);

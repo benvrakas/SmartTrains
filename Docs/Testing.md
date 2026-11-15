@@ -122,8 +122,11 @@ it under a new name and use that as the series' baseline. Its runs don't compare
 For depot tests on a save without depot signals, `SmartTrains.PlaceDepotSignal X Y Z [radius m]` (server console,
 world cm as the log prints locations, radius 50 m by default) builds one on the nearest plain track joint (two tracks
 end to end, no signal) where `STDepots::Check` finds a usable spot, trying each joint both ways round, and logs the
-spot or why every joint failed. On the VM, `~/make-depot-baseline.sh` puts six where the IB save had them on
-2026-11-11 and keeps the result as `~/baseline-depots.sav`.
+spot or why every joint failed. `SmartTrains.PlaceDepotSignal auto <count> [min length m]` (0.34.4) finds the spots
+itself: every plain joint whose spot (`STDepots::CheckAt`, no signal built) is a passing siding at least the minimum
+length (default: the longest train + 8 m), whose entry switch has another branch that reaches the siding's merge no
+longer than the siding's own way (so trains passing by take that branch); one per entry switch, longest spots first.
+On the VM, `~/make-depot-baseline.sh` uses it and keeps the result as `~/baseline-depots.sav`.
 
 ## Automated tests
 

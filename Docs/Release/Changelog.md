@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.34.4 (beta)
+
+- Server tool for test saves: `SmartTrains.PlaceDepotSignal auto <count> [min length m]` finds passing sidings across
+  the network that fit the longest train and are the longer way round their loop (so through trains take the other
+  branch), and builds a depot signal on each, longest first.
+
 ## 0.34.3 (beta)
 
 - **Fixed: idle trains were sent to park at stations they can't reach.** A station a train with one locomotive can
