@@ -12,6 +12,8 @@
 #include "FGRecipeManager.h"
 #include "FGSchematicCategory.h"
 #include "EngineUtils.h"
+#include "FGBuildableSubsystem.h"
+#include "HAL/IConsoleManager.h"
 #include "FGTrain.h"
 #include "SmartTrains.h"
 #include "STBridges.h"
@@ -598,6 +600,107 @@ void STDepots::KeepUnlocked(UWorld* World)
 	}
 	Recipes->AddAvailableRecipe(USTRecipe_DepotSignal::StaticClass());
 	UE_LOG(LogSmartTrains, Log, TEXT("DEPOT signal unlocked: the block signal is unlocked"));
+}
+
+//~ Test saves
+
+namespace
+{
+	// The connection Connection meets at a joint of exactly two tracks end to end with no signal (null otherwise).
+	UFGRailroadTrackConnectionComponent* PlainMate(UFGRailroadTrackConnectionComponent* Connection)
+	{
+		if (!Connection || Connection->GetConnections().Num() != 1)
+		{
+			return nullptr;
+		}
+		UFGRailroadTrackConnectionComponent* Mate = Connection->GetConnections()[0];
+		if (!Mate || Mate->GetConnections().Num() != 1 || Connection->GetFacingSignal() || Connection->GetTrailingSignal() || Mate->GetFacingSignal()
+			|| Mate->GetTrailingSignal())
+		{
+			return nullptr;
+		}
+		const AFGBuildableRailroadTrack* Track = Connection->GetTrack();
+		const AFGBuildableRailroadTrack* Other = Mate->GetTrack();
+		return Track && Other && !Track->GetIsOwnedByPlatform() && !Other->GetIsOwnedByPlatform() ? Mate : nullptr;
+	}
+
+	// Builds a depot signal guarding Guarded (trains leaving its track pass it), as the build gun would.
+	ASTBuildableDepotSignal* SpawnDepotSignal(UWorld* World, UFGRailroadTrackConnectionComponent* Guarded)
+	{
+		AFGBuildableSubsystem* Buildables = AFGBuildableSubsystem::Get(World);
+		if (!Buildables)
+		{
+			return nullptr;
+		}
+		const FTransform Where(Guarded->GetConnectorNormal().Rotation(), Guarded->GetConnectorLocation());
+		ASTBuildableDepotSignal* Signal = Cast<ASTBuildableDepotSignal>(Buildables->BeginSpawnBuildable(ASTBuildableDepotSignal::StaticClass(), Where));
+		if (!Signal)
+		{
+			return nullptr;
+		}
+		Signal->SetBuiltWithRecipe(USTRecipe_DepotSignal::StaticClass());
+		FSTPlatformAccess::GuardConnection(Signal, Guarded);
+		Signal->FinishSpawning(Where);
+		return Signal;
+	}
+
+	// SmartTrains.PlaceDepotSignal X Y Z [radius m]: builds a depot signal on the plain track joint nearest to the point
+	// (world cm, as the log prints locations) that makes a usable parking spot, for test saves on a server without a
+	// player (Docs/Testing.md, "Test saves").
+	void RunPlaceDepotSignalCommand(const TArray<FString>& Args, UWorld* World)
+	{
+		if (!World || World->GetNetMode() == NM_Client || Args.Num() < 3)
+		{
+			UE_LOG(LogSmartTrains, Warning, TEXT("SmartTrains.PlaceDepotSignal: usage X Y Z [radius m] (world cm), on the server"));
+			return;
+		}
+		const FVector Point(FCString::Atod(*Args[0]), FCString::Atod(*Args[1]), FCString::Atod(*Args[2]));
+		const double Radius = (Args.Num() > 3 ? FCString::Atod(*Args[3]) : 50.0) * 100.0;
+		TArray<TPair<double, UFGRailroadTrackConnectionComponent*>> Joints;
+		for (TActorIterator<AFGBuildableRailroadTrack> It(World); It; ++It)
+		{
+			for (int32 End = 0; End < 2; ++End)
+			{
+				UFGRailroadTrackConnectionComponent* Connection = It->GetConnection(End);
+				const double Distance = Connection ? FVector::Dist(Connection->GetConnectorLocation(), Point) : Radius + 1.0;
+				if (Distance <= Radius && PlainMate(Connection))
+				{
+					Joints.Emplace(Distance, Connection);
+				}
+			}
+		}
+		Joints.Sort([](const TPair<double, UFGRailroadTrackConnectionComponent*>& A, const TPair<double, UFGRailroadTrackConnectionComponent*>& B) { return A.Key < B.Key; });
+		TArray<FString> Tried;
+		for (const TPair<double, UFGRailroadTrackConnectionComponent*>& Joint : Joints)
+		{
+			if (!PlainMate(Joint.Value))
+			{
+				continue;
+			}
+			ASTBuildableDepotSignal* Signal = SpawnDepotSignal(World, Joint.Value);
+			if (!Signal)
+			{
+				UE_LOG(LogSmartTrains, Warning, TEXT("SmartTrains.PlaceDepotSignal: the game didn't spawn the signal"));
+				return;
+			}
+			const FSTDepotSiding Siding = STDepots::Check(Signal);
+			if (Siding.Problem.IsEmpty())
+			{
+				UE_LOG(LogSmartTrains, Log, TEXT("SmartTrains.PlaceDepotSignal: built at %s, %.0f m from the point, guarding %d and observing %d connections: %s"),
+					*Signal->GetActorLocation().ToCompactString(), Joint.Key / 100.0, Signal->GetGuardedConnections().Num(), Signal->GetObservedConnections().Num(),
+					*STDepots::Describe(Siding));
+				return;
+			}
+			Tried.Add(FString::Printf(TEXT("%.0f m away: %s"), Joint.Key / 100.0, *Siding.Problem));
+			Signal->Destroy();
+		}
+		UE_LOG(LogSmartTrains, Warning, TEXT("SmartTrains.PlaceDepotSignal: no usable spot within %.0f m of %s (%d joint sides tried): %s"), Radius / 100.0,
+			*Point.ToCompactString(), Tried.Num(), *FString::Join(Tried, TEXT("; ")));
+	}
+
+	FAutoConsoleCommandWithWorldAndArgs GPlaceDepotSignalCommand(TEXT("SmartTrains.PlaceDepotSignal"),
+		TEXT("X Y Z [radius m]: builds a depot signal on the nearest track joint that makes a usable parking spot, for test saves."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&RunPlaceDepotSignalCommand));
 }
 
 #undef LOCTEXT_NAMESPACE

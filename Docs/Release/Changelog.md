@@ -6,6 +6,9 @@
   only reach by backing out counted as reachable, so trains were sent there to park and stood with "Signals are making
   the next Stop unreachable" (IB server: Train Station 108-110). Only trains with a locomotive at each end may plan
   routes that back out of a station now.
+- The `DEPOTS` log line also says when no depot signal is built (it stayed silent then).
+- Server tool for test saves: `SmartTrains.PlaceDepotSignal X Y Z [radius m]` builds a depot signal on the track joint
+  nearest to a point that makes a usable parking spot.
 
 ## 0.34.2 (beta)
 

@@ -26,6 +26,8 @@ public:
 	static bool IsFollowing(const AFGTrain* Train, const class UFGRailroadTrackConnectionComponent* Goal);
 	// Shows Signal at stop (bHold), so trains brake for it, or back at the aspect its block gives.
 	static void HoldSignal(class AFGBuildableRailroadSignal* Signal, bool bHold);
+	// Sets the connection a signal not yet spawned guards, as the build gun's hologram does (SmartTrains.PlaceDepotSignal).
+	static void GuardConnection(class AFGBuildableRailroadSignal* Signal, class UFGRailroadTrackConnectionComponent* Connection);
 	// Keeps held signals at stop when their block changes (server only; not in editor builds).
 	static void InstallSignalHook();
 

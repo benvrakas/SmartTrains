@@ -1011,12 +1011,12 @@ void ASTSubsystem::DispatchRound()
 			}
 			Parts.Add(FString::Printf(TEXT("(%.0f, %.0f, %.0f) %s"), Where.X, Where.Y, Where.Z, *State));
 		}
-		const FString List = FString::Join(Parts, TEXT("; "));
+		const FString List = Parts.Num() > 0 ? FString::Join(Parts, TEXT("; ")) : FString(TEXT("none built"));
 		if (List != mDepotsLogged)
 		{
 			mDepotsLogged = List;
 			UE_LOG(LogSmartTrains, Log, TEXT("DEPOTS: %d depot signals, %d usable; trains need up to %.0f m (longest managed train + %.0f m): %s"), Spots.Num(), Ready,
-				(Longest + STDepots::Margin) / 100.f, STDepots::Margin / 100.f, List.IsEmpty() ? TEXT("none built") : *List);
+				(Longest + STDepots::Margin) / 100.f, STDepots::Margin / 100.f, *List);
 		}
 	}
 	// Jobs with a stop whose station was dismantled are written again without it (or end) before anything plans with them.

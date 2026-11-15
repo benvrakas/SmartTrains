@@ -78,6 +78,14 @@ void FSTPlatformAccess::HoldSignal(AFGBuildableRailroadSignal* Signal, bool bHol
 	Signal->UpdateAspect();
 }
 
+void FSTPlatformAccess::GuardConnection(AFGBuildableRailroadSignal* Signal, UFGRailroadTrackConnectionComponent* Connection)
+{
+	if (IsValid(Signal) && Connection)
+	{
+		Signal->AddGuardedConnection(Connection);
+	}
+}
+
 void FSTPlatformAccess::ShowStop(AFGBuildableRailroadSignal* Signal)
 {
 	const ERailroadSignalAspect Previous = Signal->mAspect;

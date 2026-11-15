@@ -119,6 +119,12 @@ factories backed up, so few trains have work. To make a starting save: load it, 
 trains' cargo) and `SmartTrains.EmptyPlatforms` (every freight and fluid platform) on the server console, then save
 it under a new name and use that as the series' baseline. Its runs don't compare with runs from other saves.
 
+For depot tests on a save without depot signals, `SmartTrains.PlaceDepotSignal X Y Z [radius m]` (server console,
+world cm as the log prints locations, radius 50 m by default) builds one on the nearest plain track joint (two tracks
+end to end, no signal) where `STDepots::Check` finds a usable spot, trying each joint both ways round, and logs the
+spot or why every joint failed. On the VM, `~/make-depot-baseline.sh` puts six where the IB save had them on
+2026-11-11 and keeps the result as `~/baseline-depots.sav`.
+
 ## Automated tests
 
 `D:\SFMod\Tools\BuildScripts\sfmod test SmartTrains` builds the editor (FactoryEditor, Development), runs the
