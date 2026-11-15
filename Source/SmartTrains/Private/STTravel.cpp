@@ -335,7 +335,6 @@ float FSTTravel::GetDistance(const AFGTrainStationIdentifier* From, const AFGTra
 	Consider(Row->Forward, false);
 	if (bPushPull)
 	{
-		Consider(Row->Forward, false);
 		Consider(Row->Reverse, true);
 		Consider(Row->ForwardBack, false);
 		Consider(Row->ReverseBack, true);

@@ -1220,13 +1220,14 @@ float ASTSubsystem::EstimateTravelSeconds(const AFGTrainStationIdentifier* From,
 			const_cast<AFGBuildableRailroadStation*>(To->GetStation()));
 		if (!Cached && AtSeconds >= 0.f && Distance == -2.f)
 		{
-			UE_LOG(LogSmartTrains, Log, TEXT("TRAVEL %s -> %s: SmartTrains' search finds no way, Auto Trains does (%.0f s); using that"), *STLayout::Name(From),
+			UE_LOG(LogSmartTrains, Log, TEXT("TRAVEL %s -> %s: SmartTrains' search finds no way, Auto Trains gives %.0f s; no way stands"), *STLayout::Name(From),
 				*STLayout::Name(To), AtSeconds);
 		}
 		Cached = &mAtTravel.Add(Key, TPair<float, double>(AtSeconds, Now()));
 	}
-	// Auto Trains may leave either way, so a way only it finds is for push-pull trains.
-	if (Cached && Cached->Key >= 0.f && (Distance != -2.f || bPushPull))
+	// Auto Trains' time replaces SmartTrains' estimate, never its "no way": SmartTrains' search already counts both ways
+	// round for push-pull trains, and the game refuses the ways it doesn't find.
+	if (Cached && Cached->Key >= 0.f && Distance != -2.f)
 	{
 		// Plus time to start and stop at the stations.
 		return Cached->Key + 20.f;

@@ -773,7 +773,7 @@ Optional, by reflection (`STAt` in `STBridges.*`, Auto Trains' `Docs/API.md`). T
 | `ExternalTimeTableChanged` | After every real timetable write (`WriteJob`). |
 | `ExternalGetWaitingFor` | `ClearNeededBays`: a parked managed train moves when a train has waited 20 s for it. |
 | `ExternalGetStationQueue` | Each dispatch round, for stations with roles (asked every 15 s per station): a booking from now until the queue's last train should have left. Covers trains SmartTrains doesn't manage. |
-| `ExternalEstimateTravelSeconds` | `EstimateTravelSeconds` when SmartTrains' own search finds no way (cached 10 minutes; logged as `TRAVEL`). |
+| `ExternalEstimateTravelSeconds` | `EstimateTravelSeconds` for a pair no train has driven yet: Auto Trains' time replaces SmartTrains' estimate (cached 10 minutes). Never a "no way" from SmartTrains' search: before 0.34.3 it did for push-pull trains, and a train in one dead-end bay was sent to the bay beside it, which the game can't drive (logged as `TRAVEL`). |
 | `ExternalCheckLeg` | Holding (dispatch step 7): before a trip of a train standing in a station is committed, its first leg is checked. Pending: try again next round. Blocked: hold, with Auto Trains' reason. Clear, or can't be asked: commit. |
 | `ExternalGetTroubledTrains` | The monitor's Trains tab: deadlocked, stuck, lost or stalled trains. |
 

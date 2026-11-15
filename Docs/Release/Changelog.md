@@ -6,6 +6,10 @@
   only reach by backing out counted as reachable, so trains were sent there to park and stood with "Signals are making
   the next Stop unreachable" (IB server: Train Station 108-110). Only trains with a locomotive at each end may plan
   routes that back out of a station now.
+- **Fixed: push-pull trains sent to a station the game can't drive them to.** When SmartTrains' route search found no
+  way, Auto Trains' travel time still counted for push-pull trains, so a train in one dead-end bay was sent to the bay
+  next to it and stood with "station unreachable" before giving up on it (VM: No Man's Land Water In 2 to In 1, every
+  run). SmartTrains' "no way" now holds for every train; its search already counts both ways round for push-pull.
 - The `DEPOTS` log line also says when no depot signal is built (it stayed silent then).
 - Server tool for test saves: `SmartTrains.PlaceDepotSignal X Y Z [radius m]` builds a depot signal on the track joint
   nearest to a point that makes a usable parking spot.
