@@ -319,7 +319,8 @@ float FSTTravel::GetDistance(const AFGTrainStationIdentifier* From, const AFGTra
 	{
 		return -1.f;
 	}
-	// The shortest way the train can drive: forward first, then (push-pull) any way it can leave and arrive.
+	// The shortest way the train can drive: forward; a push-pull train also any way it can leave (backing out) and
+	// arrive (from the far end). A train with a locomotive at one end can't back out of a station.
 	AFGTrainStationIdentifier* Key = const_cast<AFGTrainStationIdentifier*>(To);
 	float Best = TNumericLimits<float>::Max();
 	bool bBestReversing = false;
@@ -332,10 +333,6 @@ float FSTTravel::GetDistance(const AFGTrainStationIdentifier* From, const AFGTra
 		}
 	};
 	Consider(Row->Forward, false);
-	if (Best == TNumericLimits<float>::Max())
-	{
-		Consider(Row->Reverse, true);
-	}
 	if (bPushPull)
 	{
 		Consider(Row->Forward, false);

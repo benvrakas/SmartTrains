@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.34.3 (beta)
+
+- **Fixed: idle trains were sent to park at stations they can't reach.** A station a train with one locomotive can
+  only reach by backing out counted as reachable, so trains were sent there to park and stood with "Signals are making
+  the next Stop unreachable" (IB server: Train Station 108-110). Only trains with a locomotive at each end may plan
+  routes that back out of a station now.
+
 ## 0.34.2 (beta)
 
 - The log lists every depot signal and whether trains can park there (`DEPOTS` line, when anything changes):

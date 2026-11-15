@@ -739,6 +739,10 @@ at the cost of that track's length.
   platform end, which is `GetStationOutputConnection()->GetRailroadConnectionReference()` or the station track's end
   nearest it.
 - A second search starts from the platform end, for push-pull trains that back out. Those routes get 30 s added.
+- Backing out (0.34.3): only push-pull trains may start a route by backing out of a station. `GetDistance` used to fall
+  back to backing-out routes for every train when no forward route existed, so stations a one-locomotive train can't
+  reach got a travel time; on the IB server, 2026-11-15, idle trains were sent to park at Train Station 108-110 (only
+  reachable from their far end) and stood with "Signals are making the next Stop unreachable".
 - One-way signals (0.34.1): a connection with a trailing signal and no facing signal is not driven through (the game's
   one-way rule), so routes, dead ends and through stations hold on signalled networks without Auto Trains. Before,
   the search ignored signals.

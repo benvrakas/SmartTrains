@@ -15,7 +15,7 @@ public:
 	void Step(const TArray<AFGTrainStationIdentifier*>& Stations);
 
 	// Track distance in cm a train drives from From to To; -1 if From hasn't been searched yet, -2 if To is unreachable. bReversing is set
-	// when the route starts by backing out over From's platforms (push-pull trains only). bPushPull also allows
+	// when the route starts by backing out over From's platforms; only push-pull trains (bPushPull) may. bPushPull also allows
 	// arriving at To from its far end, station building first, which only a train with a locomotive at each end can dock.
 	float GetDistance(const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To, bool* bReversing = nullptr, bool bPushPull = false) const;
 
