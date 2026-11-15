@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.34.5 (beta)
+
+- `SmartTrains.PlaceDepotSignal auto` also logs how many branches split, meet again ahead and have a way round of
+  any length, with examples, so a network without passing sidings can be told from a search that misses them.
+
 ## 0.34.4 (beta)
 
 - Server tool for test saves: `SmartTrains.PlaceDepotSignal auto <count> [min length m]` finds passing sidings across

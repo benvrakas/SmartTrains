@@ -749,7 +749,11 @@ namespace
 		int32 Joints = 0;
 		int32 Usable = 0;
 		int32 Long = 0;
+		int32 Splits = 0;
+		int32 Merges = 0;
+		int32 AnyWayRound = 0;
 		int32 Loops = 0;
+		TArray<FString> Examples;
 		for (TActorIterator<AFGBuildableRailroadTrack> It(World); It; ++It)
 		{
 			for (int32 End = 0; End < 2; ++End)
@@ -780,6 +784,10 @@ namespace
 				}
 				TArray<UFGRailroadTrackConnectionComponent*> Others = Incoming->GetConnections();
 				Others.Remove(Siding.Entry);
+				if (Others.Num() > 0)
+				{
+					++Splits;
+				}
 				TSet<const AFGBuildableRailroadTrack*> Branch;
 				for (const AFGBuildableRailroadTrack* Track : Siding.Tracks)
 				{
@@ -791,8 +799,20 @@ namespace
 				{
 					continue;
 				}
+				++Merges;
 				const float Mine = Siding.Length + Ahead;
-				const float Bypass = FindBypass(Others, Merge, Branch, Mine + 100.f);
+				const float Around = FindBypass(Others, Merge, Branch, 1000000.f);
+				if (Around < 0.f)
+				{
+					continue;
+				}
+				++AnyWayRound;
+				if (Examples.Num() < 5)
+				{
+					Examples.Add(FString::Printf(TEXT("%s: branch %.0f m, way round %.0f m"), *(Approach->GetConnectorLocation() / 100.0).ToCompactString(), Mine / 100.f,
+						Around / 100.f));
+				}
+				const float Bypass = Around <= Mine + 100.f ? Around : -1.f;
 				if (Bypass < 0.f)
 				{
 					continue;
@@ -810,8 +830,8 @@ namespace
 		TArray<FCandidate> Sidings;
 		BySwitch.GenerateValueArray(Sidings);
 		Sidings.Sort([](const FCandidate& A, const FCandidate& B) { return A.Length > B.Length; });
-		UE_LOG(LogSmartTrains, Log, TEXT("SmartTrains.PlaceDepotSignal auto: %d plain joint sides, %d make a passing-siding spot, %d at least %.0f m, %d the longer way round a loop, on %d sidings"),
-			Joints, Usable, Long, MinLength / 100.f, Loops, Sidings.Num());
+		UE_LOG(LogSmartTrains, Log, TEXT("SmartTrains.PlaceDepotSignal auto: %d plain joint sides, %d make a passing-siding spot, %d at least %.0f m, %d behind a split, %d with a merge ahead, %d with a way round (any length; e.g. %s), %d the longer way round, on %d sidings"),
+			Joints, Usable, Long, MinLength / 100.f, Splits, Merges, AnyWayRound, Examples.Num() > 0 ? *FString::Join(Examples, TEXT("; ")) : TEXT("none"), Loops, Sidings.Num());
 		int32 Built = 0;
 		for (const FCandidate& Candidate : Sidings)
 		{
