@@ -28,15 +28,15 @@ them (see below).
   the station menu. Each platform's menu has **Autodetect**: it follows the belts and pipes to the machines and sets
   the platform to load or unload. The item is what the platform holds; an empty platform gets the item its machines
   take or make; platforms whose belts go to different inputs of the same machines (a balancer per ingredient) get
-  different items, the most used one where the most belts go. **Autodetect all platforms**, under the station's name, does that for every platform of the station
-  (click twice: it redoes platforms set up already).
+  different items, the most used one where the most belts go. **Autodetect all platforms**, under the station's
+  name, does that for every platform of the station (click twice: it redoes platforms set up already).
   **Rename station from its factory**, under the station's name, names it from what the factory makes, its map area,
   a number and its most per minute, e.g. "Grass Fields Modular Frame Out 1 (288)". Each shows what it would do first;
   click again to do it. The rate is the factory's theoretical most, limited by its
   weakest link apart from the trains: the belts from its unloading platforms to the machines (the narrowest point on
   the way, such as a merge onto fewer belts), or its machines. Large factories: raise **Factory scan depth** in the
-  mod settings if a rate comes out incomplete. A station that
-  unloads one item shows how much of it the factory uses; one that unloads several items shows no rate. `/st setup all`
+  mod settings if a rate comes out incomplete. A station that unloads one item shows how much of it the factory uses;
+  one that unloads several items shows no rate. `/st setup all`
   does every station, and the migration window can rename stations the same way. The name format and words are
   yours to choose (`/st setup format`, `/st setup words`).
 - **Trains:** in the locomotive menu, switch **Managed by SmartTrains** on. SmartTrains writes its timetable; the
@@ -78,8 +78,8 @@ them (see below).
   (measured from the track), and never more than **Most trains waiting before a station** (2), so trains don't queue
   across junctions. Switch **Trains leave stations at once** off for the old behaviour: deliveries and pickups wait
   up to their longest wait, and a train whose next station is busy waits in its station.
-- **Trains with nothing to move park** at the nearest free **Depot Signal** whose siding fits them, else where they
-  stopped, and leave as soon as they get a trip. With Auto Trains (1.4.15 or later), Auto Trains drives them there;
+- **Trains with nothing to move park** at the nearest free **Depot Signal** whose siding fits them, else at a station
+  with no work, never on a through line (a station other trains drive through), and leave as soon as they get a trip. With Auto Trains (1.4.15 or later), Auto Trains drives them there;
   without it they drive along your signals and stop at the depot signal, which shows red while a train parks there.
   - **Depot Signal** (unlocked with the Block Signal, next to it in the build menu): marks a parking spot. Put it at
     the exit of a passing siding; the spot runs back to the siding's switch. Without Auto Trains, also put a signal
@@ -93,8 +93,8 @@ them (see below).
   - **Dead-end sidings (trains back out):** a depot signal at the entrance of a dead-end siding, facing in, makes it a
     depot for trains with a locomotive at each end: they drive in and leave backwards. Without Auto Trains, put a
     signal at the far end, facing in, for trains to stop at. **Dead-end depots** in the Mods menu switches this off.
-  - A train parked in a station that a trip needs moves to a free depot signal, else to the nearest station no trip
-    needs.
+  - A train parked in a station that a trip needs, or on a through line, moves to a free depot signal, else to the
+    nearest station off the through lines that no trip needs.
 - **Dead ends:** a train parked in a dead-end station keeps it until it leaves, so no second train is sent into a
   bay it couldn't enter.
 
