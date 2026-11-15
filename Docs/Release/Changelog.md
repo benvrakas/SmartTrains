@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.34.2 (beta)
+
+- The log lists every depot signal and whether trains can park there (`DEPOTS` line, when anything changes):
+  where it is, "ready" with its length, which train stands there, or why it can't be used. Idle trains hadn't used
+  depot signals since 0.22.0 on the IB save, and the log didn't say why.
+
 ## 0.34.1 (beta)
 
 - **Routes respect one-way signals.** SmartTrains' own route search (travel times, dead ends, through stations)

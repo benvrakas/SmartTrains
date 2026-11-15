@@ -406,6 +406,10 @@ private:
 	// Stations trains have work at: a demand platform, or a supply of an item some platform demands. Idle trains park
 	// at the others first (FindParkingStation). From the last dispatch round's nodes.
 	TSet<TWeakObjectPtr<const AFGTrainStationIdentifier>> mWorkStations;
+	// Every depot signal's state last written to the log (DEPOTS line), and when the depot signals were last surveyed
+	// for it (Now()).
+	FString mDepotsLogged;
+	double mDepotsSurveyedAt = -1.0e9;
 	// The dead-end and through stations last written to the log (DEAD ENDS and THROUGH lines).
 	FString mDeadEndsLogged;
 	bool IsStationBlocked(const AFGTrainStationIdentifier* Station) const;

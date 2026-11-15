@@ -66,6 +66,8 @@ namespace
 
 	// A parked train's booking of its station: about how long moving it out takes. [s]
 	constexpr double ParkedLeaveSeconds = 60.0;
+	// The depot signals are surveyed for the DEPOTS log line at most this often. [s]
+	constexpr double DepotsLogSeconds = 60.0;
 	// Cargo held by a train with no job counts as delivered this long from now when its travel time isn't known. [s]
 	constexpr double HeldCargoArriveSeconds = 600.0;
 	// A station a trip was kept from by a parked train counts as needed this long after the last such try. [s]
@@ -971,6 +973,50 @@ void ASTSubsystem::DispatchRound()
 				DeadEnds.Num() == 0 ? TEXT("none") : *FString::Join(DeadEnds, TEXT(", ")));
 			UE_LOG(LogSmartTrains, Log, TEXT("THROUGH: %d of %d stations lie on other trains' shortest ways (no parking there): %s"), Through.Num(), AllStations.Num(),
 				Through.Num() == 0 ? TEXT("none") : *FString::Join(Through, TEXT(", ")));
+		}
+	}
+	// Every depot signal and why a train can or can't park there, logged when it changes (surveyed once a minute).
+	if (Time - mDepotsSurveyedAt >= DepotsLogSeconds)
+	{
+		mDepotsSurveyedAt = Time;
+		const TArray<FSTDepotSpot> Spots = STDepots::Survey(GetWorld());
+		float Longest = 0.f;
+		for (const FSTTrainState& State : mTrains)
+		{
+			if (State.bManaged && IsValid(State.Train))
+			{
+				Longest = FMath::Max(Longest, STLayout::GetTrainLength(State.Train));
+			}
+		}
+		TArray<FString> Parts;
+		int32 Ready = 0;
+		for (const FSTDepotSpot& Spot : Spots)
+		{
+			const FVector Where = Spot.Signal ? Spot.Signal->GetActorLocation() / 100.0 : FVector::ZeroVector;
+			FString State;
+			if (!Spot.Siding.Problem.IsEmpty())
+			{
+				State = Spot.Siding.Problem;
+			}
+			else
+			{
+				++Ready;
+				TArray<FString> Names;
+				for (const AFGTrain* Each : Spot.Trains)
+				{
+					Names.Add(STLayout::Name(Each));
+				}
+				State = FString::Printf(TEXT("ready, %.0f m%s%s"), Spot.Siding.Length / 100.f, Spot.Siding.bDeadEnd ? TEXT(", dead end") : TEXT(""),
+					Names.Num() > 0 ? *FString::Printf(TEXT(", taken by %s"), *FString::Join(Names, TEXT(" + "))) : TEXT(""));
+			}
+			Parts.Add(FString::Printf(TEXT("(%.0f, %.0f, %.0f) %s"), Where.X, Where.Y, Where.Z, *State));
+		}
+		const FString List = FString::Join(Parts, TEXT("; "));
+		if (List != mDepotsLogged)
+		{
+			mDepotsLogged = List;
+			UE_LOG(LogSmartTrains, Log, TEXT("DEPOTS: %d depot signals, %d usable; trains need up to %.0f m (longest managed train + %.0f m): %s"), Spots.Num(), Ready,
+				(Longest + STDepots::Margin) / 100.f, STDepots::Margin / 100.f, List.IsEmpty() ? TEXT("none built") : *List);
 		}
 	}
 	// Jobs with a stop whose station was dismantled are written again without it (or end) before anything plans with them.
