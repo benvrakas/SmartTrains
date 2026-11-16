@@ -417,9 +417,9 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 							Loaded.FindOrAdd(Load.Key) += Load.Value;
 						}
 					}
-					for (const TPair<UClass*, double>& Each : Loaded)
+					for (const TPair<UClass*, double>& Car : Loaded)
 					{
-						bFull &= Each.Value >= BackhaulFullShare * Planner.GetCarCapacity(CarIndex, Each.Key);
+						bFull &= Car.Value >= BackhaulFullShare * Planner.GetCarCapacity(CarIndex, Car.Key);
 					}
 				}
 				if (Result.bValid && bFull && Stops.Num() > First && Result.Score > BestResult.Score * 1.0001 + 1e-6)
