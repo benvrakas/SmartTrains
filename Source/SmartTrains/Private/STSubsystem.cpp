@@ -17,6 +17,8 @@
 #include "STThroughput.h"
 #include "STTrace.h"
 #include "STTravel.h"
+#include "HAL/IConsoleManager.h"
+#include "RailroadNavigation.h"
 #include "Subsystem/SubsystemActorManager.h"
 #include "TimerManager.h"
 
@@ -1184,6 +1186,87 @@ void ASTSubsystem::AddHistory(const AFGTrainStationIdentifier* Station, const FS
 	{
 		Lines.RemoveAt(0);
 	}
+}
+
+void ASTSubsystem::CheckTravelAgainstGame() const
+{
+	AFGRailroadSubsystem* Railroad = AFGRailroadSubsystem::Get(GetWorld());
+	if (!Railroad || !mTravel)
+	{
+		UE_LOG(LogSmartTrains, Warning, TEXT("TRAVELCHECK: no railroad subsystem or route search yet"));
+		return;
+	}
+	TArray<AFGTrainStationIdentifier*> Stations;
+	Railroad->GetAllTrainStations(Stations);
+	const double Started = FPlatformTime::Seconds();
+	int32 Trains = 0;
+	int32 Pairs = 0;
+	int32 OursOnly = 0;
+	int32 GameOnly = 0;
+	int32 SignalsOnly = 0;
+	for (const FSTTrainState& State : mTrains)
+	{
+		AFGTrain* Train = State.Train.Get();
+		const AFGTrainStationIdentifier* From = State.LastStation.Get();
+		if (!State.bManaged || !IsValid(Train) || !From || !Train->IsDocked())
+		{
+			continue;
+		}
+		++Trains;
+		const bool bPushPull = IsPushPull(Train);
+		const TArray<AFGLocomotive*> Locomotives = STLayout::GetPossibleDockingLocomotives(Train);
+		for (AFGTrainStationIdentifier* To : Stations)
+		{
+			AFGBuildableRailroadStation* Building = To ? To->GetStation() : nullptr;
+			if (!Building || To == From || Building->GetTrackGraphID() != Train->GetTrackGraphID())
+			{
+				continue;
+			}
+			++Pairs;
+			bool bReversing = false;
+			const float Ours = mTravel->GetDistance(From, To, &bReversing, bPushPull);
+			bool bGame = false;
+			bool bGameNoSignals = false;
+			for (AFGLocomotive* Locomotive : Locomotives)
+			{
+				FRailroadGraphAStarFilter Filter;
+				Filter.AcceptsPartialSolution = false;
+				Filter.IgnoreSignals = false;
+				bGame |= FRailroadNavigation::FindPathSync(Locomotive, Building, Filter).Result == ERailroadPathFindingResult::RPFR_Success;
+				if (!bGame)
+				{
+					Filter.IgnoreSignals = true;
+					bGameNoSignals |= FRailroadNavigation::FindPathSync(Locomotive, Building, Filter).Result == ERailroadPathFindingResult::RPFR_Success;
+				}
+			}
+			const bool bOurs = Ours >= 0.f;
+			if (bOurs == bGame)
+			{
+				continue;
+			}
+			(bOurs ? OursOnly : GameOnly) += 1;
+			SignalsOnly += bOurs && bGameNoSignals ? 1 : 0;
+			UE_LOG(LogSmartTrains, Log, TEXT("TRAVELCHECK %s (%s, %d docking locomotives) from %s to %s: SmartTrains %s, the game %s"), *STLayout::Name(Train),
+				bPushPull ? TEXT("push-pull") : TEXT("one way"), Locomotives.Num(), *STLayout::Name(From), *STLayout::Name(To),
+				bOurs ? *FString::Printf(TEXT("finds %.0f m%s"), Ours / 100.f, bReversing ? TEXT(" backing out") : TEXT("")) : TEXT("finds no way"),
+				bGame ? TEXT("finds a way") : (bGameNoSignals ? TEXT("finds a way only ignoring signals") : TEXT("finds no way even ignoring signals")));
+		}
+	}
+	UE_LOG(LogSmartTrains, Log, TEXT("TRAVELCHECK: %d docked trains, %d station pairs; SmartTrains alone finds %d (%d of them the game finds only ignoring signals), the game alone %d (%.0f ms)"),
+		Trains, Pairs, OursOnly, SignalsOnly, GameOnly, 1000.0 * (FPlatformTime::Seconds() - Started));
+}
+
+namespace
+{
+	FAutoConsoleCommandWithWorldAndArgs GCheckTravelCommand(TEXT("SmartTrains.CheckTravel"),
+		TEXT("Compares SmartTrains' route search with the game's pathfinder for every docked managed train (TRAVELCHECK lines)."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			if (const ASTSubsystem* Subsystem = ASTSubsystem::Get(World))
+			{
+				Subsystem->CheckTravelAgainstGame();
+			}
+		}));
 }
 
 bool ASTSubsystem::IsPushPull(const AFGTrain* Train)

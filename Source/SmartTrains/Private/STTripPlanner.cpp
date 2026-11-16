@@ -980,6 +980,11 @@ bool FSTTripPlanner::MakeCarItems(const AFGTrainStationIdentifier* Consumer, con
 	return true;
 }
 
+double FSTTripPlanner::GetCarCapacity(int32 Index, UClass* Item) const
+{
+	return mCars.IsValidIndex(Index) ? STLayout::GetCarCapacity(mCars[Index].Car, Item) : 0.0;
+}
+
 TArray<const AFGTrainStationIdentifier*> FSTTripPlanner::GetSupplierStations() const
 {
 	TArray<const AFGTrainStationIdentifier*> Stations;

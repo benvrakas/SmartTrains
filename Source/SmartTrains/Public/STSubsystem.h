@@ -558,6 +558,14 @@ private:
 	// Scans the factory of the demand station in Nodes scanned longest ago (mFactoryUse).
 	void StepFactoryScan(const TArray<FSTNode>& Nodes);
 
+public:
+	// SmartTrains.CheckTravel: for every managed train docked at a station, compares SmartTrains' route search with the
+	// game's pathfinder (FRailroadNavigation::FindPathSync, from each locomotive that can dock) for every station, and
+	// logs each pair they disagree on (TRAVELCHECK lines) and a summary.
+	void CheckTravelAgainstGame() const;
+
+private:
+
 	// Fleet advice per item from the last flow plan.
 	struct FAdvice
 	{

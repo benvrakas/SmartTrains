@@ -129,6 +129,8 @@ public:
 	int32 GetCarCount() const { return mCars.Num(); }
 	// The items car Index holds (at least one of each).
 	TArray<UClass*> GetCarCargo(int32 Index) const;
+	// How much of Item the current train's car Index holds when full.
+	double GetCarCapacity(int32 Index, UClass* Item) const;
 	// The current train's cars and start only (no moves): enough to simulate given stops.
 	bool PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifier* Anchor, double FreeAt, bool bInAnchorDocked);
 	// The current train's planning inputs (cars, platforms, dock maps, start), for /st snapshot.

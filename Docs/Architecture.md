@@ -570,7 +570,9 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   `MakeSupplyCarItems`); the trip is improved with moves to (from) both stations and kept if it scores higher. Cars skip
   the stops that aren't theirs (Freight Car Control).
 - **Backhaul (0.35.0)**: after the best trip, `Improve` from its last stop on (`FirstMovable`) with moves from
-  suppliers within `BackhaulSeconds` (2 minutes) of that stop; kept if the trip scores higher.
+  suppliers within `BackhaulSeconds` (2 minutes) of that stop; kept if the trip scores higher and every car it loads
+  leaves at least `BackhaulFullShare` (90 %) full. VM run 24: without that, backhauls were mostly one-car top-ups and
+  deliveries with all four cars fell from 40 to 28.
 - **The job remembers the trip's shape**: `FSTJob::OtherStations` (second station, backhaul stops), `bPushTrip` and
   `CarItems` (each car's planned items plus what it loads), so re-plans restrict moves to (pull) or from (push) the same
   stations with the same car items.

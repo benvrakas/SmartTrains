@@ -16,8 +16,10 @@
 
 namespace
 {
-	// Backhaul: a pickup this close to a trip's last stop may be added after it. [s]
+	// Backhaul: a pickup this close to a trip's last stop may be added after it, if every car it loads leaves at least
+	// this full (a return load fills cars; a dribble only adds a docking). [s, share of a car]
 	constexpr float BackhaulSeconds = 120.f;
+	constexpr double BackhaulFullShare = 0.9;
 	// A train that left a station this recently doesn't start a trip with that station. [s]
 	constexpr double GatherJustLeftSeconds = 60.0;
 	// The first train of every dispatch round gets at least this much planning time. [ms]
@@ -404,7 +406,23 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				Planner.SetOnlyFrom({});
 				FSTTripPlanner::Trim(Stops, Result, First);
 				Result = Planner.Simulate(Stops);
-				if (Result.bValid && Stops.Num() > First && Result.Score > BestResult.Score * 1.0001 + 1e-6)
+				bool bFull = true;
+				for (int32 CarIndex = 0; Result.bValid && CarIndex < Planner.GetCarCount(); ++CarIndex)
+				{
+					TMap<UClass*, double> Loaded;
+					for (int32 Index = First; Index < Result.Steps.Num(); ++Index)
+					{
+						for (const TPair<UClass*, int32>& Load : Result.Steps[Index].IsValidIndex(CarIndex) ? Result.Steps[Index][CarIndex].Loaded : TArray<TPair<UClass*, int32>>())
+						{
+							Loaded.FindOrAdd(Load.Key) += Load.Value;
+						}
+					}
+					for (const TPair<UClass*, double>& Each : Loaded)
+					{
+						bFull &= Each.Value >= BackhaulFullShare * Planner.GetCarCapacity(CarIndex, Each.Key);
+					}
+				}
+				if (Result.bValid && bFull && Stops.Num() > First && Result.Score > BestResult.Score * 1.0001 + 1e-6)
 				{
 					UE_LOG(LogSmartTrains, Log, TEXT("GATHER %s: backhaul from %s after %s (score %.4f -> %.4f)"), *STLayout::Name(State.Train),
 						*STLayout::Name(Stops[First].Station), *STLayout::Name(Last), BestResult.Score, Result.Score);
