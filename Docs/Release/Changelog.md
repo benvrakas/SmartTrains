@@ -2,6 +2,10 @@
 
 ## 0.35.3 (beta)
 
+- **Cargo ties a car, not the whole train.** A train holding leftovers in some cars used to take only trips for that
+  cargo, even with its other cars empty; trains holding a little coal nobody could take stood idle for hours. Now only
+  the cars holding cargo keep it (and skip the stops that aren't theirs, with Freight Car Control); empty cars take any
+  trip.
 - **Fixed: trains parked at stations shorter than themselves.** An idle train was parked at a station whose platforms
   and way in were shorter than the train, so its end stood on the next switch (IB: a one-platform station). It now
   only parks where the whole train stands before the first switch, and a train already standing somewhere too short

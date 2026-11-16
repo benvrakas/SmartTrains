@@ -194,6 +194,11 @@ window's Rename stations); never automatic.
 
 ## Car patterns (0.18.0; item sets since 0.20.0)
 
+**Per car (0.35.3):** only cars holding cargo keep their pattern items; an empty car's are cleared each turn, and with
+Freight Car Control a cargo car beside a different demand platform skips that stop instead of ruling the consumer out
+(`MakeCarItems`; a consumer is still out when every car holds cargo and none lines up). IB 2026-11-16: trains holding
+a few hundred coal in two cars stood idle for hours with two empty cars, tied to the coal pattern.
+
 - **Pattern** (`FSTTrainState::CarSets`, saved, one `FSTCarItems` per freight car front to back): the items each car
   carries in its group; empty where none are given yet. Usually one item; a sushi platform makes it several. Reset when
   the number of cars changes. `DescribePattern`: "Iron | Wire + Cable | - | Wire". (0.18.0's one-item `CarPattern` is

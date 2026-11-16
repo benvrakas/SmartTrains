@@ -931,6 +931,8 @@ bool FSTTripPlanner::MakeCarItems(const AFGTrainStationIdentifier* Consumer, con
 	};
 	OutAllowed.Reset();
 	OutMismatched = 0;
+	int32 FixedCars = 0;
+	int32 Matched = 0;
 	const TArray<TArray<int32>>& Maps = GetCarPlatforms(Consumer);
 	for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
 	{
@@ -960,12 +962,16 @@ bool FSTTripPlanner::MakeCarItems(const AFGTrainStationIdentifier* Consumer, con
 		}
 		const TArray<UClass*> Cargo = GetCarCargo(CarIndex);
 		const TArray<UClass*> Fixed = bIgnorePattern || !Pattern.IsValidIndex(CarIndex) ? TArray<UClass*>() : Pattern[CarIndex];
-		// A demand platform beside a car with pattern items must take exactly those: else it's another group.
-		if (Fixed.Num() > 0 && Demand.Num() > 0 && !SameItems(Fixed, Demand))
+		// A demand platform beside a car with pattern items must take exactly those, else the car skips the stop (Freight
+		// Car Control) or, without it, the consumer is another group.
+		if (Fixed.Num() > 0 && Demand.Num() > 0 && !SameItems(Fixed, Demand) && !bFcc)
 		{
 			return false;
 		}
-		if (OutMatched && Fixed.Num() > 0 && Demand.Num() > 0)
+		FixedCars += Fixed.Num() > 0 ? 1 : 0;
+		const bool bMatches = Fixed.Num() > 0 && Demand.Num() > 0 && SameItems(Fixed, Demand);
+		Matched += bMatches ? 1 : 0;
+		if (OutMatched && bMatches)
 		{
 			++*OutMatched;
 		}
@@ -977,7 +983,8 @@ bool FSTTripPlanner::MakeCarItems(const AFGTrainStationIdentifier* Consumer, con
 			++OutMismatched;
 		}
 	}
-	return true;
+	// Every car tied to cargo and none lines up here: nothing for this train at Consumer.
+	return FixedCars < mCars.Num() || Matched > 0;
 }
 
 double FSTTripPlanner::GetCarCapacity(int32 Index, UClass* Item) const

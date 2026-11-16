@@ -49,8 +49,9 @@ them (see below).
   - Cargo that lines up stays on board: a car the platform couldn't empty just takes less next time.
   - **Sushi platforms** work too: a platform taking iron and coal makes that car's part of the pattern "iron + coal",
     and the car carries both. Only platforms taking exactly the same items line up with it.
-  - Cargo is what ties a train to its pattern. A train holding cargo only takes trips its cars line up with; if there
-    is none, it delivers what it holds and loads nothing until it is empty.
+  - Cargo is what ties a car to its item. A car holding cargo only takes trips that deliver it or let it skip the stop
+    (Freight Car Control); its empty cars take any trip. With nothing for its cargo, a train delivers what it holds and
+    loads nothing until it is empty.
   - An empty train has no pattern and takes the best trip anywhere, going first to stations no train serves (no
     train on a trip for them and none in the last 10 minutes), so a starved station gets a train before a busy one
     gets a second.

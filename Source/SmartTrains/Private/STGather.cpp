@@ -175,6 +175,14 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			}
 			State.CarSets.Init(FSTCarItems(), Planner.GetCarCount());
 		}
+		// Cargo ties each car, not the train: a car holding none takes any item (Docs/Architecture.md, "Car patterns").
+		for (int32 CarIndex = 0; CarIndex < State.CarSets.Num() && CarIndex < Planner.GetCarCount(); ++CarIndex)
+		{
+			if (Planner.GetCarCargo(CarIndex).Num() == 0)
+			{
+				State.CarSets[CarIndex].Items.Reset();
+			}
+		}
 		const TArray<TArray<UClass*>> Pattern = State.GetPattern();
 		// One trip per consumer station whose platforms line up with the cars: pickups for the cars that line up there,
 		// added while the trip's value per second rises. The best one is run.
