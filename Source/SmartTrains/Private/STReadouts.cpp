@@ -50,6 +50,17 @@ FString ASTSubsystem::DescribeItemRule(const AFGBuildableTrainPlatformCargo* Pla
 		: (Rule.TargetPercent > 0.f ? FString::Printf(TEXT("target %.0f%%"), Rule.TargetPercent) : FString(TEXT("target automatic")));
 	// Priority counts only where cargo is delivered.
 	const FString Priority = Config.Role == ESTRole::Supply ? FString() : FString::Printf(TEXT(", %s priority"), STNames::Priority(Rule.Priority));
+	// An automatic target comes from what the factory can use at its most (the belt scan), shown first; measured use after.
+	const AFGTrainStationIdentifier* Identifier = STLayout::GetIdentifier(STLayout::FindStation(Platform));
+	const double* Theory = Config.Role == ESTRole::Demand && Rule.TargetPercent <= 0.f && !bManual
+		? mFactoryUse.Find(TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, TWeakObjectPtr<UClass>>(const_cast<AFGTrainStationIdentifier*>(Identifier), Rule.Item.Get()))
+		: nullptr;
+	if (Theory && *Theory > 0.0)
+	{
+		return FString::Printf(TEXT("%s / %s, uses at most %s/min at this station (now %s/min%s), %s%s"), *STNames::Amount(Rule.Item, Stock),
+			*STNames::Amount(Rule.Item, Capacity), *STNames::Amount(Rule.Item, *Theory * 60.0), *STNames::Amount(Rule.Item, Rate * 60.0),
+			bKnown ? TEXT("") : TEXT(", still measuring"), *Goal, *Priority);
+	}
 	return FString::Printf(TEXT("%s / %s, %s%s/min%s, %s%s"), *STNames::Amount(Rule.Item, Stock), *STNames::Amount(Rule.Item, Capacity),
 		bManual ? TEXT("manual ") : TEXT(""), *STNames::Amount(Rule.Item, Rate * 60.0), bKnown || bManual ? TEXT("") : TEXT(" (still measuring)"), *Goal, *Priority);
 }

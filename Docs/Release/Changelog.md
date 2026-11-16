@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.35.2 (beta)
+
+- **Fixed: trains loaded for a factory whose product had nowhere to go.** When every train platform a factory's machines
+  fill is full, the machines stop and use none of their inputs; SmartTrains still forecast room for them and loaded
+  trains that couldn't unload. On the IB server a Compacted Coal factory nobody took the product of kept getting Coal,
+  and about 20 of 38 trains ended up holding coal they couldn't deliver, parked in other stations' way (Dune Desert's
+  factories got few trains). Such a factory's inputs now count for a quarter and are forecast to drain nothing until
+  its product moves again. The monitor says which ones under Supply chain.
+- **Automatic targets only from theoretical rates**: what the factory uses at its most from the belt scan, else its
+  machines' recipes; never the measured use, which an empty platform or a factory waiting on another input skews. A
+  demand platform's readout shows that rate first ("uses at most ... /min at this station"), the measured one after.
+
 ## 0.35.1 (beta)
 
 - **Backhaul only with full cars.** A return load is kept only if every car it loads leaves at least 90 % full. In a

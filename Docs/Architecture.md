@@ -579,6 +579,13 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
 - **Top off (0.35.0)**: `MakeLegs` sets `FSTJobLeg::TopOffSeconds` for a pickup (not partial) when its supplier fills
   more than `TrainSecondCost / LoadValue` car loads a second: the time to fill the cars' rest, at most
   `LoadWaitSeconds`. `MakeRules` writes it as "fully load" for that long.
+- **Backed-up factories (0.35.2)**: `LinkSupplyChain` marks a demand node whose machines' supply nodes are all at least
+  `BackedUpShare` (90 %) full (`FSTNode::BackedUp`): its `CostScale` drops to `WaitingCostScale` and its `Rate` to 0, so
+  room forecasts (`GetPlatformRoom`) count no drain. IB 2026-11-16: Coal for a Compacted Coal factory with no demand for
+  its product was planned at about twice what it took; leftovers tie trains to their cargo, and ~20 trains stood
+  holding coal.
+- **Automatic targets from theory only (0.35.2)**: `ApplyAutoTargets` uses `mFactoryUse`, else `RecipeRate`, never
+  measured use (user's rule); with neither, the 50 % fallback.
 - **Gating inputs (0.35.0)**: `LinkSupplyChain` multiplies a demand node's `CostScale` by 1 + the number of starved
   consumers of what its machines make (`Gates`, at most `GatingCostScaleMax` 4).
 - **Staging (0.35.0)**: each round `mStagingStations` lists suppliers whose stock reaches a send-at batch within

@@ -84,6 +84,8 @@ namespace
 	// A consumer whose machines make what starved consumers elsewhere wait for counts once more per such consumer, up to
 	// this many times.
 	constexpr double GatingCostScaleMax = 4.0;
+	// A supply platform this full counts as backed up.
+	constexpr double BackedUpShare = 0.9;
 
 	// What Machines' recipes make (bProducts) or use of Item per second at their clock speed. [/s]
 	double GetRecipeRate(const TArray<TWeakObjectPtr<const AActor>>& Machines, UClass* Item, bool bProducts)
@@ -407,6 +409,36 @@ void ASTSubsystem::LinkSupplyChain(TArray<FSTNode>& Nodes)
 			}
 		}
 	}
+	// A consumer whose machines' products all back up (every supply platform they fill is full) uses nothing until one
+	// drains: its shortfall counts like one waiting on another input, and no use empties its platforms (IB 2026-11-16:
+	// Coal kept going to a Compacted Coal factory nobody took the product of, and 20 trains stood holding it).
+	for (FSTNode& Node : Nodes)
+	{
+		if (Node.Role != ESTRole::Demand || Node.bAnyItem || !Node.Item || Node.Machines.Num() == 0)
+		{
+			continue;
+		}
+		bool bAnyProduct = false;
+		bool bAllFull = true;
+		TSubclassOf<UFGItemDescriptor> Product;
+		for (const FSTNode& Supplier : Nodes)
+		{
+			if (Supplier.Role != ESTRole::Supply || !Supplier.Item || Supplier.Item == Node.Item || Supplier.Capacity <= 0
+				|| !Supplier.Machines.ContainsByPredicate([&](const TWeakObjectPtr<const AActor>& Machine) { return Node.Machines.Contains(Machine); }))
+			{
+				continue;
+			}
+			bAnyProduct = true;
+			bAllFull &= Supplier.Stock >= BackedUpShare * Supplier.Capacity;
+			Product = Supplier.Item;
+		}
+		if (bAnyProduct && bAllFull)
+		{
+			Node.BackedUp = Product;
+			Node.CostScale = FMath::Min(Node.CostScale, WaitingCostScale);
+			Node.Rate = 0.0;
+		}
+	}
 	// A consumer whose machines make what starved consumers elsewhere wait for gates them: its shortfall counts once more
 	// for each (IB 2026-11-15: Iron Plate for Nitric Acid sat empty while Nitric Acid's consumers starved).
 	for (FSTNode& Node : Nodes)
@@ -495,11 +527,15 @@ void ASTSubsystem::ApplyAutoTargets(TArray<FSTNode>& Nodes) const
 		{
 			continue;
 		}
-		// What the factory uses at its most from the belt scan (its weakest belt or its machines); else its machines'
-		// recipes; else what it measured. Never the measured use alone while more is known: a factory held up by another
-		// input uses none of this one, which would leave it at the minimum target just before the factory starts again.
+		// Only theoretical rates (the user's rule, 2026-11-16): what the factory uses at its most from the belt scan (its
+		// weakest belt or its machines), else its machines' recipes. Measured use is skewed by an empty platform or a
+		// factory waiting on another input; with neither known the target stays at the fallback.
 		const double* Theory = mFactoryUse.Find(Key);
-		const double Use = Theory && *Theory > 0.0 ? *Theory : (Node.RecipeRate > 0.0 ? FMath::Max(Node.Rate, Node.RecipeRate) : GetDemandRate(Node));
+		const double Use = Theory && *Theory > 0.0 ? *Theory : Node.RecipeRate;
+		if (Use <= 0.0)
+		{
+			continue;
+		}
 		const double Percent = 100.0 * Use * Lead->Key * AutoTargetMargin / Node.Capacity;
 		Node.TargetPercent = FMath::Clamp(static_cast<float>(Percent), AutoTargetMinPercent, AutoTargetMaxPercent);
 	}

@@ -78,6 +78,9 @@ struct FSTNode
 	TSubclassOf<UFGItemDescriptor> WaitsOn;
 	int32 Gates = 0;
 	TSubclassOf<UFGItemDescriptor> GatesItem;
+	// Demand: every train platform its machines fill is full of this product, so they make nothing and use none of this
+	// item until one drains.
+	TSubclassOf<UFGItemDescriptor> BackedUp;
 };
 
 // A route of the flow plan: Item from From to To, with the trains it needs and the managed trains that fit it.
