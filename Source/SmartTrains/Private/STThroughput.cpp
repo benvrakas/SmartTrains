@@ -367,7 +367,7 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 			}
 			if (Node.Gates > 0 && Shown++ < 6)
 			{
-				View.Summary.Add(FString::Printf(TEXT("Supply chain: %s at %s makes %s there, which %d starved consumer%s wait for, so deliveries of it count %.0f times as much."),
+				View.Summary.Add(FString::Printf(TEXT("Supply chain: %s at %s makes %s there, which %d starved consumer%s wait for, so deliveries of it count %.2g times as much."),
 					*STNames::Item(Node.Item), *STLayout::Name(Node.Station.Get()), *STNames::Item(Node.GatesItem), Node.Gates, Node.Gates == 1 ? TEXT("") : TEXT("s"),
 					Node.CostScale));
 			}
