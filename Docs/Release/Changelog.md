@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.35.1 (beta)
+
+- **Backhaul only with full cars.** A return load is kept only if every car it loads leaves at least 90 % full. In a
+  test run, backhauls were mostly small top-ups that added a docking each, and fewer deliveries arrived with every car
+  full.
+- Server tool `SmartTrains.CheckTravel`: compares SmartTrains' route search with the game's pathfinder for every docked
+  managed train and logs where they disagree.
+- The monitor shows a supply-chain weight like 0.5 as "0.5 times", not "0 times".
+
 ## 0.35.0 (beta)
 
 - **Platform targets from the factory's own rate.** How much a demand platform keeps in stock now comes from what its
@@ -17,10 +26,7 @@
   and two consumers each unload theirs. In push mode, a second supplier fills the cars the first one leaves empty.
   Needs Freight Car Control.
 - **Backhaul.** After a trip's last stop, a train may pick up within two minutes of it and deliver that too, so the run
-  back carries cargo (often the factory's own output) instead of empty cars, when it pays and every car it loads leaves
-  at least 90 % full.
-- Server tool `SmartTrains.CheckTravel`: compares SmartTrains' route search with the game's pathfinder for every docked
-  managed train and logs where they disagree.
+  back carries cargo (often the factory's own output) instead of empty cars, when it pays.
 - **Top off at the supplier.** A pickup whose supplier makes enough to fill the rest of the cars quickly waits for them
   to fill (up to **Pickup: longest wait**), when the extra cargo is worth the wait. Slow suppliers are left at once.
 - **Bottleneck inputs count more.** An input for a factory whose product starved consumers elsewhere wait for counts
