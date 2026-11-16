@@ -297,7 +297,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		// (push), with stops of their own (Docs/Architecture.md, "Several consumers per trip").
 		if (BestConsumer && mSettings.bSeveralPerTrip && !Planner.IsOverBudget())
 		{
-			TArray<bool> Free;
+			TArray<bool> FreeCar;
 			int32 FreeCars = 0;
 			for (int32 CarIndex = 0; CarIndex < Planner.GetCarCount(); ++CarIndex)
 			{
@@ -306,7 +306,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				{
 					bUsed |= Step.IsValidIndex(CarIndex) && (Step[CarIndex].Loaded.Num() > 0 || Step[CarIndex].Unloaded.Num() > 0);
 				}
-				Free.Add(!bUsed);
+				FreeCar.Add(!bUsed);
 				FreeCars += bUsed ? 0 : 1;
 			}
 			TArray<FSTPlanStop> PairStops;
@@ -331,7 +331,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				bool bAny = false;
 				for (int32 CarIndex = 0; CarIndex < Merged.Num() && CarIndex < Theirs.Num(); ++CarIndex)
 				{
-					if (Free[CarIndex] && Theirs[CarIndex].Num() > 0)
+					if (FreeCar[CarIndex] && Theirs[CarIndex].Num() > 0)
 					{
 						Merged[CarIndex] = Theirs[CarIndex];
 						bAny = true;
@@ -433,9 +433,9 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			{
 				for (int32 CarIndex = 0; CarIndex < Step.Num() && CarIndex < CarItems.Num(); ++CarIndex)
 				{
-					for (const TPair<UClass*, int32>& Each : Step[CarIndex].Loaded)
+					for (const TPair<UClass*, int32>& Load : Step[CarIndex].Loaded)
 					{
-						CarItems[CarIndex].AddUnique(Each.Key);
+						CarItems[CarIndex].AddUnique(Load.Key);
 					}
 				}
 			}
