@@ -538,8 +538,13 @@ it (`FSTNode::Planned`: each job leg's arrival and planned amount; `Reserve` /
 `Release` keep it in step with the reservations), at its use or production rate (`GetRate`; a nearly full supplier
 can't measure production, so at least a car load per half hour), clamped to 0..capacity.
 
-- **Demand cost**: priority weight x the integral of max(0, target - stock) over the hour, in car-load minutes
-  (amount / car capacity for the item, so a car of sulfur counts like a car of concrete).
+- **Demand cost**: priority weight x the integral of max(0, target - stock) over the hour, in minutes short of a car
+  load (amount / car capacity for the item, so a car of sulfur counts like a car of concrete), or of the whole target
+  when the target is less than a car load (0.34.6): an empty platform costs at least one per minute. Before, a slow
+  consumer's automatic target was a fraction of a car, so even empty it cost less per minute than a train's time
+  (`TrainSecondCost`, 0.6 per minute) and no trip to it ever scored: on the IB server (2026-11-15) Iron Plate for
+  Nitric Acid (150/min, about 15 % of a car) sat empty all day beside a full supplier, and the chains behind it
+  (Silica, Aluminum Ingot, Aluminum Casing, Heat Sinks) starved with 33 of 35 trains idle.
 - **Supply cost**: production lost while full, x `LostLoadMinutes` (0.25 per car load): a tie-breaker only. The server
   log of 2026-11-07 had most suppliers full with nobody needing their goods; weighting that like demand would send
   trains to haul production to sinks instead of serving short platforms.
@@ -748,7 +753,10 @@ at the cost of that track's length.
   the search ignored signals.
 
 Time = distance ÷ **Speed estimate** + 20 s. It is replaced by the learned trip time once a train has driven that
-pair: the first sample, then a 0.3-weight moving average. Stays per station are learned the same way.
+pair: the first sample, then a 0.3-weight moving average. Stays per station are learned the same way. A pair the search
+finds no way between for that kind of train (`GetDistance` -2) is unreachable before any learned time is looked at
+(0.34.6): learned times are shared by all trains and once kept a push-pull Water train trying for the bay beside its own
+on the IB server, 40 refusals a day.
 
 **Push-pull arrivals.** A train with a locomotive at each end can also enter a station from its far end, station
 building first, and dock with its rear locomotive. Each search therefore records arrivals through both ends
@@ -773,7 +781,7 @@ Optional, by reflection (`STAt` in `STBridges.*`, Auto Trains' `Docs/API.md`). T
 | `ExternalTimeTableChanged` | After every real timetable write (`WriteJob`). |
 | `ExternalGetWaitingFor` | `ClearNeededBays`: a parked managed train moves when a train has waited 20 s for it. |
 | `ExternalGetStationQueue` | Each dispatch round, for stations with roles (asked every 15 s per station): a booking from now until the queue's last train should have left. Covers trains SmartTrains doesn't manage. |
-| `ExternalEstimateTravelSeconds` | `EstimateTravelSeconds` for a pair no train has driven yet: Auto Trains' time replaces SmartTrains' estimate (cached 10 minutes). Never a "no way" from SmartTrains' search: before 0.34.3 it did for push-pull trains, and a train in one dead-end bay was sent to the bay beside it, which the game can't drive (logged as `TRAVEL`). |
+| `ExternalEstimateTravelSeconds` | `EstimateTravelSeconds` for a pair no train has driven yet: Auto Trains' time replaces SmartTrains' estimate (cached 10 minutes). Never a "no way" from SmartTrains' search (checked first since 0.34.6): before 0.34.3 it did for push-pull trains, and a train in one dead-end bay was sent to the bay beside it, which the game can't drive. |
 | `ExternalCheckLeg` | Holding (dispatch step 7): before a trip of a train standing in a station is committed, its first leg is checked. Pending: try again next round. Blocked: hold, with Auto Trains' reason. Clear, or can't be asked: commit. |
 | `ExternalGetTroubledTrains` | The monitor's Trains tab: deadlocked, stuck, lost or stalled trains. |
 

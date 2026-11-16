@@ -98,9 +98,11 @@ namespace
 			Stock = bDemand ? FMath::Min(Capacity, Stock + Event.Amount) : FMath::Max(0.0, Stock - Event.Amount);
 		}
 		Advance(End);
-		// Car-load minutes; demand weighted by priority.
+		// Minutes short of a car load, or of the whole target when it is less than a car load (an empty platform costs at
+		// least one per minute); demand weighted by priority. Supply: car loads lost.
+		const double Unit = bDemand ? FMath::Min(Target, CarCapacity) : CarCapacity;
 		const double Weight = bDemand ? STNames::PriorityWeight(Node.Priority) * Node.CostScale / 60.0 : STForecast::LostLoadMinutes;
-		Out.Cost = Weight * Out.Cost / FMath::Max(1.0, CarCapacity);
+		Out.Cost = Weight * Out.Cost / FMath::Max(1.0, Unit);
 		return Out;
 	}
 }

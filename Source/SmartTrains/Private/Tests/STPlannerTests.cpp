@@ -660,7 +660,9 @@ bool FSTForecastTest::RunTest(const FString& Parameters)
 	const double Late = STForecast::Gain(Short, {}, {Now + 1800.0, 500.0}, Now, Car);
 	TestTrue(TEXT("a delivery that ends a shortfall is worth something"), Late > 0.0);
 	TestTrue(TEXT("sooner is worth more"), Soon > Late * 1.5);
-	TestEqual(TEXT("an hour short of half a car load is 30 car-load minutes"), STForecast::Cost(Short, {}, Now, Car), 30.0, 0.01);
+	TestEqual(TEXT("an hour empty below a target under a car load costs one per minute"), STForecast::Cost(Short, {}, Now, Car), 60.0, 0.01);
+	FSTNode Big = FSTTestAccess::Node(Station, Item, ESTRole::Demand, 0, 4000, 4);
+	TestEqual(TEXT("an hour two car loads short costs two per minute"), STForecast::Cost(Big, {}, Now, Car), 120.0, 0.01);
 	const double Twice = STForecast::Gain(Short, {{Now, 500.0}}, {Now, 500.0}, Now, Car);
 	TestEqual(TEXT("a second delivery to a platform already at target is worth nothing"), Twice, 0.0, 0.01);
 
@@ -688,6 +690,14 @@ bool FSTForecastTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("over the hour a top-up for a slow platform looks worth something"), STForecast::Gain(Slow, {}, {Arrive, 200.0}, Now, Car) > 0.0);
 	TestEqual(TEXT("until the next train it is worth nothing"), STForecast::Gain(Slow, {}, {Arrive, 200.0}, Now, Car, Until), 0.0, 1e-9);
 	TestTrue(TEXT("a platform below target before the next train is still worth a delivery"), STForecast::Gain(Using, {}, {Arrive, 200.0}, Now, Car, Until) > 0.0);
+
+	// A slow consumer standing empty (IB 2026-11-15: Iron Plate for Nitric Acid at 150/min, target 15 % of a car): a car
+	// load ending it is worth more than ten minutes of a train, whatever its target.
+	FSTNode Starved = FSTTestAccess::Node(Station, Item, ESTRole::Demand, 0, 6400, 1);
+	Starved.TargetPercent = 10.f;
+	const double CarLoad = 6400.0;
+	TestTrue(TEXT("a car load to an empty slow consumer outweighs ten minutes of a train"),
+		STForecast::Gain(Starved, {}, {Arrive, CarLoad}, Now, CarLoad, STForecast::NextDeliveryTime(Now, Arrive)) > STForecast::TrainSecondCost * 600.0);
 	return true;
 }
 

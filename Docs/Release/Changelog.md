@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.34.6 (beta)
+
+- **Fixed: factories that use an item slowly were never delivered to.** A platform's shortage was counted in car
+  loads, and a slow factory's automatic target is a fraction of a car, so even an empty one never seemed worth a
+  train's time. On the IB server the Nitric Acid factory's Iron Plate platform stood empty all day beside a full
+  supplier, and everything behind it (Silica, Aluminum Ingot, Aluminum Casing, Heat Sinks) starved while most trains
+  sat idle. An empty platform now counts at least as much as one a whole car load short.
+- **Fixed: Water trains sent to the bay beside the one they stand in.** On the IB server a push-pull Water train that
+  had delivered at No Man's Land Water In 2 was sent on to Water In 1, which it can only reach by way of a supply
+  station; the game refused 40 times in a day, and Water In 1 starved. SmartTrains' route search said there was no
+  way, but a learned trip time for the pair still counted. A pair SmartTrains finds no way between, for that kind of
+  train, is now unreachable whatever was learned (learned times are shared by every train, so one learned by a
+  push-pull train no longer counts for a train with one locomotive either).
+
 ## 0.34.5 (beta)
 
 - `SmartTrains.PlaceDepotSignal auto` also logs how many branches split, meet again ahead and have a way round of

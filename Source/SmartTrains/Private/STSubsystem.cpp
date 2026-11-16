@@ -1201,13 +1201,19 @@ float ASTSubsystem::EstimateTravelSeconds(const AFGTrainStationIdentifier* From,
 	{
 		return 0.f;
 	}
+	// No way for this kind of train in SmartTrains' search is final: a learned time (from any train) or Auto Trains'
+	// time never makes the pair reachable.
+	bool bReversing = false;
+	float Distance = mTravel ? mTravel->GetDistance(From, To, &bReversing, bPushPull) : -1.f;
+	if (Distance == -2.f)
+	{
+		return -1.f;
+	}
 	if (const FSTTripTime* Trip = mTrips.FindByPredicate([&](const FSTTripTime& Each) { return Each.From == From && Each.To == To; }))
 	{
 		return Trip->Seconds;
 	}
 	const float Speed = FMath::Max(1.f, mSettings.AverageSpeedKmh / 3.6f) * 100.f;
-	bool bReversing = false;
-	float Distance = mTravel ? mTravel->GetDistance(From, To, &bReversing, bPushPull) : -1.f;
 	// Auto Trains' time for a pair not driven yet: the way the signals allow, at real speeds and acceleration. Asked a
 	// few pairs per dispatch round and kept 10 minutes; SmartTrains' own estimate stands in meanwhile.
 	const TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, TWeakObjectPtr<AFGTrainStationIdentifier>> Key(const_cast<AFGTrainStationIdentifier*>(From),
@@ -1218,23 +1224,13 @@ float ASTSubsystem::EstimateTravelSeconds(const AFGTrainStationIdentifier* From,
 		--mAtTravelCallsLeft;
 		const float AtSeconds = STAt::EstimateTravelSeconds(GetWorld(), nullptr, const_cast<AFGBuildableRailroadStation*>(From->GetStation()),
 			const_cast<AFGBuildableRailroadStation*>(To->GetStation()));
-		if (!Cached && AtSeconds >= 0.f && Distance == -2.f)
-		{
-			UE_LOG(LogSmartTrains, Log, TEXT("TRAVEL %s -> %s: SmartTrains' search finds no way, Auto Trains gives %.0f s; no way stands"), *STLayout::Name(From),
-				*STLayout::Name(To), AtSeconds);
-		}
 		Cached = &mAtTravel.Add(Key, TPair<float, double>(AtSeconds, Now()));
 	}
-	// Auto Trains' time replaces SmartTrains' estimate, never its "no way": SmartTrains' search already counts both ways
-	// round for push-pull trains, and the game refuses the ways it doesn't find.
-	if (Cached && Cached->Key >= 0.f && Distance != -2.f)
+	// Auto Trains' time replaces SmartTrains' estimate.
+	if (Cached && Cached->Key >= 0.f)
 	{
 		// Plus time to start and stop at the stations.
 		return Cached->Key + 20.f;
-	}
-	if (Distance == -2.f)
-	{
-		return -1.f;
 	}
 	if (Distance < 0.f)
 	{
