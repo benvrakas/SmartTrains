@@ -588,6 +588,10 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   measured use (user's rule); with neither, the 50 % fallback.
 - **Gating inputs (0.35.0)**: `LinkSupplyChain` multiplies a demand node's `CostScale` by 1 + the number of starved
   consumers of what its machines make (`Gates`, at most `GatingCostScaleMax` 4).
+- **Parking fits (0.35.3)**: `GetStationRoom` (station track + platform tracks + `FApproach::WaitLength`) must be at least
+  the train's length for `FindParkingStation` to pick a station, and `ClearNeededBays` moves an idle train standing at a
+  station shorter than itself. IB 2026-11-16: a train parked at the one-platform "Turbofuel- Sulfur SNK" stood over the
+  next switch (Auto Trains report; also in faults.log of 11-12).
 - **Staging (0.35.0)**: each round `mStagingStations` lists suppliers whose stock reaches a send-at batch within
   `StagingSeconds` (10 minutes) of an item some consumer falls below target of within the horizon.
   `FindParkingStation` ranks off-through, quiet, then nearest to a staging supplier, then nearest to the train.

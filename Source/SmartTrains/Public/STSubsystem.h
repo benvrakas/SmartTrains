@@ -400,6 +400,9 @@ private:
 	TSet<const AFGTrainStationIdentifier*> GetNeededStations(const FSTTrainState* Except) const;
 	// Where an idle train waits out of the way: the station nearest From (else nearest the train) that no train needs
 	// (Needed), isn't blocked for new trips, isn't From and isn't in Skip. Null if none.
+	// Track a train can stand on at Station without reaching a switch: the station's own track, its platforms' and the
+	// track before the first switch; without the last until the route search has been there. [cm]
+	float GetStationRoom(const AFGTrainStationIdentifier* Station) const;
 	AFGTrainStationIdentifier* FindParkingStation(const FSTTrainState& State, const AFGTrainStationIdentifier* From, const TSet<const AFGTrainStationIdentifier*>& Needed,
 		const TSet<const AFGTrainStationIdentifier*>& Skip) const;
 	// A station whose door a parked train can't clear: offered to no new trip until then (Now()).

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.35.3 (beta)
+
+- **Fixed: trains parked at stations shorter than themselves.** An idle train was parked at a station whose platforms
+  and way in were shorter than the train, so its end stood on the next switch (IB: a one-platform station). It now
+  only parks where the whole train stands before the first switch, and a train already standing somewhere too short
+  moves to a station or depot signal where it fits.
+
 ## 0.35.2 (beta)
 
 - **Fixed: trains loaded for a factory whose product had nowhere to go.** When every train platform a factory's machines

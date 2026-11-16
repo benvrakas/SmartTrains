@@ -27,6 +27,9 @@
 #include "STForecast.h"
 #include "STSubsystem.h"
 #include "STStationSetup.h"
+#include "STTravel.h"
+#include "Buildables/FGBuildableRailroadTrack.h"
+#include "Buildables/FGBuildableTrainPlatform.h"
 
 namespace
 {
@@ -1731,6 +1734,33 @@ TSet<const AFGTrainStationIdentifier*> ASTSubsystem::GetNeededStations(const FST
 	return Needed;
 }
 
+float ASTSubsystem::GetStationRoom(const AFGTrainStationIdentifier* Station) const
+{
+	const AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
+	if (!Building)
+	{
+		return 0.f;
+	}
+	float Room = 0.f;
+	if (const AFGBuildableRailroadTrack* Track = Building->GetTrackPosition().Track.Get())
+	{
+		Room += Track->GetLength();
+	}
+	for (const AFGBuildableTrainPlatform* Platform : STLayout::GetPlatforms(Building))
+	{
+		if (const AFGBuildableRailroadTrack* Track = Platform ? Platform->GetTrackPosition().Track.Get() : nullptr)
+		{
+			Room += Track->GetLength();
+		}
+	}
+	FSTTravel::FApproach Approach;
+	if (mTravel && mTravel->GetApproach(Station, Approach))
+	{
+		Room += Approach.WaitLength;
+	}
+	return Room;
+}
+
 AFGTrainStationIdentifier* ASTSubsystem::FindParkingStation(const FSTTrainState& State, const AFGTrainStationIdentifier* From, const TSet<const AFGTrainStationIdentifier*>& Needed,
 	const TSet<const AFGTrainStationIdentifier*>& Skip) const
 {
@@ -1745,9 +1775,15 @@ AFGTrainStationIdentifier* ASTSubsystem::FindParkingStation(const FSTTrainState&
 	AFGTrainStationIdentifier* Best = nullptr;
 	TTuple<bool, bool, float, float> BestKey(false, false, -TNumericLimits<float>::Max(), -TNumericLimits<float>::Max());
 	const bool bPushPull = IsPushPull(State.Train);
+	const float Length = STLayout::GetTrainLength(State.Train);
 	for (AFGTrainStationIdentifier* Candidate : Stations)
 	{
 		if (!Candidate || Candidate == From || Needed.Contains(Candidate) || Skip.Contains(Candidate) || IsStationBlocked(Candidate) || !CanServe(State, Candidate))
+		{
+			continue;
+		}
+		// A train longer than the station and its way in would stand on a switch.
+		if (GetStationRoom(Candidate) < Length)
 		{
 			continue;
 		}
@@ -2155,6 +2191,12 @@ void ASTSubsystem::ClearNeededBays()
 		else if (const TPair<const AFGTrain*, float>* Held = Why.IsEmpty() ? HeldUp.Find(State.Train.Get()) : nullptr)
 		{
 			Why = FString::Printf(TEXT("%s has waited %.0f s for it (Auto Trains)"), *STLayout::Name(Held->Key), Held->Value);
+		}
+		// Parked at a station shorter than the train, its end stands on a switch (IB 2026-11-16: Turbofuel- Sulfur SNK).
+		if (Why.IsEmpty() && Here && GetStationRoom(Here) < STLayout::GetTrainLength(State.Train))
+		{
+			Why = FString::Printf(TEXT("%s is shorter than the train (%.0f m of %.0f m), so its end stands on a switch"), *STLayout::Name(Here),
+				GetStationRoom(Here) / 100.f, STLayout::GetTrainLength(State.Train) / 100.f);
 		}
 		if (Why.IsEmpty())
 		{
