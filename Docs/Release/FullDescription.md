@@ -65,7 +65,9 @@ them (see below).
 - **Recipes:** SmartTrains follows each platform's belts and pipes to its machines. Their recipes give the real rate
   of a full supplier or a starved consumer, and a consumer whose machines wait on another missing input counts its
   shortage less until that input arrives.
-- **Each trip** loads what the stock forecasts call for, and only what the trip delivers.
+- **Each trip** loads only what it delivers, and as much of it as the platforms take: a docking takes as long however
+  much a train moves, so a fuller train counts for more, and a trip picks up for a factory's other platforms when the
+  extra stop pays.
 - **Fit:** train length, the order of the cars and the order of the platforms are checked for every trip. Push-pull
   trains, with a locomotive at each end, are handled both ways round.
 

@@ -36,9 +36,11 @@ namespace
 	constexpr double QueueLookSeconds = 300.0;
 	// Value of a car left holding cargo after a trip (a car emptied is worth the same). [car-load minutes]
 	constexpr double TiedCarValue = 2.0;
-	// A train emptying its cars (SetNoLoads) values every car load it unloads, and each car it empties, so it delivers
-	// leftovers to any consumer or sink with room, whatever the consumer's target. [car-load minutes]
-	constexpr double EmptyLoadValue = 2.0;
+	// Every car load delivered to a platform that wants the item, on top of the shortage it prevents: a dock is worth
+	// more the more it moves, so trips fill their cars (push or pull alike). [car-load minutes]
+	constexpr double LoadValue = 2.0;
+	// A train emptying its cars (SetNoLoads) values each car it empties, so it delivers leftovers to any consumer or sink
+	// with room, whatever the consumer's target. [car-load minutes]
 	constexpr double EmptyCarValue = 10.0;
 	// Share of TiedCarValue for a car holding only items a demand platform needs within the horizon.
 	constexpr double NeededSoonShare = 0.25;
@@ -1455,14 +1457,11 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 							*STNames::Item(Item), *STLayout::Name(Stop.Station)));
 					}
 					FItemTotals& Total = TotalsFor(Item);
-					if (bEmptying)
-					{
-						Result.Value += EmptyLoadValue * Amount / FMath::Max(1.0, STLayout::GetCarCapacity(mCars[CarIndex].Car, Item));
-					}
 					if (mNodes[Node].bAnyItem)
 					{
 						continue;
 					}
+					Result.Value += LoadValue * Amount / FMath::Max(1.0, STLayout::GetCarCapacity(mCars[CarIndex].Car, Item));
 					Total.bCritical |= mNodes[Node].Priority == ESTPriority::Critical;
 					const double Gain = ForecastGain(Node, Item, Arrive, Amount);
 					Result.Value += Gain;

@@ -215,9 +215,9 @@ window's Rename stations); never automatic.
     no train serves (`IsConsumerServed`: no managed train on a trip anchored there, none given in the last
     `ServedSeconds`, 600 s), then all. The trip chosen gives its cars their items (`PatternAfter`).
   - `ReplanTrip` applies the car items from the job's anchor (no anchor: no loads).
-  - **Emptying trips are worth what they unload (0.33.1)**: with `SetNoLoads` the planner adds `EmptyLoadValue` (2)
-    per car load unloaded and `EmptyCarValue` (10) per car emptied, so the trip goes to any consumer or sink with room
-    whatever its target. Without it, 0.33.0's emptying trips were valued like any trip (forecast gain, a quarter of
+  - **Emptying trips are worth what they unload (0.33.1)**: like every trip they get `LoadValue` (2) per car load
+    delivered to a consumer (0.34.7; until then only emptying trips had it), and with `SetNoLoads` also `EmptyCarValue`
+    (10) per car emptied, so the trip goes to any consumer or sink with room whatever its target. Without it, 0.33.0's emptying trips were valued like any trip (forecast gain, a quarter of
     `TiedCarValue` for items needed soon) and rarely beat the stop cost: on the IB server, 2026-11-14, 33 of 38
     trains stood idle holding leftovers and trips fell from about 22 to 6 per 10 minutes.
   - What this replaced: an idle clock (5 minutes without a trip), "homeless" patterns no station takes, "spare" trains
@@ -553,6 +553,12 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   and fairness weights: a delivery that ends a shortfall sooner is worth more, one to a platform that stays above its
   target within the hour is worth nothing. Moves only go to consumers that fall below target within the hour
   (`Deadline`). Trips still score value / time; the send-at batch rule stays.
+- **Full docks (0.34.7)**: every car load delivered to a platform that wants the item adds `LoadValue` (2 car-load
+  minutes, by how full the car is), on top of the shortage it prevents. Docking takes the same time however much a
+  train moves, so the planner fills cars and adds a pickup for a factory's other platforms when the stop pays for
+  itself; full platforms still limit what a car unloads. Before, only the shortage up to the target counted: on the IB
+  server (2026-11-16) trains reached factories with two of four cars loaded, since the inputs for the other two weren't
+  below target yet. Sinks get no `LoadValue`: overflow to them stays a tie-breaker.
 - **Automatic target (0.30.0)**: a demand item's `TargetPercent` 0 means automatic (the default; on loading an older
   save, targets at the old default 50 % become 0, `mTargetsVersion`). `ApplyAutoTargets` (end of `BuildNodes`) sets the
   node's target to its use (its machines' recipes when known, at least what it measured; else `GetDemandRate`) over

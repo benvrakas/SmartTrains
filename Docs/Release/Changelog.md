@@ -2,6 +2,10 @@
 
 ## 0.34.7 (beta)
 
+- **Fuller trains.** Every car load delivered now counts, not only the shortage it prevents, so trips fill their cars
+  and pick up a factory's other inputs on the way when the stop pays for itself. Docking takes the same time however
+  much a train brings. Before, trains often reached a factory with two of four cars loaded because its other inputs
+  weren't short yet. Full platforms still limit what a car unloads.
 - **Fixed: a factory's other inputs ran dry while one was missing.** The automatic target followed the measured use,
   and a factory waiting for one input uses none of the others, so their targets fell to the 10 % minimum and they
   counted as stocked. On the IB server a Heat Sink factory waiting for Aluminum Casing kept its Rubber at 10 %; the
