@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.34.7 (beta)
+
+- **Fixed: a factory's other inputs ran dry while one was missing.** The automatic target followed the measured use,
+  and a factory waiting for one input uses none of the others, so their targets fell to the 10 % minimum and they
+  counted as stocked. On the IB server a Heat Sink factory waiting for Aluminum Casing kept its Rubber at 10 %; the
+  train that brought the casings went off for Sulfur. The target now comes from the factory's recipes whenever
+  SmartTrains knows them.
+
 ## 0.34.6 (beta)
 
 - **Fixed: factories that use an item slowly were never delivered to.** A platform's shortage was counted in car

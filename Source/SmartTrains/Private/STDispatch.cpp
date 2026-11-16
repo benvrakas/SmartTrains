@@ -446,8 +446,9 @@ void ASTSubsystem::ApplyAutoTargets(TArray<FSTNode>& Nodes) const
 		{
 			continue;
 		}
-		// Still measuring: its machines' recipes tell, if known.
-		const double Use = !Node.bRateKnown && Node.RecipeRate > 0.0 ? FMath::Max(Node.Rate, Node.RecipeRate) : GetDemandRate(Node);
+		// Its machines' recipes when known: a factory held up by another input uses none of this one, and its measured use
+		// would leave this input at the minimum target just before the factory starts again. Else what it measured.
+		const double Use = Node.RecipeRate > 0.0 ? FMath::Max(Node.Rate, Node.RecipeRate) : GetDemandRate(Node);
 		const double Percent = 100.0 * Use * Lead->Key * AutoTargetMargin / Node.Capacity;
 		Node.TargetPercent = FMath::Clamp(static_cast<float>(Percent), AutoTargetMinPercent, AutoTargetMaxPercent);
 	}
