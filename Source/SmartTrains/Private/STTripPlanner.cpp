@@ -718,10 +718,11 @@ void FSTTripPlanner::BuildMoves()
 			}
 			if (!Consumer.bAnyItem && !bFull)
 			{
-				// Only consumers that fall below their target within the forecast horizon.
+				// Pull: only consumers that fall below their target within the forecast horizon. Push: any with room.
 				const float Leg = mSubsystem.EstimateTravelSeconds(Supplier.Station.Get(), Consumer.Station.Get(), bPushPull);
 				const double CarCapacity = STLayout::GetCarCapacity(mCars[0].Car, Item);
-				if (Leg < 0.f || STForecast::Deadline(Consumer, Consumer.Planned, mTime, CarCapacity) >= mTime + STForecast::HorizonSeconds)
+				if (Leg < 0.f || (!mSubsystem.mSettings.bPush && STForecast::Deadline(Consumer, Consumer.Planned, mTime, CarCapacity) >= mTime + STForecast::HorizonSeconds)
+					|| (mSubsystem.mSettings.bPush && Consumer.Stock + Consumer.Reserved >= Consumer.Capacity))
 				{
 					continue;
 				}
@@ -977,6 +978,55 @@ bool FSTTripPlanner::MakeCarItems(const AFGTrainStationIdentifier* Consumer, con
 		}
 	}
 	return true;
+}
+
+TArray<const AFGTrainStationIdentifier*> FSTTripPlanner::GetSupplierStations() const
+{
+	TArray<const AFGTrainStationIdentifier*> Stations;
+	for (const FSTPlanMove& Move : mMoves)
+	{
+		if (mNodes.IsValidIndex(Move.From) && mNodes[Move.From].Station.IsValid())
+		{
+			Stations.AddUnique(mNodes[Move.From].Station.Get());
+		}
+	}
+	return Stations;
+}
+
+bool FSTTripPlanner::MakeSupplyCarItems(const AFGTrainStationIdentifier* Supplier, TArray<TArray<UClass*>>& OutAllowed) const
+{
+	OutAllowed.Reset();
+	bool bAny = false;
+	const TArray<TArray<int32>>& Maps = GetCarPlatforms(Supplier);
+	for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
+	{
+		TArray<UClass*> Supply;
+		bool bSame = true;
+		for (int32 MapIndex = 0; MapIndex < Maps.Num(); ++MapIndex)
+		{
+			const int32 Here = Maps[MapIndex].IsValidIndex(CarIndex) ? Maps[MapIndex][CarIndex] : INDEX_NONE;
+			TArray<UClass*> Items;
+			if (Here != INDEX_NONE && mPlatforms[Here].bSupply && mPlatforms[Here].bLoadMode)
+			{
+				Items = mPlatforms[Here].Items;
+			}
+			if (MapIndex == 0)
+			{
+				Supply = Items;
+			}
+			else if (Items.Num() != Supply.Num() || Items.ContainsByPredicate([&Supply](UClass* Item) { return !Supply.Contains(Item); }))
+			{
+				bSame = false;
+			}
+		}
+		if (!bSame)
+		{
+			Supply.Reset();
+		}
+		bAny |= Supply.Num() > 0;
+		OutAllowed.Add(MoveTemp(Supply));
+	}
+	return bAny;
 }
 
 TArray<const AFGTrainStationIdentifier*> FSTTripPlanner::GetConsumerStations() const
@@ -1376,7 +1426,8 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					}
 					if (Node != INDEX_NONE)
 					{
-						Total.Share = FMath::Max(Total.Share, STNames::SendAtPercent(mNodes[Node].SendAtPercent) / 100.0);
+						// Push sends full cars only.
+						Total.Share = FMath::Max(Total.Share, mSubsystem.mSettings.bPush ? 1.0 : STNames::SendAtPercent(mNodes[Node].SendAtPercent) / 100.0);
 						Total.bFromFull |= IsSupplyFull(Node);
 					}
 					if (Amount <= 0.0 || Amount < MinLoadShare * GetCarRoom(mCars[CarIndex], {}, Item))
@@ -1618,8 +1669,12 @@ FSTPlanResult FSTTripPlanner::Improve(TArray<FSTPlanStop>& InOutStops, int32 Fir
 			{
 				continue;
 			}
-			// While consumers are set, only moves delivering there.
+			// While consumers (suppliers) are set, only moves delivering (picking up) there.
 			if (mOnlyStations.Num() > 0 && (!mNodes.IsValidIndex(mMoves[Index].To) || !mOnlyStations.Contains(mNodes[mMoves[Index].To].Station.Get())))
+			{
+				continue;
+			}
+			if (mOnlyFrom.Num() > 0 && (!mNodes.IsValidIndex(mMoves[Index].From) || !mOnlyFrom.Contains(mNodes[mMoves[Index].From].Station.Get())))
 			{
 				continue;
 			}
@@ -1743,6 +1798,34 @@ void FSTTripPlanner::MakeLegs(const TArray<FSTPlanStop>& Stops, const FSTPlanRes
 			}
 		}
 		Leg.bPartial = bLaterSame || (Loads.Num() > 0 && Unloads.Num() > 0);
+		// Top off: a car leaving a pickup part full is worth LoadValue per car load more once full, so waiting pays while
+		// the supplier makes more than TrainSecondCost / LoadValue car loads a second; then wait until full, at most the
+		// longest pickup wait.
+		if (!Leg.bPartial && Loads.Num() > 0)
+		{
+			double Wait = 0.0;
+			for (UClass* Item : Loads)
+			{
+				const int32 Node = FindNode(Leg.Station.Get(), Item, true);
+				double Missing = 0.0;
+				double Capacity = 0.0;
+				for (const FSTCarWork& Work : Leg.Work)
+				{
+					if (Work.bLoad && Work.Item == Item)
+					{
+						const double CarCapacity = STLayout::GetCarCapacity(Cast<AFGFreightWagon>(Work.Car.Get()), Item);
+						Capacity = FMath::Max(Capacity, CarCapacity);
+						Missing += FMath::Max(0.0, CarCapacity - Work.PlannedAmount);
+					}
+				}
+				const double Rate = Node != INDEX_NONE ? STForecast::GetRate(mNodes[Node], Capacity) : 0.0;
+				if (Missing >= 1.0 && Capacity > 0.0 && Rate > 0.0 && LoadValue * Rate / Capacity > STForecast::TrainSecondCost)
+				{
+					Wait = FMath::Max(Wait, Missing / Rate);
+				}
+			}
+			Leg.TopOffSeconds = static_cast<float>(FMath::Min(Wait, static_cast<double>(mSubsystem.mSettings.LoadWaitSeconds)));
+		}
 	}
 }
 

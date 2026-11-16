@@ -72,9 +72,12 @@ struct FSTNode
 	// (demand) of Item at their clock speed; 0 when not known. [/s]
 	TArray<TWeakObjectPtr<const AActor>> Machines;
 	double RecipeRate = 0.0;
-	// Demand: its machines wait on another item that is starved there, so its shortfall counts this much.
+	// Demand: how much its shortfall counts: less while its machines wait on another starved item there (WaitsOn), more
+	// for each starved consumer elsewhere waiting for what its machines make (Gates of item GatesItem).
 	double CostScale = 1.0;
 	TSubclassOf<UFGItemDescriptor> WaitsOn;
+	int32 Gates = 0;
+	TSubclassOf<UFGItemDescriptor> GatesItem;
 };
 
 // A route of the flow plan: Item from From to To, with the trains it needs and the managed trains that fit it.
@@ -406,6 +409,9 @@ private:
 	// Stations trains have work at: a demand platform, or a supply of an item some platform demands. Idle trains park
 	// at the others first (FindParkingStation). From the last dispatch round's nodes.
 	TSet<TWeakObjectPtr<const AFGTrainStationIdentifier>> mWorkStations;
+	// Supplier stations with work coming soon (a batch ready within StagingSeconds of an item some consumer will run
+	// short of): idle trains park near them (FindParkingStation). Worked out each dispatch round.
+	TArray<TWeakObjectPtr<const AFGTrainStationIdentifier>> mStagingStations;
 	// Every depot signal's state last written to the log (DEPOTS line), and when the depot signals were last surveyed
 	// for it (Now()).
 	FString mDepotsLogged;

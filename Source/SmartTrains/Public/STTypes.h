@@ -210,6 +210,11 @@ struct SMARTTRAINS_API FSTJobLeg
 	UPROPERTY(SaveGame)
 	bool bPartial = false;
 
+	// A pickup whose supplier fills the rest of its cars fast enough that waiting pays: wait until they are full, at most
+	// this long (0: no wait). [s]
+	UPROPERTY(SaveGame)
+	float TopOffSeconds = 0.f;
+
 	// Cars told to skip this stop through Freight Car Control.
 	UPROPERTY(SaveGame)
 	TArray<TObjectPtr<AFGRailroadVehicle>> SkipCars;
@@ -269,12 +274,16 @@ struct SMARTTRAINS_API FSTJob
 	UPROPERTY(SaveGame)
 	TObjectPtr<AFGTrainStationIdentifier> AnchorStation = nullptr;
 
-	// Several consumers per trip: the second consumer, whose cars the first leaves unused; re-plans add deliveries there
-	// too. Null for a trip with one consumer.
+	// The trip's other stations: a second consumer or supplier (Several per trip), backhaul stops. Re-plans add moves
+	// to (pull) or from (push) these as well as the anchor.
 	UPROPERTY(SaveGame)
-	TObjectPtr<AFGTrainStationIdentifier> SecondStation = nullptr;
+	TArray<TObjectPtr<AFGTrainStationIdentifier>> OtherStations;
 
-	// With SecondStation: the items each car may load on this trip (re-plans keep them).
+	// Built around a supplier (push): AnchorStation is that supplier.
+	UPROPERTY(SaveGame)
+	bool bPushTrip = false;
+
+	// The items each car may load on this trip (re-plans keep them); empty for jobs from before 0.35.0.
 	UPROPERTY(SaveGame)
 	TArray<FSTCarItems> CarItems;
 

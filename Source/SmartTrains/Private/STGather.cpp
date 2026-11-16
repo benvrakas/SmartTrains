@@ -16,6 +16,8 @@
 
 namespace
 {
+	// Backhaul: a pickup this close to a trip's last stop may be added after it. [s]
+	constexpr float BackhaulSeconds = 120.f;
 	// A train that left a station this recently doesn't start a trip with that station. [s]
 	constexpr double GatherJustLeftSeconds = 60.0;
 	// The first train of every dispatch round gets at least this much planning time. [ms]
@@ -232,22 +234,68 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				}
 			}
 		};
-		// An empty train goes first to a consumer station no train serves, so every station with work gets a train before
-		// any gets a second; then, like a train holding cargo, to the best trip its cars line up with.
+		// Push (empty trains): one trip per supplier station whose loading platforms some car stops beside, its full cars
+		// to any consumers with room. The best one is run.
+		auto TrySuppliers = [&]()
+		{
+			for (const AFGTrainStationIdentifier* Supplier : Planner.GetSupplierStations())
+			{
+				if (Tried > 0 && Planner.IsOverBudget())
+				{
+					break;
+				}
+				TArray<TArray<UClass*>> Allowed;
+				if (IsStationBlocked(Supplier) || !Planner.MakeSupplyCarItems(Supplier, Allowed))
+				{
+					continue;
+				}
+				++Tried;
+				TArray<FSTPlanStop> Stops;
+				const TArray<TArray<UClass*>> ThisAllowed = Allowed;
+				Planner.SetCarItems(MoveTemp(Allowed));
+				Planner.SetOnlyFrom({Supplier});
+				FSTPlanResult Result = Planner.Improve(Stops, 0);
+				Planner.SetOnlyFrom({});
+				FSTTripPlanner::Trim(Stops, Result, 0);
+				Result = Planner.Simulate(Stops);
+				Planner.SetCarItems({});
+				const bool bWorth = Result.bValid && Stops.Num() > 0 && Result.Moved > 0
+					&& Result.Value - STForecast::TrainSecondCost * FMath::Max(0.0, Result.EndTime - Each.FreeAt) > 0.0;
+				if (bWorth && (!BestConsumer || Result.Score > BestResult.Score))
+				{
+					BestStops = MoveTemp(Stops);
+					BestResult = MoveTemp(Result);
+					BestConsumer = const_cast<AFGTrainStationIdentifier*>(Supplier);
+					BestAllowed = ThisAllowed;
+				}
+			}
+		};
+		// Pull: an empty train goes first to a consumer station no train serves, so every station with work gets a train
+		// before any gets a second; then, like a train holding cargo, to the best trip its cars line up with. Push: an
+		// empty train goes to the best supplier; a train holding cargo delivers it as in pull.
+		const bool bPushTrip = mSettings.bPush && !bCarrying;
 		bool bUnservedChosen = false;
-		if (!bCarrying)
+		if (bPushTrip)
 		{
-			TryConsumers(true);
-			bUnservedChosen = BestConsumer != nullptr;
+			TrySuppliers();
 		}
-		if (!BestConsumer)
+		else
 		{
-			TryConsumers(false);
+			if (!bCarrying)
+			{
+				TryConsumers(true);
+				bUnservedChosen = BestConsumer != nullptr;
+			}
+			if (!BestConsumer)
+			{
+				TryConsumers(false);
+			}
 		}
-		// Several consumers per trip: the cars the best trip leaves empty and unused may serve a second consumer, with
-		// pickups of their own (Docs/Architecture.md, "Several consumers per trip").
-		AFGTrainStationIdentifier* SecondConsumer = nullptr;
-		if (BestConsumer && mSettings.bSeveralConsumers && !Planner.IsOverBudget())
+		// The trip's stations besides its anchor (BestConsumer: the consumer, or in push the supplier).
+		TArray<AFGTrainStationIdentifier*> Others;
+		// Several per trip: the cars the best trip leaves empty and unused may serve a second consumer (pull) or supplier
+		// (push), with stops of their own (Docs/Architecture.md, "Several consumers per trip").
+		if (BestConsumer && mSettings.bSeveralPerTrip && !Planner.IsOverBudget())
 		{
 			TArray<bool> Free;
 			int32 FreeCars = 0;
@@ -264,15 +312,18 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			TArray<FSTPlanStop> PairStops;
 			FSTPlanResult PairResult;
 			TArray<TArray<UClass*>> PairAllowed;
-			for (const AFGTrainStationIdentifier* Consumer : FreeCars > 0 ? Planner.GetConsumerStations() : TArray<const AFGTrainStationIdentifier*>())
+			AFGTrainStationIdentifier* Second = nullptr;
+			const TArray<const AFGTrainStationIdentifier*> Candidates = FreeCars == 0 ? TArray<const AFGTrainStationIdentifier*>()
+				: (bPushTrip ? Planner.GetSupplierStations() : Planner.GetConsumerStations());
+			for (const AFGTrainStationIdentifier* Candidate : Candidates)
 			{
-				if (Consumer == BestConsumer || IsStationBlocked(Consumer) || Planner.IsOverBudget())
+				if (Candidate == BestConsumer || IsStationBlocked(Candidate) || Planner.IsOverBudget())
 				{
 					continue;
 				}
 				TArray<TArray<UClass*>> Theirs;
 				int32 Mismatched = 0;
-				if (!Planner.MakeCarItems(Consumer, {}, true, Theirs, Mismatched))
+				if (bPushTrip ? !Planner.MakeSupplyCarItems(Candidate, Theirs) : !Planner.MakeCarItems(Candidate, {}, true, Theirs, Mismatched))
 				{
 					continue;
 				}
@@ -292,29 +343,78 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				}
 				TArray<FSTPlanStop> Stops = BestStops;
 				Planner.SetCarItems(TArray<TArray<UClass*>>(Merged));
-				Planner.SetOnlyStations({BestConsumer, Consumer});
+				if (bPushTrip)
+				{
+					Planner.SetOnlyFrom({BestConsumer, Candidate});
+				}
+				else
+				{
+					Planner.SetOnlyStations({BestConsumer, Candidate});
+				}
 				FSTPlanResult Result = Planner.Improve(Stops, 0);
+				Planner.SetOnlyFrom({});
 				Planner.SetOnlyStations({});
 				FSTTripPlanner::Trim(Stops, Result, 0);
 				Result = Planner.Simulate(Stops);
 				Planner.SetCarItems({});
-				const bool bDelivers = Stops.ContainsByPredicate([Consumer](const FSTPlanStop& Stop) { return Stop.Station == Consumer && Stop.UnloadItems.Num() > 0; });
+				const bool bServes = Stops.ContainsByPredicate([Candidate, bPushTrip](const FSTPlanStop& Stop)
+				{
+					return Stop.Station == Candidate && (bPushTrip ? Stop.LoadItems.Num() : Stop.UnloadItems.Num()) > 0;
+				});
 				const double Beat = PairStops.Num() > 0 ? PairResult.Score : BestResult.Score;
-				if (Result.bValid && bDelivers && Result.Score > Beat * 1.0001 + 1e-6)
+				if (Result.bValid && bServes && Result.Score > Beat * 1.0001 + 1e-6)
 				{
 					PairStops = MoveTemp(Stops);
 					PairResult = MoveTemp(Result);
 					PairAllowed = MoveTemp(Merged);
-					SecondConsumer = const_cast<AFGTrainStationIdentifier*>(Consumer);
+					Second = const_cast<AFGTrainStationIdentifier*>(Candidate);
 				}
 			}
-			if (SecondConsumer)
+			if (Second)
 			{
-				UE_LOG(LogSmartTrains, Log, TEXT("GATHER %s: %d free cars also serve %s (score %.4f -> %.4f)"), *STLayout::Name(State.Train), FreeCars,
-					*STLayout::Name(SecondConsumer), BestResult.Score, PairResult.Score);
+				UE_LOG(LogSmartTrains, Log, TEXT("GATHER %s: %d free cars also serve %s %s (score %.4f -> %.4f)"), *STLayout::Name(State.Train), FreeCars,
+					bPushTrip ? TEXT("supplier") : TEXT("consumer"), *STLayout::Name(Second), BestResult.Score, PairResult.Score);
 				BestStops = MoveTemp(PairStops);
 				BestResult = MoveTemp(PairResult);
 				BestAllowed = MoveTemp(PairAllowed);
+				Others.Add(Second);
+			}
+		}
+		// Backhaul: after the trip's last stop, a pickup within BackhaulSeconds of it, delivered where it pays, so the run
+		// back carries cargo (Docs/Architecture.md, "Backhaul").
+		if (BestConsumer && BestStops.Num() > 0 && !Planner.IsOverBudget())
+		{
+			const AFGTrainStationIdentifier* Last = BestStops.Last().Station;
+			const bool bPushPull = IsPushPull(State.Train);
+			TArray<const AFGTrainStationIdentifier*> Near;
+			for (const AFGTrainStationIdentifier* Supplier : Planner.GetSupplierStations())
+			{
+				const float Seconds = Supplier == Last ? 0.f : EstimateTravelSeconds(Last, Supplier, bPushPull);
+				if (Seconds >= 0.f && Seconds <= BackhaulSeconds)
+				{
+					Near.Add(Supplier);
+				}
+			}
+			if (Near.Num() > 0)
+			{
+				TArray<FSTPlanStop> Stops = BestStops;
+				const int32 First = Stops.Num();
+				Planner.SetOnlyFrom(Near);
+				FSTPlanResult Result = Planner.Improve(Stops, First);
+				Planner.SetOnlyFrom({});
+				FSTTripPlanner::Trim(Stops, Result, First);
+				Result = Planner.Simulate(Stops);
+				if (Result.bValid && Stops.Num() > First && Result.Score > BestResult.Score * 1.0001 + 1e-6)
+				{
+					UE_LOG(LogSmartTrains, Log, TEXT("GATHER %s: backhaul from %s after %s (score %.4f -> %.4f)"), *STLayout::Name(State.Train),
+						*STLayout::Name(Stops[First].Station), *STLayout::Name(Last), BestResult.Score, Result.Score);
+					for (int32 Index = First; Index < Stops.Num(); ++Index)
+					{
+						Others.AddUnique(Stops[Index].Station);
+					}
+					BestStops = MoveTemp(Stops);
+					BestResult = MoveTemp(Result);
+				}
 			}
 		}
 		if (BestConsumer)
@@ -326,21 +426,39 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				Pickups += Stop.LoadItems.Num() > 0 ? 1 : 0;
 			}
 			Gathering += Pickups > 1 ? 1 : 0;
-			UE_LOG(LogSmartTrains, Verbose, TEXT("GATHER %s: %d consumer stations tried (%d of other patterns, %d blocked by cargo), best %s (%d stops, %d with pickups), score %.4f"),
-				*STLayout::Name(State.Train), Tried, OtherPattern, Blocked, *STLayout::Name(BestConsumer), BestStops.Num(), Pickups, BestResult.Score);
+			// Each car's items for this trip: those it was planned with, and whatever it loads (backhaul).
+			TArray<TArray<UClass*>> CarItems = BestAllowed;
+			CarItems.SetNum(Planner.GetCarCount());
+			for (const TArray<FSTPlanCarStep>& Step : BestResult.Steps)
+			{
+				for (int32 CarIndex = 0; CarIndex < Step.Num() && CarIndex < CarItems.Num(); ++CarIndex)
+				{
+					for (const TPair<UClass*, int32>& Each : Step[CarIndex].Loaded)
+					{
+						CarItems[CarIndex].AddUnique(Each.Key);
+					}
+				}
+			}
+			UE_LOG(LogSmartTrains, Verbose, TEXT("GATHER %s: %d %s stations tried (%d of other patterns, %d blocked by cargo), best %s (%d stops, %d with pickups), score %.4f"),
+				*STLayout::Name(State.Train), Tried, bPushTrip ? TEXT("supplier") : TEXT("consumer"), OtherPattern, Blocked, *STLayout::Name(BestConsumer), BestStops.Num(),
+				Pickups, BestResult.Score);
 			const FString Before = State.DescribePattern();
 			State.CarSets = PatternAfter(State, BestAllowed, Planner.GetCarCount(), true);
 			const FString After = State.DescribePattern();
 			if (After != Before)
 			{
-				UE_LOG(LogSmartTrains, Log, TEXT("PATTERN %s: %s -> %s (a trip to %s gives its cars their items%s)"), *STLayout::Name(State.Train), *Before, *After,
-					*STLayout::Name(BestConsumer), bUnservedChosen ? TEXT("; it had no train") : TEXT(""));
+				UE_LOG(LogSmartTrains, Log, TEXT("PATTERN %s: %s -> %s (a trip %s %s gives its cars their items%s)"), *STLayout::Name(State.Train), *Before, *After,
+					bPushTrip ? TEXT("from") : TEXT("to"), *STLayout::Name(BestConsumer), bUnservedChosen ? TEXT("; it had no train") : TEXT(""));
 			}
 			CommitTrip(State, Planner, BestStops, BestResult, true, MostUnloaded(BestResult), BestConsumer);
-			if (SecondConsumer && State.bHasJob)
+			if (State.bHasJob)
 			{
-				State.Job.SecondStation = SecondConsumer;
-				for (const TArray<UClass*>& Items : BestAllowed)
+				State.Job.bPushTrip = bPushTrip;
+				for (AFGTrainStationIdentifier* Station : Others)
+				{
+					State.Job.OtherStations.Add(Station);
+				}
+				for (const TArray<UClass*>& Items : CarItems)
 				{
 					FSTCarItems& Car = State.Job.CarItems.AddDefaulted_GetRef();
 					for (UClass* Item : Items)

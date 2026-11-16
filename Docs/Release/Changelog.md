@@ -10,9 +10,21 @@
   its machines take, so a factory's inputs looked twice as fast as they are and an output station's rate came out as if
   every machine could run (IB: a Heat Sink factory named for 1,080/min that its belts limit to 1,040/min). Its belts
   now share out over its items. Rename the station again to update a rate in its name.
-- **New setting: Several consumers per trip** (off by default). A train may fill the cars its main consumer leaves
-  unused for a second consumer on the same trip: one supplier fills cars 1 and 2, another cars 3 and 4, and two
-  consumers each unload theirs. Needs Freight Car Control.
+- **New setting: Push from suppliers** (off by default: pull). Trips start from a supplier with full cars, which go to
+  any consumers with room for them, instead of being built around a consumer that will run short.
+- **New setting: Several consumers (pull) or suppliers (push) per trip** (off by default). The cars a trip's consumer
+  leaves unused may serve a second consumer on the same trip: one supplier fills cars 1 and 2, another cars 3 and 4,
+  and two consumers each unload theirs. In push mode, a second supplier fills the cars the first one leaves empty.
+  Needs Freight Car Control.
+- **Backhaul.** After a trip's last stop, a train may pick up within two minutes of it and deliver that too, so the run
+  back carries cargo (often the factory's own output) instead of empty cars, when it pays.
+- **Top off at the supplier.** A pickup whose supplier makes enough to fill the rest of the cars quickly waits for them
+  to fill (up to **Pickup: longest wait**), when the extra cargo is worth the wait. Slow suppliers are left at once.
+- **Bottleneck inputs count more.** An input for a factory whose product starved consumers elsewhere wait for counts
+  once more for each of them (up to four times), so the one item gating a chain gets its train first (IB: Iron Plate
+  for the Nitric Acid that Quartz and Uranium factories waited for). The monitor lists them under Supply chain.
+- **Idle trains stage near work.** A parked train picks, among stations off the through lines with no work, the one
+  nearest a supplier that will have a batch for a short consumer within 10 minutes, so its next trip starts sooner.
 - **Settings from the Mods menu reach a dedicated server.** An admin who changes a SmartTrains setting in their Mods menu
   now changes it on the server too (other players are told only admins can). `/st set` still works.
 

@@ -23,8 +23,11 @@ struct FSTSettings
 	bool bAdminsOnly = false;
 	// Every stop is load/unload once, and a train with a trip leaves at once instead of holding in the station.
 	bool bLeaveAtOnce = true;
-	// A trip may serve a second consumer with the cars its first one leaves unused.
-	bool bSeveralConsumers = false;
+	// Push: trips are built around a supplier, whose full cars go to any consumers with room. Pull (off): around a
+	// consumer that runs short.
+	bool bPush = false;
+	// A trip may serve a second consumer (pull) or supplier (push) with the cars its first one leaves unused.
+	bool bSeveralPerTrip = false;
 	// How often jobs are handed out. [s]
 	float DispatchSeconds = 3.f;
 	// How often the flow plan is worked out again. [s]

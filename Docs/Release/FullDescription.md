@@ -69,9 +69,16 @@ them (see below).
 - **Each trip** loads only what it delivers, and as much of it as the platforms take: a docking takes as long however
   much a train moves, so a fuller train counts for more, and a trip picks up for a factory's other platforms when the
   extra stop pays.
-- **Several consumers per trip** (Mods menu, off by default): the cars a trip's consumer leaves unused may carry for a
-  second consumer, picked up on the way and unloaded there; each car skips the stops that aren't its own (Freight Car
-  Control).
+- **Pull or push** (Mods menu, **Push from suppliers**, off by default): pull builds each trip around a consumer that
+  will run short; push starts each trip from a supplier with full cars, which go to any consumers with room.
+- **Several consumers (pull) or suppliers (push) per trip** (Mods menu, off by default): the cars a trip leaves unused
+  may serve a second consumer (or, pushing, be filled at a second supplier); each car skips the stops that aren't its
+  own (Freight Car Control).
+- **Backhaul:** after its last stop a train may pick up close by and deliver that too, so it doesn't run back empty.
+- **Top off:** at a supplier that fills cars fast, a train waits for its cars to fill (up to **Pickup: longest wait**)
+  when the extra cargo is worth the wait.
+- **Bottleneck inputs first:** an input whose factory makes what starved consumers elsewhere wait for counts more, so
+  the item gating a chain gets its train first.
 - **Fit:** train length, the order of the cars and the order of the platforms are checked for every trip. Push-pull
   trains, with a locomotive at each end, are handled both ways round.
 
@@ -85,7 +92,8 @@ them (see below).
   across junctions. Switch **Trains leave stations at once** off for the old behaviour: deliveries and pickups wait
   up to their longest wait, and a train whose next station is busy waits in its station.
 - **Trains with nothing to move park** at the nearest free **Depot Signal** whose siding fits them, else at a station
-  with no work, never on a through line (a station other trains drive through), and leave as soon as they get a trip. With Auto Trains (1.4.15 or later), Auto Trains drives them there;
+  with no work, never on a through line (a station other trains drive through), nearest a supplier that will soon have
+  work, and leave as soon as they get a trip. With Auto Trains (1.4.15 or later), Auto Trains drives them there;
   without it they drive along your signals and stop at the depot signal, which shows red while a train parks there.
   - **Depot Signal** (unlocked with the Block Signal, next to it in the build menu): marks a parking spot. Put it at
     the exit of a passing siding; the spot runs back to the siding's switch. Without Auto Trains, also put a signal

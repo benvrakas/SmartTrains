@@ -560,11 +560,28 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   (2026-11-16): stock levels follow the theoretical rate from the belt scan, not what the factory happens to use.
   `AnalyzeFactory` now shares a platform's belt throughput out over its items (a platform with no item set counted its
   belts in full for every item its machines take, doubling a two-input factory's inputs).
-- **Several consumers per trip (0.35.0, setting `SeveralConsumers`)**: after the best one-consumer trip is found, cars
-  it leaves empty and unused get the demand items beside them at each other consumer (`MakeCarItems` without the
-  pattern); the trip is improved with moves to both stations (`SetOnlyStations`) and kept if it scores higher. The
-  job keeps the second consumer (`FSTJob::SecondStation`) and every car's items (`CarItems`) so re-plans add moves to
-  both. Cars skip the stops that aren't theirs (Freight Car Control).
+- **Push (0.35.0, setting `Push`)**: an empty train tries one trip per supplier station (`GetSupplierStations`): its
+  cars get the supply items of the loading platforms beside them (`MakeSupplyCarItems`), and `Improve` adds moves from
+  that supplier only (`SetOnlyFrom`) to any consumer with room (the "falls below target within the hour" filter is
+  off), with the send-at batch at 100 % (full cars). A train holding cargo delivers it as in pull. Asked for by the user
+  (2026-11-16) as a toggle beside pull.
+- **Several per trip (0.35.0, setting `SeveralPerTrip`)**: after the best trip is found, cars it leaves empty and unused
+  get the items beside them at each other consumer (pull: `MakeCarItems` without the pattern) or supplier (push:
+  `MakeSupplyCarItems`); the trip is improved with moves to (from) both stations and kept if it scores higher. Cars skip
+  the stops that aren't theirs (Freight Car Control).
+- **Backhaul (0.35.0)**: after the best trip, `Improve` from its last stop on (`FirstMovable`) with moves from
+  suppliers within `BackhaulSeconds` (2 minutes) of that stop; kept if the trip scores higher.
+- **The job remembers the trip's shape**: `FSTJob::OtherStations` (second station, backhaul stops), `bPushTrip` and
+  `CarItems` (each car's planned items plus what it loads), so re-plans restrict moves to (pull) or from (push) the same
+  stations with the same car items.
+- **Top off (0.35.0)**: `MakeLegs` sets `FSTJobLeg::TopOffSeconds` for a pickup (not partial) when its supplier fills
+  more than `TrainSecondCost / LoadValue` car loads a second: the time to fill the cars' rest, at most
+  `LoadWaitSeconds`. `MakeRules` writes it as "fully load" for that long.
+- **Gating inputs (0.35.0)**: `LinkSupplyChain` multiplies a demand node's `CostScale` by 1 + the number of starved
+  consumers of what its machines make (`Gates`, at most `GatingCostScaleMax` 4).
+- **Staging (0.35.0)**: each round `mStagingStations` lists suppliers whose stock reaches a send-at batch within
+  `StagingSeconds` (10 minutes) of an item some consumer falls below target of within the horizon.
+  `FindParkingStation` ranks off-through, quiet, then nearest to a staging supplier, then nearest to the train.
 - **Full docks (0.34.7)**: every car load delivered to a platform that wants the item adds `LoadValue` (2 car-load
   minutes, by how full the car is), on top of the shortage it prevents. Docking takes the same time however much a
   train moves, so the planner fills cars and adds a pickup for a factory's other platforms when the stop pays for

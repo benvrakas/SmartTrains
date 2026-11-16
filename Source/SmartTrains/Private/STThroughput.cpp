@@ -365,6 +365,12 @@ FSTMonitorView FSTThroughput::MakeView(const ASTSubsystem& Subsystem) const
 				View.Summary.Add(FString::Printf(TEXT("Supply chain: %s at %s waits on %s there (starved), so deliveries of it count less until that arrives."),
 					*STNames::Item(Node.Item), *STLayout::Name(Node.Station.Get()), *STNames::Item(Node.WaitsOn)));
 			}
+			if (Node.Gates > 0 && Shown++ < 6)
+			{
+				View.Summary.Add(FString::Printf(TEXT("Supply chain: %s at %s makes %s there, which %d starved consumer%s wait for, so deliveries of it count %.0f times as much."),
+					*STNames::Item(Node.Item), *STLayout::Name(Node.Station.Get()), *STNames::Item(Node.GatesItem), Node.Gates, Node.Gates == 1 ? TEXT("") : TEXT("s"),
+					Node.CostScale));
+			}
 		}
 	}
 	View.Summary.Add(Subsystem.IsFccAvailable() ? TEXT("Freight Car Control: on (cars can skip stops).")

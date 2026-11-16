@@ -39,6 +39,9 @@ namespace
 	constexpr double AutoTargetLeadSeconds = 300.0;
 	// A demand station's factory is scanned again for its most use (StepFactoryScan) after this long. [s]
 	constexpr double FactoryScanSeconds = 1800.0;
+	// A supplier whose stock reaches a batch within this long, of an item some consumer will run short of within the
+	// forecast horizon, has work coming: idle trains park near it. [s]
+	constexpr double StagingSeconds = 600.0;
 
 	// What one written stop is: station, rules and the cars that skip it.
 	FString StopKey(const FTimeTableStop& Stop, const TArray<TObjectPtr<AFGRailroadVehicle>>& SkipCars)
@@ -78,6 +81,9 @@ namespace
 	// A consumer whose machines wait on another starved item counts its shortfall this much (Docs/Architecture.md,
 	// "Supply chain").
 	constexpr double WaitingCostScale = 0.25;
+	// A consumer whose machines make what starved consumers elsewhere wait for counts once more per such consumer, up to
+	// this many times.
+	constexpr double GatingCostScaleMax = 4.0;
 
 	// What Machines' recipes make (bProducts) or use of Item per second at their clock speed. [/s]
 	double GetRecipeRate(const TArray<TWeakObjectPtr<const AActor>>& Machines, UClass* Item, bool bProducts)
@@ -197,7 +203,12 @@ namespace
 		{
 			bFluidDeliveryOnly &= STNames::IsFluid(Item);
 		}
-		if (Settings.bLeaveAtOnce || !Leg.HasWork() || Leg.bPartial || bFluidDeliveryOnly)
+		if (Leg.TopOffSeconds > 0.f && !Leg.bPartial)
+		{
+			Rules.DockingDefinition = ETrainDockingDefinition::TDD_FullyLoadUnload;
+			Rules.DockForDuration = Leg.TopOffSeconds;
+		}
+		else if (Settings.bLeaveAtOnce || !Leg.HasWork() || Leg.bPartial || bFluidDeliveryOnly)
 		{
 			Rules.DockingDefinition = ETrainDockingDefinition::TDD_LoadUnloadOnce;
 			Rules.DockForDuration = 0.f;
@@ -394,6 +405,41 @@ void ASTSubsystem::LinkSupplyChain(TArray<FSTNode>& Nodes)
 				Node.WaitsOn = Other.Item;
 				break;
 			}
+		}
+	}
+	// A consumer whose machines make what starved consumers elsewhere wait for gates them: its shortfall counts once more
+	// for each (IB 2026-11-15: Iron Plate for Nitric Acid sat empty while Nitric Acid's consumers starved).
+	for (FSTNode& Node : Nodes)
+	{
+		if (Node.Role != ESTRole::Demand || Node.bAnyItem || !Node.Item || Node.Machines.Num() == 0)
+		{
+			continue;
+		}
+		TSet<UClass*> Products;
+		for (const FSTNode& Supplier : Nodes)
+		{
+			if (Supplier.Role == ESTRole::Supply && Supplier.Item && Supplier.Item != Node.Item
+				&& Supplier.Machines.ContainsByPredicate([&](const TWeakObjectPtr<const AActor>& Machine) { return Node.Machines.Contains(Machine); }))
+			{
+				Products.Add(Supplier.Item.Get());
+			}
+		}
+		for (UClass* Product : Products)
+		{
+			int32 Starved = 0;
+			for (const FSTNode& Consumer : Nodes)
+			{
+				Starved += Consumer.Role == ESTRole::Demand && !Consumer.bAnyItem && Consumer.Item.Get() == Product && Consumer.bStarved ? 1 : 0;
+			}
+			if (Starved > Node.Gates)
+			{
+				Node.Gates = Starved;
+				Node.GatesItem = Product;
+			}
+		}
+		if (Node.Gates > 0)
+		{
+			Node.CostScale *= FMath::Min(1.0 + Node.Gates, GatingCostScaleMax);
 		}
 	}
 }
@@ -993,6 +1039,32 @@ void ASTSubsystem::DispatchRound()
 				mWorkStations.Add(Node.Station.Get());
 			}
 		}
+		// Staging: where the next pickups will be.
+		TSet<UClass*> Short;
+		for (const FSTNode& Node : Nodes)
+		{
+			if (Node.Role == ESTRole::Demand && !Node.bAnyItem && Node.Item
+				&& STForecast::Deadline(Node, Node.Planned, Time, STLayout::GetCarCapacity(nullptr, Node.Item)) < Time + STForecast::HorizonSeconds)
+			{
+				Short.Add(Node.Item.Get());
+			}
+		}
+		mStagingStations.Reset();
+		for (const FSTNode& Node : Nodes)
+		{
+			if (Node.Role != ESTRole::Supply || !Node.Item || !Short.Contains(Node.Item.Get()) || !Node.Station.IsValid())
+			{
+				continue;
+			}
+			const double Car = STLayout::GetCarCapacity(nullptr, Node.Item);
+			const double Batch = Car * STNames::SendAtPercent(Node.SendAtPercent) / 100.0;
+			const double Missing = FMath::Max(0.0, Batch - (Node.Stock - Node.Reserved));
+			const double Rate = STForecast::GetRate(Node, Car);
+			if (Missing <= 0.0 || (Rate > 0.0 && Missing / Rate <= StagingSeconds))
+			{
+				mStagingStations.AddUnique(Node.Station.Get());
+			}
+		}
 	}
 	// Which stations count as dead ends (a parked train holds one for DeadEndHoldSeconds) and which lie on through lines,
 	// logged when the lists change.
@@ -1362,8 +1434,7 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	Planner.SetSinksForCargo(false);
 	TArray<TArray<UClass*>> Allowed;
 	int32 Mismatched = 0;
-	AFGTrainStationIdentifier* Second = State.Job.SecondStation.Get();
-	if (Anchor && Second && State.Job.CarItems.Num() == Planner.GetCarCount())
+	if (Anchor && State.Job.CarItems.Num() == Planner.GetCarCount())
 	{
 		for (const FSTCarItems& Car : State.Job.CarItems)
 		{
@@ -1416,18 +1487,26 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	const TArray<FSTPlanStop> Kept = Stops;
 	const FSTPlanResult KeptResult = bKeptWorks ? Planner.Simulate(Stops) : FSTPlanResult();
 	// A trip built around its consumers only adds deliveries there; cargo for elsewhere waits for the next trip.
-	TArray<const AFGTrainStationIdentifier*> Consumers;
+	TArray<const AFGTrainStationIdentifier*> Around;
 	if (Anchor)
 	{
-		Consumers.Add(Anchor);
+		Around.Add(Anchor);
+		for (const TObjectPtr<AFGTrainStationIdentifier>& Other : State.Job.OtherStations)
+		{
+			Around.AddUnique(Other.Get());
+		}
 	}
-	if (Anchor && Second)
+	if (State.Job.bPushTrip)
 	{
-		Consumers.Add(Second);
+		Planner.SetOnlyFrom(Around);
 	}
-	Planner.SetOnlyStations(Consumers);
+	else
+	{
+		Planner.SetOnlyStations(Around);
+	}
 	Result = Planner.Improve(Stops, 0);
 	Planner.SetOnlyStations({});
+	Planner.SetOnlyFrom({});
 	FSTTripPlanner::Trim(Stops, Result, 0);
 	Result = Planner.Simulate(Stops);
 	// Stability: additions to a trip that still works must beat it by the re-plan threshold.
@@ -1628,18 +1707,32 @@ AFGTrainStationIdentifier* ASTSubsystem::FindParkingStation(const FSTTrainState&
 	TArray<AFGTrainStationIdentifier*> Stations;
 	Railroad->GetAllTrainStations(Stations);
 	AFGTrainStationIdentifier* Best = nullptr;
-	TTuple<bool, bool, float> BestKey(false, false, -TNumericLimits<float>::Max());
+	TTuple<bool, bool, float, float> BestKey(false, false, -TNumericLimits<float>::Max(), -TNumericLimits<float>::Max());
+	const bool bPushPull = IsPushPull(State.Train);
 	for (AFGTrainStationIdentifier* Candidate : Stations)
 	{
 		if (!Candidate || Candidate == From || Needed.Contains(Candidate) || Skip.Contains(Candidate) || IsStationBlocked(Candidate) || !CanServe(State, Candidate))
 		{
 			continue;
 		}
-		const float Time = Candidate == Origin ? 0.f : EstimateTravelSeconds(Origin, Candidate, IsPushPull(State.Train));
-		// A station off the through lines beats one on them, then a station no train has work at, then the nearest.
+		const float Time = Candidate == Origin ? 0.f : EstimateTravelSeconds(Origin, Candidate, bPushPull);
+		// Staging: how soon a train parked there reaches a supplier with work coming (0 while none has).
+		float Staged = 0.f;
+		bool bAnyStaging = false;
+		for (const TWeakObjectPtr<const AFGTrainStationIdentifier>& Supplier : mStagingStations)
+		{
+			const float To = !Supplier.IsValid() ? -1.f : (Supplier.Get() == Candidate ? 0.f : EstimateTravelSeconds(Candidate, Supplier.Get(), bPushPull));
+			if (To >= 0.f && (!bAnyStaging || To < Staged))
+			{
+				Staged = To;
+				bAnyStaging = true;
+			}
+		}
+		// A station off the through lines beats one on them, then a station no train has work at, then the one nearest a
+		// supplier with work coming, then the nearest.
 		const bool bOff = !IsThroughStation(Candidate);
 		const bool bQuiet = !mWorkStations.Contains(Candidate);
-		const TTuple<bool, bool, float> Key(bOff, bQuiet, -Time);
+		const TTuple<bool, bool, float, float> Key(bOff, bQuiet, -Staged, -Time);
 		if (Time >= 0.f && (!Best || BestKey < Key))
 		{
 			BestKey = Key;
@@ -1658,7 +1751,8 @@ bool ASTSubsystem::IsConsumerServed(const AFGTrainStationIdentifier* Station) co
 	}
 	return mTrains.ContainsByPredicate([Station](const FSTTrainState& Each)
 	{
-		return Each.bManaged && Each.bHasJob && (Each.Job.AnchorStation.Get() == Station || Each.Job.SecondStation.Get() == Station);
+		return Each.bManaged && Each.bHasJob && (Each.Job.AnchorStation.Get() == Station
+			|| Each.Job.OtherStations.ContainsByPredicate([Station](const TObjectPtr<AFGTrainStationIdentifier>& Other) { return Other.Get() == Station; }));
 	});
 }
 

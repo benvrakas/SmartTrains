@@ -100,6 +100,13 @@ public:
 	FSTPlanResult Improve(TArray<FSTPlanStop>& InOutStops, int32 FirstMovable) const;
 	// While set, Improve only adds moves delivering to these stations (a trip built around its consumers); empty: any.
 	void SetOnlyStations(TArray<const AFGTrainStationIdentifier*> Stations) { mOnlyStations = MoveTemp(Stations); }
+	// While set, Improve only adds moves picking up at these stations (push: a trip built around its suppliers).
+	void SetOnlyFrom(TArray<const AFGTrainStationIdentifier*> Stations) { mOnlyFrom = MoveTemp(Stations); }
+	// The stations the current train's moves pick up at, each once.
+	TArray<const AFGTrainStationIdentifier*> GetSupplierStations() const;
+	// Push: per car, the supply items of the loading platform beside it at Supplier (the same whichever way the train
+	// docks), else none. False if no car stops beside one.
+	bool MakeSupplyCarItems(const AFGTrainStationIdentifier* Supplier, TArray<TArray<UClass*>>& OutAllowed) const;
 	// The stations the current train's moves deliver to, each once.
 	TArray<const AFGTrainStationIdentifier*> GetConsumerStations() const;
 
@@ -257,6 +264,7 @@ private:
 	mutable TSet<const AFGTrainStationIdentifier*> mParkedInWay;
 	bool bFcc = false;
 	TArray<const AFGTrainStationIdentifier*> mOnlyStations;
+	TArray<const AFGTrainStationIdentifier*> mOnlyFrom;
 	// Per car, the items it may load (SetCarItems); empty: no limit.
 	TArray<TArray<UClass*>> mCarAllowed;
 	// Set by SetNoLoads: unloading is worth EmptyLoadValue per car load and EmptyCarValue per car emptied.

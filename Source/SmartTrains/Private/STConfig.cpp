@@ -48,8 +48,10 @@ namespace
 				LOCTEXT("DeadEndDepotsTip", "A depot signal at the entrance of a dead-end siding, facing in, makes it a depot for trains with a locomotive at each end: they drive in and leave backwards. Off: only passing sidings are depots.")},
 			{TEXT("LeaveAtOnce"), &FSTSettings::bLeaveAtOnce, LOCTEXT("LeaveAtOnce", "Trains leave stations at once"),
 				LOCTEXT("LeaveAtOnceTip", "Every stop is load/unload once: a train moves what it can in one transfer and leaves. A train with a trip also starts it at once instead of holding in the station while its next stop is busy or Auto Trains sees no way yet. Off: deliveries and pickups wait up to their longest wait, and trains hold in stations.")},
-			{TEXT("SeveralConsumers"), &FSTSettings::bSeveralConsumers, LOCTEXT("SeveralConsumers", "Several consumers per trip"),
-				LOCTEXT("SeveralConsumersTip", "A train may fill the cars its main consumer leaves unused for a second consumer on the same trip: suppliers fill some cars each, and both consumers unload theirs. Needs Freight Car Control, so cars skip the stops that aren't theirs. Off: every trip serves one consumer station.")},
+			{TEXT("Push"), &FSTSettings::bPush, LOCTEXT("Push", "Push from suppliers"),
+				LOCTEXT("PushTip", "Trips start from a supplier with full cars, which go to any consumers with room for them. Off (pull): trips are built around a consumer that will run short, and pick up what it needs.")},
+			{TEXT("SeveralPerTrip"), &FSTSettings::bSeveralPerTrip, LOCTEXT("SeveralPerTrip", "Several consumers (pull) or suppliers (push) per trip"),
+				LOCTEXT("SeveralPerTripTip", "The cars a trip's consumer (pull) or supplier (push) leaves unused may serve a second one on the same trip: e.g. one supplier fills cars 1 and 2, another cars 3 and 4, and two consumers unload theirs. Needs Freight Car Control, so cars skip the stops that aren't theirs.")},
 			{TEXT("AdminsOnly"), &FSTSettings::bAdminsOnly, LOCTEXT("AdminsOnly", "Only admins change SmartTrains"),
 				LOCTEXT("AdminsOnlyTip", "In multiplayer, only the host (or, on a dedicated server, its admins) can change platform, station and train settings. Server settings, migration, test copies and backups are always admin only. On a dedicated server, an admin's Mods menu changes go to the server; /st set works too.")},
 		};
