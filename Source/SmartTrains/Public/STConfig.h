@@ -23,6 +23,8 @@ struct FSTSettings
 	bool bAdminsOnly = false;
 	// Every stop is load/unload once, and a train with a trip leaves at once instead of holding in the station.
 	bool bLeaveAtOnce = true;
+	// A trip may serve a second consumer with the cars its first one leaves unused.
+	bool bSeveralConsumers = false;
 	// How often jobs are handed out. [s]
 	float DispatchSeconds = 3.f;
 	// How often the flow plan is worked out again. [s]
@@ -72,6 +74,10 @@ public:
 
 	// Fills OutSettings from the registered configuration; returns false, leaving the defaults, if it isn't available.
 	static bool Read(const UObject* WorldContext, FSTSettings& OutSettings);
+
+	// Every setting's key and value as Write takes them ("on"/"off" or a number); false if the configuration isn't
+	// available.
+	static bool ReadValues(const UObject* WorldContext, TMap<FString, FString>& OutValues);
 
 	// "Key=value" for every setting, for the log.
 	static TArray<FString> Describe(const FSTSettings& Settings);

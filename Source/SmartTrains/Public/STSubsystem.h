@@ -545,6 +545,12 @@ private:
 	// Per demand station and item: the time a train needs to bring more, and when it was worked out (ApplyAutoTargets
 	// asks again after AutoTargetLeadSeconds). [s]
 	mutable TMap<TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, TWeakObjectPtr<UClass>>, TPair<double, double>> mLeadTimes;
+	// Per demand station and item: what its factory uses at its most rate, from the belt scan (STSetup::AnalyzeFactory),
+	// this station's share; one station scanned per dispatch round, each again after FactoryScanSeconds. [/s]
+	TMap<TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, TWeakObjectPtr<UClass>>, double> mFactoryUse;
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mFactoryScannedAt;
+	// Scans the factory of the demand station in Nodes scanned longest ago (mFactoryUse).
+	void StepFactoryScan(const TArray<FSTNode>& Nodes);
 
 	// Fleet advice per item from the last flow plan.
 	struct FAdvice

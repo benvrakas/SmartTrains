@@ -1269,9 +1269,9 @@ bool FSTGatherMixedFactoryTest::RunTest(const FString& Parameters)
 	};
 	TestTrue(TEXT("the factory is a consumer the train can deliver to"), Planner.GetConsumerStations().Contains(Factory));
 	TArray<FSTPlanStop> Stops;
-	Planner.SetOnlyStation(Factory);
+	Planner.SetOnlyStations({Factory});
 	FSTPlanResult Result = Planner.Improve(Stops, 0);
-	Planner.SetOnlyStation(nullptr);
+	Planner.SetOnlyStations({});
 	FSTTripPlanner::Trim(Stops, Result, 0);
 	Result = Planner.Simulate(Stops);
 	if (TestTrue(FString::Printf(TEXT("a trip for the factory is found (%s)"), *Result.Problem), Result.bValid && Stops.Num() > 0))

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.35.0 (beta)
+
+- **Platform targets from the factory's own rate.** How much a demand platform keeps in stock now comes from what its
+  factory uses at its most, found the same way as the rate in station names: its machines, limited by the narrowest
+  belt from the unloading platforms. Measured use and the raw count of machines no longer decide it. Each consumer
+  station's factory is scanned again every 30 minutes, one station at a time.
+- **Fixed: station rates counted belts twice.** A platform without its item set yet counted all its belts for every item
+  its machines take, so a factory's inputs looked twice as fast as they are and an output station's rate came out as if
+  every machine could run (IB: a Heat Sink factory named for 1,080/min that its belts limit to 1,040/min). Its belts
+  now share out over its items. Rename the station again to update a rate in its name.
+- **New setting: Several consumers per trip** (off by default). A train may fill the cars its main consumer leaves
+  unused for a second consumer on the same trip: one supplier fills cars 1 and 2, another cars 3 and 4, and two
+  consumers each unload theirs. Needs Freight Car Control.
+- **Settings from the Mods menu reach a dedicated server.** An admin who changes a SmartTrains setting in their Mods menu
+  now changes it on the server too (other players are told only admins can). `/st set` still works.
+
 ## 0.34.7 (beta)
 
 - **Fuller trains.** Every car load delivered now counts, not only the shortage it prevents, so trips fill their cars

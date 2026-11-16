@@ -639,7 +639,7 @@ STMigration::FStationProposal STSetup::ProposeStation(const ASTSubsystem& Subsys
 
 //~ Factory
 
-STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const STMigration::FStationProposal& Proposal)
+STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const STMigration::FStationProposal& Proposal, bool bQuiet)
 {
 	FFactory Factory;
 	auto GroupsOf = [](const TArray<const AActor*>& Machines)
@@ -845,10 +845,12 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 			continue;
 		}
 		const AFGTrainStationIdentifier* Station = STLayout::GetIdentifier(STLayout::FindStation(const_cast<AFGBuildableTrainPlatformCargo*>(Cargo)));
+		// A platform's belts carry all its items together: each gets its share, not the whole.
+		const double Share = Items.Num() > 0 ? PerMinute / Items.Num() : 0.0;
 		for (UClass* Item : Items)
 		{
-			Caps.FindOrAdd(Item) += PerMinute;
-			OwnCaps.FindOrAdd(Item) += Own ? PerMinute : 0.0;
+			Caps.FindOrAdd(Item) += Share;
+			OwnCaps.FindOrAdd(Item) += Own ? Share : 0.0;
 			FString& Where = CapText.FindOrAdd(Item);
 			Where += FString::Printf(TEXT("%s%s out of %s"), Where.IsEmpty() ? TEXT("") : TEXT(" + "), *Text, *STLayout::Name(Station));
 			CapSources.FindOrAdd(Item).Add(Cargo);
@@ -878,8 +880,11 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 			}
 		}
 		const STTrace::FBeltCapacity Belts = STTrace::BeltCapacity(CapSources.FindRef(Cap.Key), Users, SetupScanDepth(Subsystem));
-		UE_LOG(LogSmartTrains, Log, TEXT("SETUP belts for %s: %.1f/min out of platforms, %.1f/min to %d machines (narrowest: %s)%s"), *STNames::Item(Cap.Key), Cap.Value,
-			Belts.PerMinute, Users.Num(), Belts.Cut.IsEmpty() ? TEXT("none") : *Belts.Cut, Belts.bCut ? TEXT(", scan stopped at the scan depth") : TEXT(""));
+		if (!bQuiet)
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("SETUP belts for %s: %.1f/min out of platforms, %.1f/min to %d machines (narrowest: %s)%s"), *STNames::Item(Cap.Key), Cap.Value,
+				Belts.PerMinute, Users.Num(), Belts.Cut.IsEmpty() ? TEXT("none") : *Belts.Cut, Belts.bCut ? TEXT(", scan stopped at the scan depth") : TEXT(""));
+		}
 		if (Belts.bCut)
 		{
 			Factory.Notes.Add(FString::Printf(TEXT("the belts carrying %s are larger than the scan depth (%d buildings and belts); raise it in the mod settings"),
@@ -1133,6 +1138,15 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 			Factory.InputRate = Used;
 			Factory.InputLimit = FString::Printf(TEXT("what the factory uses at its most (%s/min of %s, limited by %s)"), *STSetup::FormatRate(Rate),
 				*STNames::Item(Product), *Factory.Limit);
+		}
+	}
+	for (const TPair<UClass*, double>& Own : OwnCaps)
+	{
+		const double Total = Caps.FindRef(Own.Key);
+		const double Used = ImportedAtRate.FindRef(Own.Key) * (Total > 0.0 ? Own.Value / Total : 1.0);
+		if (Used > 0.0)
+		{
+			Factory.InputRates.Add(Own.Key, Used);
 		}
 	}
 	for (UClass* Item : External)

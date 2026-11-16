@@ -19,7 +19,8 @@ them (see below).
     consumer of it, and production nobody on the network uses.
   - **Off:** vanilla.
   - Each demand item is kept stocked automatically: enough to last until a train can bring more, from how fast the
-    factory uses it and how far its nearest supplier is (or a fixed share you set).
+    factory can use it at its most (its machines, limited by its narrowest belt, as in station names) and how far its
+    nearest supplier is (or a fixed share you set).
   - Each item gets a target and a priority (demand), or a **Least per visit** (supply, 50 % by default): a train
     only picks up there when it can load at least that share of what its cars there carry.
   - **Copy**, **Paste** and **Copy to the station's other platforms** carry every setting of the platform. Copy and
@@ -68,6 +69,9 @@ them (see below).
 - **Each trip** loads only what it delivers, and as much of it as the platforms take: a docking takes as long however
   much a train moves, so a fuller train counts for more, and a trip picks up for a factory's other platforms when the
   extra stop pays.
+- **Several consumers per trip** (Mods menu, off by default): the cars a trip's consumer leaves unused may carry for a
+  second consumer, picked up on the way and unloaded there; each car skips the stops that aren't its own (Freight Car
+  Control).
 - **Fit:** train length, the order of the cars and the order of the platforms are checked for every trip. Push-pull
   trains, with a locomotive at each end, are handled both ways round.
 
@@ -164,8 +168,8 @@ signalled network, above all on single track.
 All settings live on the host. Every player's menus show the host's state, and edits are logged with the player's
 name.
 
-- **Server settings in game:** on a dedicated server, admins change the settings with `/st settings` and
-  `/st set <setting> <value>`. Your own Mods menu doesn't reach the server.
+- **Server settings in game:** on a dedicated server, an admin's changes in their own Mods menu go to the server.
+  `/st settings` lists the server's settings and `/st set <setting> <value>` changes one.
 - **Always admin only:** settings, migration apply and undo, test copies and backups. An admin is the host, or a
   player signed in with the server's admin password.
 - **Optional:** with **Only admins change SmartTrains** on, only admins can change platforms, stations and trains.

@@ -27,6 +27,9 @@ namespace STSetup
 		TSubclassOf<UFGItemDescriptor> InputItem;
 		double InputRate = 0.0;
 		FString InputLimit;
+		// Every item this station unloads: how much of it the factory uses at its most rate, this station's share
+		// (/min, m³ for fluids). Empty when the factory makes nothing measurable.
+		TMap<TSubclassOf<UFGItemDescriptor>, double> InputRates;
 		int32 Machines = 0;
 		TArray<FString> Notes;
 	};
@@ -40,7 +43,8 @@ namespace STSetup
 
 	// The factory behind a proposed station: machines reached through its platforms and on through machines (flood
 	// fills), until other train platforms.
-	FFactory AnalyzeFactory(const ASTSubsystem& Subsystem, const STMigration::FStationProposal& Proposal);
+	// bQuiet: no SETUP belt lines in the log (background scans for automatic targets).
+	FFactory AnalyzeFactory(const ASTSubsystem& Subsystem, const STMigration::FStationProposal& Proposal, bool bQuiet = false);
 
 	// Sets Proposal's platforms (and with bRename the station's name), recording what was there in Undo if given.
 	// Kept platforms are left alone; platforms already set the same keep their settings (only their machines are kept

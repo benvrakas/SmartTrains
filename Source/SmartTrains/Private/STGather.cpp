@@ -215,9 +215,9 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 				TArray<FSTPlanStop> Stops;
 				const TArray<TArray<UClass*>> ThisAllowed = Allowed;
 				Planner.SetCarItems(MoveTemp(Allowed));
-				Planner.SetOnlyStation(Consumer);
+				Planner.SetOnlyStations({Consumer});
 				FSTPlanResult Result = Planner.Improve(Stops, 0);
-				Planner.SetOnlyStation(nullptr);
+				Planner.SetOnlyStations({});
 				FSTTripPlanner::Trim(Stops, Result, 0);
 				Result = Planner.Simulate(Stops);
 				Planner.SetCarItems({});
@@ -244,6 +244,79 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		{
 			TryConsumers(false);
 		}
+		// Several consumers per trip: the cars the best trip leaves empty and unused may serve a second consumer, with
+		// pickups of their own (Docs/Architecture.md, "Several consumers per trip").
+		AFGTrainStationIdentifier* SecondConsumer = nullptr;
+		if (BestConsumer && mSettings.bSeveralConsumers && !Planner.IsOverBudget())
+		{
+			TArray<bool> Free;
+			int32 FreeCars = 0;
+			for (int32 CarIndex = 0; CarIndex < Planner.GetCarCount(); ++CarIndex)
+			{
+				bool bUsed = Planner.GetCarCargo(CarIndex).Num() > 0;
+				for (const TArray<FSTPlanCarStep>& Step : BestResult.Steps)
+				{
+					bUsed |= Step.IsValidIndex(CarIndex) && (Step[CarIndex].Loaded.Num() > 0 || Step[CarIndex].Unloaded.Num() > 0);
+				}
+				Free.Add(!bUsed);
+				FreeCars += bUsed ? 0 : 1;
+			}
+			TArray<FSTPlanStop> PairStops;
+			FSTPlanResult PairResult;
+			TArray<TArray<UClass*>> PairAllowed;
+			for (const AFGTrainStationIdentifier* Consumer : FreeCars > 0 ? Planner.GetConsumerStations() : TArray<const AFGTrainStationIdentifier*>())
+			{
+				if (Consumer == BestConsumer || IsStationBlocked(Consumer) || Planner.IsOverBudget())
+				{
+					continue;
+				}
+				TArray<TArray<UClass*>> Theirs;
+				int32 Mismatched = 0;
+				if (!Planner.MakeCarItems(Consumer, {}, true, Theirs, Mismatched))
+				{
+					continue;
+				}
+				TArray<TArray<UClass*>> Merged = BestAllowed;
+				bool bAny = false;
+				for (int32 CarIndex = 0; CarIndex < Merged.Num() && CarIndex < Theirs.Num(); ++CarIndex)
+				{
+					if (Free[CarIndex] && Theirs[CarIndex].Num() > 0)
+					{
+						Merged[CarIndex] = Theirs[CarIndex];
+						bAny = true;
+					}
+				}
+				if (!bAny)
+				{
+					continue;
+				}
+				TArray<FSTPlanStop> Stops = BestStops;
+				Planner.SetCarItems(TArray<TArray<UClass*>>(Merged));
+				Planner.SetOnlyStations({BestConsumer, Consumer});
+				FSTPlanResult Result = Planner.Improve(Stops, 0);
+				Planner.SetOnlyStations({});
+				FSTTripPlanner::Trim(Stops, Result, 0);
+				Result = Planner.Simulate(Stops);
+				Planner.SetCarItems({});
+				const bool bDelivers = Stops.ContainsByPredicate([Consumer](const FSTPlanStop& Stop) { return Stop.Station == Consumer && Stop.UnloadItems.Num() > 0; });
+				const double Beat = PairStops.Num() > 0 ? PairResult.Score : BestResult.Score;
+				if (Result.bValid && bDelivers && Result.Score > Beat * 1.0001 + 1e-6)
+				{
+					PairStops = MoveTemp(Stops);
+					PairResult = MoveTemp(Result);
+					PairAllowed = MoveTemp(Merged);
+					SecondConsumer = const_cast<AFGTrainStationIdentifier*>(Consumer);
+				}
+			}
+			if (SecondConsumer)
+			{
+				UE_LOG(LogSmartTrains, Log, TEXT("GATHER %s: %d free cars also serve %s (score %.4f -> %.4f)"), *STLayout::Name(State.Train), FreeCars,
+					*STLayout::Name(SecondConsumer), BestResult.Score, PairResult.Score);
+				BestStops = MoveTemp(PairStops);
+				BestResult = MoveTemp(PairResult);
+				BestAllowed = MoveTemp(PairAllowed);
+			}
+		}
 		if (BestConsumer)
 		{
 			++Planned;
@@ -264,6 +337,18 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 					*STLayout::Name(BestConsumer), bUnservedChosen ? TEXT("; it had no train") : TEXT(""));
 			}
 			CommitTrip(State, Planner, BestStops, BestResult, true, MostUnloaded(BestResult), BestConsumer);
+			if (SecondConsumer && State.bHasJob)
+			{
+				State.Job.SecondStation = SecondConsumer;
+				for (const TArray<UClass*>& Items : BestAllowed)
+				{
+					FSTCarItems& Car = State.Job.CarItems.AddDefaulted_GetRef();
+					for (UClass* Item : Items)
+					{
+						Car.Items.Add(Item);
+					}
+				}
+			}
 			continue;
 		}
 		// Holding cargo with no trip in its pattern: it only delivers what it holds (to consumers of it; to a Sink

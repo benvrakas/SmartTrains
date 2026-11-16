@@ -553,6 +553,18 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   and fairness weights: a delivery that ends a shortfall sooner is worth more, one to a platform that stays above its
   target within the hour is worth nothing. Moves only go to consumers that fall below target within the hour
   (`Deadline`). Trips still score value / time; the send-at batch rule stays.
+- **Targets from the belt scan (0.35.0)**: `StepFactoryScan` (each dispatch round) runs `STSetup::AnalyzeFactory`
+  quietly for the demand station scanned longest ago, each again after `FactoryScanSeconds` (30 minutes), and keeps per
+  station and item what the factory imports at its most rate, this station's share (`FFactory::InputRates`,
+  `mFactoryUse`). `ApplyAutoTargets` uses it first, then the machines' recipes, then measured use. The user's rule
+  (2026-11-16): stock levels follow the theoretical rate from the belt scan, not what the factory happens to use.
+  `AnalyzeFactory` now shares a platform's belt throughput out over its items (a platform with no item set counted its
+  belts in full for every item its machines take, doubling a two-input factory's inputs).
+- **Several consumers per trip (0.35.0, setting `SeveralConsumers`)**: after the best one-consumer trip is found, cars
+  it leaves empty and unused get the demand items beside them at each other consumer (`MakeCarItems` without the
+  pattern); the trip is improved with moves to both stations (`SetOnlyStations`) and kept if it scores higher. The
+  job keeps the second consumer (`FSTJob::SecondStation`) and every car's items (`CarItems`) so re-plans add moves to
+  both. Cars skip the stops that aren't theirs (Freight Car Control).
 - **Full docks (0.34.7)**: every car load delivered to a platform that wants the item adds `LoadValue` (2 car-load
   minutes, by how full the car is), on top of the shortage it prevents. Docking takes the same time however much a
   train moves, so the planner fills cars and adds a pickup for a factory's other platforms when the stop pays for

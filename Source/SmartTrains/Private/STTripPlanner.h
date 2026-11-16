@@ -98,8 +98,8 @@ public:
 
 	// Adds moves by regret insertion while the trip's score rises; returns the final result.
 	FSTPlanResult Improve(TArray<FSTPlanStop>& InOutStops, int32 FirstMovable) const;
-	// While set, Improve only adds moves delivering to Station (a trip built around one consumer); null: any move.
-	void SetOnlyStation(const AFGTrainStationIdentifier* Station) { mOnlyStation = Station; }
+	// While set, Improve only adds moves delivering to these stations (a trip built around its consumers); empty: any.
+	void SetOnlyStations(TArray<const AFGTrainStationIdentifier*> Stations) { mOnlyStations = MoveTemp(Stations); }
 	// The stations the current train's moves deliver to, each once.
 	TArray<const AFGTrainStationIdentifier*> GetConsumerStations() const;
 
@@ -256,7 +256,7 @@ private:
 	mutable TMap<FString, int32> mProblems;
 	mutable TSet<const AFGTrainStationIdentifier*> mParkedInWay;
 	bool bFcc = false;
-	const AFGTrainStationIdentifier* mOnlyStation = nullptr;
+	TArray<const AFGTrainStationIdentifier*> mOnlyStations;
 	// Per car, the items it may load (SetCarItems); empty: no limit.
 	TArray<TArray<UClass*>> mCarAllowed;
 	// Set by SetNoLoads: unloading is worth EmptyLoadValue per car load and EmptyCarValue per car emptied.

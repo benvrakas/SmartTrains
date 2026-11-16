@@ -6,6 +6,7 @@
 #include "SmartTrains.h"
 #include "TimerManager.h"
 #include "STChatCommand.h"
+#include "STClientSettingsSubsystem.h"
 #include "STClipboardHooks.h"
 #include "STConfig.h"
 #include "STDepotSignal.h"
@@ -47,6 +48,7 @@ USTGameWorldModule::USTGameWorldModule()
 {
 	bRootModule = true;
 	ModSubsystems.Add(ASTSubsystem::StaticClass());
+	ModSubsystems.Add(ASTClientSettingsSubsystem::StaticClass());
 	mChatCommands.Add(ASTChatCommand::StaticClass());
 }
 

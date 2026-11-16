@@ -26,6 +26,7 @@
 #include "STTripPlanner.h"
 #include "STForecast.h"
 #include "STSubsystem.h"
+#include "STStationSetup.h"
 
 namespace
 {
@@ -36,6 +37,8 @@ namespace
 	constexpr float AutoTargetMaxPercent = 90.f;
 	constexpr float AutoTargetFallbackPercent = 50.f;
 	constexpr double AutoTargetLeadSeconds = 300.0;
+	// A demand station's factory is scanned again for its most use (StepFactoryScan) after this long. [s]
+	constexpr double FactoryScanSeconds = 1800.0;
 
 	// What one written stop is: station, rules and the cars that skip it.
 	FString StopKey(const FTimeTableStop& Stop, const TArray<TObjectPtr<AFGRailroadVehicle>>& SkipCars)
@@ -446,9 +449,11 @@ void ASTSubsystem::ApplyAutoTargets(TArray<FSTNode>& Nodes) const
 		{
 			continue;
 		}
-		// Its machines' recipes when known: a factory held up by another input uses none of this one, and its measured use
-		// would leave this input at the minimum target just before the factory starts again. Else what it measured.
-		const double Use = Node.RecipeRate > 0.0 ? FMath::Max(Node.Rate, Node.RecipeRate) : GetDemandRate(Node);
+		// What the factory uses at its most from the belt scan (its weakest belt or its machines); else its machines'
+		// recipes; else what it measured. Never the measured use alone while more is known: a factory held up by another
+		// input uses none of this one, which would leave it at the minimum target just before the factory starts again.
+		const double* Theory = mFactoryUse.Find(Key);
+		const double Use = Theory && *Theory > 0.0 ? *Theory : (Node.RecipeRate > 0.0 ? FMath::Max(Node.Rate, Node.RecipeRate) : GetDemandRate(Node));
 		const double Percent = 100.0 * Use * Lead->Key * AutoTargetMargin / Node.Capacity;
 		Node.TargetPercent = FMath::Clamp(static_cast<float>(Percent), AutoTargetMinPercent, AutoTargetMaxPercent);
 	}
@@ -917,10 +922,59 @@ void ASTSubsystem::BuildBookings(const TArray<FSTNode>& Nodes, double Time, TMap
 	}
 }
 
+void ASTSubsystem::StepFactoryScan(const TArray<FSTNode>& Nodes)
+{
+	const double Time = Now();
+	AFGTrainStationIdentifier* Oldest = nullptr;
+	double OldestAt = TNumericLimits<double>::Max();
+	for (const FSTNode& Node : Nodes)
+	{
+		if (Node.Role != ESTRole::Demand || Node.bAnyItem || !Node.Station.IsValid())
+		{
+			continue;
+		}
+		const double* At = mFactoryScannedAt.Find(Node.Station);
+		const double When = At ? *At : -1.0;
+		if (When < OldestAt && (!At || Time - *At > FactoryScanSeconds))
+		{
+			Oldest = Node.Station.Get();
+			OldestAt = When;
+		}
+	}
+	if (!Oldest)
+	{
+		return;
+	}
+	mFactoryScannedAt.Add(Oldest, Time);
+	const double Started = FPlatformTime::Seconds();
+	const STMigration::FStationProposal Proposal = STSetup::ProposeStation(*this, Oldest, nullptr, true, false);
+	const STSetup::FFactory Factory = STSetup::AnalyzeFactory(*this, Proposal, true);
+	TArray<FString> Parts;
+	for (const TPair<TSubclassOf<UFGItemDescriptor>, double>& Each : Factory.InputRates)
+	{
+		const TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, TWeakObjectPtr<UClass>> Key(Oldest, Each.Key.Get());
+		const double PerSecond = Each.Value / 60.0;
+		const double* Before = mFactoryUse.Find(Key);
+		if (!Before || FMath::Abs(*Before - PerSecond) > 1e-3 * FMath::Max(PerSecond, 1.0))
+		{
+			Parts.Add(FString::Printf(TEXT("%s %s/min"), *STNames::Item(Each.Key.Get()), *STSetup::FormatRate(Each.Value)));
+		}
+		mFactoryUse.Add(Key, PerSecond);
+		mLeadTimes.Remove(Key);
+	}
+	if (Parts.Num() > 0)
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("FACTORY %s uses at most %s (%s/min of %s, limited by %s; %.0f ms)"), *STLayout::Name(Oldest), *FString::Join(Parts, TEXT(", ")),
+			*STSetup::FormatRate(Factory.Rate), Factory.Product ? *STNames::Item(Factory.Product.Get()) : TEXT("nothing"), *Factory.Limit,
+			1000.0 * (FPlatformTime::Seconds() - Started));
+	}
+}
+
 void ASTSubsystem::DispatchRound()
 {
 	TArray<FSTNode> Nodes;
 	BuildNodes(Nodes);
+	StepFactoryScan(Nodes);
 	const double Time = Now();
 	{
 		TSet<UClass*> Demanded;
@@ -1308,7 +1362,20 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	Planner.SetSinksForCargo(false);
 	TArray<TArray<UClass*>> Allowed;
 	int32 Mismatched = 0;
-	if (Anchor && Planner.MakeCarItems(Anchor, State.GetPattern(), false, Allowed, Mismatched))
+	AFGTrainStationIdentifier* Second = State.Job.SecondStation.Get();
+	if (Anchor && Second && State.Job.CarItems.Num() == Planner.GetCarCount())
+	{
+		for (const FSTCarItems& Car : State.Job.CarItems)
+		{
+			TArray<UClass*>& Items = Allowed.AddDefaulted_GetRef();
+			for (const TSubclassOf<UFGItemDescriptor>& Item : Car.Items)
+			{
+				Items.Add(Item.Get());
+			}
+		}
+		Planner.SetCarItems(MoveTemp(Allowed));
+	}
+	else if (Anchor && Planner.MakeCarItems(Anchor, State.GetPattern(), false, Allowed, Mismatched))
 	{
 		Planner.SetCarItems(MoveTemp(Allowed));
 	}
@@ -1348,10 +1415,19 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 	const bool bKeptWorks = Result.bValid && Stops.Num() > 0;
 	const TArray<FSTPlanStop> Kept = Stops;
 	const FSTPlanResult KeptResult = bKeptWorks ? Planner.Simulate(Stops) : FSTPlanResult();
-	// A trip built around one consumer only adds deliveries there; cargo for elsewhere waits for the next trip.
-	Planner.SetOnlyStation(State.Job.AnchorStation.Get());
+	// A trip built around its consumers only adds deliveries there; cargo for elsewhere waits for the next trip.
+	TArray<const AFGTrainStationIdentifier*> Consumers;
+	if (Anchor)
+	{
+		Consumers.Add(Anchor);
+	}
+	if (Anchor && Second)
+	{
+		Consumers.Add(Second);
+	}
+	Planner.SetOnlyStations(Consumers);
 	Result = Planner.Improve(Stops, 0);
-	Planner.SetOnlyStation(nullptr);
+	Planner.SetOnlyStations({});
 	FSTTripPlanner::Trim(Stops, Result, 0);
 	Result = Planner.Simulate(Stops);
 	// Stability: additions to a trip that still works must beat it by the re-plan threshold.
@@ -1580,7 +1656,10 @@ bool ASTSubsystem::IsConsumerServed(const AFGTrainStationIdentifier* Station) co
 	{
 		return true;
 	}
-	return mTrains.ContainsByPredicate([Station](const FSTTrainState& Each) { return Each.bManaged && Each.bHasJob && Each.Job.AnchorStation.Get() == Station; });
+	return mTrains.ContainsByPredicate([Station](const FSTTrainState& Each)
+	{
+		return Each.bManaged && Each.bHasJob && (Each.Job.AnchorStation.Get() == Station || Each.Job.SecondStation.Get() == Station);
+	});
 }
 
 bool ASTSubsystem::IsStationBlocked(const AFGTrainStationIdentifier* Station) const

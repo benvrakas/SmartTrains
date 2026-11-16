@@ -228,6 +228,15 @@ struct SMARTTRAINS_API FSTJobLeg
 
 // A managed train's work: stops in order, written into its timetable.
 USTRUCT()
+struct SMARTTRAINS_API FSTCarItems
+{
+	GENERATED_BODY()
+
+	UPROPERTY(SaveGame)
+	TArray<TSubclassOf<UFGItemDescriptor>> Items;
+};
+
+USTRUCT()
 struct SMARTTRAINS_API FSTJob
 {
 	GENERATED_BODY()
@@ -260,6 +269,15 @@ struct SMARTTRAINS_API FSTJob
 	UPROPERTY(SaveGame)
 	TObjectPtr<AFGTrainStationIdentifier> AnchorStation = nullptr;
 
+	// Several consumers per trip: the second consumer, whose cars the first leaves unused; re-plans add deliveries there
+	// too. Null for a trip with one consumer.
+	UPROPERTY(SaveGame)
+	TObjectPtr<AFGTrainStationIdentifier> SecondStation = nullptr;
+
+	// With SecondStation: the items each car may load on this trip (re-plans keep them).
+	UPROPERTY(SaveGame)
+	TArray<FSTCarItems> CarItems;
+
 	// One line for logs and readouts.
 	UPROPERTY(SaveGame)
 	FString Summary;
@@ -276,15 +294,6 @@ struct FSTNoProgress
 };
 
 // The items one freight car carries in its train's pattern (empty: none given yet).
-USTRUCT()
-struct SMARTTRAINS_API FSTCarItems
-{
-	GENERATED_BODY()
-
-	UPROPERTY(SaveGame)
-	TArray<TSubclassOf<UFGItemDescriptor>> Items;
-};
-
 USTRUCT()
 struct SMARTTRAINS_API FSTTrainState
 {

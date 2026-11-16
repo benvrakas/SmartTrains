@@ -1618,8 +1618,8 @@ FSTPlanResult FSTTripPlanner::Improve(TArray<FSTPlanStop>& InOutStops, int32 Fir
 			{
 				continue;
 			}
-			// While a consumer is set, only moves delivering there.
-			if (mOnlyStation && (!mNodes.IsValidIndex(mMoves[Index].To) || mNodes[mMoves[Index].To].Station.Get() != mOnlyStation))
+			// While consumers are set, only moves delivering there.
+			if (mOnlyStations.Num() > 0 && (!mNodes.IsValidIndex(mMoves[Index].To) || !mOnlyStations.Contains(mNodes[mMoves[Index].To].Station.Get())))
 			{
 				continue;
 			}

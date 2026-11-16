@@ -8,6 +8,7 @@
 #include "Net/UnrealNetwork.h"
 #include "SmartTrains.h"
 #include "STAccess.h"
+#include "STConfig.h"
 #include "STLayout.h"
 #include "STMigration.h"
 #include "STSubsystem.h"
@@ -476,6 +477,45 @@ void USTRemoteCallObject::Server_SetTrain_Implementation(AFGTrain* Train, ESTTra
 		break;
 	}
 	Client_Train(Subsystem->MakeTrainView(Train, mAppliedEdit));
+}
+
+bool USTRemoteCallObject::Server_SetSettings_Validate(const TArray<FString>& Keys, const TArray<FString>& Values)
+{
+	// Far more than the configuration has, and longer keys and values than any of it.
+	auto TooLong = [](const FString& Each) { return Each.Len() > 64; };
+	return Keys.Num() == Values.Num() && Keys.Num() <= 64 && !Keys.ContainsByPredicate(TooLong) && !Values.ContainsByPredicate(TooLong);
+}
+
+void USTRemoteCallObject::Server_SetSettings_Implementation(const TArray<FString>& Keys, const TArray<FString>& Values)
+{
+	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetWorld());
+	if (!Subsystem)
+	{
+		return;
+	}
+	FString Why;
+	if (!STAccess::MayChange(*Subsystem, GetOwnerPlayerController(), STAccess::EChange::Network, TEXT("change SmartTrains' settings from the Mods menu"), Why))
+	{
+		Client_Message(TEXT("This server keeps its own SmartTrains settings, and only a server admin can change them. Your Mods menu still applies in games you host."), true);
+		return;
+	}
+	TArray<FString> Applied;
+	TArray<FString> Refused;
+	for (int32 Index = 0; Index < Keys.Num(); ++Index)
+	{
+		FString Message;
+		const bool bOk = USTConfig::Write(this, Keys[Index], Values[Index], Message);
+		(bOk ? Applied : Refused).Add(bOk ? FString::Printf(TEXT("%s = %s"), *Keys[Index], *Values[Index]) : Message);
+		UE_LOG(LogSmartTrains, Log, TEXT("Settings: Mods menu (%s): %s %s: %s"), *STAccess::Describe(GetOwnerPlayerController()), *Keys[Index], *Values[Index], *Message);
+	}
+	if (Applied.Num() > 0)
+	{
+		Client_Message(FString::Printf(TEXT("Server settings changed: %s."), *FString::Join(Applied, TEXT(", "))), false);
+	}
+	if (Refused.Num() > 0)
+	{
+		Client_Message(FString::Printf(TEXT("The server didn't take: %s"), *FString::Join(Refused, TEXT(" "))), true);
+	}
 }
 
 bool USTRemoteCallObject::Server_Migrate_Validate(ESTMigrationStep Step, const TArray<FString>& Selection)

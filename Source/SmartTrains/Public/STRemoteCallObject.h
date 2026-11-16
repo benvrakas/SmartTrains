@@ -53,6 +53,10 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_Migrate(ESTMigrationStep Step, const TArray<FString>& Selection);
 
+	// Settings an admin changed in their Mods menu (ASTClientSettingsSubsystem): Keys[i] set to Values[i], as /st set.
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_SetSettings(const TArray<FString>& Keys, const TArray<FString>& Values);
+
 
 	//~ Readouts: the server answers each request with the matching Client_ call.
 
