@@ -1328,7 +1328,17 @@ float ASTSubsystem::EstimateTravelSeconds(const AFGTrainStationIdentifier* From,
 	if ((!Cached || Now() - Cached->Value > 600.0) && mAtTravelCallsLeft > 0 && STAt::IsAvailable(GetWorld()))
 	{
 		--mAtTravelCallsLeft;
-		const float AtSeconds = STAt::EstimateTravelSeconds(GetWorld(), nullptr, const_cast<AFGBuildableRailroadStation*>(From->GetStation()),
+		// Auto Trains times the drive at a train's own speeds (with none it assumes 18 km/h): a managed train's stand in.
+		AFGTrain* Sample = nullptr;
+		for (const FSTTrainState& State : mTrains)
+		{
+			if (State.bManaged && State.Train)
+			{
+				Sample = State.Train;
+				break;
+			}
+		}
+		const float AtSeconds = STAt::EstimateTravelSeconds(GetWorld(), Sample, const_cast<AFGBuildableRailroadStation*>(From->GetStation()),
 			const_cast<AFGBuildableRailroadStation*>(To->GetStation()));
 		Cached = &mAtTravel.Add(Key, TPair<float, double>(AtSeconds, Now()));
 	}

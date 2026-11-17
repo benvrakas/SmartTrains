@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.36.2 (beta)
+
+- **Drive times are right with Auto Trains from the first drive.** With Auto Trains installed, SmartTrains expected a
+  drive it hadn't seen yet to take about 4 times as long as it did, so trains arrived far ahead of plan, found less
+  cargo than planned and cut trips short.
+
 ## 0.36.1 (beta)
 
 - **Better drive time estimates.** A train that stood parked for a long time counted the wait as driving time, so

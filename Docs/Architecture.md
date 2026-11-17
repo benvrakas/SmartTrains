@@ -591,6 +591,10 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   (3315 Caterium from 240/min); the trains arrived 600-940 s early, loaded 200-580, and the rest of each trip failed
   the batch rule at the re-plan ("less than a batch of ..."), 36 times in 30 minutes. The `JOB` line now ends with
   each stop's drive and booking wait (`DescribeTimes`).
+- **Auto Trains' drive times (0.36.2)**: `EstimateTravelSeconds` asked Auto Trains' `ExternalEstimateTravelSeconds`
+  with no train, and Auto Trains then times the drive at its default 500 cm/s (18 km/h). VM pair 11: drives on pairs
+  not driven before took a median 0.23 of the estimate (Train Station 91 -> Grass Fields Copper Ingot Out 1: 917 s
+  planned, 162 s driven). A managed train now stands in, so the drive is timed at real speeds.
 - **Trip times (0.36.1)**: a trip was timed from the train's last departure, so a train that stood parked for hours
   learned a drive of hours (VM pair 10: "Train Station 96 -> Western Dune Forest Copper Ingot Out 1 took 24952 s"),
   and the first sample of a pair was taken as is. Plans then expected first legs of 1100-2400 s that took 200-300 s:
