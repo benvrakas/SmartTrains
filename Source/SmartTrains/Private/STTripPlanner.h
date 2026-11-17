@@ -47,11 +47,16 @@ struct FSTPlanResult
 	bool bValid = false;
 	FString Problem;
 	double Value = 0.0;
-	// Value per second until the trip ends.
+	// Value less what the train's time costs until the trip ends (STForecast::TrainSecondCost).
 	double Score = 0.0;
 	double EndTime = 0.0;
 	int32 Moved = 0;
 	TArray<double> Arrive;
+	// Per stop, for the log: the drive there, and the wait for other trains' bookings before it may arrive, with the
+	// booking that set the arrival (its train index, INDEX_NONE for an Auto Trains queue; bParked for a parked train). [s]
+	TArray<float> Drive;
+	TArray<float> Wait;
+	TArray<FSTBooking> WaitFor;
 	// [stop][car]
 	TArray<TArray<FSTPlanCarStep>> Steps;
 };
@@ -179,6 +184,8 @@ public:
 	FString DescribeProblems() const;
 	// True if a trip tried for the current train was rejected because it starts at the station the train stands in.
 	bool WasKeptFromOwnStation() const;
+	// For the JOB log line: each stop's drive and booking wait ("+85 s, waits 600 s for <who>"); Who names a train index.
+	static FString DescribeTimes(const FSTPlanResult& Result, TFunctionRef<FString(int32)> Who);
 
 private:
 	struct FPlatformInfo
@@ -221,7 +228,7 @@ private:
 	int32 FindNode(const AFGTrainStationIdentifier* Station, UClass* Item, bool bSupply) const;
 	// Earliest arrival at Station from Arrive on that keeps the arrival gap to other trains' bookings there, for a stay
 	// of Stay seconds.
-	double FirstFreeArrival(const AFGTrainStationIdentifier* Station, double Arrive, double Stay) const;
+	double FirstFreeArrival(const AFGTrainStationIdentifier* Station, double Arrive, double Stay, FSTBooking* OutLast = nullptr) const;
 	// Other trains booked at Station that are still there at Reach (when this train could get there) or dock before
 	// Dock (when it can dock): the docked one and those waiting with it.
 	int32 CountAhead(const AFGTrainStationIdentifier* Station, double Reach, double Dock) const;

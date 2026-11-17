@@ -1308,8 +1308,12 @@ void ASTSubsystem::CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, con
 		mLastTripTo.Add(Anchor, Time);
 	}
 	Job.Summary = SummarizeLegs(Job.Legs);
-	const FString Line = FString::Printf(TEXT("%s: %s [%s], %d moved, value %.2f, score %.4f"), *STLayout::Name(State.Train), *Job.Summary,
-		*Planner.Describe(Stops, Result), Result.Moved, Result.Value, Result.Score);
+	const FString Times = FSTTripPlanner::DescribeTimes(Result, [this](int32 Index)
+	{
+		return mTrains.IsValidIndex(Index) ? STLayout::Name(mTrains[Index].Train.Get()) : FString(TEXT("?"));
+	});
+	const FString Line = FString::Printf(TEXT("%s: %s [%s], %d moved, value %.2f, score %.4f; times %s"), *STLayout::Name(State.Train), *Job.Summary,
+		*Planner.Describe(Stops, Result), Result.Moved, Result.Value, Result.Score, *Times);
 	if (bReserve)
 	{
 		Planner.Reserve(Stops, Result);

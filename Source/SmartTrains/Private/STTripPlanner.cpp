@@ -179,7 +179,7 @@ int32 FSTTripPlanner::FindNode(const AFGTrainStationIdentifier* Station, UClass*
 	return INDEX_NONE;
 }
 
-double FSTTripPlanner::FirstFreeArrival(const AFGTrainStationIdentifier* Station, double Arrive, double Stay) const
+double FSTTripPlanner::FirstFreeArrival(const AFGTrainStationIdentifier* Station, double Arrive, double Stay, FSTBooking* OutLast) const
 {
 	const TArray<FSTBooking>* Bookings = mBookings.Find(Station);
 	if (!Bookings)
@@ -204,9 +204,33 @@ double FSTTripPlanner::FirstFreeArrival(const AFGTrainStationIdentifier* Station
 		{
 			break;
 		}
-		Candidate = FMath::Max(Candidate, Each.Until + Gap);
+		if (Each.Until + Gap > Candidate)
+		{
+			Candidate = Each.Until + Gap;
+			if (OutLast)
+			{
+				*OutLast = Each;
+			}
+		}
 	}
 	return Candidate;
+}
+
+FString FSTTripPlanner::DescribeTimes(const FSTPlanResult& Result, TFunctionRef<FString(int32)> Who)
+{
+	TArray<FString> Parts;
+	for (int32 Index = 0; Index < Result.Drive.Num(); ++Index)
+	{
+		FString Part = FString::Printf(TEXT("+%.0f s"), Result.Drive[Index]);
+		if (Result.Wait.IsValidIndex(Index) && Result.Wait[Index] >= 1.f && Result.WaitFor.IsValidIndex(Index))
+		{
+			const FSTBooking& By = Result.WaitFor[Index];
+			Part += FString::Printf(TEXT(", waits %.0f s for %s"), Result.Wait[Index],
+				By.Train == INDEX_NONE ? TEXT("an Auto Trains queue") : *FString::Printf(TEXT("%s%s"), By.bParked ? TEXT("parked ") : TEXT(""), *Who(By.Train)));
+		}
+		Parts.Add(Part);
+	}
+	return FString::Join(Parts, TEXT("; "));
 }
 
 int32 FSTTripPlanner::CountAhead(const AFGTrainStationIdentifier* Station, double Reach, double Dock) const
@@ -1207,6 +1231,9 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 	// Times, and what the stops cost: each one holds its station from other trains.
 	double StopCost = 0.0;
 	Result.Arrive.SetNum(Stops.Num());
+	Result.Drive.SetNum(Stops.Num());
+	Result.Wait.SetNum(Stops.Num());
+	Result.WaitFor.SetNum(Stops.Num());
 	const AFGTrainStationIdentifier* Previous = mAnchor;
 	double Clock = mFreeAt;
 	for (int32 Index = 0; Index < Stops.Num(); ++Index)
@@ -1225,7 +1252,9 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 			return Fail(FString::Printf(TEXT("%s can't be reached from %s%s"), *STLayout::Name(Station), *STLayout::Name(Previous),
 				bPushPull ? TEXT(" (push-pull)") : TEXT(" (one way only)")));
 		}
-		Result.Arrive[Index] = FirstFreeArrival(Station, Clock + Travel, mSubsystem.EstimateStaySeconds(Station));
+		Result.Arrive[Index] = FirstFreeArrival(Station, Clock + Travel, mSubsystem.EstimateStaySeconds(Station), &Result.WaitFor[Index]);
+		Result.Drive[Index] = Travel;
+		Result.Wait[Index] = static_cast<float>(Result.Arrive[Index] - (Clock + Travel));
 		// A train parked there makes this stop wait: the station is wanted, so the dispatcher moves that train out.
 		if (Result.Arrive[Index] > Clock + Travel && IsParkedInWay(Station, Clock + Travel, Result.Arrive[Index]))
 		{
@@ -1337,6 +1366,9 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 	{
 		const FSTPlanStop& Stop = Stops[StopIndex];
 		const double Arrive = Result.Arrive[StopIndex];
+		// A train drives off at once and docks as soon as the station is free, so a pickup counts on the stock there at
+		// the earliest it can arrive (the drive alone), not after the wait for other trains' bookings.
+		const double Ready = Arrive - Result.Wait[StopIndex];
 		const TArray<TArray<int32>>& Maps = GetCarPlatforms(Stop.Station);
 		if (Maps.Num() == 0)
 		{
@@ -1458,7 +1490,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 				for (UClass* Item : Items)
 				{
 					const int32 Node = FindNode(Stop.Station, Item, true);
-					double& NodeLeft = FindOrAddValue<int32>(NodeSupply, Node, [&]() { return Node != INDEX_NONE ? GetAvailable(Node, Arrive) : 0.0; });
+					double& NodeLeft = FindOrAddValue<int32>(NodeSupply, Node, [&]() { return Node != INDEX_NONE ? GetAvailable(Node, Ready) : 0.0; });
 					auto InitialPool = [&](int32 PlatformIndex)
 					{
 						if (Node == INDEX_NONE)
@@ -1466,7 +1498,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 							return static_cast<double>(mPlatforms[PlatformIndex].Stock.FindRef(Item));
 						}
 						// What arrives up to the end of the stay, since the platform keeps filling while the train loads.
-						const double Until = Arrive + mSubsystem.EstimateStaySeconds(Stop.Station) - mTime;
+						const double Until = Ready + mSubsystem.EstimateStaySeconds(Stop.Station) - mTime;
 						return GetPlatformAvailable(Node, PlatformIndex, Until);
 					};
 					// Each way the train may dock has its own platform pools; the car plans the smallest of its amounts.

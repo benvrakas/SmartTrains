@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.35.9 (beta)
+
+- **Trips no longer count on cargo a supplier hasn't made yet when the train gets there.** A pickup used to count on
+  what a slow supplier would have made by the time the station's other bookings let the train in, often 10-15 minutes
+  out. Trains drive off at once, got there early, loaded a fraction and dropped the rest of the trip. Pickups now count
+  on the stock there when the train can first arrive.
+- Log: each `JOB` line ends with every stop's drive time and any wait for another train's booking, and whose.
+
 ## 0.35.8 (beta)
 
 - **Trains fill more cars for factories with several inputs.** A trip to a factory now also picks up its other

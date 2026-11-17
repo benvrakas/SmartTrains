@@ -584,6 +584,13 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
 - **Top off (0.35.0)**: `MakeLegs` sets `FSTJobLeg::TopOffSeconds` for a pickup (not partial) when its supplier fills
   more than `TrainSecondCost / LoadValue` car loads a second: the time to fill the cars' rest, at most
   `LoadWaitSeconds`. `MakeRules` writes it as "fully load" for that long.
+- **Pickups count stock at the earliest arrival (0.35.9)**: `SimulateWithSkips` takes a pickup's available stock at
+  `Arrive - Wait` (the drive alone), not after the wait for other trains' bookings: the train drives off at once and
+  docks as soon as the station is free, then loads at most `LoadWaitSeconds` more. VM pair 8 (2026-11-17): long
+  gathering trips were planned to reach slow suppliers 10-15 minutes out and load what they would have made by then
+  (3315 Caterium from 240/min); the trains arrived 600-940 s early, loaded 200-580, and the rest of each trip failed
+  the batch rule at the re-plan ("less than a batch of ..."), 36 times in 30 minutes. The `JOB` line now ends with
+  each stop's drive and booking wait (`DescribeTimes`).
 - **Moves kept by station (0.35.8)**: `BuildMoves` ranks a train's moves by solo score and keeps every move to the
   consumer stations of the best `MaxMovesPerTrain` (24), instead of the best 24 moves. Trips are built around one
   consumer station, so a second input that scores little alone (one car from far away) is still worth adding to a
@@ -746,8 +753,8 @@ stop books from when it docked; one running late books from now. `FirstFreeArriv
   stops when nothing improves, or when the round's time budget (25 ms) is used up; the rest wait for the next round.
 
 **Turning a trip into a job** (`MakeLegs`): each stop gets per-car work (`FSTCarWork`: car, item, load or unload,
-planned amount). With FCC, every car without work at a stop skips it. A stop is "load/unload once" in three cases: it only unloads fluids (a fluid car empties in one transfer); it both
-loads and unloads; or a later stop moves the same item (a first pickup or a first drop of a split load).
+planned amount). With FCC, every car without work at a stop skips it. A stop is "load/unload once" when it both loads and unloads, when a later stop moves the same item, or when a
+delivery's consumer takes cargo too slowly for waiting to pay ("Drain") (a first pickup or a first drop of a split load).
 Otherwise it waits for full or empty cars, up to the load or unload wait.
 
 **Re-planning** (`ReplanTrip`): after every stop (`bReplan`) and after a platform setting changes (`bReplanAll`).
