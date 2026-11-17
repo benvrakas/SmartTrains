@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.35.6 (beta)
+
+- **Fixed: on a dedicated server SmartTrains thought every train stood still.** It read the speed from the vehicle's
+  velocity, which is 0 on a server. So a train told to park while still driving between stations parked out on the
+  line where it was, a train driving to a depot signal counted as arrived as soon as it came near, and the `FLEET` line
+  counted moving trains as waiting. Speed now comes from the train's own movement.
+
 ## 0.35.5 (beta)
 
 - Log: a `FLEET` line once a minute puts every managed train in one group (moving with cargo and how full, moving empty,

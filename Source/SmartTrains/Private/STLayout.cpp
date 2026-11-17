@@ -15,6 +15,7 @@
 #include "FGLocomotive.h"
 #include "FGPipeConnectionComponent.h"
 #include "FGRailroadVehicle.h"
+#include "FGRailroadVehicleMovementComponent.h"
 #include "FGTrain.h"
 #include "FGTrainPlatformConnection.h"
 #include "FGTrainStationIdentifier.h"
@@ -410,6 +411,13 @@ int64 STLayout::GetWagonFluidCapacity(const AFGFreightWagon* Wagon)
 		UE_LOG(LogSmartTrains, Log, TEXT("Freight car size: %d slots, %lld fluid (%s)"), GetWagonSlots(Wagon), Capacity, *GetNameSafe(Wagon->GetClass()));
 	}
 	return Capacity > 0 ? Capacity : 1600000;
+}
+
+float STLayout::GetTrainSpeed(const AFGTrain* Train)
+{
+	const AFGRailroadVehicle* First = Train ? Train->GetFirstVehicle() : nullptr;
+	const UFGRailroadVehicleMovementComponent* Movement = First ? First->GetRailroadVehicleMovementComponent() : nullptr;
+	return Movement ? FMath::Abs(Movement->GetForwardSpeed()) : 0.f;
 }
 
 double STLayout::GetCarCapacity(const AFGFreightWagon* Wagon, TSubclassOf<UFGItemDescriptor> Item)

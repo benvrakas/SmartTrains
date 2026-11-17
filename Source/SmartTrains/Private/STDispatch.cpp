@@ -1677,7 +1677,7 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 	// station trips are heading for) it drives to the nearest station no train needs and parks there; never back into
 	// the one it just left, where the next delivery would find it in the way.
 	const AFGRailroadVehicle* First = State.Train->GetFirstVehicle();
-	const bool bMoving = First && First->GetVelocity().Size() > 300.0;
+	const bool bMoving = STLayout::GetTrainSpeed(State.Train) > 300.f;
 	const AFGTrainStationIdentifier* Here = State.Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation.Get() : State.LastStation.Get();
 	const TSet<const AFGTrainStationIdentifier*> Needed = GetNeededStations(&State);
 	const bool bStaysHere = !bMoving && Here && !Needed.Contains(Here) && !IsStationBlocked(Here) && !IsThroughStation(Here);
@@ -2020,7 +2020,7 @@ STDepots::EDriveState ASTSubsystem::GetDepotDriveState(AFGTrain* Train, FDepotTr
 	const AFGRailroadVehicle* Last = Train->GetLastVehicle();
 	const FVector At = Goal->GetComponentLocation();
 	const float Near = First && Last ? FMath::Min(FVector::Dist(First->GetActorLocation(), At), FVector::Dist(Last->GetActorLocation(), At)) : TNumericLimits<float>::Max();
-	if (First && First->GetVelocity().Size() < DepotStillSpeed && Near < DepotArriveDistance)
+	if (First && STLayout::GetTrainSpeed(Train) < DepotStillSpeed && Near < DepotArriveDistance)
 	{
 		return STDepots::EDriveState::Arrived;
 	}

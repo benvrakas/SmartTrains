@@ -89,6 +89,8 @@ namespace STLayout
 	int64 GetWagonFluidCapacity(const AFGFreightWagon* Wagon);
 	// How much of Item a freight car holds when empty.
 	double GetCarCapacity(const AFGFreightWagon* Wagon, TSubclassOf<UFGItemDescriptor> Item);
+	// Train's speed, from its first vehicle's railroad movement (the actor's velocity reads 0 on a dedicated server). [cm/s]
+	float GetTrainSpeed(const AFGTrain* Train);
 	// How much of Item fills one car slot: its stack size, or for a fluid the car's fluid room per slot.
 	double GetCarSlotAmount(const AFGFreightWagon* Wagon, TSubclassOf<UFGItemDescriptor> Item);
 

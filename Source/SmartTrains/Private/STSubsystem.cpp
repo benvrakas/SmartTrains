@@ -1808,7 +1808,7 @@ void ASTSubsystem::LogFleet()
 			continue;
 		}
 		const TArray<AFGRailroadVehicle*> Vehicles = STLayout::GetVehicles(Train);
-		const bool bMoving = Vehicles.Num() > 0 && Vehicles[0] && Vehicles[0]->GetVelocity().Size() > 300.0;
+		const bool bMoving = STLayout::GetTrainSpeed(Train) > 300.f;
 		const double Share = GetFillShare(Train);
 		const bool bCargo = Share > 0.001;
 		EKind Kind;
