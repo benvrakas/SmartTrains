@@ -6,6 +6,8 @@
   inputs from any supplier, where before each train only looked at its 24 best single deliveries network-wide, so a
   factory's second input from farther away was often left for another train. In a VM test 107 cars per 30 minutes
   rode empty beside empty input platforms whose items were in stock.
+- `SmartTrains.CheckTravel` compared SmartTrains' route from the train's last departure station with the game's
+  path from where the train stood docked; both now start at the station it is docked at.
 
 ## 0.35.7 (beta)
 

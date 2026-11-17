@@ -1208,7 +1208,8 @@ void ASTSubsystem::CheckTravelAgainstGame() const
 	for (const FSTTrainState& State : mTrains)
 	{
 		AFGTrain* Train = State.Train.Get();
-		const AFGTrainStationIdentifier* From = State.LastStation.Get();
+		// The station it is docked at: where the game's search starts from.
+		const AFGTrainStationIdentifier* From = State.DockedStation.Get();
 		if (!State.bManaged || !IsValid(Train) || !From || !Train->IsDocked())
 		{
 			continue;
