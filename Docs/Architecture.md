@@ -591,6 +591,9 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   (3315 Caterium from 240/min); the trains arrived 600-940 s early, loaded 200-580, and the rest of each trip failed
   the batch rule at the re-plan ("less than a batch of ..."), 36 times in 30 minutes. The `JOB` line now ends with
   each stop's drive and booking wait (`DescribeTimes`).
+- **Best 24 moves again (0.36.3)**: 0.35.8's moves kept by station are reverted. Emptied VM runs before it: 161, 178
+  car unloads; with it, on every later build: 140, 140, 129, 151, 121, 129 (as-is runs unchanged at 88-97). The
+  wider choice made 5-6-stop gathering trips that depend on many suppliers' timing.
 - **Auto Trains' drive times (0.36.2)**: `EstimateTravelSeconds` asked Auto Trains' `ExternalEstimateTravelSeconds`
   with no train, and Auto Trains then times the drive at its default 500 cm/s (18 km/h). VM pair 11: drives on pairs
   not driven before took a median 0.23 of the estimate (Train Station 91 -> Grass Fields Copper Ingot Out 1: 917 s
@@ -606,7 +609,7 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   arrival. `GetReserved` counts the pickups booked before the arrival in full and of later ones only what the rate
   until each doesn't cover. VM pair 9 (2026-11-17): 42 trip remainders dropped as "less than a batch", 37 of them
   at a supplier other open jobs also loaded at (Grass Fields Copper Ingot Out 1: six).
-- **Moves kept by station (0.35.8)**: `BuildMoves` ranks a train's moves by solo score and keeps every move to the
+- **Moves kept by station (0.35.8, reverted in 0.36.3)**: `BuildMoves` ranks a train's moves by solo score and keeps every move to the
   consumer stations of the best `MaxMovesPerTrain` (24), instead of the best 24 moves. Trips are built around one
   consumer station, so a second input that scores little alone (one car from far away) is still worth adding to a
   trip going there. VM pair 7 (2026-11-17): trains found 154-163 moves and kept 24; 107 cars per 30 minutes left

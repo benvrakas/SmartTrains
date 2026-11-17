@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.36.3 (beta)
+
+- **Undid 0.35.8's wider pickup choice.** In VM tests it made long trips with many pickups and moved less cargo
+  overall; trains again plan from their 24 best single deliveries.
+
 ## 0.36.2 (beta)
 
 - **Drive times are right with Auto Trains from the first drive.** With Auto Trains installed, SmartTrains expected a
