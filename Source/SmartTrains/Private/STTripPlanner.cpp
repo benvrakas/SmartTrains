@@ -20,7 +20,8 @@ namespace
 	// A train can't dock at the station it already stands in (WasKeptFromOwnStation).
 	const TCHAR* const OwnStationText = TEXT("first stop is the station the train stands in");
 
-	// Moves kept per train, best solo score first (cargo already on board is always kept).
+	// The consumer stations of a train's best this many moves, by solo score, are the ones it tries; every move to them
+	// is kept (cargo already on board always).
 	constexpr int32 MaxMovesPerTrain = 24;
 	// Least a car unloads at a stop, in car slots (or all it holds when that is less). [slots]
 	constexpr double MinUnloadSlots = 2.0;
@@ -734,8 +735,8 @@ void FSTTripPlanner::BuildMoves()
 			}
 		}
 	}
-	// Solo scores, then keep the best few (cargo on board always). With Detailed log: why deliveries to High and
-	// Critical consumers score nothing by themselves.
+	// Solo scores, then keep the moves to the best few's consumer stations (cargo on board always). With Detailed
+	// log: why deliveries to High and Critical consumers score nothing by themselves.
 	const bool bDetail = UE_LOG_ACTIVE(LogSmartTrains, Verbose);
 	auto MoveName = [this](const FSTPlanMove& Move)
 	{
@@ -775,10 +776,20 @@ void FSTTripPlanner::BuildMoves()
 		UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: best moves alone: %s%s%s"), *TrainName(), *FString::Join(Best, TEXT("; ")),
 			Unscored.Num() > 0 ? TEXT("; scoring nothing alone: ") : TEXT(""), *FString::Join(TArray<FString>(Unscored.GetData(), FMath::Min(4, Unscored.Num())), TEXT("; ")));
 	}
-	int32 Kept = 0;
+	// A trip is built around one consumer station (GatherRound) and fills its cars from every supplier of what the
+	// station takes, so a move that scores little alone stays when its station is among the best.
+	TSet<const AFGTrainStationIdentifier*> Chosen;
+	int32 Counted = 0;
 	for (const FSTPlanMove& Move : Moves)
 	{
-		if (Move.From == INDEX_NONE || Kept++ < MaxMovesPerTrain)
+		if (Move.From != INDEX_NONE && Counted++ < MaxMovesPerTrain)
+		{
+			Chosen.Add(mNodes[Move.To].Station.Get());
+		}
+	}
+	for (const FSTPlanMove& Move : Moves)
+	{
+		if (Move.From == INDEX_NONE || Chosen.Contains(mNodes[Move.To].Station.Get()))
 		{
 			mMoves.Add(Move);
 		}
@@ -1737,6 +1748,11 @@ FSTPlanResult FSTTripPlanner::Improve(TArray<FSTPlanStop>& InOutStops, int32 Fir
 				continue;
 			}
 			if (mOnlyFrom.Num() > 0 && (!mNodes.IsValidIndex(mMoves[Index].From) || !mOnlyFrom.Contains(mNodes[mMoves[Index].From].Station.Get())))
+			{
+				continue;
+			}
+			// Emptying (SetNoLoads): no car may load.
+			if (bEmptying && mMoves[Index].From != INDEX_NONE)
 			{
 				continue;
 			}

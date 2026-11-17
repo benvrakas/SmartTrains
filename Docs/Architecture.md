@@ -584,6 +584,12 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
 - **Top off (0.35.0)**: `MakeLegs` sets `FSTJobLeg::TopOffSeconds` for a pickup (not partial) when its supplier fills
   more than `TrainSecondCost / LoadValue` car loads a second: the time to fill the cars' rest, at most
   `LoadWaitSeconds`. `MakeRules` writes it as "fully load" for that long.
+- **Moves kept by station (0.35.8)**: `BuildMoves` ranks a train's moves by solo score and keeps every move to the
+  consumer stations of the best `MaxMovesPerTrain` (24), instead of the best 24 moves. Trips are built around one
+  consumer station, so a second input that scores little alone (one car from far away) is still worth adding to a
+  trip going there. VM pair 7 (2026-11-17): trains found 154-163 moves and kept 24; 107 cars per 30 minutes left
+  empty beside empty demand platforms whose items suppliers held, 73 of them with no other train bringing the item
+  (e.g. Plastic for Grass Fields Iron Plate In 1 on trips bringing only Iron Ingot, and the reverse).
 - **Drain (0.35.7)**: the same rule for a delivery (not partial): while its consumer takes more than
   `TrainSecondCost / LoadValue` car loads a second, `TopOffSeconds` is the time to take all the leg's cars, at most
   `UnloadWaitSeconds`, and the game's "fully unload" ends it as soon as they are empty; a slower or backed-up consumer

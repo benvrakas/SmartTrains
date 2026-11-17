@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.35.8 (beta)
+
+- **Trains fill more cars for factories with several inputs.** A trip to a factory now also picks up its other
+  inputs from any supplier, where before each train only looked at its 24 best single deliveries network-wide, so a
+  factory's second input from farther away was often left for another train. In a VM test 107 cars per 30 minutes
+  rode empty beside empty input platforms whose items were in stock.
+
 ## 0.35.7 (beta)
 
 - **Deliveries wait to empty when the factory takes the cargo quickly.** A delivery now stays docked until the train is
