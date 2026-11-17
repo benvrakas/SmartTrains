@@ -753,8 +753,8 @@ stop books from when it docked; one running late books from now. `FirstFreeArriv
   stops when nothing improves, or when the round's time budget (25 ms) is used up; the rest wait for the next round.
 
 **Turning a trip into a job** (`MakeLegs`): each stop gets per-car work (`FSTCarWork`: car, item, load or unload,
-planned amount). With FCC, every car without work at a stop skips it. A stop is "load/unload once" when it both loads and unloads, when a later stop moves the same item, or when a
-delivery's consumer takes cargo too slowly for waiting to pay ("Drain") (a first pickup or a first drop of a split load).
+planned amount). With FCC, every car without work at a stop skips it. A stop is "load/unload once" when it both loads and unloads, when a later stop moves the same item (a first pickup or a first drop of a split load), or when a
+delivery's consumer takes cargo too slowly for waiting to pay ("Drain").
 Otherwise it waits for full or empty cars, up to the load or unload wait.
 
 **Re-planning** (`ReplanTrip`): after every stop (`bReplan`) and after a platform setting changes (`bReplanAll`).
