@@ -591,6 +591,11 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   (3315 Caterium from 240/min); the trains arrived 600-940 s early, loaded 200-580, and the rest of each trip failed
   the batch rule at the re-plan ("less than a batch of ..."), 36 times in 30 minutes. The `JOB` line now ends with
   each stop's drive and booking wait (`DescribeTimes`).
+- **Pickups booked later (0.36.0)**: `GetAvailable` used to subtract every pickup promised at a supplier, so a train
+  arriving early lost the stock to trains booked after it that counted on production until their own, later
+  arrival. `GetReserved` counts the pickups booked before the arrival in full and of later ones only what the rate
+  until each doesn't cover. VM pair 9 (2026-11-17): 42 trip remainders dropped as "less than a batch", 37 of them
+  at a supplier other open jobs also loaded at (Grass Fields Copper Ingot Out 1: six).
 - **Moves kept by station (0.35.8)**: `BuildMoves` ranks a train's moves by solo score and keeps every move to the
   consumer stations of the best `MaxMovesPerTrain` (24), instead of the best 24 moves. Trips are built around one
   consumer station, so a second input that scores little alone (one car from far away) is still worth adding to a

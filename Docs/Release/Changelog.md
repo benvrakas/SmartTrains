@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.36.0 (beta)
+
+- **Trains sharing a supplier no longer cut each other's trips short.** A train that reached a busy supplier first
+  counted the cargo promised to trains arriving after it as gone, even though the factory makes that cargo in the
+  meantime, so it often dropped the rest of its trip. In a VM test this happened about 40 times in 30 minutes.
+
 ## 0.35.9 (beta)
 
 - **Trips no longer count on cargo a supplier hasn't made yet when the train gets there.** A pickup used to count on

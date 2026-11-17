@@ -387,7 +387,7 @@ double FSTTripPlanner::GetAvailable(int32 Node, double Arrive) const
 {
 	const FSTNode& Supplier = mNodes[Node];
 	const double Until = Arrive + mSubsystem.EstimateStaySeconds(Supplier.Station.Get()) - mTime;
-	const double Whole = FMath::Min<double>(Supplier.Capacity, Supplier.Stock + Supplier.Rate * Until) - Supplier.Reserved;
+	const double Whole = FMath::Min<double>(Supplier.Capacity, Supplier.Stock + Supplier.Rate * Until) - GetReserved(Supplier, Until);
 	if (Supplier.PlatformReserved.Num() == 0)
 	{
 		return Whole;
@@ -406,6 +406,22 @@ double FSTTripPlanner::GetAvailable(int32 Node, double Arrive) const
 		}
 	}
 	return bAny ? FMath::Min(Sum, static_cast<double>(Supplier.Capacity)) : Whole;
+}
+
+double FSTTripPlanner::GetReserved(const FSTNode& Supplier, double Until) const
+{
+	TArray<FSTNodeEvent> Events = Supplier.Planned;
+	Events.Sort([](const FSTNodeEvent& A, const FSTNodeEvent& B) { return A.Time < B.Time; });
+	const double Stay = mSubsystem.EstimateStaySeconds(Supplier.Station.Get());
+	double Booked = 0.0;
+	double Used = 0.0;
+	for (const FSTNodeEvent& Event : Events)
+	{
+		Booked += Event.Amount;
+		Used = FMath::Max(Used, Booked - Supplier.Rate * FMath::Max(0.0, Event.Time + Stay - mTime - Until));
+	}
+	// Promises with no booked time (Reserved beyond the events) count in full.
+	return FMath::Clamp(Supplier.Reserved - (Booked - Used), 0.0, static_cast<double>(Supplier.Reserved));
 }
 
 double FSTTripPlanner::GetPlatformRoom(int32 Node, int32 Info, UClass* Item, double Arrive) const
@@ -448,7 +464,9 @@ double FSTTripPlanner::GetPlatformAvailable(int32 Node, int32 Info, double Until
 		Assigned += Each.Value;
 	}
 	const double Unassigned = FMath::Max(0, Supplier.Reserved - Assigned);
-	return FMath::Max(0.0, Stock + Share * (Supplier.Rate * Until - Unassigned) - Supplier.PlatformReserved.FindRef(Platform.Platform));
+	// Its share of the pickups booked later that the rate until then covers (GetReserved).
+	const double Later = Supplier.Reserved - GetReserved(Supplier, Until);
+	return FMath::Max(0.0, Stock + Share * (Supplier.Rate * Until - Unassigned + Later) - Supplier.PlatformReserved.FindRef(Platform.Platform));
 }
 
 bool FSTTripPlanner::WasKeptFromOwnStation() const

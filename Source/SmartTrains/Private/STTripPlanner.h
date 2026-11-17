@@ -243,6 +243,9 @@ private:
 	// A consumer of Item the train can reach exists.
 	bool ItemHasConsumer(UClass* Item) const;
 	double GetAvailable(int32 Node, double Arrive) const;
+	// The pickups promised at supply node Supplier that use up what it has until Until seconds from now: all booked
+	// before then, and of those booked later what its rate until each of them doesn't cover.
+	double GetReserved(const FSTNode& Supplier, double Until) const;
 	// What platform info index Info of supply node Node can give until Until seconds from now: its stock, its share of
 	// the node's rate, less the pickups promised at it and its share of promises made at no known platform.
 	double GetPlatformAvailable(int32 Node, int32 Info, double Until) const;
