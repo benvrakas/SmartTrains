@@ -987,6 +987,56 @@ bool FSTTripPlanner::MakeCarItems(const AFGTrainStationIdentifier* Consumer, con
 	return FixedCars < mCars.Num() || Matched > 0;
 }
 
+FString FSTTripPlanner::ExplainCar(const AFGTrainStationIdentifier* Station, int32 Index) const
+{
+	const TArray<TArray<int32>>& Maps = GetCarPlatforms(Station);
+	TArray<FString> Ways;
+	for (const TArray<int32>& Map : Maps)
+	{
+		const int32 Here = Map.IsValidIndex(Index) ? Map[Index] : INDEX_NONE;
+		FString Way;
+		if (Here == INDEX_NONE || !mPlatforms.IsValidIndex(Here))
+		{
+			Way = TEXT("no cargo platform");
+		}
+		else
+		{
+			const FPlatformInfo& Platform = mPlatforms[Here];
+			if (!Platform.bDemand || Platform.bLoadMode)
+			{
+				Way = Platform.bSupply ? TEXT("a supply platform") : TEXT("a platform set to nothing");
+			}
+			else if (Platform.bAnyItem)
+			{
+				Way = TEXT("an any-item platform");
+			}
+			else
+			{
+				TArray<FString> Items;
+				for (UClass* Item : Platform.Items)
+				{
+					const int32 Capacity = STLayout::GetCapacity(Platform.Inventory, Item);
+					int32 Supply = 0;
+					for (const FPlatformInfo& Other : mPlatforms)
+					{
+						Supply += Other.bSupply && Other.Items.Contains(Item) ? Other.Stock.FindRef(Item) : 0;
+					}
+					Items.Add(FString::Printf(TEXT("%s %d%% full, suppliers hold %d"), *STNames::Item(Item),
+						Capacity > 0 ? FMath::RoundToInt(100.0 * Platform.Stock.FindRef(Item) / Capacity) : 0, Supply));
+				}
+				Way = FString::Printf(TEXT("a demand platform (%s)"), *FString::Join(Items, TEXT(", ")));
+			}
+		}
+		Ways.AddUnique(Way);
+	}
+	if (Ways.Num() == 0)
+	{
+		return TEXT("no platforms known there");
+	}
+	return Ways.Num() == 1 ? FString::Printf(TEXT("beside %s"), *Ways[0])
+		: FString::Printf(TEXT("the ways it may dock disagree: beside %s"), *FString::Join(Ways, TEXT(" or ")));
+}
+
 double FSTTripPlanner::GetCarCapacity(int32 Index, UClass* Item) const
 {
 	return mCars.IsValidIndex(Index) ? STLayout::GetCarCapacity(mCars[Index].Car, Item) : 0.0;

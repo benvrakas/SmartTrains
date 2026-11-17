@@ -479,6 +479,28 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			CommitTrip(State, Planner, BestStops, BestResult, true, MostUnloaded(BestResult), BestConsumer);
 			if (State.bHasJob)
 			{
+				// Each car's share of the trip: planned fill, or what stood in its way at the anchor station.
+				TArray<FString> Cars;
+				int32 Used = 0;
+				for (int32 CarIndex = 0; CarIndex < Planner.GetCarCount(); ++CarIndex)
+				{
+					double Share = 0.0;
+					for (const TArray<FSTPlanCarStep>& Step : BestResult.Steps)
+					{
+						for (const TPair<UClass*, int32>& Load : Step.IsValidIndex(CarIndex) ? Step[CarIndex].Loaded : TArray<TPair<UClass*, int32>>())
+						{
+							const double Capacity = Planner.GetCarCapacity(CarIndex, Load.Key);
+							Share += Capacity > 0.0 ? Load.Value / Capacity : 0.0;
+						}
+					}
+					const bool bHolds = Planner.GetCarCargo(CarIndex).Num() > 0;
+					Used += Share > 0.0 || bHolds ? 1 : 0;
+					Cars.Add(Share > 0.0 ? FString::Printf(TEXT("car %d loads %.0f%%"), CarIndex + 1, 100.0 * FMath::Min(1.0, Share))
+						: bHolds ? FString::Printf(TEXT("car %d holds cargo"), CarIndex + 1)
+						: FString::Printf(TEXT("car %d unused: %s"), CarIndex + 1, *Planner.ExplainCar(BestConsumer, CarIndex)));
+				}
+				UE_LOG(LogSmartTrains, Log, TEXT("CARS %s trip %s %s: %d of %d cars used; %s"), *STLayout::Name(State.Train), bPushTrip ? TEXT("from") : TEXT("to"),
+					*STLayout::Name(BestConsumer), Used, Planner.GetCarCount(), *FString::Join(Cars, TEXT("; ")));
 				State.Job.bPushTrip = bPushTrip;
 				for (AFGTrainStationIdentifier* Station : Others)
 				{

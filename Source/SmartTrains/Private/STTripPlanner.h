@@ -127,6 +127,9 @@ public:
 	// Set before BeginTrain: cargo on board may also go to sinks (any-item platforms) when a consumer of it exists.
 	void SetSinksForCargo(bool bInSinks) { bSinksForCargo = bInSinks; }
 	int32 GetCarCount() const { return mCars.Num(); }
+	// For the CARS log line: what stands beside car Index at Station (each way the train may dock), how full it is and,
+	// for a platform that wants items, how much of them the supply platforms hold.
+	FString ExplainCar(const AFGTrainStationIdentifier* Station, int32 Index) const;
 	// The items car Index holds (at least one of each).
 	TArray<UClass*> GetCarCargo(int32 Index) const;
 	// How much of Item the current train's car Index holds when full.

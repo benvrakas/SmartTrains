@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.35.7 (beta)
+
+- Log: a `CARS` line for each trip planned says how full each car is planned to leave, and for each car left empty
+  what stood beside it at the trip's station (no platform, a supply platform, a demand platform and how full it is and
+  how much the suppliers hold, or docking ways that disagree), to find where train room goes unused.
+- `SmartTrains.CheckTravel` also logs SmartTrains' own view of each route it disagrees with the game on: both
+  stations' ends and which ends reach which, with and without the one-way signal rule.
+
 ## 0.35.6 (beta)
 
 - **Fixed: on a dedicated server SmartTrains thought every train stood still.** It read the speed from the vehicle's
