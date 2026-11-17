@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.35.4 (beta)
+
+- Fixed: a train exactly as long as a station's platforms counted as too long for it and was moved away from where it
+  was parked (0.35.3's parking-fit rule; track lengths add up with rounding).
+
 ## 0.35.3 (beta)
 
 - **Cargo ties a car, not the whole train.** A train holding leftovers in some cars used to take only trips for that

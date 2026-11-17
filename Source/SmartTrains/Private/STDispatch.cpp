@@ -45,6 +45,9 @@ namespace
 	// A supplier whose stock reaches a batch within this long, of an item some consumer will run short of within the
 	// forecast horizon, has work coming: idle trains park near it. [s]
 	constexpr double StagingSeconds = 600.0;
+	// A train fits a station when its length is at most the station's room plus this (track lengths add up with
+	// rounding: a train exactly as long as the platforms came out a hair too long). [cm]
+	constexpr float StationFitSlack = 100.f;
 
 	// What one written stop is: station, rules and the cars that skip it.
 	FString StopKey(const FTimeTableStop& Stop, const TArray<TObjectPtr<AFGRailroadVehicle>>& SkipCars)
@@ -1783,7 +1786,7 @@ AFGTrainStationIdentifier* ASTSubsystem::FindParkingStation(const FSTTrainState&
 			continue;
 		}
 		// A train longer than the station and its way in would stand on a switch.
-		if (GetStationRoom(Candidate) < Length)
+		if (GetStationRoom(Candidate) + StationFitSlack < Length)
 		{
 			continue;
 		}
@@ -2193,7 +2196,7 @@ void ASTSubsystem::ClearNeededBays()
 			Why = FString::Printf(TEXT("%s has waited %.0f s for it (Auto Trains)"), *STLayout::Name(Held->Key), Held->Value);
 		}
 		// Parked at a station shorter than the train, its end stands on a switch (IB 2026-11-16: Turbofuel- Sulfur SNK).
-		if (Why.IsEmpty() && Here && GetStationRoom(Here) < STLayout::GetTrainLength(State.Train))
+		if (Why.IsEmpty() && Here && GetStationRoom(Here) + StationFitSlack < STLayout::GetTrainLength(State.Train))
 		{
 			Why = FString::Printf(TEXT("%s is shorter than the train (%.0f m of %.0f m), so its end stands on a switch"), *STLayout::Name(Here),
 				GetStationRoom(Here) / 100.f, STLayout::GetTrainLength(State.Train) / 100.f);
