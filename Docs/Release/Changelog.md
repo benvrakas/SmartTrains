@@ -2,6 +2,11 @@
 
 ## 0.35.7 (beta)
 
+- **Deliveries wait to empty when the factory takes the cargo quickly.** A delivery now stays docked until the train is
+  empty while its factory uses the cargo fast enough to be worth the train's time, the same rule as topping off at a
+  pickup, and leaves at once where the factory is slow or backed up. Fluid deliveries used to unload once and leave,
+  so a Water train often drove off with water still aboard, parked, was moved out of the way and came back for the
+  rest.
 - Log: a `CARS` line for each trip planned says how full each car is planned to leave, and for each car left empty
   what stood beside it at the trip's station (no platform, a supply platform, a demand platform and how full it is and
   how much the suppliers hold, or docking ways that disagree), to find where train room goes unused.

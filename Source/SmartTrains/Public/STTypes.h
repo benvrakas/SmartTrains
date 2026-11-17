@@ -210,8 +210,8 @@ struct SMARTTRAINS_API FSTJobLeg
 	UPROPERTY(SaveGame)
 	bool bPartial = false;
 
-	// A pickup whose supplier fills the rest of its cars fast enough that waiting pays: wait until they are full, at most
-	// this long (0: no wait). [s]
+	// A pickup whose supplier fills the rest of its cars, or a delivery whose consumer takes its cargo, fast enough that
+	// waiting pays: wait until the cars are full or empty, at most this long (0: no wait). [s]
 	UPROPERTY(SaveGame)
 	float TopOffSeconds = 0.f;
 

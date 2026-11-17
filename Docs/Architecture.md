@@ -584,6 +584,13 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
 - **Top off (0.35.0)**: `MakeLegs` sets `FSTJobLeg::TopOffSeconds` for a pickup (not partial) when its supplier fills
   more than `TrainSecondCost / LoadValue` car loads a second: the time to fill the cars' rest, at most
   `LoadWaitSeconds`. `MakeRules` writes it as "fully load" for that long.
+- **Drain (0.35.7)**: the same rule for a delivery (not partial): while its consumer takes more than
+  `TrainSecondCost / LoadValue` car loads a second, `TopOffSeconds` is the time to take all the leg's cars, at most
+  `UnloadWaitSeconds`, and the game's "fully unload" ends it as soon as they are empty; a slower or backed-up consumer
+  (rate 0) gets one unload (`bPartial`). Only a consumer without a known rate (any-item platform) keeps the plain
+  `UnloadWaitSeconds` wait. It replaced "fluid deliveries unload once": VM pair 5 (2026-11-17) had Water trains leave
+  No Man's Land Water In 2 with water still aboard, park there, get moved out to make room and come back for the
+  rest, 11 times in 30 minutes, where about 17 s more docked at 2,400 m3/min would have emptied them.
 - **Backed-up factories (0.35.2)**: `LinkSupplyChain` marks a demand node whose machines' supply nodes are all at least
   `BackedUpShare` (90 %) full (`FSTNode::BackedUp`): its `CostScale` drops to `WaitingCostScale` and its `Rate` to 0, so
   room forecasts (`GetPlatformRoom`) count no drain. IB 2026-11-16: Coal for a Compacted Coal factory with no demand for

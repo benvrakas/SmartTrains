@@ -1888,6 +1888,44 @@ void FSTTripPlanner::MakeLegs(const TArray<FSTPlanStop>& Stops, const FSTPlanRes
 			}
 			Leg.TopOffSeconds = static_cast<float>(FMath::Min(Wait, static_cast<double>(mSubsystem.mSettings.LoadWaitSeconds)));
 		}
+		// Drain: the same for a delivery. Its cars empty while the consumer takes more than TrainSecondCost / LoadValue car
+		// loads a second, at most the time to take them all and the longest delivery wait; a slower (or backed-up)
+		// consumer gets one unload. A consumer without a known rate (any-item platform) keeps the longest delivery wait.
+		if (!Leg.bPartial && Loads.Num() == 0 && Unloads.Num() > 0)
+		{
+			double Wait = 0.0;
+			bool bKnown = true;
+			for (UClass* Item : Unloads)
+			{
+				const int32 Node = FindNode(Leg.Station.Get(), Item, false);
+				double Capacity = 0.0;
+				double Total = 0.0;
+				for (const FSTCarWork& Work : Leg.Work)
+				{
+					if (!Work.bLoad && Work.Item == Item)
+					{
+						const double CarCapacity = STLayout::GetCarCapacity(Cast<AFGFreightWagon>(Work.Car.Get()), Item);
+						Capacity = FMath::Max(Capacity, CarCapacity);
+						Total += CarCapacity;
+					}
+				}
+				if (Node == INDEX_NONE || mNodes[Node].bAnyItem)
+				{
+					bKnown = false;
+					continue;
+				}
+				const double Rate = STForecast::GetRate(mNodes[Node], Capacity);
+				if (Capacity > 0.0 && Rate > 0.0 && LoadValue * Rate / Capacity > STForecast::TrainSecondCost)
+				{
+					Wait = FMath::Max(Wait, Total / Rate);
+				}
+			}
+			if (bKnown)
+			{
+				Leg.TopOffSeconds = static_cast<float>(FMath::Min(Wait, static_cast<double>(mSubsystem.mSettings.UnloadWaitSeconds)));
+				Leg.bPartial = Leg.TopOffSeconds <= 0.f;
+			}
+		}
 	}
 }
 
