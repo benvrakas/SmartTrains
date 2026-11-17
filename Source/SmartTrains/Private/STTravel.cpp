@@ -36,6 +36,89 @@ namespace
 	}
 }
 
+namespace
+{
+	// Shortest way from Exit (about to leave a track through it) until Target is entered; negative if none.
+	float Reach(UFGRailroadTrackConnectionComponent* Exit, const UFGRailroadTrackConnectionComponent* Target, bool bOneWay)
+	{
+		TMap<UFGRailroadTrackConnectionComponent*, float> Best;
+		TArray<TPair<float, UFGRailroadTrackConnectionComponent*>> Open;
+		auto Less = [](const TPair<float, UFGRailroadTrackConnectionComponent*>& A, const TPair<float, UFGRailroadTrackConnectionComponent*>& B) { return A.Key < B.Key; };
+		Open.HeapPush(TPair<float, UFGRailroadTrackConnectionComponent*>(0.f, Exit), Less);
+		Best.Add(Exit, 0.f);
+		for (int32 Pops = 0; Open.Num() > 0 && Pops < 400000; ++Pops)
+		{
+			TPair<float, UFGRailroadTrackConnectionComponent*> Top;
+			Open.HeapPop(Top, Less);
+			if (Best.FindRef(Top.Value) < Top.Key)
+			{
+				continue;
+			}
+			if (bOneWay && Top.Value->GetTrailingSignal() && !Top.Value->GetFacingSignal())
+			{
+				continue;
+			}
+			for (UFGRailroadTrackConnectionComponent* Entrance : Top.Value->GetConnections())
+			{
+				if (!Entrance)
+				{
+					continue;
+				}
+				if (Entrance == Target)
+				{
+					return Top.Key;
+				}
+				AFGBuildableRailroadTrack* Track = Entrance->GetTrack();
+				UFGRailroadTrackConnectionComponent* Next = Entrance->GetOpposite();
+				const float Cost = Top.Key + (Track ? Track->GetLength() : 0.f);
+				const float* Known = Next ? Best.Find(Next) : nullptr;
+				if (Next && (!Known || *Known > Cost))
+				{
+					Best.Add(Next, Cost);
+					Open.HeapPush(TPair<float, UFGRailroadTrackConnectionComponent*>(Cost, Next), Less);
+				}
+			}
+		}
+		return -1.f;
+	}
+}
+
+FString FSTTravel::Explain(const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To)
+{
+	UFGRailroadTrackConnectionComponent* FromPlatform = nullptr;
+	UFGRailroadTrackConnectionComponent* FromFar = nullptr;
+	UFGRailroadTrackConnectionComponent* ToPlatform = nullptr;
+	UFGRailroadTrackConnectionComponent* ToFar = nullptr;
+	float Length = 0.f;
+	if (!GetStationEnds(From, FromPlatform, FromFar, Length) || !GetStationEnds(To, ToPlatform, ToFar, Length))
+	{
+		return TEXT("no station ends");
+	}
+	auto At = [](const UFGRailroadTrackConnectionComponent* Each)
+	{
+		const FVector Where = Each->GetConnectorLocation() / 100.0;
+		return FString::Printf(TEXT("(%.0f,%.0f)"), Where.X, Where.Y);
+	};
+	TArray<FString> Parts;
+	Parts.Add(FString::Printf(TEXT("ends: from platform %s far %s, to platform %s far %s"), *At(FromPlatform), *At(FromFar), *At(ToPlatform), *At(ToFar)));
+	const TPair<const TCHAR*, UFGRailroadTrackConnectionComponent*> Leaves[] = {{TEXT("leaving by its far end"), FromFar}, {TEXT("backing out"), FromPlatform}};
+	const TPair<const TCHAR*, UFGRailroadTrackConnectionComponent*> Arrives[] = {{TEXT("platform end"), ToPlatform}, {TEXT("far end"), ToFar}};
+	for (const auto& Leave : Leaves)
+	{
+		for (const auto& Arrive : Arrives)
+		{
+			const float With = Reach(Leave.Value, Arrive.Value, true);
+			const float Without = Reach(Leave.Value, Arrive.Value, false);
+			if (With >= 0.f || Without >= 0.f)
+			{
+				Parts.Add(FString::Printf(TEXT("%s to its %s: %s"), Leave.Key, Arrive.Key,
+					With >= 0.f ? *FString::Printf(TEXT("%.0f m"), With / 100.f) : *FString::Printf(TEXT("only without the one-way rule, %.0f m"), Without / 100.f)));
+			}
+		}
+	}
+	return FString::Join(Parts, TEXT("; "));
+}
+
 void FSTTravel::Reset()
 {
 	mRows.Reset();

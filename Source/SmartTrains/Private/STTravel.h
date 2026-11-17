@@ -39,6 +39,10 @@ public:
 	// False until Station has been searched.
 	bool GetApproach(const AFGTrainStationIdentifier* Station, FApproach& Out) const;
 
+	// For SmartTrains.CheckTravel: both stations' ends as the search sees them, and from which end of From each end of
+	// To is reached, with and without the one-way signal rule.
+	static FString Explain(const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To);
+
 	// Forgets everything, e.g. when the world changes.
 	void Reset();
 

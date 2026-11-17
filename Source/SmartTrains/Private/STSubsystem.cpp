@@ -1270,6 +1270,7 @@ void ASTSubsystem::CheckTravelAgainstGame() const
 				bPushPull ? TEXT("push-pull") : TEXT("one way"), Locomotives.Num(), *STLayout::Name(From), *STLayout::Name(To),
 				bOurs ? *FString::Printf(TEXT("finds %.0f m%s"), Ours / 100.f, bReversing ? TEXT(" backing out") : TEXT("")) : TEXT("finds no way"),
 				bGame ? TEXT("finds a way") : (bGameNoSignals ? TEXT("finds a way only ignoring signals") : TEXT("finds no way even ignoring signals")), *GamePath);
+			UE_LOG(LogSmartTrains, Log, TEXT("TRAVELCHECK   SmartTrains' view: %s"), *FSTTravel::Explain(From, To));
 		}
 	}
 	UE_LOG(LogSmartTrains, Log, TEXT("TRAVELCHECK: %d docked trains, %d station pairs; SmartTrains alone finds %d (%d of them the game finds only ignoring signals), the game alone %d (%.0f ms)"),
