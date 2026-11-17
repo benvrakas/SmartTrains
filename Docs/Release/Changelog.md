@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.35.5 (beta)
+
+- Log: a `FLEET` line once a minute puts every managed train in one group (moving with cargo and how full, moving empty,
+  docked, waiting on a trip, going to park, parked empty, parked holding cargo), to measure where train time goes.
+
 ## 0.35.4 (beta)
 
 - Fixed: a train exactly as long as a station's platforms counted as too long for it and was moved away from where it

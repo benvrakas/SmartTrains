@@ -465,6 +465,7 @@ void ASTSubsystem::SetTrainKeepVanilla(AFGTrain* Train, bool bKeepVanilla, const
 void ASTSubsystem::MonitorTrains()
 {
 	const double Time = Now();
+	LogFleet();
 	for (FSTTrainState& State : mTrains)
 	{
 		AFGTrain* Train = State.Train;
@@ -1741,6 +1742,79 @@ TArray<FString> ASTSubsystem::DescribeFit(const AFGTrain* Train) const
 		Lines.Add(TEXT("No stations with platform roles yet."));
 	}
 	return Lines;
+}
+
+double ASTSubsystem::GetFillShare(const AFGTrain* Train)
+{
+	double Sum = 0.0;
+	int32 Cars = 0;
+	for (const AFGRailroadVehicle* Vehicle : STLayout::GetVehicles(Train))
+	{
+		const AFGFreightWagon* Car = Cast<AFGFreightWagon>(Vehicle);
+		const UFGInventoryComponent* Inventory = Car ? Car->GetFreightInventory() : nullptr;
+		if (!Inventory)
+		{
+			continue;
+		}
+		++Cars;
+		TArray<FInventoryStack> Stacks;
+		Inventory->GetInventoryStacks(Stacks);
+		double Share = 0.0;
+		for (const FInventoryStack& Stack : Stacks)
+		{
+			const double Capacity = Stack.HasItems() ? STLayout::GetCarCapacity(Car, Stack.Item.GetItemClass()) : 0.0;
+			Share += Capacity > 0.0 ? Stack.NumItems / Capacity : 0.0;
+		}
+		Sum += FMath::Min(1.0, Share);
+	}
+	return Cars > 0 ? Sum / Cars : 0.0;
+}
+
+void ASTSubsystem::LogFleet()
+{
+	const double Time = Now();
+	if (Time - mFleetLoggedAt < 60.0)
+	{
+		return;
+	}
+	mFleetLoggedAt = Time;
+	enum EKind { MovingLoaded, MovingEmpty, Docked, Waiting, ToPark, ParkedEmpty, ParkedCargo, Kinds };
+	int32 Count[Kinds] = {};
+	double Fill[Kinds] = {};
+	for (const FSTTrainState& State : mTrains)
+	{
+		const AFGTrain* Train = State.Train.Get();
+		if (!State.bManaged || !IsValid(Train))
+		{
+			continue;
+		}
+		const TArray<AFGRailroadVehicle*> Vehicles = STLayout::GetVehicles(Train);
+		const bool bMoving = Vehicles.Num() > 0 && Vehicles[0] && Vehicles[0]->GetVelocity().Size() > 300.0;
+		const double Share = GetFillShare(Train);
+		const bool bCargo = Share > 0.001;
+		EKind Kind;
+		if (Train->IsDocked())
+		{
+			Kind = Docked;
+		}
+		else if (mDepotTrips.Contains(Train) || (State.bHasJob && State.Job.bPark))
+		{
+			Kind = ToPark;
+		}
+		else if (State.bHasJob)
+		{
+			Kind = !bMoving ? Waiting : (bCargo ? MovingLoaded : MovingEmpty);
+		}
+		else
+		{
+			Kind = bCargo ? ParkedCargo : ParkedEmpty;
+		}
+		++Count[Kind];
+		Fill[Kind] += Share;
+	}
+	auto Avg = [&](EKind Kind) { return Count[Kind] > 0 ? 100.0 * Fill[Kind] / Count[Kind] : 0.0; };
+	UE_LOG(LogSmartTrains, Log, TEXT("FLEET moving loaded %d (fill %.0f%%), moving empty %d, docked %d, waiting on a trip %d, going to park %d, parked empty %d, parked with cargo %d (fill %.0f%%)"),
+		Count[MovingLoaded], Avg(MovingLoaded), Count[MovingEmpty], Count[Docked], Count[Waiting], Count[ToPark], Count[ParkedEmpty], Count[ParkedCargo], Avg(ParkedCargo));
 }
 
 TMap<UClass*, int32> ASTSubsystem::GetCargo(const AFGTrain* Train)

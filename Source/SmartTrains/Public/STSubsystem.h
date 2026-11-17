@@ -487,6 +487,11 @@ private:
 
 	// Items carried by Train's freight cars, by item class.
 	static TMap<UClass*, int32> GetCargo(const AFGTrain* Train);
+	// Share of the freight cars' room Train's cargo fills, 0..1 (each car by its own item).
+	static double GetFillShare(const AFGTrain* Train);
+	// Once a minute: every managed train in one category (FLEET line), for measuring where train time goes.
+	void LogFleet();
+	double mFleetLoggedAt = 0.0;
 	// "Items: station -> station" for a job's name.
 	static FString SummarizeLegs(const TArray<FSTJobLeg>& Legs);
 
