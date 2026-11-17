@@ -1228,12 +1228,31 @@ void ASTSubsystem::CheckTravelAgainstGame() const
 			const float Ours = mTravel->GetDistance(From, To, &bReversing, bPushPull);
 			bool bGame = false;
 			bool bGameNoSignals = false;
+			// The game's way, for a disagreement: which locomotive found it (and whether it leads now), and the tracks.
+			FString GamePath;
 			for (AFGLocomotive* Locomotive : Locomotives)
 			{
 				FRailroadGraphAStarFilter Filter;
 				Filter.AcceptsPartialSolution = false;
 				Filter.IgnoreSignals = false;
-				bGame |= FRailroadNavigation::FindPathSync(Locomotive, Building, Filter).Result == ERailroadPathFindingResult::RPFR_Success;
+				const FRailroadPathFindingResult Found = FRailroadNavigation::FindPathSync(Locomotive, Building, Filter);
+				if (!bGame && Found.Result == ERailroadPathFindingResult::RPFR_Success && Found.Path.IsValid())
+				{
+					TArray<FString> Points;
+					for (const FRailroadPathPoint& Point : Found.Path->PathPoints)
+					{
+						const UFGRailroadTrackConnectionComponent* Connection = Point.TrackConnection.Get();
+						const AFGBuildableRailroadTrack* Track = Connection ? Connection->GetTrack() : nullptr;
+						if (Points.Num() < 24 && Track)
+						{
+							const FVector Where = Connection->GetConnectorLocation() / 100.0;
+							Points.Add(FString::Printf(TEXT("%s(%.0f,%.0f)"), *Track->GetName().Right(10), Where.X, Where.Y));
+						}
+					}
+					GamePath = FString::Printf(TEXT(" [locomotive %d of %d%s: %s]"), Locomotives.IndexOfByKey(Locomotive) + 1, Locomotives.Num(),
+						Locomotive == Train->GetMultipleUnitMaster() ? TEXT(", leading") : TEXT(""), *FString::Join(Points, TEXT(" > ")));
+				}
+				bGame |= Found.Result == ERailroadPathFindingResult::RPFR_Success;
 				if (!bGame)
 				{
 					Filter.IgnoreSignals = true;
@@ -1247,10 +1266,10 @@ void ASTSubsystem::CheckTravelAgainstGame() const
 			}
 			(bOurs ? OursOnly : GameOnly) += 1;
 			SignalsOnly += bOurs && bGameNoSignals ? 1 : 0;
-			UE_LOG(LogSmartTrains, Log, TEXT("TRAVELCHECK %s (%s, %d docking locomotives) from %s to %s: SmartTrains %s, the game %s"), *STLayout::Name(Train),
+			UE_LOG(LogSmartTrains, Log, TEXT("TRAVELCHECK %s (%s, %d docking locomotives) from %s to %s: SmartTrains %s, the game %s%s"), *STLayout::Name(Train),
 				bPushPull ? TEXT("push-pull") : TEXT("one way"), Locomotives.Num(), *STLayout::Name(From), *STLayout::Name(To),
 				bOurs ? *FString::Printf(TEXT("finds %.0f m%s"), Ours / 100.f, bReversing ? TEXT(" backing out") : TEXT("")) : TEXT("finds no way"),
-				bGame ? TEXT("finds a way") : (bGameNoSignals ? TEXT("finds a way only ignoring signals") : TEXT("finds no way even ignoring signals")));
+				bGame ? TEXT("finds a way") : (bGameNoSignals ? TEXT("finds a way only ignoring signals") : TEXT("finds no way even ignoring signals")), *GamePath);
 		}
 	}
 	UE_LOG(LogSmartTrains, Log, TEXT("TRAVELCHECK: %d docked trains, %d station pairs; SmartTrains alone finds %d (%d of them the game finds only ignoring signals), the game alone %d (%.0f ms)"),
