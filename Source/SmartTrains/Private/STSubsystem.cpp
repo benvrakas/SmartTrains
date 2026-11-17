@@ -50,7 +50,8 @@ namespace
 	// An unloading platform that takes less than this share of what was planned counts as slow draining for SlowDrainMinutes.
 	constexpr double SlowDrainShare = 0.5;
 	constexpr double SlowDrainMinutes = 30.0;
-	// A known trip pair's sample counts at most this many times its estimate (queues and deadlocks are outliers).
+	// A trip sample counts at most this many times the pair's estimate (queues and deadlocks are outliers); one this many
+	// times faster than the learned time replaces it.
 	constexpr float TripOutlierFactor = 1.5f;
 	// A self-driving error is logged once it has lasted this long; shorter ones are the game re-routing. [s]
 	constexpr double SelfDrivingErrorLogSeconds = 5.0;
@@ -1147,17 +1148,17 @@ void ASTSubsystem::LearnTrip(AFGTrainStationIdentifier* From, AFGTrainStationIde
 		return;
 	}
 	FSTTripTime* Trip = mTrips.FindByPredicate([&](const FSTTripTime& Each) { return Each.From == From && Each.To == To; });
+	const float Estimate = Trip && Trip->Samples > 0 ? Trip->Seconds : EstimateTravelSeconds(From, To);
 	if (!Trip)
 	{
 		Trip = &mTrips.AddDefaulted_GetRef();
 		Trip->From = From;
 		Trip->To = To;
 	}
-	const float Estimate = Trip->Samples > 0 ? Trip->Seconds : EstimateTravelSeconds(From, To);
-	// A trip held up in a queue or a deadlock says little about the next one: once the pair is known, one sample counts
-	// at most TripOutlierFactor times the estimate.
-	const float Counted = Trip->Samples >= 2 ? FMath::Min(Seconds, Trip->Seconds * TripOutlierFactor) : Seconds;
-	Trip->Seconds = Trip->Samples == 0 ? Counted : FMath::Lerp(Trip->Seconds, Counted, 0.3f);
+	// Queues, deadlocks and standing parked only make a trip slower: a sample counts at most TripOutlierFactor times the
+	// estimate, and a learned time that many times slower than a sample held such a wait, so the sample replaces it.
+	const float Counted = Estimate > 0.f ? FMath::Min(Seconds, Estimate * TripOutlierFactor) : Seconds;
+	Trip->Seconds = Trip->Samples == 0 || Counted * TripOutlierFactor < Trip->Seconds ? Counted : FMath::Lerp(Trip->Seconds, Counted, 0.3f);
 	++Trip->Samples;
 	UE_LOG(LogSmartTrains, Log, TEXT("TRIP %s -> %s took %.0f s (estimate was %.0f s, now %.0f s from %d trips%s)"), *STLayout::Name(From), *STLayout::Name(To), Seconds,
 		Estimate, Trip->Seconds, Trip->Samples, Counted < Seconds ? *FString::Printf(TEXT("; counted as %.0f s"), Counted) : TEXT(""));

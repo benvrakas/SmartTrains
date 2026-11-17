@@ -591,6 +591,12 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   (3315 Caterium from 240/min); the trains arrived 600-940 s early, loaded 200-580, and the rest of each trip failed
   the batch rule at the re-plan ("less than a batch of ..."), 36 times in 30 minutes. The `JOB` line now ends with
   each stop's drive and booking wait (`DescribeTimes`).
+- **Trip times (0.36.1)**: a trip was timed from the train's last departure, so a train that stood parked for hours
+  learned a drive of hours (VM pair 10: "Train Station 96 -> Western Dune Forest Copper Ingot Out 1 took 24952 s"),
+  and the first sample of a pair was taken as is. Plans then expected first legs of 1100-2400 s that took 200-300 s:
+  45 of 256 arrivals came over 10 minutes early, loaded what the supplier held then and dropped the rest. Now a train
+  standing outside a station when it gets a job is timed from then; every sample counts at most `TripOutlierFactor`
+  (1.5) times the pair's estimate; a learned time that many times slower than a sample is replaced by it.
 - **Pickups booked later (0.36.0)**: `GetAvailable` used to subtract every pickup promised at a supplier, so a train
   arriving early lost the stock to trains booked after it that counted on production until their own, later
   arrival. `GetReserved` counts the pickups booked before the arrival in full and of later ones only what the rate

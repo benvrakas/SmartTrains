@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.36.1 (beta)
+
+- **Better drive time estimates.** A train that stood parked for a long time counted the wait as driving time, so
+  SmartTrains expected some drives to take 20 minutes or even hours. Trains then arrived far ahead of plan, found
+  less cargo than planned and cut their trips short. Learned drive times now ignore time spent standing, and old
+  learned times that were far too long are corrected the next time a train drives that way.
+
 ## 0.36.0 (beta)
 
 - **Trains sharing a supplier no longer cut each other's trips short.** A train that reached a busy supplier first

@@ -18,8 +18,6 @@ namespace
 	constexpr double SaturatedShare = 0.85;
 	// Share of time trains stand still on trips from which the network counts as congested.
 	constexpr double StandingShare = 0.15;
-	// Below this a driving train counts as standing still. [cm/s]
-	constexpr float StandingSpeed = 100.f;
 	// Fewest samples before a verdict (one minute).
 	constexpr int32 MinSamples = 6;
 	// Shares of the window that make a verdict.
@@ -128,7 +126,7 @@ void FSTThroughput::Sample(const ASTSubsystem& Subsystem)
 			++Fleet.Driving;
 			const AFGLocomotive* Master = State.Train->GetMultipleUnitMaster();
 			const UFGLocomotiveMovementComponent* Movement = Master ? Master->GetLocomotiveMovementComponent() : nullptr;
-			Fleet.Standing += Movement && FMath::Abs(Movement->GetForwardSpeed()) < StandingSpeed ? 1 : 0;
+			Fleet.Standing += Movement && FMath::Abs(Movement->GetForwardSpeed()) < STLayout::StandingSpeed ? 1 : 0;
 		}
 	}
 	mFleet.Add(Fleet);

@@ -1300,6 +1300,11 @@ void ASTSubsystem::CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, con
 	Job.Id = mNextJobId++;
 	Job.StartedAt = Time;
 	Job.LegStartedAt = Time;
+	// A train standing outside a station (parked) starts driving now: its first trip is timed from here (LearnTrip).
+	if (!State.bWasDocked && STLayout::GetTrainSpeed(State.Train) < STLayout::StandingSpeed)
+	{
+		State.LastDepartureAt = Time;
+	}
 	Planner.MakeLegs(Stops, Result, Job.Legs);
 	Job.GroupItem = GroupItem;
 	Job.AnchorStation = Anchor;
