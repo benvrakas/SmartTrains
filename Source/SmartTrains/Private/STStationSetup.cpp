@@ -1340,6 +1340,30 @@ void STSetup::NameStation(const ASTSubsystem& Subsystem, STMigration::FStationPr
 	{
 		return;
 	}
+	const FSTNamingConfig& Naming = Subsystem.mNaming;
+	// Every cargo platform a Sink: named as a sink, with no factory behind it.
+	int32 CargoPlatforms = 0;
+	int32 Sinks = 0;
+	for (const STMigration::FPlatformProposal& Platform : Proposal.Platforms)
+	{
+		if (Platform.bCargo && Platform.Platform.IsValid())
+		{
+			++CargoPlatforms;
+			const FSTPlatformConfig* Config = Subsystem.FindPlatformConfig(Platform.Platform.Get());
+			Sinks += Config && Config->Role == ESTRole::Sink ? 1 : 0;
+		}
+	}
+	if (CargoPlatforms > 0 && Sinks == CargoPlatforms && !Naming.SinkWord.IsEmpty())
+	{
+		FString AreaSource;
+		const FString Area = GetMapArea(Building->GetWorld(), Building->GetActorLocation(), AreaSource);
+		const int32 Number = PickNumber(Naming.Format, Area, Naming.SinkWord, FString(), StationNameOf(Station), Taken);
+		Proposal.NewName = FormatName(Naming.Format, Area, Naming.SinkWord, FString(), Number, FString());
+		Taken.Add(Proposal.NewName);
+		Proposal.NameNote = FString::Printf(TEXT("all %d cargo platforms are Sinks; %s"), CargoPlatforms,
+			Area.IsEmpty() ? TEXT("no map area found") : *FString::Printf(TEXT("area from the %s"), *AreaSource));
+		return;
+	}
 	const FFactory Factory = AnalyzeFactory(Subsystem, Proposal);
 	if (!Factory.Product)
 	{
@@ -1348,7 +1372,6 @@ void STSetup::NameStation(const ASTSubsystem& Subsystem, STMigration::FStationPr
 	}
 	const bool bSupply = Proposal.Platforms.ContainsByPredicate([](const STMigration::FPlatformProposal& Each) { return Each.Role == ESTRole::Supply && Each.Items.Num() > 0; });
 	const bool bDemand = Proposal.Platforms.ContainsByPredicate([](const STMigration::FPlatformProposal& Each) { return Each.Role == ESTRole::Demand && Each.Items.Num() > 0; });
-	const FSTNamingConfig& Naming = Subsystem.mNaming;
 	// One item unloaded: named by that item and how much of it the factory uses. Several: by what the factory makes.
 	const bool bOneInput = Factory.InputItem != nullptr;
 	const FString Role = bSupply && bDemand ? Naming.MixedWord : (bSupply ? Naming.SupplyWord : (bOneInput ? Naming.ConsumerWord : Naming.FactoryWord));
@@ -1679,7 +1702,7 @@ void ASTSubsystem::StartSetupSteps()
 
 bool ASTSubsystem::SetNaming(const TArray<FString>& Words, const FString& Cause, FString& OutMessage)
 {
-	// Words: "format <text...>" or "words <supply> <factory> <consumer> [mixed]" ("-" for none).
+	// Words: "format <text...>" or "words <supply> <factory> <consumer> [mixed] [sink]" ("-" for none).
 	if (Words.Num() >= 2 && Words[0].Equals(TEXT("format"), ESearchCase::IgnoreCase))
 	{
 		TArray<FString> Rest = Words;
@@ -1699,6 +1722,7 @@ bool ASTSubsystem::SetNaming(const TArray<FString>& Words, const FString& Cause,
 		mNaming.FactoryWord = Word(Words[2]);
 		mNaming.ConsumerWord = Word(Words[3]);
 		mNaming.MixedWord = Words.Num() >= 5 ? Word(Words[4]) : FString();
+		mNaming.SinkWord = Words.Num() >= 6 ? Word(Words[5]) : FSTNamingConfig().SinkWord;
 	}
 	else if (Words.Num() >= 1 && Words[0].Equals(TEXT("default"), ESearchCase::IgnoreCase))
 	{
@@ -1706,11 +1730,12 @@ bool ASTSubsystem::SetNaming(const TArray<FString>& Words, const FString& Cause,
 	}
 	else
 	{
-		OutMessage = TEXT("Use /st setup format <text>, /st setup words <loads> <unloads several> <unloads one> [both] (- for none), or /st setup default.");
+		OutMessage = TEXT("Use /st setup format <text>, /st setup words <loads> <unloads several> <unloads one> [both] [sink] (- for none), or /st setup default.");
 		return false;
 	}
-	OutMessage = FString::Printf(TEXT("Station names: %s; {role}: loads %s, unloads several items %s, unloads one item %s, both %s. Example: %s"), *mNaming.Format,
-		*mNaming.SupplyWord, *mNaming.FactoryWord, *mNaming.ConsumerWord, mNaming.MixedWord.IsEmpty() ? TEXT("(none)") : *mNaming.MixedWord,
+	OutMessage = FString::Printf(TEXT("Station names: %s; {role}: loads %s, unloads several items %s, unloads one item %s, both %s; all Sink platforms: %s. Example: %s"),
+		*mNaming.Format, *mNaming.SupplyWord, *mNaming.FactoryWord, *mNaming.ConsumerWord, mNaming.MixedWord.IsEmpty() ? TEXT("(none)") : *mNaming.MixedWord,
+		mNaming.SinkWord.IsEmpty() ? TEXT("name kept") : *mNaming.SinkWord,
 		*STSetup::FormatName(mNaming.Format, TEXT("Grass Fields"), TEXT("Modular Frame"), mNaming.FactoryWord, 1, TEXT("288")));
 	UE_LOG(LogSmartTrains, Log, TEXT("SETUP naming: %s (%s)"), *OutMessage, *Cause);
 	return true;

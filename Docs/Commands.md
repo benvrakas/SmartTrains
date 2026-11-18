@@ -50,8 +50,9 @@ Setting a role switches the platform to load (supply) or unload (demand).
   and the log (`SETUP` lines). `/st setup all apply [keepname]` applies it everywhere (admin only).
 - `/st setup format <text>`: how names are built, per world. `{area}`, `{product}`, `{role}`, `{n}` and `{rate}` are
   filled in; empty ones drop out with their brackets. Default: `{area} {product} {role} {n} ({rate})`.
-- `/st setup words <loads> <unloads several items> <unloads one item> [both]`: the words for `{role}` (`-` for
-  none). Default `Out In In`, no word for a station that does both. Example: `/st setup words SRC RSC SNK`.
+- `/st setup words <loads> <unloads several items> <unloads one item> [both] [sink]`: the words for `{role}` (`-`
+  for none), and the `{product}` of a station whose cargo platforms are all Sinks (`-` keeps its name). Default
+  `Out In In`, no word for a station that does both, `Sink`. Example: `/st setup words SRC RSC SNK - SINK`.
 - `/st setup default`: the default format and words again.
 - Server console: `SmartTrains.Setup [apply] [keepname]` runs `/st setup all`. `SmartTrains.MigratePreview` runs the
   migration preview.

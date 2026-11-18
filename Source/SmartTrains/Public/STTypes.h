@@ -164,6 +164,10 @@ struct SMARTTRAINS_API FSTNamingConfig
 
 	UPROPERTY(SaveGame)
 	FString MixedWord;
+
+	// {product} for a station whose cargo platforms are all Sinks (it has no {role} or {rate}).
+	UPROPERTY(SaveGame)
+	FString SinkWord = TEXT("Sink");
 };
 
 // What one car loads or unloads at one stop of a job.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.36.5 (beta)
+
+- **Rename station from its factory names Sink stations.** A station whose cargo platforms are all set to Sink is
+  named from its map area, e.g. "No Man's Land Sink 1", where before its name was kept. `/st setup words` takes the
+  word as an optional sixth word.
+
 ## 0.36.4 (beta)
 
 - **Fluid deliveries keep their factories supplied.** The automatic target of a platform unloading a fluid came out
