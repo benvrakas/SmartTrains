@@ -1034,7 +1034,8 @@ void ASTSubsystem::StepFactoryScan(const TArray<FSTNode>& Nodes)
 	for (const TPair<TSubclassOf<UFGItemDescriptor>, double>& Each : Factory.InputRates)
 	{
 		const TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, TWeakObjectPtr<UClass>> Key(Oldest, Each.Key.Get());
-		const double PerSecond = Each.Value / 60.0;
+		// The scan counts fluids in m3; stock and capacity count them in liters.
+		const double PerSecond = Each.Value / 60.0 * (STNames::IsFluid(Each.Key) ? 1000.0 : 1.0);
 		const double* Before = mFactoryUse.Find(Key);
 		if (!Before || FMath::Abs(*Before - PerSecond) > 1e-3 * FMath::Max(PerSecond, 1.0))
 		{

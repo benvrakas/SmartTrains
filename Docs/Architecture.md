@@ -591,6 +591,10 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   (3315 Caterium from 240/min); the trains arrived 600-940 s early, loaded 200-580, and the rest of each trip failed
   the batch rule at the re-plan ("less than a batch of ..."), 36 times in 30 minutes. The `JOB` line now ends with
   each stop's drive and booking wait (`DescribeTimes`).
+- **Fluid factory use in liters (0.36.4)**: `StepFactoryScan` stored the belt/pipe scan's per-minute rates as they
+  come, m3 for fluids, in `mFactoryUse`, which `ApplyAutoTargets` divides by a capacity in liters. Every automatic
+  fluid target came out 1000 times too small and sat at `AutoTargetMinPercent` (10 %); the platform readout showed
+  "uses at most 2.4 m3/min" for 2,400 (IB, Dune Desert Cooling System In 1 Nitrogen Gas, 2026-11-18).
 - **Best 24 moves again (0.36.3)**: 0.35.8's moves kept by station are reverted. Emptied VM runs before it: 161, 178
   car unloads; with it, on every later build: 140, 140, 129, 151, 121, 129 (as-is runs unchanged at 88-97). The
   wider choice made 5-6-stop gathering trips that depend on many suppliers' timing.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.36.4 (beta)
+
+- **Fluid deliveries keep their factories supplied.** The automatic target of a platform unloading a fluid came out
+  1000 times too low, so it always sat at the 10 % minimum and trains brought fluids late. The platform menu also showed
+  the factory's use 1000 times too low (e.g. "uses at most 2.4 m3/min" for 2,400).
+
 ## 0.36.3 (beta)
 
 - **Undid 0.35.8's wider pickup choice.** In VM tests it made long trips with many pickups and moved less cargo
