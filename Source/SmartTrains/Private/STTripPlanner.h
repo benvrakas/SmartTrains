@@ -238,7 +238,8 @@ private:
 	int32 CountNear(const AFGTrainStationIdentifier* Station, double From, double Until) const;
 	// How much Cargo ties its car down: 0 empty, NeededSoonShare if every item is wanted soon, else 1.
 	double GetTiedShare(const TArray<TPair<UClass*, double>>& Cargo) const;
-	// Car CarIndex can unload Item at a consumer of it the train can reach (whichever way it docks there).
+	// Car CarIndex can unload Item at a consumer of it the train can reach (whichever way it docks there) that runs short
+	// of it within STForecast::HorizonSeconds, counting the deliveries planned and the cargo other trains hold for it.
 	bool CarHasConsumer(int32 CarIndex, UClass* Item) const;
 	// A consumer of Item the train can reach exists.
 	bool ItemHasConsumer(UClass* Item) const;

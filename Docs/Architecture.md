@@ -591,6 +591,13 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   (3315 Caterium from 240/min); the trains arrived 600-940 s early, loaded 200-580, and the rest of each trip failed
   the batch rule at the re-plan ("less than a batch of ..."), 36 times in 30 minutes. The `JOB` line now ends with
   each stop's drive and booking wait (`DescribeTimes`).
+- **Sinks take cargo no consumer needs soon (0.36.6)**: `CarHasConsumer` kept a car's cargo from every sink while any
+  reachable consumer of the item existed. On IB (2026-11-18) about 20 trains held Coal that the one Coal consumer (No
+  Man's Land Coal In 1, 1,200/min at most) could not use for hours, and a new Sink was never chosen ("car 1 would
+  unload Coal into the sink at Dune Desert Sink, but it can deliver it to a consumer"). A consumer now counts only if
+  it runs short within `STForecast::HorizonSeconds` with the deliveries planned and other trains' held cargo; the
+  train's own cargo is left out. Trains planned one after another in a round see the held cargo of those that went
+  to the sink drop out, so the consumer still gets what it needs.
 - **Fluid factory use in liters (0.36.4)**: `StepFactoryScan` stored the belt/pipe scan's per-minute rates as they
   come, m3 for fluids, in `mFactoryUse`, which `ApplyAutoTargets` divides by a capacity in liters. Every automatic
   fluid target came out 1000 times too small and sat at `AutoTargetMinPercent` (10 %); the platform readout showed

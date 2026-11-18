@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.36.6 (beta)
+
+- **Leftover cargo goes to Sink platforms when no factory needs it within the hour.** Before, a train never brought
+  cargo to a sink while any factory that uses the item could be reached, even when other trains already held far
+  more of it than that factory uses, so a new Sink got no trains and those cars stayed full.
+
 ## 0.36.5 (beta)
 
 - **Rename station from its factory names Sink stations.** A station whose cargo platforms are all set to Sink is

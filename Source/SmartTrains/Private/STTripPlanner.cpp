@@ -349,7 +349,14 @@ bool FSTTripPlanner::CarHasConsumer(int32 CarIndex, UClass* Item) const
 		{
 			continue;
 		}
-		if (CarFitsAt(CarIndex, Node.Station.Get(), [Item](const FPlatformInfo& Platform) { return Platform.bDemand && !Platform.bLoadMode && !Platform.bAnyItem && Platform.Items.Contains(Item); }))
+		if (!CarFitsAt(CarIndex, Node.Station.Get(), [Item](const FPlatformInfo& Platform) { return Platform.bDemand && !Platform.bLoadMode && !Platform.bAnyItem && Platform.Items.Contains(Item); }))
+		{
+			continue;
+		}
+		// A consumer that other trains' cargo already covers for the horizon doesn't keep this car's from a sink.
+		TArray<FSTNodeEvent> Events = Node.Planned;
+		Events.RemoveAll([this](const FSTNodeEvent& Event) { return Event.HeldBy == mTrainIndex; });
+		if (STForecast::Deadline(Node, Events, mTime, STLayout::GetCarCapacity(mCars[CarIndex].Car, Item)) < mTime + STForecast::HorizonSeconds)
 		{
 			return true;
 		}
