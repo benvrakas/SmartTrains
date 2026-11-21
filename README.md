@@ -1,6 +1,6 @@
 # SmartTrains
 
-A Satisfactory mod (SML 3.12, game build 513885 or later): trains without fixed timetables.
+A Satisfactory mod (SML 3.12.1, game build 520140 or later): trains without fixed timetables.
 
 Give freight and fluid platforms a role (supply or demand) and the items they handle. Managed trains are then sent by
 stock, rate and distance from where items pile up to where they're needed. You don't need a train per factory. Train

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.36.7 (beta)
+
+- **For game 1.2.5.1** (the update of 18 November 2026). That update changed how the game stores factory buildings,
+  conveyors and train platforms, so the previous version read the wrong data on it. Needs SML 3.12.1, which also fixes
+  the crash when joining a multiplayer game on 1.2.5.1.
+
 ## 0.36.6 (beta)
 
 - **Leftover cargo goes to Sink platforms when no factory needs it within the hour.** Before, a train never brought
