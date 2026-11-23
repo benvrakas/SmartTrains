@@ -121,11 +121,6 @@ FSTTripPlanner::FSTTripPlanner(const ASTSubsystem& InSubsystem, TArray<FSTNode>&
 		{
 			mNodeIndex.Add(MakeTuple(static_cast<const AFGTrainStationIdentifier*>(Node.Station.Get()), Node.Item.Get(), Node.Role == ESTRole::Supply), Index);
 		}
-		if (Node.Role == ESTRole::Demand && !Node.bAnyItem && Node.Item && !mNeededSoon.Contains(Node.Item.Get())
-			&& STForecast::Deadline(Node, Node.Planned, mTime, STLayout::GetCarCapacity(nullptr, Node.Item)) < mTime + STForecast::HorizonSeconds)
-		{
-			mNeededSoon.Add(Node.Item.Get());
-		}
 	}
 }
 
@@ -370,14 +365,14 @@ double FSTTripPlanner::GetKeepValue(int32 CarIndex, UClass* Item, double Amount)
 	return Best;
 }
 
-double FSTTripPlanner::GetTiedShare(const TArray<TPair<UClass*, double>>& Cargo) const
+double FSTTripPlanner::GetTiedShare(int32 CarIndex, const TArray<TPair<UClass*, double>>& Cargo) const
 {
 	bool bAny = false;
 	for (const TPair<UClass*, double>& Each : Cargo)
 	{
 		if (Each.Value >= 1.0)
 		{
-			if (!mNeededSoon.Contains(Each.Key))
+			if (!IsWantedSoon(CarIndex, Each.Key))
 			{
 				return 1.0;
 			}
@@ -385,6 +380,31 @@ double FSTTripPlanner::GetTiedShare(const TArray<TPair<UClass*, double>>& Cargo)
 		}
 	}
 	return bAny ? NeededSoonShare : 0.0;
+}
+
+bool FSTTripPlanner::IsWantedSoon(int32 CarIndex, UClass* Item) const
+{
+	if (const bool* Known = mWantedSoon.Find(TPair<int32, UClass*>(CarIndex, Item)))
+	{
+		return *Known;
+	}
+	bool bWanted = false;
+	for (const FSTNode& Node : mNodes)
+	{
+		if (bWanted || Node.Role != ESTRole::Demand || Node.bAnyItem || Node.Item.Get() != Item || !CanServeHere(Node.Station.Get()) || !mCars.IsValidIndex(CarIndex))
+		{
+			continue;
+		}
+		if (!CarFitsAt(CarIndex, Node.Station.Get(), [Item](const FPlatformInfo& Platform) { return Platform.bDemand && !Platform.bLoadMode && !Platform.bAnyItem && Platform.Items.Contains(Item); }))
+		{
+			continue;
+		}
+		TArray<FSTNodeEvent> Events = Node.Planned;
+		Events.RemoveAll([this](const FSTNodeEvent& Event) { return Event.HeldBy == mTrainIndex; });
+		bWanted = STForecast::Deadline(Node, Events, mTime, STLayout::GetCarCapacity(mCars[CarIndex].Car, Item)) < mTime + STForecast::HorizonSeconds;
+	}
+	mWantedSoon.Add(TPair<int32, UClass*>(CarIndex, Item), bWanted);
+	return bWanted;
 }
 
 double FSTTripPlanner::GetAvailable(int32 Node, double Arrive) const
@@ -853,6 +873,7 @@ bool FSTTripPlanner::PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifi
 	mCarPlatforms.Reset();
 	mProblems.Reset();
 	mCarAllowed.Reset();
+	mWantedSoon.Reset();
 	bPushPull = ASTSubsystem::IsPushPull(mSubsystem.mTrains[TrainIndex].Train);
 	const FSTTrainState& State = mSubsystem.mTrains[TrainIndex];
 	const AFGTrain* Train = State.Train;
@@ -934,6 +955,7 @@ bool FSTTripPlanner::ResumeTrain(int32 TrainIndex, const AFGTrainStationIdentifi
 	mMoves = Setup->Moves;
 	mCarPlatforms = Setup->CarPlatforms;
 	mProblems = Setup->Problems;
+	mWantedSoon.Reset();
 	return true;
 }
 
@@ -1651,7 +1673,7 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 	// Cars left holding cargo can only take that item next; cars emptied can take any.
 	for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
 	{
-		Result.Value += TiedCarValue * (GetTiedShare(mCars[CarIndex].Cargo) - GetTiedShare(Cargo[CarIndex]));
+		Result.Value += TiedCarValue * (GetTiedShare(CarIndex, mCars[CarIndex].Cargo) - GetTiedShare(CarIndex, Cargo[CarIndex]));
 	}
 	Result.Value -= StopCost;
 	Result.bValid = true;

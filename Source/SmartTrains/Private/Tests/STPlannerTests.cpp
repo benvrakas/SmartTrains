@@ -74,6 +74,7 @@ struct FSTTestAccess
 		Planner.mPlatforms = Platforms;
 		Planner.mCarPlatforms = CarPlatforms;
 		Planner.mProblems.Reset();
+		Planner.mWantedSoon.Reset();
 		Planner.mPlatformIndex.Reset();
 		for (int32 Index = 0; Index < Platforms.Num(); ++Index)
 		{

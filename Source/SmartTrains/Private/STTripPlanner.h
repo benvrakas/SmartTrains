@@ -234,8 +234,12 @@ private:
 	bool IsParkedInWay(const AFGTrainStationIdentifier* Station, double Reach, double Dock) const;
 	// Other trains booked at Station between From and Until.
 	int32 CountNear(const AFGTrainStationIdentifier* Station, double From, double Until) const;
-	// How much Cargo ties its car down: 0 empty, NeededSoonShare if every item is wanted soon, else 1.
-	double GetTiedShare(const TArray<TPair<UClass*, double>>& Cargo) const;
+	// How much Cargo ties car CarIndex down: 0 empty, NeededSoonShare if the car can deliver every item it holds soon
+	// (IsWantedSoon), else 1.
+	double GetTiedShare(int32 CarIndex, const TArray<TPair<UClass*, double>>& Cargo) const;
+	// Car CarIndex's Item is wanted soon: a consumer of it the train can reach, that the car lines up with (whichever way
+	// it docks there), runs short of it within STForecast::HorizonSeconds, the cargo other trains hold for it counted.
+	bool IsWantedSoon(int32 CarIndex, UClass* Item) const;
 	// What Amount of Item in car CarIndex is still worth at its best consumer: the most shortfall it prevents at a
 	// consumer of it the train can reach and the car lines up with, driving there from the train's start (forecast gain,
 	// the cargo other trains hold for it counted). What unloading it into a sink gives up.
@@ -267,8 +271,8 @@ private:
 	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>>& mBookings;
 	TMap<TTuple<const AFGTrainStationIdentifier*, UClass*, bool>, int32> mNodeIndex;
 	TMap<const AFGTrainStationIdentifier*, int32> mAnyNode;
-	// Items a demand platform falls below target of within the forecast horizon.
-	TSet<UClass*> mNeededSoon;
+	// IsWantedSoon per (car, item) of the current train; reset by PrepareCars and ResumeTrain.
+	mutable TMap<TPair<int32, UClass*>, bool> mWantedSoon;
 	double mTime = 0.0;
 	double mStarted = 0.0;
 	double mDeadline = 0.0;
