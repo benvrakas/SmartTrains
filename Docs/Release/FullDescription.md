@@ -15,8 +15,8 @@ them (see below).
 - **Platforms:** open a freight or fluid platform and click **Open SmartTrains settings**.
   - **Supply:** managed trains pick items up here.
   - **Demand:** managed trains keep it stocked to a target.
-  - **Sink:** managed trains unload cargo here that has nowhere else to go, any item: cargo a car can't unload at any
-    consumer of it, and production nobody on the network uses.
+  - **Sink:** managed trains unload cargo here that has nowhere better to go, any item: cargo no factory the car can
+    reach needs soon, and production from full suppliers. Cargo a factory will need soon stays on the train for it.
   - **Off:** vanilla.
   - Each demand item is kept stocked automatically: enough to last until a train can bring more, from how fast the
     factory can use it at its most (its machines, limited by its narrowest belt, as in station names) and how far its

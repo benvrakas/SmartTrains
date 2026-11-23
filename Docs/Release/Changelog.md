@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.37.0 (beta)
+
+- **Idle trains stay where they are.** A train with nothing to do now waits in the station it finished in, as long as
+  that station isn't on a through line, fits the whole train, and no other train is due there within 3 minutes. Only
+  then does it move, to the nearest quiet station. Before, idle trains drove off to park whenever any trip anywhere
+  still had that station ahead, and were parked at suppliers, where the next trip sent them away again: on a 40-train
+  server about 12 trains were always driving to a parking spot, more drives to park than trips.
+- **No new trip for a train while it drives to park.** Its timetable used to be rewritten at full speed, which made Auto
+  Trains brake hard and could start a jam. It gets its next trip once it stands.
+- **Sinks only get cargo that isn't worth keeping.** Unloading into a Sink platform now weighs the freed car against
+  what the cargo is still worth to a factory the car can reach. Coal nobody can use for an hour goes to the sink; Silica
+  a factory runs short of soon stays on the train for it. The **Unwanted cargo after** setting is now only a readout.
+
 ## 0.36.7 (beta)
 
 - **For game 1.2.5.1** (the update of 18 November 2026). That update changed how the game stores factory buildings,

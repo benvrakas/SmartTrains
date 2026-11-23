@@ -213,16 +213,17 @@ a few hundred coal in two cars stood idle for hours with two empty cars, tied to
 - **Groups come from cargo (0.33.0)**. One rule decides what a free train may do (`GatherRound`):
   - **Holding cargo**, it keeps its pattern and tries the consumers that line up with it (one trip per consumer, the
     best runs). With none worth a trip it plans a trip that loads nothing (`SetNoLoads`, no anchor) and delivers what
-    it holds: to consumers of it, to a Sink platform when nothing consumes it, and also to a Sink once the cargo
-    counts as unwanted (`UnwantedCargoSince` older than the `LeftoverMinutes` setting, `SetSinksForCargo`). It never
-    takes another pattern while it holds cargo.
+    it holds: to consumers of it, or to a Sink platform when that is worth more than keeping the cargo ("Sinks are
+    priced (0.37.0)"; before, a Sink only when nothing consumes it or once the cargo counted as unwanted,
+    `LeftoverMinutes`, `SetSinksForCargo`). It never takes another pattern while it holds cargo.
   - **Empty**, it has no group: its pattern is cleared at its turn, and it tries every consumer station, first those
     no train serves (`IsConsumerServed`: no managed train on a trip anchored there, none given in the last
     `ServedSeconds`, 600 s), then all. The trip chosen gives its cars their items (`PatternAfter`).
   - `ReplanTrip` applies the car items from the job's anchor (no anchor: no loads).
   - **Emptying trips are worth what they unload (0.33.1)**: like every trip they get `LoadValue` (2) per car load
     delivered to a consumer (0.34.7; until then only emptying trips had it), and with `SetNoLoads` also `EmptyCarValue`
-    (10) per car emptied, so the trip goes to any consumer or sink with room whatever its target. Without it, 0.33.0's emptying trips were valued like any trip (forecast gain, a quarter of
+    (10) per car emptied, so the trip goes to any consumer or sink with room whatever its target (`EmptyCarValue`
+    removed in 0.37.0: the tied-car value and `LoadValue` already pay for emptying a car). Without it, 0.33.0's emptying trips were valued like any trip (forecast gain, a quarter of
     `TiedCarValue` for items needed soon) and rarely beat the stop cost: on the IB server, 2026-11-14, 33 of 38
     trains stood idle holding leftovers and trips fell from about 22 to 6 per 10 minutes.
   - What this replaced: an idle clock (5 minutes without a trip), "homeless" patterns no station takes, "spare" trains
@@ -382,7 +383,7 @@ fix exposed the next problem through how they interacted. 0.8.0 replaces them wi
   room, so trains coming to unload into a depot's sink and trains coming to park there never queue behind each other.
 - **Junctions:** the switch where the walk ends (`GetJunction`) is shared by stations reached through it; `CountNear`
   (stop cost) counts other trains booked at any of them, so trips spread over stations behind one switch.
-- **Sinks per car** (`CarHasConsumer`, `ItemHasConsumer`): cargo on board may go to a sink only if that car can't unload
+- **Sinks per car** (replaced in 0.37.0 by "Sinks are priced") (`CarHasConsumer`, `ItemHasConsumer`): cargo on board may go to a sink only if that car can't unload
   it at any consumer of the item the train can reach (whichever way it docks there); a full supplier's goods only if no
   consumer of the item exists. `Simulate` rejects a sink stop that breaks this. (0.7.7's one-hour rule let cargo
   through whenever its consumers were full for now.)
@@ -591,7 +592,30 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   (3315 Caterium from 240/min); the trains arrived 600-940 s early, loaded 200-580, and the rest of each trip failed
   the batch rule at the re-plan ("less than a batch of ..."), 36 times in 30 minutes. The `JOB` line now ends with
   each stop's drive and booking wait (`DescribeTimes`).
-- **Sinks take cargo no consumer needs soon (0.36.6)**: `CarHasConsumer` kept a car's cargo from every sink while any
+- **Idle trains wait where they stand (0.37.0)**: on IB (2026-11-22/23, 22.5 h, ~40 trains) there were 4,073 trips
+  but 5,922 drives to park and 5,299 evictions; about 12 trains were always driving to a parking spot, 83 % of parks
+  were at supplier stations (staging), and 4,314 times a train parked at a supplier had to leave because a trip
+  started there. 43 % of Auto Trains' full brakes came within 0.5 s of a timetable write (trains driving to park got
+  new trips at speed). Now:
+  - `SettleIdle` parks a train where it stands when that station is off the through lines, fits it
+    (`GetStationRoom`) and no other train is planned to arrive there within `NeededSoonSeconds` (180 s); otherwise it
+    drives to the nearest station off the through lines, preferably one with no work, that no train arrives at within
+    `ParkQuietSeconds` (600 s).
+  - `GetNeededStations(Except, Within)` counts a stop ahead only if its `PlannedArrival` is within `Within`; the same
+    180 s decide when `ClearNeededBays` moves a parked train out ("making room at ..., another train arrives there
+    soon"). Before, any stop still ahead in any trip counted, however far off.
+  - `GetFreeAt`: a train driving to park or to a depot is free only while it stands, so its timetable is never
+    rewritten at speed.
+  - Staging (`mStagingStations`, `StagingSeconds`) is removed.
+- **Sinks are priced (0.37.0)**: unloading into a sink frees the car (the tied-car value) and costs `GetKeepValue`:
+  the most shortfall that cargo would still prevent at a consumer of it the car lines up with and the train can reach,
+  driving there from the train's start (`STForecast::Gain`, other trains' held cargo counted). The score decides, so
+  `CarHasConsumer`, `ItemHasConsumer`, `SetSinksForCargo`, the `LeftoverMinutes` rule (the setting is now a readout),
+  `bRelaxed` and `EmptyCarValue` are gone; a sink still takes a supplier's goods only while it is full. The tied-car
+  value uses the same per-car test (`IsWantedSoon`: a consumer the car lines up with runs short within the horizon;
+  before, any consumer of the item anywhere), so cargo a car can't deliver anywhere is valued the same as cargo nobody
+  wants. IB 2026-11-22/23: 399 trips (10 %) dumped Coal, Silica, Steel, Aluminum and Copper Ingots into Dune Desert Sink.
+- **Sinks take cargo no consumer needs soon (0.36.6, replaced in 0.37.0 by "Sinks are priced")**: `CarHasConsumer` kept a car's cargo from every sink while any
   reachable consumer of the item existed. On IB (2026-11-18) about 20 trains held Coal that the one Coal consumer (No
   Man's Land Coal In 1, 1,200/min at most) could not use for hours, and a new Sink was never chosen ("car 1 would
   unload Coal into the sink at Dune Desert Sink, but it can deliver it to a consumer"). A consumer now counts only if
@@ -646,7 +670,7 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   the train's length for `FindParkingStation` to pick a station, and `ClearNeededBays` moves an idle train standing at a
   station shorter than itself. IB 2026-11-16: a train parked at the one-platform "Turbofuel- Sulfur SNK" stood over the
   next switch (Auto Trains report; also in faults.log of 11-12).
-- **Staging (0.35.0)**: each round `mStagingStations` lists suppliers whose stock reaches a send-at batch within
+- **Staging (0.35.0, removed in 0.37.0)**: each round `mStagingStations` lists suppliers whose stock reaches a send-at batch within
   `StagingSeconds` (10 minutes) of an item some consumer falls below target of within the horizon.
   `FindParkingStation` ranks off-through, quiet, then nearest to a staging supplier, then nearest to the train.
 - **Full docks (0.34.7)**: every car load delivered to a platform that wants the item adds `LoadValue` (2 car-load
