@@ -159,9 +159,9 @@ struct FSTTestAccess
 		ASTSubsystem::LinkSupplyChain(Nodes);
 	}
 
-	static double GetTiedShare(const FSTTripPlanner& Planner, const TArray<TPair<UClass*, double>>& Cargo)
+	static double GetTiedShare(const FSTTripPlanner& Planner, int32 CarIndex, const TArray<TPair<UClass*, double>>& Cargo)
 	{
-		return Planner.GetTiedShare(Cargo);
+		return Planner.GetTiedShare(CarIndex, Cargo);
 	}
 
 	static int32 CountNear(const FSTTripPlanner& Planner, const AFGTrainStationIdentifier* Station, double From, double Until)
@@ -701,8 +701,8 @@ bool FSTForecastTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// Cars holding cargo tie the train down; less so when every item they hold is wanted soon. Busy stations: bookings of
-// other trains near a visit count, the train's own don't.
+// Cars holding cargo tie the train down; less so when every item they hold is wanted soon at a consumer the car lines up
+// with. Busy stations: bookings of other trains near a visit count, the train's own don't.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTTiedCarsTest, "SmartTrains.Planner.TiedCarsAndBusyStations", TestFlags)
 bool FSTTiedCarsTest::RunTest(const FString& Parameters)
 {
@@ -714,12 +714,17 @@ bool FSTTiedCarsTest::RunTest(const FString& Parameters)
 	TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
 	Bookings.Add(Sink, {{0, 100.0, 150.0}, {5, 100.0, 150.0}, {6, 400.0, 450.0}});
 	FSTTripPlanner Planner(*Subsystem, Nodes, Bookings);
-	FSTTestAccess::SetTrain(Planner, Sink, true, false, {FSTTestAccess::Car()}, {}, {});
+	// Car 1 stops beside the water platform at Sink, car 2 beside none.
+	FSTTestAccess::FCarPlatforms CarPlatforms;
+	CarPlatforms.Add(Sink, {{0, INDEX_NONE}});
+	FSTTestAccess::SetTrain(Planner, Sink, true, false, {FSTTestAccess::Car(), FSTTestAccess::Car()}, {FSTTestAccess::Platform(Water, false, 0.0, 0)}, CarPlatforms);
+	FSTTestAccess::ServeAll(Planner);
 
-	TestEqual(TEXT("an empty car is free"), FSTTestAccess::GetTiedShare(Planner, {}), 0.0);
-	TestEqual(TEXT("a car of an item nobody needs soon is tied down"), FSTTestAccess::GetTiedShare(Planner, {{Solid, 500.0}}), 1.0);
-	TestTrue(TEXT("a car of an item a platform needs soon is tied down less"), FSTTestAccess::GetTiedShare(Planner, {{Water, 500.0}}) < 0.5);
-	TestEqual(TEXT("one item nobody needs soon ties the car down"), FSTTestAccess::GetTiedShare(Planner, {{Water, 500.0}, {Solid, 10.0}}), 1.0);
+	TestEqual(TEXT("an empty car is free"), FSTTestAccess::GetTiedShare(Planner, 0, {}), 0.0);
+	TestEqual(TEXT("a car of an item nobody needs soon is tied down"), FSTTestAccess::GetTiedShare(Planner, 0, {{Solid, 500.0}}), 1.0);
+	TestTrue(TEXT("a car of an item a platform it lines up with needs soon is tied down less"), FSTTestAccess::GetTiedShare(Planner, 0, {{Water, 500.0}}) < 0.5);
+	TestEqual(TEXT("the same item in a car that lines up with no consumer of it ties it down"), FSTTestAccess::GetTiedShare(Planner, 1, {{Water, 500.0}}), 1.0);
+	TestEqual(TEXT("one item nobody needs soon ties the car down"), FSTTestAccess::GetTiedShare(Planner, 0, {{Water, 500.0}, {Solid, 10.0}}), 1.0);
 	TestEqual(TEXT("other trains booked near the visit count, not this one"), FSTTestAccess::CountNear(Planner, Sink, 50.0, 200.0), 1);
 	TestEqual(TEXT("bookings outside the window don't count"), FSTTestAccess::CountNear(Planner, Sink, 160.0, 390.0), 0);
 	return true;
