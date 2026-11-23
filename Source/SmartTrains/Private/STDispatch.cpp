@@ -42,9 +42,11 @@ namespace
 	constexpr double AutoTargetLeadSeconds = 300.0;
 	// A demand station's factory is scanned again for its most use (StepFactoryScan) after this long. [s]
 	constexpr double FactoryScanSeconds = 1800.0;
-	// A supplier whose stock reaches a batch within this long, of an item some consumer will run short of within the
-	// forecast horizon, has work coming: idle trains park near it. [s]
-	constexpr double StagingSeconds = 600.0;
+	// A station counts as needed by another train from this long before that train's planned arrival there: a train
+	// waiting there moves out then, and an idle train doesn't stay there. [s]
+	constexpr double NeededSoonSeconds = 180.0;
+	// A train sent out of the way parks at a station no other train is planned to arrive at within this long. [s]
+	constexpr double ParkQuietSeconds = 600.0;
 	// A train fits a station when its length is at most the station's room plus this (track lengths add up with
 	// rounding: a train exactly as long as the platforms came out a hair too long). [cm]
 	constexpr float StationFitSlack = 100.f;
@@ -884,9 +886,11 @@ bool ASTSubsystem::GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifi
 		return OutStation != nullptr;
 	}
 	const FSTJob& Job = State.Job;
-	if (Job.bPark && Job.Legs.Num() == 1 && !Job.Legs[0].HasWork())
+	if (Job.bPark && Job.Legs.Num() == 1 && !Job.Legs[0].HasWork() && STLayout::GetTrainSpeed(Train) < STLayout::StandingSpeed)
 	{
-		// Heading for a depot or out of the way: free to take a job from where it last was.
+		// Heading for a depot or out of the way and standing: free to take a job from where it last was. While it drives
+		// it isn't, so its timetable is never rewritten at speed (Docs/Architecture.md, "Idle trains wait where they
+		// stand").
 		OutStation = State.LastStation.Get() ? State.LastStation.Get() : Job.Legs[0].Station.Get();
 		OutTime = Time;
 		return OutStation != nullptr;
@@ -1073,32 +1077,6 @@ void ASTSubsystem::DispatchRound()
 			if (Node.Role == ESTRole::Demand || Demanded.Contains(Node.Item.Get()))
 			{
 				mWorkStations.Add(Node.Station.Get());
-			}
-		}
-		// Staging: where the next pickups will be.
-		TSet<UClass*> Short;
-		for (const FSTNode& Node : Nodes)
-		{
-			if (Node.Role == ESTRole::Demand && !Node.bAnyItem && Node.Item
-				&& STForecast::Deadline(Node, Node.Planned, Time, STLayout::GetCarCapacity(nullptr, Node.Item)) < Time + STForecast::HorizonSeconds)
-			{
-				Short.Add(Node.Item.Get());
-			}
-		}
-		mStagingStations.Reset();
-		for (const FSTNode& Node : Nodes)
-		{
-			if (Node.Role != ESTRole::Supply || !Node.Item || !Short.Contains(Node.Item.Get()) || !Node.Station.IsValid())
-			{
-				continue;
-			}
-			const double Car = STLayout::GetCarCapacity(nullptr, Node.Item);
-			const double Batch = Car * STNames::SendAtPercent(Node.SendAtPercent) / 100.0;
-			const double Missing = FMath::Max(0.0, Batch - (Node.Stock - Node.Reserved));
-			const double Rate = STForecast::GetRate(Node, Car);
-			if (Missing <= 0.0 || (Rate > 0.0 && Missing / Rate <= StagingSeconds))
-			{
-				mStagingStations.AddUnique(Node.Station.Get());
 			}
 		}
 	}
@@ -1468,15 +1446,12 @@ void ASTSubsystem::ReplanTrip(FSTTrainState& State, FSTTripPlanner& Planner)
 {
 	const int32 TrainIndex = static_cast<int32>(&State - mTrains.GetData());
 	AFGTrainStationIdentifier* From = State.LastStation.Get();
-	// A trip without a consumer clears cars for a change of group: it may unload into sinks and loads nothing.
+	// A trip without a consumer clears cars for a change of group: it loads nothing.
 	AFGTrainStationIdentifier* Anchor = State.Job.AnchorStation.Get();
-	Planner.SetSinksForCargo(!Anchor);
 	if (!From || !Planner.BeginTrain(TrainIndex, From, Now(), true))
 	{
-		Planner.SetSinksForCargo(false);
 		return;
 	}
-	Planner.SetSinksForCargo(false);
 	TArray<TArray<UClass*>> Allowed;
 	int32 Mismatched = 0;
 	if (Anchor && State.Job.CarItems.Num() == Planner.GetCarCount())
@@ -1676,17 +1651,18 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 	{
 		return;
 	}
-	// It parks where it stands only standing in a station no trip needs. Otherwise (moving, out on the line, or in a
-	// station trips are heading for) it drives to the nearest station no train needs and parks there; never back into
-	// the one it just left, where the next delivery would find it in the way.
+	// It waits where it stands (Docs/Architecture.md, "Idle trains wait where they stand"): in a station off the through
+	// lines that it fits, where no other train arrives within NeededSoonSeconds. Otherwise (moving, out on the line, or
+	// in such a station) it drives to the nearest station no train arrives at within ParkQuietSeconds and parks there.
 	const AFGRailroadVehicle* First = State.Train->GetFirstVehicle();
 	const bool bMoving = STLayout::GetTrainSpeed(State.Train) > 300.f;
 	const AFGTrainStationIdentifier* Here = State.Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation.Get() : State.LastStation.Get();
-	const TSet<const AFGTrainStationIdentifier*> Needed = GetNeededStations(&State);
-	const bool bStaysHere = !bMoving && Here && !Needed.Contains(Here) && !IsStationBlocked(Here) && !IsThroughStation(Here);
+	const TSet<const AFGTrainStationIdentifier*> Needed = GetNeededStations(&State, NeededSoonSeconds);
+	const bool bFits = Here && GetStationRoom(Here) + StationFitSlack >= STLayout::GetTrainLength(State.Train);
+	const bool bStaysHere = !bMoving && Here && !Needed.Contains(Here) && !IsStationBlocked(Here) && !IsThroughStation(Here) && bFits;
 	if (!bStaysHere)
 	{
-		AFGTrainStationIdentifier* Target = FindParkingStation(State, Here, Needed, {});
+		AFGTrainStationIdentifier* Target = FindParkingStation(State, Here, GetNeededStations(&State, ParkQuietSeconds), {});
 		// A train under way is never stopped where it is (others plan around it as driven): with no station free of
 		// trains, the nearest other one.
 		if (!Target && (bMoving || !Here))
@@ -1696,16 +1672,18 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 		if (Target)
 		{
 			SendToStation(State, Target, *FString::Printf(TEXT("%s, %s"), Why, bMoving ? TEXT("still moving")
-				: (!Here ? TEXT("not at a station") : (IsThroughStation(Here) ? TEXT("its station is on a through line") : TEXT("its station is needed")))));
+				: !Here ? TEXT("not at a station") : IsThroughStation(Here) ? TEXT("its station is on a through line")
+				: !bFits ? TEXT("its station is shorter than the train") : TEXT("another train arrives at its station soon")));
 			return;
 		}
 	}
 	Park(State, Why);
 }
 
-TSet<const AFGTrainStationIdentifier*> ASTSubsystem::GetNeededStations(const FSTTrainState* Except) const
+TSet<const AFGTrainStationIdentifier*> ASTSubsystem::GetNeededStations(const FSTTrainState* Except, double Within) const
 {
 	TSet<const AFGTrainStationIdentifier*> Needed;
+	const double Until = Now() + Within;
 	for (const FSTTrainState& Other : mTrains)
 	{
 		if (&Other == Except || !IsValid(Other.Train))
@@ -1716,7 +1694,10 @@ TSet<const AFGTrainStationIdentifier*> ASTSubsystem::GetNeededStations(const FST
 		{
 			for (int32 Leg = Other.Job.Leg; Leg < Other.Job.Legs.Num(); ++Leg)
 			{
-				Needed.Add(Other.Job.Legs[Leg].Station.Get());
+				if (Other.Job.Legs[Leg].PlannedArrival <= Until)
+				{
+					Needed.Add(Other.Job.Legs[Leg].Station.Get());
+				}
 			}
 		}
 		if (Other.Train->IsDocked() && Other.DockedStation.IsValid())
@@ -1779,7 +1760,7 @@ AFGTrainStationIdentifier* ASTSubsystem::FindParkingStation(const FSTTrainState&
 	TArray<AFGTrainStationIdentifier*> Stations;
 	Railroad->GetAllTrainStations(Stations);
 	AFGTrainStationIdentifier* Best = nullptr;
-	TTuple<bool, bool, float, float> BestKey(false, false, -TNumericLimits<float>::Max(), -TNumericLimits<float>::Max());
+	TTuple<bool, bool, float> BestKey(false, false, -TNumericLimits<float>::Max());
 	const bool bPushPull = IsPushPull(State.Train);
 	const float Length = STLayout::GetTrainLength(State.Train);
 	for (AFGTrainStationIdentifier* Candidate : Stations)
@@ -1794,23 +1775,10 @@ AFGTrainStationIdentifier* ASTSubsystem::FindParkingStation(const FSTTrainState&
 			continue;
 		}
 		const float Time = Candidate == Origin ? 0.f : EstimateTravelSeconds(Origin, Candidate, bPushPull);
-		// Staging: how soon a train parked there reaches a supplier with work coming (0 while none has).
-		float Staged = 0.f;
-		bool bAnyStaging = false;
-		for (const TWeakObjectPtr<const AFGTrainStationIdentifier>& Supplier : mStagingStations)
-		{
-			const float To = !Supplier.IsValid() ? -1.f : (Supplier.Get() == Candidate ? 0.f : EstimateTravelSeconds(Candidate, Supplier.Get(), bPushPull));
-			if (To >= 0.f && (!bAnyStaging || To < Staged))
-			{
-				Staged = To;
-				bAnyStaging = true;
-			}
-		}
-		// A station off the through lines beats one on them, then a station no train has work at, then the one nearest a
-		// supplier with work coming, then the nearest.
+		// A station off the through lines beats one on them, then a station no train has work at, then the nearest.
 		const bool bOff = !IsThroughStation(Candidate);
 		const bool bQuiet = !mWorkStations.Contains(Candidate);
-		const TTuple<bool, bool, float, float> Key(bOff, bQuiet, -Staged, -Time);
+		const TTuple<bool, bool, float> Key(bOff, bQuiet, -Time);
 		if (Time >= 0.f && (!Best || BestKey < Key))
 		{
 			BestKey = Key;
@@ -2179,14 +2147,14 @@ void ASTSubsystem::ClearNeededBays()
 			continue;
 		}
 		const FString Where = Here ? STLayout::Name(Here) : FString(TEXT("on the line"));
-		// Stations the other trains need (its own parking spot isn't a reason to move).
-		const TSet<const AFGTrainStationIdentifier*> Needed = GetNeededStations(&State);
-		// Why it has to move: a trip needs its station, it stands on a through line, or Auto Trains reports a train waiting
-		// for it.
+		// Stations another train arrives at soon (its own parking spot isn't a reason to move).
+		const TSet<const AFGTrainStationIdentifier*> Needed = GetNeededStations(&State, NeededSoonSeconds);
+		// Why it has to move: another train arrives at its station soon, it stands on a through line or at a station
+		// shorter than itself, or Auto Trains reports a train waiting for it.
 		FString Why;
 		if (Here && Needed.Contains(Here))
 		{
-			Why = FString::Printf(TEXT("making room at %s"), *STLayout::Name(Here));
+			Why = FString::Printf(TEXT("making room at %s, another train arrives there soon"), *STLayout::Name(Here));
 		}
 		bool bThroughLine = false;
 		if (Why.IsEmpty() && Here && IsThroughStation(Here))
@@ -2226,7 +2194,7 @@ void ASTSubsystem::ClearNeededBays()
 				Tried.Add(It.Key().Get());
 			}
 		}
-		AFGTrainStationIdentifier* Target = FindParkingStation(State, Here, Needed, Tried);
+		AFGTrainStationIdentifier* Target = FindParkingStation(State, Here, GetNeededStations(&State, ParkQuietSeconds), Tried);
 		// Off a through line only to a station off them; one through station is as much in the way as another.
 		if (bThroughLine && Target && IsThroughStation(Target))
 		{

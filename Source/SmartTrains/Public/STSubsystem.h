@@ -395,9 +395,10 @@ private:
 
 	// Station nearest to Train's first vehicle on its rail network, for trains that haven't docked anywhere yet.
 	AFGTrainStationIdentifier* FindNearestStation(const AFGTrain* Train) const;
-	// Stations trains need: in a managed train's trip (or drive to park) still ahead, or where another train is docked or
-	// parked. Except: that train's own.
-	TSet<const AFGTrainStationIdentifier*> GetNeededStations(const FSTTrainState* Except) const;
+	// Stations trains need: a stop still ahead in a managed train's trip (or drive to park) planned to arrive within
+	// Within seconds from now, where another train is docked or parked, or one a trip wanted lately. Except: that
+	// train's own.
+	TSet<const AFGTrainStationIdentifier*> GetNeededStations(const FSTTrainState* Except, double Within) const;
 	// Where an idle train waits out of the way: the station nearest From (else nearest the train) that no train needs
 	// (Needed), isn't blocked for new trips, isn't From and isn't in Skip. Null if none.
 	// Track a train can stand on at Station without reaching a switch: the station's own track, its platforms' and the
@@ -415,9 +416,6 @@ private:
 	// Stations trains have work at: a demand platform, or a supply of an item some platform demands. Idle trains park
 	// at the others first (FindParkingStation). From the last dispatch round's nodes.
 	TSet<TWeakObjectPtr<const AFGTrainStationIdentifier>> mWorkStations;
-	// Supplier stations with work coming soon (a batch ready within StagingSeconds of an item some consumer will run
-	// short of): idle trains park near them (FindParkingStation). Worked out each dispatch round.
-	TArray<TWeakObjectPtr<const AFGTrainStationIdentifier>> mStagingStations;
 	// Every depot signal's state last written to the log (DEPOTS line), and when the depot signals were last surveyed
 	// for it (Now()).
 	FString mDepotsLogged;

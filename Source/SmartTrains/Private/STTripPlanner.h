@@ -129,8 +129,6 @@ public:
 	// Simulated trips load nothing and are worth what they unload (a train emptying its cars, Docs/Architecture.md,
 	// "Car patterns"); SetCarItems ends it.
 	void SetNoLoads() { mCarAllowed.Init(TArray<UClass*>(), mCars.Num()); bEmptying = true; }
-	// Set before BeginTrain: cargo on board may also go to sinks (any-item platforms) when a consumer of it exists.
-	void SetSinksForCargo(bool bInSinks) { bSinksForCargo = bInSinks; }
 	int32 GetCarCount() const { return mCars.Num(); }
 	// For the CARS log line: what stands beside car Index at Station (each way the train may dock), how full it is and,
 	// for a platform that wants items, how much of them the supply platforms hold.
@@ -238,11 +236,10 @@ private:
 	int32 CountNear(const AFGTrainStationIdentifier* Station, double From, double Until) const;
 	// How much Cargo ties its car down: 0 empty, NeededSoonShare if every item is wanted soon, else 1.
 	double GetTiedShare(const TArray<TPair<UClass*, double>>& Cargo) const;
-	// Car CarIndex can unload Item at a consumer of it the train can reach (whichever way it docks there) that runs short
-	// of it within STForecast::HorizonSeconds, counting the deliveries planned and the cargo other trains hold for it.
-	bool CarHasConsumer(int32 CarIndex, UClass* Item) const;
-	// A consumer of Item the train can reach exists.
-	bool ItemHasConsumer(UClass* Item) const;
+	// What Amount of Item in car CarIndex is still worth at its best consumer: the most shortfall it prevents at a
+	// consumer of it the train can reach and the car lines up with, driving there from the train's start (forecast gain,
+	// the cargo other trains hold for it counted). What unloading it into a sink gives up.
+	double GetKeepValue(int32 CarIndex, UClass* Item, double Amount) const;
 	double GetAvailable(int32 Node, double Arrive) const;
 	// The pickups promised at supply node Supplier that use up what it has until Until seconds from now: all booked
 	// before then, and of those booked later what its rate until each of them doesn't cover.
@@ -283,9 +280,8 @@ private:
 	TArray<const AFGTrainStationIdentifier*> mOnlyFrom;
 	// Per car, the items it may load (SetCarItems); empty: no limit.
 	TArray<TArray<UClass*>> mCarAllowed;
-	// Set by SetNoLoads: unloading is worth EmptyLoadValue per car load and EmptyCarValue per car emptied.
+	// Set by SetNoLoads: no car loads.
 	bool bEmptying = false;
-	bool bSinksForCargo = false;
 	// Automation tests: every station counts as on the train's track network (they have no world).
 	bool bServeAll = false;
 	int32 mMaxStops = 4;
@@ -304,7 +300,6 @@ private:
 	// The train stands in Anchor (a vehicle on its tracks) without being docked: Anchor can't be its first stop either,
 	// as the game doesn't dock a train standing there already.
 	bool bAnchorHere = false;
-	bool bRelaxed = false;
 	// The current train has a locomotive at each end (travel estimates may reverse and arrive from a far end).
 	bool bPushPull = false;
 	TArray<FCarInfo> mCars;
@@ -321,7 +316,6 @@ private:
 		double FreeAt = 0.0;
 		bool bAnchorDocked = false;
 		bool bAnchorHere = false;
-		bool bRelaxed = false;
 		bool bPushPull = false;
 		float TrainLength = 0.f;
 		TArray<FCarInfo> Cars;

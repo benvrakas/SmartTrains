@@ -157,11 +157,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		// pattern and takes only trips its cars line up with, or delivers what it holds; an empty train has no group and
 		// takes the best trip anywhere.
 		const bool bCarrying = GetCargo(State.Train).Num() > 0;
-		// Cargo no trip has delivered for LeftoverMinutes may also go to a Sink platform while a consumer of it exists.
-		const bool bUnwanted = bCarrying && State.UnwantedCargoSince > 0.0 && Time - State.UnwantedCargoSince > mSettings.LeftoverMinutes * 60.0;
-		Planner.SetSinksForCargo(bUnwanted);
 		const bool bBegun = Planner.BeginTrain(Each.TrainIndex, Each.Anchor, Each.FreeAt, Each.bDocked);
-		Planner.SetSinksForCargo(false);
 		if (!bBegun)
 		{
 			continue;
@@ -517,8 +513,8 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			}
 			continue;
 		}
-		// Holding cargo with no trip in its pattern: it only delivers what it holds (to consumers of it; to a Sink
-		// platform when nothing consumes it, or once it counts as unwanted), loading nothing, and keeps its pattern.
+		// Holding cargo with no trip in its pattern: it only delivers what it holds (to a consumer, or to a Sink platform
+		// when that is worth more than keeping it), loading nothing, and keeps its pattern.
 		bool bHeldByCargo = false;
 		if (bCarrying && !(Tried > 0 && Planner.IsOverBudget()))
 		{
@@ -551,8 +547,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			: FString::Printf(TEXT("no consumer is worth a trip now (%d tried"), Tried);
 		if (bHeldByCargo)
 		{
-			Why += bUnwanted ? TEXT("; nothing takes the cargo it holds, not even a Sink platform")
-				: TEXT("; the consumers of the cargo it holds have no room now, so it keeps it");
+			Why += TEXT("; no consumer has room for the cargo it holds now and a Sink platform isn't worth more than keeping it");
 		}
 		Why += TEXT(")");
 		NoteNoTrip(State, Problems.IsEmpty() ? Why : FString::Printf(TEXT("%s; trips tried were rejected: %s"), *Why, *Problems));

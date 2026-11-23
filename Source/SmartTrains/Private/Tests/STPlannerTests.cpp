@@ -70,7 +70,6 @@ struct FSTTestAccess
 		Planner.bAnchorDocked = false;
 		Planner.bFcc = bFcc;
 		Planner.bPushPull = bPushPull;
-		Planner.bRelaxed = false;
 		Planner.mCars = Cars;
 		Planner.mPlatforms = Platforms;
 		Planner.mCarPlatforms = CarPlatforms;
@@ -811,7 +810,9 @@ bool FSTSinkNeededTest::RunTest(const FString& Parameters)
 	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
 	AFGTrainStationIdentifier* Consumer = FSTTestAccess::MakeStation();
 	FSTTestAccess::SetTrip(*Subsystem, Start, Sink, 60.f);
-	// bConsumer: a consumer of the ingots exists; bLinesUp: the car stops beside its platform there.
+	FSTTestAccess::SetTrip(*Subsystem, Start, Consumer, 60.f);
+	// bConsumer: a consumer of the ingots exists (empty, so short); bLinesUp: the car stops beside its platform there.
+	// Returns the score of unloading into the sink.
 	auto Dump = [&](bool bConsumer, bool bLinesUp)
 	{
 		FSTNode SinkNode = FSTTestAccess::Node(Sink, nullptr, ESTRole::Demand, 0, 0, 1);
@@ -843,12 +844,14 @@ bool FSTSinkNeededTest::RunTest(const FString& Parameters)
 		Unload.Station = Sink;
 		Unload.UnloadItems.Add(Ingot);
 		const FSTPlanResult Result = Planner.Simulate({Unload});
-		AddInfo(FString::Printf(TEXT("consumer %d, lines up %d: %s"), bConsumer ? 1 : 0, bLinesUp ? 1 : 0, Result.bValid ? TEXT("valid") : *Result.Problem));
-		return Result.bValid;
+		AddInfo(FString::Printf(TEXT("consumer %d, lines up %d: %s, score %.3f"), bConsumer ? 1 : 0, bLinesUp ? 1 : 0, Result.bValid ? TEXT("valid") : *Result.Problem,
+			Result.Score));
+		TestTrue(TEXT("dumping into a sink is a valid trip"), Result.bValid);
+		return Result.Score;
 	};
-	TestFalse(TEXT("ingots the car can deliver to a consumer don't go into the sink"), Dump(true, true));
-	TestTrue(TEXT("ingots the car can never unload at their consumer may, so the car is freed"), Dump(true, false));
-	TestTrue(TEXT("ingots no consumer takes may"), Dump(false, false));
+	const double Free = Dump(false, false);
+	TestTrue(TEXT("ingots a short consumer could take are worth less dumped than ingots nobody takes"), Dump(true, true) < Free - 0.1);
+	TestTrue(TEXT("ingots the car can never unload at their consumer are worth the same dumped as ingots nobody takes"), FMath::IsNearlyEqual(Dump(true, false), Free, 1e-6));
 	return true;
 }
 

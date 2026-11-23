@@ -39,9 +39,6 @@ namespace
 	// Every car load delivered to a platform that wants the item, on top of the shortage it prevents: a dock is worth
 	// more the more it moves, so trips fill their cars (push or pull alike). [car-load minutes]
 	constexpr double LoadValue = 2.0;
-	// A train emptying its cars (SetNoLoads) values each car it empties, so it delivers leftovers to any consumer or sink
-	// with room, whatever the consumer's target. [car-load minutes]
-	constexpr double EmptyCarValue = 10.0;
 	// Share of TiedCarValue for a car holding only items a demand platform needs within the horizon.
 	constexpr double NeededSoonShare = 0.25;
 
@@ -341,8 +338,13 @@ TSharedRef<FJsonObject> FSTTripPlanner::DescribeForReplay() const
 	return Train;
 }
 
-bool FSTTripPlanner::CarHasConsumer(int32 CarIndex, UClass* Item) const
+double FSTTripPlanner::GetKeepValue(int32 CarIndex, UClass* Item, double Amount) const
 {
+	double Best = 0.0;
+	if (!mCars.IsValidIndex(CarIndex) || Amount <= 0.0)
+	{
+		return Best;
+	}
 	for (const FSTNode& Node : mNodes)
 	{
 		if (Node.Role != ESTRole::Demand || Node.bAnyItem || Node.Item.Get() != Item || !CanServeHere(Node.Station.Get()))
@@ -353,23 +355,19 @@ bool FSTTripPlanner::CarHasConsumer(int32 CarIndex, UClass* Item) const
 		{
 			continue;
 		}
-		// A consumer that other trains' cargo already covers for the horizon doesn't keep this car's from a sink.
+		const float Travel = Node.Station.Get() == mAnchor ? 0.f : mSubsystem.EstimateTravelSeconds(mAnchor, Node.Station.Get(), bPushPull);
+		if (Travel < 0.f)
+		{
+			continue;
+		}
+		// Cargo other trains hold for it counts; this train's own isn't stock on its way there.
 		TArray<FSTNodeEvent> Events = Node.Planned;
 		Events.RemoveAll([this](const FSTNodeEvent& Event) { return Event.HeldBy == mTrainIndex; });
-		if (STForecast::Deadline(Node, Events, mTime, STLayout::GetCarCapacity(mCars[CarIndex].Car, Item)) < mTime + STForecast::HorizonSeconds)
-		{
-			return true;
-		}
+		const double Arrive = mFreeAt + Travel;
+		const FSTNodeEvent Delivery{Arrive, Amount};
+		Best = FMath::Max(Best, STForecast::Gain(Node, Events, Delivery, mTime, STLayout::GetCarCapacity(mCars[CarIndex].Car, Item), STForecast::NextDeliveryTime(mTime, Arrive)));
 	}
-	return false;
-}
-
-bool FSTTripPlanner::ItemHasConsumer(UClass* Item) const
-{
-	return mNodes.ContainsByPredicate([&](const FSTNode& Node)
-	{
-		return Node.Role == ESTRole::Demand && !Node.bAnyItem && Node.Item.Get() == Item && CanServeHere(Node.Station.Get());
-	});
+	return Best;
 }
 
 double FSTTripPlanner::GetTiedShare(const TArray<TPair<UClass*, double>>& Cargo) const
@@ -696,12 +694,6 @@ void FSTTripPlanner::BuildMoves()
 				{
 					continue;
 				}
-				// A sink only takes what this car can't unload at any consumer of the item, unless the cargo counts as
-				// unwanted (SetSinksForCargo).
-				if (Consumer.bAnyItem && !bSinksForCargo && CarHasConsumer(CarIndex, Carried.Key))
-				{
-					continue;
-				}
 				if (IsNoProgressHere(Consumer.Station.Get(), Carried.Key, false))
 				{
 					UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: no %s to %s for now (it unloaded none there lately)"), *TrainName(), *STNames::Item(Carried.Key),
@@ -756,8 +748,8 @@ void FSTTripPlanner::BuildMoves()
 			{
 				continue;
 			}
-			// A full supplier's goods go to a sink only if nothing on the network consumes them (overflow).
-			if (Consumer.bAnyItem && (!bFull || ItemHasConsumer(Item)))
+			// A sink takes a supplier's goods only while it is full (overflow); what that is worth is the simulation's.
+			if (Consumer.bAnyItem && !bFull)
 			{
 				continue;
 			}
@@ -832,8 +824,8 @@ void FSTTripPlanner::BuildMoves()
 			mMoves.Add(Move);
 		}
 	}
-	UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: %d moves (%d kept), %d cars, from %s at %+.0f s%s"), *TrainName(), Moves.Num(), mMoves.Num(),
-		mCars.Num(), *STLayout::Name(mAnchor), mFreeAt - mTime, bRelaxed ? TEXT(", unwanted cargo may go anywhere") : TEXT(""));
+	UE_LOG(LogSmartTrains, Verbose, TEXT("PLANNER %s: %d moves (%d kept), %d cars, from %s at %+.0f s"), *TrainName(), Moves.Num(), mMoves.Num(),
+		mCars.Num(), *STLayout::Name(mAnchor), mFreeAt - mTime);
 }
 
 const AFGTrain* FSTTripPlanner::TrainNow() const
@@ -869,7 +861,6 @@ bool FSTTripPlanner::PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifi
 		return false;
 	}
 	bAnchorHere = !bAnchorDocked && STLayout::IsTrainAt(Train, Anchor);
-	bool bCarrying = false;
 	for (AFGRailroadVehicle* Vehicle : STLayout::GetVehicles(Train))
 	{
 		AFGFreightWagon* Wagon = Cast<AFGFreightWagon>(Vehicle);
@@ -889,7 +880,6 @@ bool FSTTripPlanner::PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifi
 			if (Stack.HasItems())
 			{
 				AddCargo(Car.Cargo, Stack.Item.GetItemClass(), Stack.NumItems);
-				bCarrying = true;
 			}
 		}
 	}
@@ -897,7 +887,6 @@ bool FSTTripPlanner::PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifi
 	{
 		return false;
 	}
-	bRelaxed = bCarrying && State.UnwantedCargoSince > 0.0 && mTime - State.UnwantedCargoSince > mSubsystem.mSettings.LeftoverMinutes * 60.0;
 	mTrainLength = STLayout::GetTrainLength(Train);
 
 	return true;
@@ -915,7 +904,6 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 	Setup.FreeAt = FreeAt;
 	Setup.bAnchorDocked = bAnchorDocked;
 	Setup.bAnchorHere = bAnchorHere;
-	Setup.bRelaxed = bRelaxed;
 	Setup.TrainLength = mTrainLength;
 	Setup.bPushPull = bPushPull;
 	Setup.Cars = mCars;
@@ -940,7 +928,6 @@ bool FSTTripPlanner::ResumeTrain(int32 TrainIndex, const AFGTrainStationIdentifi
 	mFreeAt = FreeAt;
 	bAnchorDocked = bInAnchorDocked;
 	bAnchorHere = Setup->bAnchorHere;
-	bRelaxed = Setup->bRelaxed;
 	mTrainLength = Setup->TrainLength;
 	bPushPull = Setup->bPushPull;
 	mCars = Setup->Cars;
@@ -1621,16 +1608,13 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 					{
 						continue;
 					}
-					if (mNodes[Node].bAnyItem && CarHasConsumer(CarIndex, Item))
-					{
-						return Fail(FString::Printf(TEXT("car %d would unload %s into the sink at %s, but it can deliver it to a consumer"), CarIndex + 1,
-							*STNames::Item(Item), *STLayout::Name(Stop.Station)));
-					}
-					FItemTotals& Total = TotalsFor(Item);
+					// A sink frees the car (the tied-car value below) and gives up what the cargo is still worth to a consumer.
 					if (mNodes[Node].bAnyItem)
 					{
+						Result.Value -= GetKeepValue(CarIndex, Item, Amount);
 						continue;
 					}
+					FItemTotals& Total = TotalsFor(Item);
 					Result.Value += LoadValue * Amount / FMath::Max(1.0, STLayout::GetCarCapacity(mCars[CarIndex].Car, Item));
 					Total.bCritical |= mNodes[Node].Priority == ESTPriority::Critical;
 					const double Gain = ForecastGain(Node, Item, Arrive, Amount);
@@ -1668,10 +1652,6 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 	for (int32 CarIndex = 0; CarIndex < mCars.Num(); ++CarIndex)
 	{
 		Result.Value += TiedCarValue * (GetTiedShare(mCars[CarIndex].Cargo) - GetTiedShare(Cargo[CarIndex]));
-		if (bEmptying && GetTiedShare(mCars[CarIndex].Cargo) > 0.0 && GetTiedShare(Cargo[CarIndex]) == 0.0)
-		{
-			Result.Value += EmptyCarValue;
-		}
 	}
 	Result.Value -= StopCost;
 	Result.bValid = true;

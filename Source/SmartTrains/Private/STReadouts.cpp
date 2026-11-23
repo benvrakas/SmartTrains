@@ -426,8 +426,8 @@ FSTTrainView ASTSubsystem::MakeTrainView(const AFGTrain* Train, int32 AppliedEdi
 	}
 	if (State && State->UnwantedCargoSince > 0.0)
 	{
-		View.Lines.Add(FString::Printf(TEXT("No consumer below its target wants this cargo (for %.0f min); after %.0f min it may go to any consumer with room."),
-			(Now() - State->UnwantedCargoSince) / 60.0, mSettings.LeftoverMinutes));
+		View.Lines.Add(FString::Printf(TEXT("No trip has taken this cargo for %.0f min; it goes to a Sink platform once that is worth more than keeping it for a consumer."),
+			(Now() - State->UnwantedCargoSince) / 60.0));
 	}
 	return View;
 }
