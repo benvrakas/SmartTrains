@@ -976,6 +976,12 @@ void ASTSubsystem::BuildBookings(const TArray<FSTNode>& Nodes, double Time, TMap
 			const double Hold = IsDeadEnd(State.LastStation.Get()) ? DeadEndHoldSeconds : ParkedLeaveSeconds;
 			Out.FindOrAdd(State.LastStation.Get()).Add({TrainIndex, Time, Time + Hold, true});
 		}
+		// Waiting where it stands before it leaves on a trip: it holds its station until then, and leaves at once if a trip
+		// wants it (ClearNeededBays).
+		else if (State.bManaged && State.bHasJob && State.Job.ReleaseAt > Time && State.LastStation && IsValid(State.Train) && STLayout::IsTrainAt(State.Train, State.LastStation.Get()))
+		{
+			Out.FindOrAdd(State.LastStation.Get()).Add({TrainIndex, Time, State.Job.ReleaseAt + ParkedLeaveSeconds, true});
+		}
 		// Told to leave but still standing there: it holds the station while it pulls out.
 		else if (State.bManaged && State.bHasJob && State.Job.bPark && State.LastStation && IsValid(State.Train) && STLayout::IsTrainAt(State.Train, State.LastStation.Get())
 			&& !State.Job.Legs.ContainsByPredicate([&State](const FSTJobLeg& Leg) { return Leg.Station == State.LastStation; }))
@@ -1160,6 +1166,17 @@ void ASTSubsystem::DispatchRound()
 				(Longest + STDepots::Margin) / 100.f, STDepots::Margin / 100.f, *List);
 		}
 	}
+	// Leaving on time: trains whose wait where they stand is over leave now.
+	for (FSTTrainState& State : mTrains)
+	{
+		if (State.bManaged && State.bHasJob && State.Job.ReleaseAt > 0.0 && State.Job.ReleaseAt <= Time)
+		{
+			State.Job.ReleaseAt = 0.0;
+			State.LastDepartureAt = Time;
+			State.Job.LegStartedAt = Time;
+			WriteJob(State, TEXT("its wait where it stood is over"));
+		}
+	}
 	// Jobs with a stop whose station was dismantled are written again without it (or end) before anything plans with them.
 	for (FSTTrainState& State : mTrains)
 	{
@@ -1205,7 +1222,7 @@ void ASTSubsystem::DispatchRound()
 		for (FSTTrainState& State : mTrains)
 		{
 			const bool bWanted = State.bReplan || bReplanAll;
-			if (!bWanted || !State.bManaged || !State.bHasJob || State.Job.bPark || State.bHeld || !IsValid(State.Train) || State.Train->IsDocked())
+			if (!bWanted || !State.bManaged || !State.bHasJob || State.Job.bPark || State.Job.ReleaseAt > 0.0 || State.bHeld || !IsValid(State.Train) || State.Train->IsDocked())
 			{
 				continue;
 			}
@@ -1285,6 +1302,8 @@ void ASTSubsystem::CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, con
 		State.LastDepartureAt = Time;
 	}
 	Planner.MakeLegs(Stops, Result, Job.Legs);
+	// Leaving on time: it waits where it stands until it can drive straight into every stop.
+	Job.ReleaseAt = Result.Hold > 0.0 ? Time + Result.Hold : 0.0;
 	Job.GroupItem = GroupItem;
 	Job.AnchorStation = Anchor;
 	if (Anchor)
@@ -1296,8 +1315,9 @@ void ASTSubsystem::CommitTrip(FSTTrainState& State, FSTTripPlanner& Planner, con
 	{
 		return mTrains.IsValidIndex(Index) ? STLayout::Name(mTrains[Index].Train.Get()) : FString(TEXT("?"));
 	});
-	const FString Line = FString::Printf(TEXT("%s: %s [%s], %d moved, value %.2f, score %.4f; times %s"), *STLayout::Name(State.Train), *Job.Summary,
-		*Planner.Describe(Stops, Result), Result.Moved, Result.Value, Result.Score, *Times);
+	const FString Line = FString::Printf(TEXT("%s: %s [%s], %d moved, value %.2f, score %.4f; times %s%s"), *STLayout::Name(State.Train), *Job.Summary,
+		*Planner.Describe(Stops, Result), Result.Moved, Result.Value, Result.Score, *Times,
+		Result.Hold > 0.0 ? *FString::Printf(TEXT("; leaves in %.0f s"), Result.Hold) : TEXT(""));
 	if (bReserve)
 	{
 		Planner.Reserve(Stops, Result);
@@ -1313,7 +1333,6 @@ void ASTSubsystem::WriteSnapshot(const TArray<FSTNode>& Nodes, const TMap<const 
 	Root->SetNumberField(TEXT("version"), 1);
 	Root->SetNumberField(TEXT("now"), Now());
 	TSharedRef<FJsonObject> Settings = MakeShared<FJsonObject>();
-	Settings->SetNumberField(TEXT("queueTrains"), mSettings.QueueTrains);
 	Settings->SetBoolField(TEXT("leaveAtOnce"), mSettings.bLeaveAtOnce);
 	Settings->SetNumberField(TEXT("maxStops"), mSettings.MaxStops);
 	Settings->SetNumberField(TEXT("maxTripMinutes"), mSettings.MaxTripMinutes);
@@ -2176,6 +2195,15 @@ void ASTSubsystem::ClearNeededBays()
 		{
 			continue;
 		}
+		// Waiting where it stands before a trip: it leaves on it now.
+		if (State.bHasJob && State.Job.ReleaseAt > 0.0)
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("BLOCKING %s, waiting at %s for its trip: %s; it leaves now"), *STLayout::Name(State.Train), *Where, *Why);
+			State.Job.ReleaseAt = 0.0;
+			State.LastDepartureAt = Clock;
+			WriteJob(State, *Why);
+			continue;
+		}
 		// Out of the way: a free depot signal, else the nearest parking station whose way out wasn't blocked lately.
 		if (SendToDepotSignal(State, *Why))
 		{
@@ -2273,6 +2301,18 @@ void ASTSubsystem::WriteJob(FSTTrainState& State, const TCHAR* Why)
 	AFGTrain* Train = State.Train;
 	if (!IsValid(Train) || mSettings.bObserveOnly || !State.bHasJob)
 	{
+		return;
+	}
+	// Leaving on time: the timetable is written when the train leaves (DispatchRound).
+	if (State.Job.ReleaseAt > Now())
+	{
+		// It stands still meanwhile, as a parked train does (a drive to park it was on ends here).
+		if (Train->IsSelfDrivingEnabled())
+		{
+			Train->SetSelfDrivingEnabled(false);
+		}
+		State.Phase = ESTTrainPhase::Parked;
+		UE_LOG(LogSmartTrains, Verbose, TEXT("WRITE %s job %d: waits where it stands for %.0f s first (%s)"), *STLayout::Name(Train), State.Job.Id, State.Job.ReleaseAt - Now(), Why);
 		return;
 	}
 	// Stops whose station was dismantled are left out; with none left the job ends and the train is planned again.

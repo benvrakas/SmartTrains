@@ -50,6 +50,8 @@ struct FSTPlanResult
 	// Value less what the train's time costs until the trip ends (STForecast::TrainSecondCost).
 	double Score = 0.0;
 	double EndTime = 0.0;
+	// How much later than it is free the train leaves, waiting where it stands, so it waits nowhere on the line. [s]
+	double Hold = 0.0;
 	int32 Moved = 0;
 	TArray<double> Arrive;
 	// Per stop, for the log: the drive there, and the wait for other trains' bookings before it may arrive, with the
@@ -168,8 +170,8 @@ public:
 	// Lets the current train's trip have at least Stops stops (the rest of a trip under way);
 	// reset by BeginTrain, ResumeTrain and PrepareCars.
 	void RaiseStopLimit(int32 Stops);
-	// Lets the current train's trip wait for a busy station beyond the queue and waiting-room limits (the rest of a trip
-	// under way, whose cargo is on board); reset by BeginTrain, ResumeTrain and PrepareCars.
+	// Lets the current train's trip wait on the line for a busy station (the rest of a trip under way, whose cargo is on
+	// board); reset by BeginTrain, ResumeTrain and PrepareCars.
 	void AllowQueue() { bAllowQueue = true; }
 
 	// True when this round's planning time is used up.
@@ -227,9 +229,6 @@ private:
 	// Earliest arrival at Station from Arrive on that keeps the arrival gap to other trains' bookings there, for a stay
 	// of Stay seconds.
 	double FirstFreeArrival(const AFGTrainStationIdentifier* Station, double Arrive, double Stay, FSTBooking* OutLast = nullptr) const;
-	// Other trains booked at Station that are still there at Reach (when this train could get there) or dock before
-	// Dock (when it can dock): the docked one and those waiting with it.
-	int32 CountAhead(const AFGTrainStationIdentifier* Station, double Reach, double Dock) const;
 	// True if a train parked at Station holds it between Reach and Dock.
 	bool IsParkedInWay(const AFGTrainStationIdentifier* Station, double Reach, double Dock) const;
 	// Other trains booked at Station between From and Until.
@@ -292,6 +291,8 @@ private:
 	// The stop limit from the settings, which mMaxStops goes back to for each train.
 	int32 mBaseMaxStops = 4;
 	bool bAllowQueue = false;
+	// The current train can wait where it stands before it leaves: it stands, and isn't docked or just leaving a station.
+	bool bCanHold = false;
 	double mMaxTripSeconds = 1200.0;
 
 	// Current train.
@@ -320,6 +321,7 @@ private:
 		double FreeAt = 0.0;
 		bool bAnchorDocked = false;
 		bool bAnchorHere = false;
+		bool bCanHold = false;
 		bool bPushPull = false;
 		float TrainLength = 0.f;
 		TArray<FCarInfo> Cars;

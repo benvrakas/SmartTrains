@@ -32,8 +32,10 @@ namespace
 	constexpr double StopNearSeconds = 120.0;
 	// A car loads an item only if it takes at least this share of a car of it.
 	constexpr double MinLoadShare = 0.05;
-	// Other trains' bookings count towards the queue limit only for arrivals this soon: later plans still change. [s]
-	constexpr double QueueLookSeconds = 300.0;
+	// A wait before a stop this short is a docking gap, not a queue on the line. [s]
+	constexpr double WaitSlackSeconds = 30.0;
+	// Times a trip is timed again, leaving later each time, to drive straight into every stop.
+	constexpr int32 HoldPasses = 4;
 	// Value of a car left holding cargo after a trip (a car emptied is worth the same). [car-load minutes]
 	constexpr double TiedCarValue = 2.0;
 	// Every car load delivered to a platform that wants the item, on top of the shortage it prevents: a dock is worth
@@ -222,19 +224,6 @@ FString FSTTripPlanner::DescribeTimes(const FSTPlanResult& Result, TFunctionRef<
 		Parts.Add(Part);
 	}
 	return FString::Join(Parts, TEXT("; "));
-}
-
-int32 FSTTripPlanner::CountAhead(const AFGTrainStationIdentifier* Station, double Reach, double Dock) const
-{
-	int32 Ahead = 0;
-	if (const TArray<FSTBooking>* Bookings = mBookings.Find(Station))
-	{
-		for (const FSTBooking& Each : *Bookings)
-		{
-			Ahead += Each.Train != mTrainIndex && Each.Until > Reach && Each.From < Dock ? 1 : 0;
-		}
-	}
-	return Ahead;
 }
 
 bool FSTTripPlanner::IsParkedInWay(const AFGTrainStationIdentifier* Station, double Reach, double Dock) const
@@ -882,6 +871,7 @@ bool FSTTripPlanner::PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifi
 		return false;
 	}
 	bAnchorHere = !bAnchorDocked && STLayout::IsTrainAt(Train, Anchor);
+	bCanHold = !bAnchorDocked && STLayout::GetTrainSpeed(Train) < STLayout::StandingSpeed;
 	for (AFGRailroadVehicle* Vehicle : STLayout::GetVehicles(Train))
 	{
 		AFGFreightWagon* Wagon = Cast<AFGFreightWagon>(Vehicle);
@@ -925,6 +915,7 @@ bool FSTTripPlanner::BeginTrain(int32 TrainIndex, const AFGTrainStationIdentifie
 	Setup.FreeAt = FreeAt;
 	Setup.bAnchorDocked = bAnchorDocked;
 	Setup.bAnchorHere = bAnchorHere;
+	Setup.bCanHold = bCanHold;
 	Setup.TrainLength = mTrainLength;
 	Setup.bPushPull = bPushPull;
 	Setup.Cars = mCars;
@@ -949,6 +940,7 @@ bool FSTTripPlanner::ResumeTrain(int32 TrainIndex, const AFGTrainStationIdentifi
 	mFreeAt = FreeAt;
 	bAnchorDocked = bInAnchorDocked;
 	bAnchorHere = Setup->bAnchorHere;
+	bCanHold = Setup->bCanHold;
 	mTrainLength = Setup->TrainLength;
 	bPushPull = Setup->bPushPull;
 	mCars = Setup->Cars;
@@ -1251,61 +1243,72 @@ FSTPlanResult FSTTripPlanner::SimulateWithSkips(const TArray<FSTPlanStop>& Stops
 		return Fail(bAnchorDocked ? TEXT("first stop is the station the train is docked at") : OwnStationText);
 	}
 
-	// Times, and what the stops cost: each one holds its station from other trains.
+	// Times, and what the stops cost: each one holds its station from other trains. A trip never waits on the line
+	// (Docs/Architecture.md, "Leaving on time"): a train that can wait where it stands leaves late enough to drive
+	// straight into every stop; one that can't (docked, or moving) takes no trip that would wait. The rest of a trip under
+	// way (AllowQueue) keeps its waits, since its cargo is on board. A wait for a parked train doesn't count: that train
+	// is moved out.
 	double StopCost = 0.0;
 	Result.Arrive.SetNum(Stops.Num());
 	Result.Drive.SetNum(Stops.Num());
 	Result.Wait.SetNum(Stops.Num());
 	Result.WaitFor.SetNum(Stops.Num());
-	const AFGTrainStationIdentifier* Previous = mAnchor;
 	double Clock = mFreeAt;
-	for (int32 Index = 0; Index < Stops.Num(); ++Index)
+	for (int32 Pass = 0;; ++Pass)
 	{
-		const AFGTrainStationIdentifier* Station = Stops[Index].Station;
-		for (int32 Other = 0; Other < Index; ++Other)
+		StopCost = 0.0;
+		const AFGTrainStationIdentifier* Previous = mAnchor;
+		Clock = mFreeAt + Result.Hold;
+		double Longest = 0.0;
+		int32 LongestAt = INDEX_NONE;
+		for (int32 Index = 0; Index < Stops.Num(); ++Index)
 		{
-			if (Stops[Other].Station == Station)
+			const AFGTrainStationIdentifier* Station = Stops[Index].Station;
+			for (int32 Other = 0; Other < Index; ++Other)
 			{
-				return Fail(TEXT("a station twice"));
+				if (Stops[Other].Station == Station)
+				{
+					return Fail(TEXT("a station twice"));
+				}
 			}
-		}
-		const float Travel = Previous == Station ? 0.f : mSubsystem.EstimateTravelSeconds(Previous, Station, bPushPull);
-		if (Travel < 0.f)
-		{
-			return Fail(FString::Printf(TEXT("%s can't be reached from %s%s"), *STLayout::Name(Station), *STLayout::Name(Previous),
-				bPushPull ? TEXT(" (push-pull)") : TEXT(" (one way only)")));
-		}
-		Result.Arrive[Index] = FirstFreeArrival(Station, Clock + Travel, mSubsystem.EstimateStaySeconds(Station), &Result.WaitFor[Index]);
-		Result.Drive[Index] = Travel;
-		Result.Wait[Index] = static_cast<float>(Result.Arrive[Index] - (Clock + Travel));
-		// A train parked there makes this stop wait: the station is wanted, so the dispatcher moves that train out.
-		if (Result.Arrive[Index] > Clock + Travel && IsParkedInWay(Station, Clock + Travel, Result.Arrive[Index]))
-		{
-			mParkedInWay.Add(Station);
-		}
-		// Leaving at once, a train that has to wait for a booked station waits on the line before it: so do all the trains
-		// still there or not yet docked when it gets there, but the one docked (the waiting time itself only lowers the
-		// score, since it counts as trip time).
-		const FSTSettings& Settings = mSubsystem.mSettings;
-		int32 Limit = Settings.QueueTrains > 0.f ? FMath::RoundToInt(Settings.QueueTrains) : MAX_int32;
-		const int32 Room = mSubsystem.GetWaitingRoom(Station, mTrainLength);
-		if (Room >= 0)
-		{
-			Limit = FMath::Min(Limit, Room);
-		}
-		if (!bAllowQueue && Settings.bLeaveAtOnce && Limit < MAX_int32 && Result.Arrive[Index] > Clock + Travel && Clock + Travel - mTime <= QueueLookSeconds)
-		{
-			const int32 Ahead = CountAhead(Station, Clock + Travel, Result.Arrive[Index]);
-			if (Ahead > Limit)
+			const float Travel = Previous == Station ? 0.f : mSubsystem.EstimateTravelSeconds(Previous, Station, bPushPull);
+			if (Travel < 0.f)
 			{
-				return Fail(Room >= 0 && Room == Limit
-					? FString::Printf(TEXT("would wait before %s behind %d trains (room for %d before its switch)"), *STLayout::Name(Station), Ahead, Room)
-					: FString::Printf(TEXT("would queue at %s behind %d trains (most %d waiting)"), *STLayout::Name(Station), Ahead, Limit));
+				return Fail(FString::Printf(TEXT("%s can't be reached from %s%s"), *STLayout::Name(Station), *STLayout::Name(Previous),
+					bPushPull ? TEXT(" (push-pull)") : TEXT(" (one way only)")));
 			}
+			Result.WaitFor[Index] = FSTBooking();
+			Result.Arrive[Index] = FirstFreeArrival(Station, Clock + Travel, mSubsystem.EstimateStaySeconds(Station), &Result.WaitFor[Index]);
+			Result.Drive[Index] = Travel;
+			Result.Wait[Index] = static_cast<float>(Result.Arrive[Index] - (Clock + Travel));
+			// A train parked there makes this stop wait: the station is wanted, so the dispatcher moves that train out.
+			if (Result.Arrive[Index] > Clock + Travel && IsParkedInWay(Station, Clock + Travel, Result.Arrive[Index]))
+			{
+				mParkedInWay.Add(Station);
+			}
+			else if (Result.Wait[Index] > Longest)
+			{
+				Longest = Result.Wait[Index];
+				LongestAt = Index;
+			}
+			Clock = Result.Arrive[Index] + mSubsystem.EstimateStaySeconds(Station);
+			StopCost += StopCostValue * (1 + CountNear(Station, Result.Arrive[Index] - StopNearSeconds, Clock + StopNearSeconds) + TrackLoadWeight * mSubsystem.GetTrackLoad(Station));
+			Previous = Station;
 		}
-		Clock = Result.Arrive[Index] + mSubsystem.EstimateStaySeconds(Station);
-		StopCost += StopCostValue * (1 + CountNear(Station, Result.Arrive[Index] - StopNearSeconds, Clock + StopNearSeconds) + TrackLoadWeight * mSubsystem.GetTrackLoad(Station));
-		Previous = Station;
+		if (bAllowQueue || Longest <= WaitSlackSeconds)
+		{
+			break;
+		}
+		if (!bCanHold)
+		{
+			return Fail(FString::Printf(TEXT("would wait %.0f s before %s, and a train that can't wait where it stands takes no trip that waits on the line"), Longest,
+				*STLayout::Name(Stops[LongestAt].Station)));
+		}
+		if (Pass + 1 >= HoldPasses)
+		{
+			return Fail(FString::Printf(TEXT("would still wait %.0f s before %s after leaving %.0f s later"), Longest, *STLayout::Name(Stops[LongestAt].Station), Result.Hold));
+		}
+		Result.Hold += Longest;
 	}
 	Result.EndTime = Clock;
 	if (Stops.Num() > 2 && Result.EndTime - mFreeAt > mMaxTripSeconds)

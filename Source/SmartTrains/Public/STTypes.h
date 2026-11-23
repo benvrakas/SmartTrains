@@ -270,6 +270,11 @@ struct SMARTTRAINS_API FSTJob
 	UPROPERTY(SaveGame)
 	bool bPark = false;
 
+	// When the train leaves for its first stop (Now()); until then it waits where it stands, so it drives straight into
+	// every stop instead of waiting on the line (Docs/Architecture.md, "Leaving on time"). 0: it leaves at once.
+	UPROPERTY(SaveGame)
+	double ReleaseAt = 0.0;
+
 	// The item the trip unloads most of, in car loads.
 	UPROPERTY(SaveGame)
 	TSubclassOf<UFGItemDescriptor> GroupItem;

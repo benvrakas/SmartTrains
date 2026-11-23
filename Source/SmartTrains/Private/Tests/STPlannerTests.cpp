@@ -41,10 +41,9 @@ struct FSTTestAccess
 		return Subsystem;
 	}
 
-	static void SetQueueTrains(ASTSubsystem& Subsystem, float Trains)
+	static void SetCanHold(FSTTripPlanner& Planner, bool bCanHold)
 	{
-		Subsystem.mSettings.bLeaveAtOnce = true;
-		Subsystem.mSettings.QueueTrains = Trains;
+		Planner.bCanHold = bCanHold;
 	}
 
 	static AFGTrainStationIdentifier* MakeStation()
@@ -68,6 +67,7 @@ struct FSTTestAccess
 		Planner.mAnchor = Anchor;
 		Planner.mFreeAt = Planner.mTime;
 		Planner.bAnchorDocked = false;
+		Planner.bCanHold = true;
 		Planner.bFcc = bFcc;
 		Planner.bPushPull = bPushPull;
 		Planner.mCars = Cars;
@@ -555,18 +555,17 @@ bool FSTSlotValueTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// Leaving at once, the queue limit counts the trains a train would wait behind, not the seconds: one docked train and
-// one waiting ahead are fine with the default of 2; a third is too many.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTQueueTrainsTest, "SmartTrains.Planner.QueueTrains", TestFlags)
-bool FSTQueueTrainsTest::RunTest(const FString& Parameters)
+// Leaving on time: a train standing where it can wait leaves late enough to drive straight in behind three trains; a
+// docked one takes no such trip; the rest of a trip under way waits on the line.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTLeaveOnTimeTest, "SmartTrains.Planner.LeaveOnTime", TestFlags)
+bool FSTLeaveOnTimeTest::RunTest(const FString& Parameters)
 {
 	UClass* Ingot = USTTestSolid::StaticClass();
 	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-	FSTTestAccess::SetQueueTrains(*Subsystem, 2.f);
 	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
 	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
 	FSTTestAccess::SetTrip(*Subsystem, Start, Sink, 60.f);
-	auto Try = [&](int32 Ahead, bool bUnderWay = false)
+	auto Try = [&](int32 Ahead, bool bUnderWay = false, bool bCanHold = true)
 	{
 		TArray<FSTNode> Nodes = {FSTTestAccess::Node(Sink, Ingot, ESTRole::Demand, 0, 100000, 1)};
 		TMap<const AFGTrainStationIdentifier*, TArray<FSTBooking>> Bookings;
@@ -583,6 +582,7 @@ bool FSTQueueTrainsTest::RunTest(const FString& Parameters)
 		FSTTestAccess::FCarPlatforms CarPlatforms;
 		CarPlatforms.Add(Sink, {{0}});
 		FSTTestAccess::SetTrain(Planner, Start, true, false, {Car}, {Platform}, CarPlatforms);
+		FSTTestAccess::SetCanHold(Planner, bCanHold);
 		if (bUnderWay)
 		{
 			Planner.AllowQueue();
@@ -592,14 +592,16 @@ bool FSTQueueTrainsTest::RunTest(const FString& Parameters)
 		Unload.UnloadItems.Add(Ingot);
 		return Planner.Simulate({Unload});
 	};
-	const FSTPlanResult Two = Try(2);
-	TestTrue(FString::Printf(TEXT("behind two trains the trip works (%s)"), *Two.Problem), Two.bValid);
+	const FSTPlanResult Free = Try(0);
+	TestTrue(FString::Printf(TEXT("with the station free it leaves at once (%s)"), *Free.Problem), Free.bValid && Free.Hold == 0.0);
 	const FSTPlanResult Three = Try(3);
-	TestFalse(TEXT("behind three trains the trip would queue"), Three.bValid);
+	TestTrue(FString::Printf(TEXT("behind three trains a standing train still takes the trip (%s)"), *Three.Problem), Three.bValid);
+	TestTrue(TEXT("it leaves later instead of waiting on the line"), Three.bValid && Three.Hold > 0.0 && Three.Wait.Num() == 1 && Three.Wait[0] <= 30.f);
+	TestFalse(TEXT("a docked train doesn't take a trip that would wait on the line"), Try(3, false, false).bValid);
 	// The rest of a trip under way keeps its stop and waits: its cargo is on board (a trip used to be dropped after its first
 	// pickup when the next station was busy, 2026-11-09).
-	const FSTPlanResult UnderWay = Try(3, true);
-	TestTrue(FString::Printf(TEXT("a trip under way may wait behind three trains (%s)"), *UnderWay.Problem), UnderWay.bValid);
+	const FSTPlanResult UnderWay = Try(3, true, false);
+	TestTrue(FString::Printf(TEXT("a trip under way may wait behind three trains (%s)"), *UnderWay.Problem), UnderWay.bValid && UnderWay.Hold == 0.0);
 	return true;
 }
 
@@ -730,13 +732,12 @@ bool FSTTiedCarsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// Bookings only count towards the queue limit for arrivals within five minutes: plans further ahead still change.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTQueueLookAheadTest, "SmartTrains.Planner.QueueLookAhead", TestFlags)
+// Bookings 15 minutes ahead: the train takes the trip and leaves late enough to arrive after them.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTQueueLookAheadTest, "SmartTrains.Planner.LeaveAfterLaterBookings", TestFlags)
 bool FSTQueueLookAheadTest::RunTest(const FString& Parameters)
 {
 	UClass* Ingot = USTTestSolid::StaticClass();
 	ASTSubsystem* Subsystem = FSTTestAccess::MakeSubsystem();
-	FSTTestAccess::SetQueueTrains(*Subsystem, 2.f);
 	AFGTrainStationIdentifier* Start = FSTTestAccess::MakeStation();
 	AFGTrainStationIdentifier* Sink = FSTTestAccess::MakeStation();
 	FSTTestAccess::SetTrip(*Subsystem, Start, Sink, 900.f);
@@ -910,7 +911,6 @@ bool FSTReplaySnapshotsTest::RunTest(const FString& Parameters)
 		const TSharedPtr<FJsonObject>* SettingsObject = nullptr;
 		if (Root->TryGetObjectField(TEXT("settings"), SettingsObject))
 		{
-			Settings.QueueTrains = (*SettingsObject)->GetNumberField(TEXT("queueTrains"));
 			Settings.bLeaveAtOnce = (*SettingsObject)->GetBoolField(TEXT("leaveAtOnce"));
 			Settings.MaxStops = (*SettingsObject)->GetNumberField(TEXT("maxStops"));
 			Settings.MaxTripMinutes = (*SettingsObject)->GetNumberField(TEXT("maxTripMinutes"));

@@ -54,7 +54,6 @@ struct FSTSettings
 	float ArrivalGapSeconds = 30.f;
 	// With bLeaveAtOnce: no trip makes more than this many trains wait on the line before a stop, itself included, nor
 	// more than fit before its way-in switch. 0: only the switch decides. [trains]
-	float QueueTrains = 2.f;
 	// Most buildings and belt segments one scan of a factory (station set-up, Autodetect, rates) visits.
 	float ScanDepth = 50000.f;
 };
