@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.41.0 (beta)
+
+- **The next trip is chosen as soon as a train docks at its last stop.** 0.40.0 waited until the stop's transfer was
+  done, but the game sends the train off at that very moment, so on the test server 157 of 189 departures still left
+  before the next trip was known. Now the next trip is chosen while the train is still loading or unloading, planned
+  with what its cars will hold when the stop is over, and written behind the stop it is at. The train leaves when the
+  stop is over, as before, and goes straight to the right place. What it moved at the stop is still counted when it
+  leaves.
+
 ## 0.40.0 (beta)
 
 - **Trains know where they go next before they leave a station.** A train's next trip (or where it waits) used to be

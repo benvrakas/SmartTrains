@@ -465,8 +465,6 @@ void ASTSubsystem::SetTrainKeepVanilla(AFGTrain* Train, bool bKeepVanilla, const
 
 void ASTSubsystem::MonitorTrains()
 {
-	// Trains whose stop got done while docked: dispatched together after the check, then their stays end.
-	TArray<TWeakObjectPtr<AFGTrain>> DoneStops;
 	const double Time = Now();
 	LogFleet();
 	for (FSTTrainState& State : mTrains)
@@ -500,9 +498,9 @@ void ASTSubsystem::MonitorTrains()
 		{
 			LearnDockMap(Train, State.DockedStation.Get());
 		}
-		if (bDocked && !mSettings.bObserveOnly && ReleaseDockWhenDone(State, Time))
+		if (bDocked && !mSettings.bObserveOnly)
 		{
-			DoneStops.Add(Train);
+			ReleaseDockWhenDone(State, Time);
 		}
 
 		if (mSettings.bObserveOnly || !TimeTable)
@@ -656,24 +654,6 @@ void ASTSubsystem::MonitorTrains()
 			UE_LOG(LogSmartTrains, Log, TEXT("%s: autopilot switched on while parked; it gets the next job that fits"), *STLayout::Name(Train));
 			State.Phase = ESTTrainPhase::Idle;
 			SettleIdle(State, TEXT("autopilot switched on by someone"));
-		}
-	}
-	// Deciding before leaving (Docs/Architecture.md): the trains whose stop just got done are planned now, while docked, so
-	// their timetables name the real next stop when they leave; then their stays end.
-	if (DoneStops.Num() > 0)
-	{
-		Dispatch();
-		for (const TWeakObjectPtr<AFGTrain>& Done : DoneStops)
-		{
-			FSTTrainState* State = FindTrainState(Done.Get());
-			AFGBuildableRailroadStation* Building = State && State->DockedStation.IsValid() ? State->DockedStation->GetStation() : nullptr;
-			if (!State || !Building || !Done->IsDocked())
-			{
-				continue;
-			}
-			Building->ClearRuleSetTimeRequirement();
-			UE_LOG(LogSmartTrains, Log, TEXT("DOCK %s at %s: the stay ends now; next %s"), *STLayout::Name(Done.Get()), *STLayout::Name(State->DockedStation.Get()),
-				State->bHasJob ? *FString::Printf(TEXT("job %d (%s)"), State->Job.Id, *State->Job.Summary) : TEXT("nothing (it waits there)"));
 		}
 	}
 }
@@ -874,18 +854,19 @@ FString ASTSubsystem::DescribeStationPlatforms(const AFGTrainStationIdentifier* 
 	return Lines.Num() > 0 ? FString::Join(Lines, TEXT("; ")) : FString(TEXT("none found"));
 }
 
-bool ASTSubsystem::ReleaseDockWhenDone(FSTTrainState& State, double Time)
+void ASTSubsystem::ReleaseDockWhenDone(FSTTrainState& State, double Time)
 {
 	AFGTrainStationIdentifier* Station = State.DockedStation.Get();
-	if (State.bDockReleased || !State.bHasJob || State.Job.bPark || !Station || !State.Job.Legs.IsValidIndex(State.Job.Leg)
-		|| State.Job.Legs[State.Job.Leg].Station != Station)
+	// The job it is docked for: the one whose last stop this is once its next job was chosen here.
+	const FSTJob& Job = State.bDockedJobOpen ? State.DockedJob : State.Job;
+	if (State.bDockReleased || !(State.bHasJob || State.bDockedJobOpen) || Job.bPark || !Station || !Job.Legs.IsValidIndex(Job.Leg) || Job.Legs[Job.Leg].Station != Station)
 	{
-		return false;
+		return;
 	}
-	const FSTJobLeg& Leg = State.Job.Legs[State.Job.Leg];
+	const FSTJobLeg& Leg = Job.Legs[Job.Leg];
 	if (!Leg.HasWork())
 	{
-		return false;
+		return;
 	}
 	const TArray<int32> Before = mDockStartAmounts.FindRef(State.Train);
 	int32 Moved = 0;
@@ -906,17 +887,43 @@ bool ASTSubsystem::ReleaseDockWhenDone(FSTTrainState& State, double Time)
 	const bool bIdle = Time - State.DockedAt >= DockFirstTransferSeconds && Time - State.DockProgressAt >= DockIdleSeconds;
 	if (!bAllDone && !bIdle)
 	{
-		return false;
+		return;
 	}
-	if (!Station->GetStation())
+	AFGBuildableRailroadStation* Building = Station->GetStation();
+	if (!Building)
 	{
-		return false;
+		return;
 	}
 	State.bDockReleased = true;
-	UE_LOG(LogSmartTrains, Log, TEXT("DOCK %s at %s: %s after %.0f s (%d moved); the stop is done, its next leg is decided before it leaves"), *STLayout::Name(State.Train),
-		*STLayout::Name(Station), bAllDone ? TEXT("planned transfer done") : *FString::Printf(TEXT("nothing moved for %.0f s"), Time - State.DockProgressAt), Time - State.DockedAt, Moved);
-	FinishLeg(State, Station, Time - State.DockedAt, true);
-	return true;
+	Building->ClearRuleSetTimeRequirement();
+	UE_LOG(LogSmartTrains, Log, TEXT("DOCK %s at %s: %s after %.0f s (%d moved); the stay ends now; next %s"), *STLayout::Name(State.Train), *STLayout::Name(Station),
+		bAllDone ? TEXT("planned transfer done") : *FString::Printf(TEXT("nothing moved for %.0f s"), Time - State.DockProgressAt), Time - State.DockedAt, Moved,
+		State.bDockedJobOpen ? *FString::Printf(TEXT("job %d (%s)"), State.Job.Id, *State.Job.Summary) : Job.Leg + 1 < Job.Legs.Num() ? TEXT("its job's next stop") : TEXT("not decided yet"));
+}
+
+TArray<TTuple<const AFGRailroadVehicle*, UClass*, double>> ASTSubsystem::GetTransferLeft(const FSTTrainState& State) const
+{
+	TArray<TTuple<const AFGRailroadVehicle*, UClass*, double>> Left;
+	const AFGTrainStationIdentifier* Station = State.DockedStation.Get();
+	if (!State.bHasJob || State.bDockedJobOpen || !IsValid(State.Train) || !State.Train->IsDocked() || !Station || State.Job.Leg != State.Job.Legs.Num() - 1
+		|| State.Job.Legs.Last().Station != Station)
+	{
+		return Left;
+	}
+	const TArray<int32> Before = mDockStartAmounts.FindRef(State.Train);
+	const FSTJobLeg& Leg = State.Job.Legs.Last();
+	for (int32 Index = 0; Index < Leg.Work.Num(); ++Index)
+	{
+		const FSTCarWork& Work = Leg.Work[Index];
+		const int32 Start = Before.IsValidIndex(Index) ? Before[Index] : 0;
+		const int32 Held = CountInCar(Work.Car, Work.Item);
+		const double Remaining = FMath::Max(0, Work.PlannedAmount - FMath::Abs(Held - Start));
+		if (Remaining >= 1.0)
+		{
+			Left.Emplace(Work.Car.Get(), Work.Item.Get(), Work.bLoad ? Remaining : -FMath::Min(Remaining, static_cast<double>(Held)));
+		}
+	}
+	return Left;
 }
 
 void ASTSubsystem::NoteDockStarted(AFGTrain* Train, AFGTrainStationIdentifier* Station)
@@ -936,7 +943,7 @@ void ASTSubsystem::BeginDock(FSTTrainState& State, AFGTrainStationIdentifier* St
 	State.DockedAt = Time;
 	State.DockedStation = Station;
 	State.bDockReleased = false;
-	State.bStopDone = false;
+	State.bDockedJobOpen = false;
 	State.DockedSkipCars.Reset();
 	if (State.bHasJob && State.Job.Legs.IsValidIndex(State.Job.Leg) && State.Job.Legs[State.Job.Leg].Station == Station)
 	{
@@ -1007,12 +1014,27 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 	mPendingDockMaps.Remove(Train);
 	State.LastStation = Station;
 	State.LastDepartureAt = Now();
-	// Its stop was done before it left, and its next leg written then.
-	if (State.bStopDone)
+	// Its next job was chosen while it was docked at its last stop (and written then): the stop it leaves is counted and
+	// its old job ends; the train is already on its way to the next one.
+	if (State.bDockedJobOpen)
 	{
-		State.bStopDone = false;
-		UE_LOG(LogSmartTrains, Verbose, TEXT("%s left %s after %.0f s, its next leg decided before it left"), *STLayout::Name(Train), *STLayout::Name(Station), Stay);
-		return;
+		State.bDockedJobOpen = false;
+		if (State.DockedJob.Legs.IsValidIndex(State.DockedJob.Leg) && State.DockedJob.Legs[State.DockedJob.Leg].Station == Station)
+		{
+			const bool bHasNext = State.bHasJob;
+			FSTJob Next = MoveTemp(State.Job);
+			State.Job = MoveTemp(State.DockedJob);
+			State.bHasJob = true;
+			FinishLeg(State, Station, Stay, !bHasNext);
+			if (bHasNext)
+			{
+				State.Job = MoveTemp(Next);
+				State.bHasJob = true;
+				State.Phase = ESTTrainPhase::Working;
+				UE_LOG(LogSmartTrains, Log, TEXT("%s left %s after %.0f s on to job %d, chosen while it was docked"), *STLayout::Name(Train), *STLayout::Name(Station), Stay, State.Job.Id);
+			}
+			return;
+		}
 	}
 	if (!State.bHasJob)
 	{
@@ -1029,19 +1051,17 @@ void ASTSubsystem::OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* S
 			State.Job.Id, State.Job.Leg + 1);
 		return;
 	}
-	UE_LOG(LogSmartTrains, Log, TEXT("DEPART %s left %s after %.0f s before its stop was done; its next leg is decided after it left"), *STLayout::Name(Train),
-		*STLayout::Name(Station), Stay);
-	FinishLeg(State, Station, Stay, false);
+	if (State.Job.Leg == State.Job.Legs.Num() - 1 && !State.Job.bPark)
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("DEPART %s left %s after %.0f s, its job's last stop, with no next job chosen while docked"), *STLayout::Name(Train),
+			*STLayout::Name(Station), Stay);
+	}
+	FinishLeg(State, Station, Stay);
 }
 
-void ASTSubsystem::FinishLeg(FSTTrainState& State, AFGTrainStationIdentifier* Station, double Stay, bool bDocked)
+void ASTSubsystem::FinishLeg(FSTTrainState& State, AFGTrainStationIdentifier* Station, double Stay, bool bSettle)
 {
 	AFGTrain* Train = State.Train;
-	if (bDocked)
-	{
-		State.bStopDone = true;
-		State.LastStation = Station;
-	}
 	FSTJobLeg& Leg = State.Job.Legs[State.Job.Leg];
 	const TArray<int32> Before = mDockStartAmounts.FindRef(Train);
 	for (int32 Index = 0; Index < Leg.Work.Num(); ++Index)
@@ -1080,8 +1100,8 @@ void ASTSubsystem::FinishLeg(FSTTrainState& State, AFGTrainStationIdentifier* St
 			UE_LOG(LogSmartTrains, Log, TEXT("%s"), *Text);
 		}
 	}
-	const FString Line = FString::Printf(TEXT("JOB %d %s: %s %s after %.0f s: %s"), State.Job.Id, *STLayout::Name(Train), bDocked ? TEXT("done at") : TEXT("left"),
-		*STLayout::Name(Station), Stay, Leg.HasWork() ? *DescribeLeg(Train, Leg, true) : TEXT("no transfer"));
+	const FString Line = FString::Printf(TEXT("JOB %d %s: left %s after %.0f s: %s"), State.Job.Id, *STLayout::Name(Train), *STLayout::Name(Station), Stay,
+		Leg.HasWork() ? *DescribeLeg(Train, Leg, true) : TEXT("no transfer"));
 	UE_LOG(LogSmartTrains, Log, TEXT("%s"), *Line);
 	if (Leg.HasWork())
 	{
@@ -1091,7 +1111,7 @@ void ASTSubsystem::FinishLeg(FSTTrainState& State, AFGTrainStationIdentifier* St
 	State.Job.LegStartedAt = Now();
 	if (State.Job.Leg >= State.Job.Legs.Num())
 	{
-		FinishJob(State, !bDocked);
+		FinishJob(State, bSettle);
 	}
 	else if (!State.Job.bPark)
 	{

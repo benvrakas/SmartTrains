@@ -895,9 +895,10 @@ bool ASTSubsystem::GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifi
 		OutTime = Time;
 		return OutStation != nullptr;
 	}
-	// Docked at its last stop: free there only if that stop moves nothing. What a transfer moved is known once the
-	// train leaves (platforms keep loading and unloading while it is docked), and its next trip is planned from that.
-	if (Job.Leg == Job.Legs.Num() - 1 && Train->IsDocked() && State.DockedStation.Get() == Job.Legs.Last().Station && !Job.Legs.Last().HasWork())
+	// Docked at its last stop: free there when its stay there ends, with the cargo it holds then (GetTransferLeft). Its
+	// next job is chosen and written while it is docked, so the game sends it to the right stop when it leaves
+	// (Docs/Architecture.md, "Deciding before leaving").
+	if (!State.bDockedJobOpen && Job.Leg == Job.Legs.Num() - 1 && Train->IsDocked() && State.DockedStation.Get() == Job.Legs.Last().Station)
 	{
 		OutStation = Job.Legs.Last().Station;
 		OutTime = FMath::Max(Time, State.DockedAt + EstimateStaySeconds(OutStation));
@@ -938,6 +939,11 @@ void ASTSubsystem::BuildBookings(const TArray<FSTNode>& Nodes, double Time, TMap
 		if (!State.bManaged || !State.bHasJob)
 		{
 			continue;
+		}
+		// Its next job chosen at its last stop: it holds that station until its stay there ends.
+		if (State.bDockedJobOpen && State.DockedStation.IsValid())
+		{
+			Out.FindOrAdd(State.DockedStation.Get()).Add({TrainIndex, State.DockedAt, FMath::Max(Time, State.DockedAt + EstimateStaySeconds(State.DockedStation.Get()))});
 		}
 		for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
 		{
@@ -1222,9 +1228,9 @@ void ASTSubsystem::DispatchRound()
 		for (FSTTrainState& State : mTrains)
 		{
 			const bool bWanted = State.bReplan || bReplanAll;
-			// Docked, only once its stop is done (Deciding before leaving): the rest is planned before it leaves.
+			// Docked: the rest is planned once it left, from what its cars hold then.
 			if (!bWanted || !State.bManaged || !State.bHasJob || State.Job.bPark || State.Job.ReleaseAt > 0.0 || State.bHeld || !IsValid(State.Train)
-				|| (State.Train->IsDocked() && !State.bStopDone))
+				|| State.Train->IsDocked())
 			{
 				continue;
 			}
@@ -1619,9 +1625,18 @@ void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& 
 		}
 		return;
 	}
-	if (State.bHasJob)
+	// Docked at its job's last stop: that job stays open until the train leaves, when the stop is counted.
+	if (State.bHasJob && !State.bDockedJobOpen && !State.Job.bPark && State.Train->IsDocked() && State.Job.Leg == State.Job.Legs.Num() - 1
+		&& State.DockedStation.Get() == State.Job.Legs.Last().Station)
 	{
-		UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s done: %s (next job chosen before leaving)"), State.Job.Id, *STLayout::Name(State.Train), *State.Job.Summary);
+		UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s: next job chosen at its last stop %s, %.0f s after it docked; that stop is counted when it leaves"), State.Job.Id,
+			*STLayout::Name(State.Train), *STLayout::Name(State.DockedStation.Get()), Now() - State.DockedAt);
+		State.DockedJob = MoveTemp(State.Job);
+		State.bDockedJobOpen = true;
+	}
+	else if (State.bHasJob)
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s replaced: %s"), State.Job.Id, *STLayout::Name(State.Train), *State.Job.Summary);
 	}
 	const bool bHadJob = State.bHasJob;
 	State.Job = MoveTemp(Job);
@@ -1630,7 +1645,7 @@ void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& 
 	WriteJob(State, TEXT("new job"));
 	// Docked with no job before (just managed, or idle there) and not at a stop of its own: that stay isn't one of
 	// SmartTrains' stops, so it ends now and the train starts its trip, instead of waiting out the stop's old rules.
-	AFGBuildableRailroadStation* Building = !bHadJob && !State.bStopDone && State.Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation->GetStation() : nullptr;
+	AFGBuildableRailroadStation* Building = !bHadJob && State.Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation->GetStation() : nullptr;
 	if (Building && State.Job.ReleaseAt <= Now())
 	{
 		Building->ClearRuleSetTimeRequirement();

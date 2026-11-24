@@ -451,9 +451,10 @@ struct SMARTTRAINS_API FSTTrainState
 	bool bDockReleased = false;
 	int32 DockMoved = 0;
 	double DockProgressAt = 0.0;
-	// Runtime only: the current dock's stop is done (its transfer counted, its leg finished) while the train is still
-	// docked; its next leg is decided before it leaves (Docs/Architecture.md, "Deciding before leaving").
-	bool bStopDone = false;
+	// Runtime only: the job whose last stop the train is docked at, after its next job was chosen there (Job); that stop
+	// is counted and the job ends when the train leaves (Docs/Architecture.md, "Deciding before leaving").
+	FSTJob DockedJob;
+	bool bDockedJobOpen = false;
 	// Runtime only: the cars that skip the stop the train is docked at, to write that stop again ahead of its next leg.
 	TArray<TObjectPtr<AFGRailroadVehicle>> DockedSkipCars;
 	// Runtime only: timetable changes by others this minute, and when the count started.

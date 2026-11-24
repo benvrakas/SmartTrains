@@ -461,13 +461,14 @@ private:
 	void BeginDock(FSTTrainState& State, AFGTrainStationIdentifier* Station);
 	void OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* Station, double Stay);
 	// The stop at Station is over after Stay seconds: what moved is counted and the train's job moves on to its next leg
-	// (or ends). bDocked: the train is still docked there (its transfer is done), so its next leg is decided before it
-	// leaves.
-	void FinishLeg(FSTTrainState& State, AFGTrainStationIdentifier* Station, double Stay, bool bDocked);
-	// Finishes a docked train's stop once its planned transfer here is done, or when nothing has moved for a while.
-	// Returns true then: the caller dispatches and ends the stay, so the train leaves for its next leg instead of waiting
-	// out the stop's time while blocking the station and locking its platforms.
-	bool ReleaseDockWhenDone(FSTTrainState& State, double Time);
+	// (or ends; bSettle false: without settling the train, which has its next job already).
+	void FinishLeg(FSTTrainState& State, AFGTrainStationIdentifier* Station, double Stay, bool bSettle = true);
+	// Ends a docked train's stay once its planned transfer here is done, or when nothing has moved for a while, so it
+	// doesn't wait out the stop's time while blocking the station and locking its platforms.
+	void ReleaseDockWhenDone(FSTTrainState& State, double Time);
+	// The cargo still to move at the stop State is docked at, per car and item (loads positive, unloads negative), when
+	// it is its job's last stop: what the train will hold when it leaves is what it holds now plus this.
+	TArray<TTuple<const AFGRailroadVehicle*, UClass*, double>> GetTransferLeft(const FSTTrainState& State) const;
 	// One line per cargo platform of Station: position, load or unload, role, slots used and what it holds. For logs.
 	FString DescribeStationPlatforms(const AFGTrainStationIdentifier* Station) const;
 	// Station bookings of the trips under way (repeats book nothing), parked trains and Auto Trains' station queues.

@@ -898,6 +898,17 @@ bool FSTTripPlanner::PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifi
 	{
 		return false;
 	}
+	// Docked at its job's last stop: planned with what it holds when it leaves (Deciding before leaving).
+	for (const TTuple<const AFGRailroadVehicle*, UClass*, double>& Left : mSubsystem.GetTransferLeft(State))
+	{
+		for (FCarInfo& Car : mCars)
+		{
+			if (Car.Car == Left.Get<0>())
+			{
+				AddCargo(Car.Cargo, Left.Get<1>(), Left.Get<2>());
+			}
+		}
+	}
 	mTrainLength = STLayout::GetTrainLength(Train);
 
 	return true;
