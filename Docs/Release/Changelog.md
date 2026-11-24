@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.38.1 (beta)
+
+- Log only: when a parked train has trips starting at the station it stands in, the log says whether the game would let it
+  dock there where it stands (OWNSTATION line). No change to how trains run.
+
 ## 0.38.0 (beta)
 
 - **Trains no longer queue on the line.** A train whose next station is busy now waits where it stands and leaves
