@@ -88,14 +88,15 @@ them (see below).
 
 - **Spacing:** trips are timed so trains arrive at a station at least **Gap between trains at a station** (Mods
   menu, 30 s) apart.
-- **Leaving at once** (default): a train moves what it can in one transfer and leaves. A train with a trip starts it
-  straight away. No trip makes more trains wait in front of a station than fit on the track before its switch
-  (measured from the track), and never more than **Most trains waiting before a station** (2), so trains don't queue
-  across junctions. Switch **Trains leave stations at once** off for the old behaviour: deliveries and pickups wait
-  up to their longest wait, and a train whose next station is busy waits in its station.
-- **Trains with nothing to move park** at the nearest free **Depot Signal** whose siding fits them, else at a station
-  with no work, never on a through line (a station other trains drive through), nearest a supplier that will soon have
-  work, and leave as soon as they get a trip. With Auto Trains (1.4.15 or later), Auto Trains drives them there;
+- **Leaving at once** (default): a train moves what it can in one transfer and leaves. Switch **Trains leave stations
+  at once** off for the old behaviour: deliveries and pickups wait up to their longest wait.
+- **Leaving on time:** trains don't queue on the line. A train whose next stations are busy waits where it stands and
+  leaves just in time to drive straight in. A train that can't wait where it is (still docked, or moving) doesn't take
+  such a trip; one already on a trip with cargo on board still goes and waits its turn.
+- **Trains with nothing to move wait where they are,** if that station fits them, isn't on a through line (a station
+  other trains drive through) and no other train is due there within 3 minutes. Otherwise they drive to the nearest
+  free **Depot Signal** whose siding fits them, else to the nearest station with no work and no train due, and leave
+  as soon as they get a trip. With Auto Trains (1.4.15 or later), Auto Trains drives them there;
   without it they drive along your signals and stop at the depot signal, which shows red while a train parks there.
   - **Depot Signal** (unlocked with the Block Signal, next to it in the build menu): marks a parking spot. Put it at
     the exit of a passing siding; the spot runs back to the siding's switch. Without Auto Trains, also put a signal

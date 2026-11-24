@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.38.0 (beta)
+
+- **Trains no longer queue on the line.** A train whose next station is busy now waits where it stands and leaves
+  just in time to drive straight in, instead of driving off at once and waiting on the main line (where queues block
+  junctions and start jams). A docked or moving train, which can't wait where it is, takes no such trip; a train
+  already on a trip with cargo on board still goes and waits its turn. This replaces the rule that refused trips
+  behind too many trains, so the **Most trains waiting before a station** setting is gone.
+
 ## 0.37.0 (beta)
 
 - **Idle trains stay where they are.** A train with nothing to do now waits in the station it finished in, as long as

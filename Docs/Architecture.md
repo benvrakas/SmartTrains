@@ -592,6 +592,17 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   (3315 Caterium from 240/min); the trains arrived 600-940 s early, loaded 200-580, and the rest of each trip failed
   the batch rule at the re-plan ("less than a batch of ..."), 36 times in 30 minutes. The `JOB` line now ends with
   each stop's drive and booking wait (`DescribeTimes`).
+- **Leaving on time (0.38.0)**: `SimulateWithSkips` times a trip; if a stop would wait more than `WaitSlackSeconds`
+  (30 s, a docking gap) for other trains' bookings (waits for a parked train don't count: it is moved out), a train
+  that can wait where it stands (`bCanHold`: standing, not docked or just leaving) leaves that much later
+  (`FSTPlanResult::Hold`) and the trip is timed again, up to `HoldPasses` (4) times; a train that can't takes no such
+  trip; the rest of a trip under way (`AllowQueue`) keeps its waits. `CommitTrip` sets `FSTJob::ReleaseAt`;
+  `WriteJob` writes nothing before then (the train stands, self-driving off, phase Parked), `DispatchRound` writes
+  the timetable once it is due, `BuildBookings` books the station it waits at until then, and `ClearNeededBays`
+  releases it at once if its station is needed. Hold time counts as trip time in the score. Replaces the queue gate
+  (`QueueTrains` setting, `GetWaitingRoom` limit, `QueueLookSeconds`, `CountAhead`): on IB (2026-11-22/23) it
+  rejected trips 88,000 times in 22.5 h ("would wait before ... behind N trains (room for 0 before its switch)"), and
+  trains that did take a trip drove off and queued on the line anyway when bookings changed.
 - **Idle trains wait where they stand (0.37.0)**: on IB (2026-11-22/23, 22.5 h, ~40 trains) there were 4,073 trips
   but 5,922 drives to park and 5,299 evictions; about 12 trains were always driving to a parking spot, 83 % of parks
   were at supplier stations (staging), and 4,314 times a train parked at a supplier had to leave because a trip
