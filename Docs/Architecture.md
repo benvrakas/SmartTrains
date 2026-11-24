@@ -608,6 +608,12 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   the end of the next cycle (pairs B and C). Test server, 0.39.0: 91 of 113 trips were written within 10 s after the
   previous job ended, i.e. after the train had left; one such departure (Red Jungle Encased Uranium Cell In 1 -> Out 1)
   met the train arriving behind it nose to nose for good. Depot drives don't start from a dock.
+  0.42.0: a train still docked at its last stop with no trip in the rounds of its last `2 * DispatchSeconds` gets
+  `SettleDocked`: `ChooseParking` (the choice `SettleIdle` makes) and, for a drive to another station, `SendToStation`
+  now (it keeps the docked job open through `KeepDockedJob`, as `CommitJob` does). A train heading to park is free from
+  the station it is docked at, so a trip found before it leaves replaces the drive. Test server pair E (0.41.0): all 62
+  last stops left with nothing chosen went to parking right after leaving (38 parked where they stood, 24 drove off to
+  park, chosen after the train had pulled out).
 - **Docking in place (0.39.0)**: a train standing in a station (not docked) can't dock by driving there, so trips
   starting at that station were refused (`bAnchorHere`, "first stop is the station the train stands in") and the
   parked train was moved out and came back (`WantStation`, 78 times in a 30-minute as-is run on the test server, 0.38.1).

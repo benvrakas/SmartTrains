@@ -441,6 +441,11 @@ private:
 	void FinishJob(FSTTrainState& State, bool bSettle = true);
 	// Gives State a job that only drives to Station (moving nothing), then parks.
 	void SendToStation(FSTTrainState& State, AFGTrainStationIdentifier* Station, const TCHAR* Why);
+	// Before State's job is replaced: docked at that job's last stop, the job is kept open (DockedJob) to count that stop
+	// when the train leaves. Returns true then.
+	bool KeepDockedJob(FSTTrainState& State);
+	// Where an idle train waits: false if it stays where it stands, else true with the station to drive to and why.
+	bool ChooseParking(FSTTrainState& State, const TCHAR* Why, AFGTrainStationIdentifier*& OutTarget, FString& OutWhy);
 	// Switches the train's autopilot off where it stands until it gets a job.
 	void Park(FSTTrainState& State, const TCHAR* Why);
 	// Moves parked trains off stations a job needs.
@@ -448,6 +453,10 @@ private:
 	// For a train without a job: hands out jobs now, else sends it to a depot or parks it.
 	// bDispatchFirst: hand out trips first (during a dispatch round the train is settled when the round ends instead).
 	void SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDispatchFirst = true);
+	// For a train docked at its job's last stop with nothing to move next: where it waits is chosen as SettleIdle would
+	// after it left; a drive to another station is written now, behind the stop (Docs/Architecture.md, "Deciding before
+	// leaving").
+	void SettleDocked(FSTTrainState& State);
 	// Like ComputeFit for a train that already carries Item: which loaded cars can unload it at To.
 	FSTFit ComputeDeliveryFit(const AFGTrain* Train, const AFGTrainStationIdentifier* To, TSubclassOf<UFGItemDescriptor> Item) const;
 	// Room for Item at a sink node: free slots of its platforms times the item's stack size.

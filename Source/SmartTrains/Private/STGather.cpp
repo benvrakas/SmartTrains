@@ -573,6 +573,12 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		{
 			SettleIdle(State, TEXT("nothing to move"), false);
 		}
+		// Docked at its job's last stop with nothing to move next: where it waits is chosen before it leaves too, in the
+		// last rounds of its stay (a trip may still turn up until then, and after a drive to park is chosen).
+		else if (Each.bDeadline && !State.bDockedJobOpen && Time >= State.DockedAt + EstimateStaySeconds(Each.Anchor) - 2.0 * mSettings.DispatchSeconds)
+		{
+			SettleDocked(State);
+		}
 	}
 	UE_LOG(LogSmartTrains, Verbose, TEXT("DISPATCH: %d free trains, %d planned, %d trips (%d gathering from several suppliers), %.1f ms"), Free.Num(), Turns, Planned, Gathering,
 		Planner.GetElapsedMs());

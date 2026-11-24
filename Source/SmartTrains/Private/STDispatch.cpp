@@ -891,7 +891,7 @@ bool ASTSubsystem::GetFreeAt(const FSTTrainState& State, AFGTrainStationIdentifi
 		// Heading for a depot or out of the way and standing: free to take a job from where it last was. While it drives
 		// it isn't, so its timetable is never rewritten at speed (Docs/Architecture.md, "Idle trains wait where they
 		// stand").
-		OutStation = State.LastStation.Get() ? State.LastStation.Get() : Job.Legs[0].Station.Get();
+		OutStation = Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation.Get() : State.LastStation.Get() ? State.LastStation.Get() : Job.Legs[0].Station.Get();
 		OutTime = Time;
 		return OutStation != nullptr;
 	}
@@ -1625,16 +1625,7 @@ void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& 
 		}
 		return;
 	}
-	// Docked at its job's last stop: that job stays open until the train leaves, when the stop is counted.
-	if (State.bHasJob && !State.bDockedJobOpen && !State.Job.bPark && State.Train->IsDocked() && State.Job.Leg == State.Job.Legs.Num() - 1
-		&& State.DockedStation.Get() == State.Job.Legs.Last().Station)
-	{
-		UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s: next job chosen at its last stop %s, %.0f s after it docked; that stop is counted when it leaves"), State.Job.Id,
-			*STLayout::Name(State.Train), *STLayout::Name(State.DockedStation.Get()), Now() - State.DockedAt);
-		State.DockedJob = MoveTemp(State.Job);
-		State.bDockedJobOpen = true;
-	}
-	else if (State.bHasJob)
+	if (!KeepDockedJob(State) && State.bHasJob)
 	{
 		UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s replaced: %s"), State.Job.Id, *STLayout::Name(State.Train), *State.Job.Summary);
 	}
@@ -1652,6 +1643,20 @@ void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& 
 		UE_LOG(LogSmartTrains, Log, TEXT("DOCK %s at %s: it had no job; the stay ends now so it starts job %d"), *STLayout::Name(State.Train),
 			*STLayout::Name(State.DockedStation.Get()), State.Job.Id);
 	}
+}
+
+bool ASTSubsystem::KeepDockedJob(FSTTrainState& State)
+{
+	if (!State.bHasJob || State.bDockedJobOpen || State.Job.bPark || !IsValid(State.Train) || !State.Train->IsDocked() || State.Job.Leg != State.Job.Legs.Num() - 1
+		|| State.DockedStation.Get() != State.Job.Legs.Last().Station)
+	{
+		return false;
+	}
+	UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s: next job chosen at its last stop %s, %.0f s after it docked; that stop is counted when it leaves"), State.Job.Id,
+		*STLayout::Name(State.Train), *STLayout::Name(State.DockedStation.Get()), Now() - State.DockedAt);
+	State.DockedJob = MoveTemp(State.Job);
+	State.bDockedJobOpen = true;
+	return true;
 }
 
 void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDispatchFirst)
@@ -1680,10 +1685,32 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 	{
 		return;
 	}
+	AFGTrainStationIdentifier* Target = nullptr;
+	FString Reason;
+	if (ChooseParking(State, Why, Target, Reason))
+	{
+		SendToStation(State, Target, *Reason);
+		return;
+	}
+	Park(State, Why);
+}
+
+void ASTSubsystem::SettleDocked(FSTTrainState& State)
+{
+	AFGTrainStationIdentifier* Target = nullptr;
+	FString Reason;
+	if (mSettings.bObserveOnly || State.bHeld || !ChooseParking(State, TEXT("nothing to move after its last stop"), Target, Reason))
+	{
+		return;
+	}
+	SendToStation(State, Target, *Reason);
+}
+
+bool ASTSubsystem::ChooseParking(FSTTrainState& State, const TCHAR* Why, AFGTrainStationIdentifier*& OutTarget, FString& OutWhy)
+{
 	// It waits where it stands (Docs/Architecture.md, "Idle trains wait where they stand"): in a station off the through
 	// lines that it fits, where no other train arrives within NeededSoonSeconds. Otherwise (moving, out on the line, or
 	// in such a station) it drives to the nearest station no train arrives at within ParkQuietSeconds and parks there.
-	const AFGRailroadVehicle* First = State.Train->GetFirstVehicle();
 	const bool bMoving = STLayout::GetTrainSpeed(State.Train) > 300.f;
 	const AFGTrainStationIdentifier* Here = State.Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation.Get() : State.LastStation.Get();
 	const TSet<const AFGTrainStationIdentifier*> Needed = GetNeededStations(&State, NeededSoonSeconds);
@@ -1700,13 +1727,14 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 		}
 		if (Target)
 		{
-			SendToStation(State, Target, *FString::Printf(TEXT("%s, %s"), Why, bMoving ? TEXT("still moving")
+			OutTarget = Target;
+			OutWhy = FString::Printf(TEXT("%s, %s"), Why, bMoving ? TEXT("still moving")
 				: !Here ? TEXT("not at a station") : IsThroughStation(Here) ? TEXT("its station is on a through line")
-				: !bFits ? TEXT("its station is shorter than the train") : TEXT("another train arrives at its station soon")));
-			return;
+				: !bFits ? TEXT("its station is shorter than the train") : TEXT("another train arrives at its station soon"));
+			return true;
 		}
 	}
-	Park(State, Why);
+	return false;
 }
 
 TSet<const AFGTrainStationIdentifier*> ASTSubsystem::GetNeededStations(const FSTTrainState* Except, double Within) const
@@ -2111,6 +2139,7 @@ void ASTSubsystem::SendToStation(FSTTrainState& State, AFGTrainStationIdentifier
 	Leg.Station = Station;
 	Leg.PlannedArrival = Now() + FMath::Max(0.f, EstimateTravelSeconds(State.LastStation.Get(), Station, IsPushPull(State.Train)));
 	Job.Summary = FString::Printf(TEXT("to %s"), *STLayout::Name(Station));
+	KeepDockedJob(State);
 	State.Job = Job;
 	State.bHasJob = true;
 	UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s: drive %s and park (%s)"), Job.Id, *STLayout::Name(State.Train), *Job.Summary, Why);

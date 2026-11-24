@@ -905,13 +905,14 @@ TArray<TTuple<const AFGRailroadVehicle*, UClass*, double>> ASTSubsystem::GetTran
 {
 	TArray<TTuple<const AFGRailroadVehicle*, UClass*, double>> Left;
 	const AFGTrainStationIdentifier* Station = State.DockedStation.Get();
-	if (!State.bHasJob || State.bDockedJobOpen || !IsValid(State.Train) || !State.Train->IsDocked() || !Station || State.Job.Leg != State.Job.Legs.Num() - 1
-		|| State.Job.Legs.Last().Station != Station)
+	const FSTJob& Job = State.bDockedJobOpen ? State.DockedJob : State.Job;
+	if (!(State.bHasJob || State.bDockedJobOpen) || !IsValid(State.Train) || !State.Train->IsDocked() || !Station || Job.Leg != Job.Legs.Num() - 1
+		|| Job.Legs.Last().Station != Station)
 	{
 		return Left;
 	}
 	const TArray<int32> Before = mDockStartAmounts.FindRef(State.Train);
-	const FSTJobLeg& Leg = State.Job.Legs.Last();
+	const FSTJobLeg& Leg = Job.Legs.Last();
 	for (int32 Index = 0; Index < Leg.Work.Num(); ++Index)
 	{
 		const FSTCarWork& Work = Leg.Work[Index];

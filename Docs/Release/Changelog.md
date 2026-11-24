@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.42.0 (beta)
+
+- **Where a train waits is decided before it leaves, too.** When a train finished its last stop with nothing worth
+  moving next, it pulled out first and only then was told where to wait; a train sent on to park elsewhere set off
+  the wrong way for a moment, and with Auto Trains the trains around it were planned for that wrong way. Now, in the
+  last seconds of its stop, such a train gets its parking spot (or stays where it is) while it is still docked, and a
+  trip that turns up before it leaves still replaces the drive to park.
+
 ## 0.41.0 (beta)
 
 - **The next trip is chosen as soon as a train docks at its last stop.** 0.40.0 waited until the stop's transfer was
