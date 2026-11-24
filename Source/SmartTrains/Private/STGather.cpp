@@ -555,6 +555,9 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		// comes back.
 		if (State.Phase == ESTTrainPhase::Parked && Planner.WasKeptFromOwnStation())
 		{
+			// What the game says about docking where it stands (whether a trip could start here by docking in place).
+			UE_LOG(LogSmartTrains, Log, TEXT("OWNSTATION %s parked in %s: docking state %d (0 none, 1 ready to dock, 2 docked), self-driving %d, %.1f m/s"), *STLayout::Name(State.Train),
+				*STLayout::Name(Each.Anchor), static_cast<int32>(State.Train->GetDockingState()), State.Train->IsSelfDrivingEnabled() ? 1 : 0, STLayout::GetTrainSpeed(State.Train) / 100.f);
 			WantStation(Each.Anchor, TEXT("the train parked there has trips starting at it"));
 		}
 		if (!State.bHasJob && State.Phase != ESTTrainPhase::Parked && !(State.Train->IsPlayerDriven() && !State.Train->IsSelfDrivingEnabled()))
