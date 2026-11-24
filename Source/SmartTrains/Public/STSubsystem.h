@@ -436,8 +436,9 @@ private:
 	void CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& Line);
 	// Writes State's job into its train's timetable (from the current leg on) and lets it drive.
 	void WriteJob(FSTTrainState& State, const TCHAR* Why);
-	// Ends State's job after its last leg: next job, depot, or parks where it is.
-	void FinishJob(FSTTrainState& State);
+	// Ends State's job after its last leg: next job, depot, or parks where it is. bSettle false: only ends it (a train
+	// docked at a stop that is done gets its next trip or its parking from the dispatch that follows).
+	void FinishJob(FSTTrainState& State, bool bSettle = true);
 	// Gives State a job that only drives to Station (moving nothing), then parks.
 	void SendToStation(FSTTrainState& State, AFGTrainStationIdentifier* Station, const TCHAR* Why);
 	// Switches the train's autopilot off where it stands until it gets a job.
@@ -459,9 +460,14 @@ private:
 	// Starts State's dock at Station: dock time, transfer tracking, OnDocked.
 	void BeginDock(FSTTrainState& State, AFGTrainStationIdentifier* Station);
 	void OnUndocked(FSTTrainState& State, AFGTrainStationIdentifier* Station, double Stay);
-	// Ends a docked train's stay once its planned transfer here is done, or when nothing has moved for a while, so it
-	// doesn't wait out the stop's time while blocking the station and locking its platforms.
-	void ReleaseDockWhenDone(FSTTrainState& State, double Time);
+	// The stop at Station is over after Stay seconds: what moved is counted and the train's job moves on to its next leg
+	// (or ends). bDocked: the train is still docked there (its transfer is done), so its next leg is decided before it
+	// leaves.
+	void FinishLeg(FSTTrainState& State, AFGTrainStationIdentifier* Station, double Stay, bool bDocked);
+	// Finishes a docked train's stop once its planned transfer here is done, or when nothing has moved for a while.
+	// Returns true then: the caller dispatches and ends the stay, so the train leaves for its next leg instead of waiting
+	// out the stop's time while blocking the station and locking its platforms.
+	bool ReleaseDockWhenDone(FSTTrainState& State, double Time);
 	// One line per cargo platform of Station: position, load or unload, role, slots used and what it holds. For logs.
 	FString DescribeStationPlatforms(const AFGTrainStationIdentifier* Station) const;
 	// Station bookings of the trips under way (repeats book nothing), parked trains and Auto Trains' station queues.

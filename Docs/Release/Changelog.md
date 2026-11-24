@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.40.0 (beta)
+
+- **Trains know where they go next before they leave a station.** A train's next trip (or where it waits) used to be
+  chosen only after it had pulled out of its last stop, so for the first seconds every departure headed for the old
+  timetable's next stop and was then turned round. With Auto Trains that also meant its departure was planned for the
+  wrong way: on the test server a train arriving at a factory queued right where the departing train then had to go,
+  and the two stood nose to nose for good. Now a stop counts as done as soon as its transfer is, the train's next leg
+  is chosen while it is still docked, and only then does it leave, straight for the right place.
+
 ## 0.39.0 (beta)
 
 - **A parked train loads where it stands.** When a train waiting in a station got a trip starting at that very

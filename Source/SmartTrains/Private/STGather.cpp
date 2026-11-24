@@ -85,6 +85,8 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		AFGTrainStationIdentifier* Anchor = nullptr;
 		double FreeAt = 0.0;
 		bool bDocked = false;
+		// Docked at a stop that is done: it waits there for this decision (Deciding before leaving), so it goes first.
+		bool bStopDone = false;
 		double LastTurn = -1.0e9;
 	};
 	TArray<FFree> Free;
@@ -117,6 +119,7 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 			&& !(State.Phase == ESTTrainPhase::Parked && !State.Train->IsSelfDrivingEnabled());
 		Each.bDocked = (State.Train->IsDocked() && State.DockedStation.Get() == Each.Anchor) || bJustLeftAnchor;
 		Each.LastTurn = mPlanTurns.FindRef(State.Train.Get());
+		Each.bStopDone = State.bStopDone && State.Train->IsDocked();
 		Free.Add(Each);
 	}
 	if (bSnapshotNext)
@@ -132,9 +135,14 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 		}
 		WriteSnapshot(Nodes, Planner.GetBookings(), SnapshotTrains);
 	}
-	// The train that waited longest for a turn goes first, then the soonest free; every round plans at least one.
+	// Trains docked at a stop that is done first (they hold their platforms until decided), then the one that waited
+	// longest for a turn, then the soonest free; every round plans at least one.
 	Free.Sort([](const FFree& A, const FFree& B)
 	{
+		if (A.bStopDone != B.bStopDone)
+		{
+			return A.bStopDone;
+		}
 		return A.LastTurn != B.LastTurn ? A.LastTurn < B.LastTurn : (A.FreeAt != B.FreeAt ? A.FreeAt < B.FreeAt : A.TrainIndex < B.TrainIndex);
 	});
 	int32 Turns = 0;
@@ -142,11 +150,11 @@ void ASTSubsystem::GatherRound(FSTTripPlanner& Planner, TArray<FSTNode>& Nodes)
 	int32 Gathering = 0;
 	for (const FFree& Each : Free)
 	{
-		if (Turns > 0 && Planner.IsOverBudget())
+		if (Turns > 0 && Planner.IsOverBudget() && !Each.bStopDone)
 		{
 			break;
 		}
-		if (Turns == 0)
+		if (Turns == 0 || Each.bStopDone)
 		{
 			Planner.GiveTime(GatherMinTurnMs);
 		}

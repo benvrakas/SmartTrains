@@ -1222,7 +1222,9 @@ void ASTSubsystem::DispatchRound()
 		for (FSTTrainState& State : mTrains)
 		{
 			const bool bWanted = State.bReplan || bReplanAll;
-			if (!bWanted || !State.bManaged || !State.bHasJob || State.Job.bPark || State.Job.ReleaseAt > 0.0 || State.bHeld || !IsValid(State.Train) || State.Train->IsDocked())
+			// Docked, only once its stop is done (Deciding before leaving): the rest is planned before it leaves.
+			if (!bWanted || !State.bManaged || !State.bHasJob || State.Job.bPark || State.Job.ReleaseAt > 0.0 || State.bHeld || !IsValid(State.Train)
+				|| (State.Train->IsDocked() && !State.bStopDone))
 			{
 				continue;
 			}
@@ -1622,27 +1624,19 @@ void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& 
 		UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s done: %s (next job chosen before leaving)"), State.Job.Id, *STLayout::Name(State.Train), *State.Job.Summary);
 	}
 	const bool bHadJob = State.bHasJob;
-	State.bChainedWhileDocked = State.Train->IsDocked();
 	State.Job = MoveTemp(Job);
 	State.bHasJob = true;
 	UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s"), State.Job.Id, *Line);
-	if (State.bChainedWhileDocked)
-	{
-		// The game moves a timetable on by one stop when the train departs, so the new one is written as it leaves.
-		State.bWriteOnUndock = true;
-		UE_LOG(LogSmartTrains, Verbose, TEXT("WRITE %s job %d: written when it leaves its stop"), *STLayout::Name(State.Train), State.Job.Id);
-		// Docked with no job before (just managed, or idle there): its stay isn't one of SmartTrains' stops, so it ends
-		// now and the train starts its first trip, instead of waiting out the stop's old rules.
-		AFGBuildableRailroadStation* Building = !bHadJob && State.DockedStation.IsValid() ? State.DockedStation->GetStation() : nullptr;
-		if (Building)
-		{
-			Building->ClearRuleSetTimeRequirement();
-			UE_LOG(LogSmartTrains, Log, TEXT("DOCK %s at %s: it had no job; the stay ends now so it starts job %d"), *STLayout::Name(State.Train),
-				*STLayout::Name(State.DockedStation.Get()), State.Job.Id);
-		}
-		return;
-	}
 	WriteJob(State, TEXT("new job"));
+	// Docked with no job before (just managed, or idle there) and not at a stop of its own: that stay isn't one of
+	// SmartTrains' stops, so it ends now and the train starts its trip, instead of waiting out the stop's old rules.
+	AFGBuildableRailroadStation* Building = !bHadJob && !State.bStopDone && State.Train->IsDocked() && State.DockedStation.IsValid() ? State.DockedStation->GetStation() : nullptr;
+	if (Building && State.Job.ReleaseAt <= Now())
+	{
+		Building->ClearRuleSetTimeRequirement();
+		UE_LOG(LogSmartTrains, Log, TEXT("DOCK %s at %s: it had no job; the stay ends now so it starts job %d"), *STLayout::Name(State.Train),
+			*STLayout::Name(State.DockedStation.Get()), State.Job.Id);
+	}
 }
 
 void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDispatchFirst)
@@ -1664,9 +1658,10 @@ void ASTSubsystem::SettleIdle(FSTTrainState& State, const TCHAR* Why, bool bDisp
 			return;
 		}
 	}
-	// Idle: to the nearest free depot signal whose siding fits it. With none free it parks where it is, and moves when a
-	// trip needs that station or (with Auto Trains) a train waits for it (ClearNeededBays).
-	if (SendToDepotSignal(State, Why))
+	// Idle: to the nearest free depot signal whose siding fits it (a drive there starts from the track the train stands
+	// on, so not while it is docked). With none free it parks where it is, and moves when a trip needs that station or
+	// (with Auto Trains) a train waits for it (ClearNeededBays).
+	if (!State.Train->IsDocked() && SendToDepotSignal(State, Why))
 	{
 		return;
 	}
@@ -1827,7 +1822,7 @@ bool ASTSubsystem::IsStationBlocked(const AFGTrainStationIdentifier* Station) co
 	return Until && *Until > Now();
 }
 
-void ASTSubsystem::FinishJob(FSTTrainState& State)
+void ASTSubsystem::FinishJob(FSTTrainState& State, bool bSettle)
 {
 	const FSTJob Done = State.Job;
 	int32 Moved = 0;
@@ -1846,7 +1841,10 @@ void ASTSubsystem::FinishJob(FSTTrainState& State)
 		Park(State, TEXT("arrived"));
 		return;
 	}
-	SettleIdle(State, TEXT("job done"));
+	if (bSettle)
+	{
+		SettleIdle(State, TEXT("job done"));
+	}
 }
 
 bool ASTSubsystem::SendToDepotSignal(FSTTrainState& State, const TCHAR* Why)
@@ -2204,8 +2202,9 @@ void ASTSubsystem::ClearNeededBays()
 			WriteJob(State, *Why);
 			continue;
 		}
-		// Out of the way: a free depot signal, else the nearest parking station whose way out wasn't blocked lately.
-		if (SendToDepotSignal(State, *Why))
+		// Out of the way: a free depot signal (not while docked: that drive starts from the track it stands on), else the
+		// nearest parking station whose way out wasn't blocked lately.
+		if (!State.Train->IsDocked() && SendToDepotSignal(State, *Why))
 		{
 			State.LastExitReport.Reset();
 			continue;
@@ -2352,6 +2351,26 @@ void ASTSubsystem::WriteJob(FSTTrainState& State, const TCHAR* Why)
 	TArray<int32> SkipStops;
 	TArray<AFGRailroadVehicle*> SkipVehicles;
 	TArray<FString> Keys;
+	// Docked: the stop it is docked at is written again first, with its rules and skipping cars, as the current one. The
+	// game moves a timetable on by one stop when the train leaves, so it then drives to the real next stop, and Auto
+	// Trains, which predicts a docked train's next leg from its timetable, plans that leg (Docs/Architecture.md,
+	// "Deciding before leaving").
+	const int32 DockedCurrent = TimeTable->GetCurrentStop();
+	if (Train->IsDocked() && State.DockedStation.IsValid() && DockedCurrent >= 0 && DockedCurrent < TimeTable->GetNumStops()
+		&& TimeTable->GetStop(DockedCurrent).Station == State.DockedStation.Get()
+		&& !(State.Job.Legs.IsValidIndex(State.Job.Leg) && State.Job.Legs[State.Job.Leg].Station == State.DockedStation.Get()))
+	{
+		Stops.Add(TimeTable->GetStop(DockedCurrent));
+		for (AFGRailroadVehicle* Car : State.DockedSkipCars)
+		{
+			if (Car)
+			{
+				SkipStops.Add(0);
+				SkipVehicles.Add(Car);
+			}
+		}
+		Keys.Add(StopKey(Stops[0], State.DockedSkipCars));
+	}
 	for (int32 Index = State.Job.Leg; Index < State.Job.Legs.Num(); ++Index)
 	{
 		const FSTJobLeg& Leg = State.Job.Legs[Index];

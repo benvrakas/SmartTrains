@@ -592,6 +592,19 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   (3315 Caterium from 240/min); the trains arrived 600-940 s early, loaded 200-580, and the rest of each trip failed
   the batch rule at the re-plan ("less than a batch of ..."), 36 times in 30 minutes. The `JOB` line now ends with
   each stop's drive and booking wait (`DescribeTimes`).
+- **Deciding before leaving (0.40.0)**: a stop ends when its transfer is done, not when the train undocks.
+  `ReleaseDockWhenDone` (planned amounts moved, or nothing moved for `DockIdleSeconds`) calls `FinishLeg` while the
+  train is docked (`bStopDone`): what moved is counted (NOPROGRESS, SLOWDRAIN, stays, history) and the job moves to its
+  next leg (`bReplan`) or ends (`FinishJob` without settling). `MonitorTrains` then runs one `Dispatch` for all such
+  trains (they go first in `GatherRound` and get planning time over budget) and only then ends their stays
+  (`ClearRuleSetTimeRequirement`). `WriteJob` on a docked train writes the stop it is docked at again first (its
+  timetable stop and `DockedSkipCars`) as the current one, so the game's move to the next stop at departure lands on the
+  real next stop and Auto Trains predicts the right leg. Replaces writing the next job as the train leaves
+  (`bChainedWhileDocked`, `bWriteOnUndock`). Test server, 0.39.0: 91 of 113 trips were written within 10 s after the
+  previous job ended, i.e. after the train had left; one such departure (Red Jungle Encased Uranium Cell In 1 -> Out 1)
+  met the train arriving behind it nose to nose for good. A train that leaves before its stop counts as done (the game
+  ended the stay first) still gets its next leg after leaving (`DEPART ... before its stop was done` log line). Depot
+  drives don't start from a dock.
 - **Docking in place (0.39.0)**: a train standing in a station (not docked) can't dock by driving there, so trips
   starting at that station were refused (`bAnchorHere`, "first stop is the station the train stands in") and the
   parked train was moved out and came back (`WantStation`, 78 times in a 30-minute as-is run on the test server, 0.38.1).

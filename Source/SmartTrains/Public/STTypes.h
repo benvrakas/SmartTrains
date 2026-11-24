@@ -451,11 +451,11 @@ struct SMARTTRAINS_API FSTTrainState
 	bool bDockReleased = false;
 	int32 DockMoved = 0;
 	double DockProgressAt = 0.0;
-	// Runtime only: the job was replaced while the train was docked, so the coming departure ends the old job's dock.
-	bool bChainedWhileDocked = false;
-	// Runtime only: that job's timetable is written as the train leaves; written during the dock, the game moves it
-	// on by one stop at departure.
-	bool bWriteOnUndock = false;
+	// Runtime only: the current dock's stop is done (its transfer counted, its leg finished) while the train is still
+	// docked; its next leg is decided before it leaves (Docs/Architecture.md, "Deciding before leaving").
+	bool bStopDone = false;
+	// Runtime only: the cars that skip the stop the train is docked at, to write that stop again ahead of its next leg.
+	TArray<TObjectPtr<AFGRailroadVehicle>> DockedSkipCars;
 	// Runtime only: timetable changes by others this minute, and when the count started.
 	int32 ExternalChanges = 0;
 	double ExternalChangesSince = 0.0;
