@@ -493,6 +493,17 @@ void ASTSubsystem::MonitorTrains()
 			OnUndocked(State, State.DockedStation.Get(), Time - State.DockedAt);
 		}
 		State.bWasDocked = bDocked;
+		// Arrived at the station of its drive to park, ready to dock: it parks there.
+		if (State.bParkOnArrival)
+		{
+			State.bParkOnArrival = false;
+			if (State.bHasJob && State.Job.bPark && State.Job.Legs.Num() > 0)
+			{
+				State.LastStation = State.Job.Legs.Last().Station;
+				FinishJob(State);
+				UE_LOG(LogSmartTrains, Log, TEXT("PARK %s: docking state %d after parking ready to dock"), *STLayout::Name(Train), static_cast<int32>(Train->GetDockingState()));
+			}
+		}
 
 		if (bDocked && mPendingDockMaps.Contains(Train))
 		{
@@ -935,6 +946,22 @@ void ASTSubsystem::NoteDockStarted(AFGTrain* Train, AFGTrainStationIdentifier* S
 		return;
 	}
 	BeginDock(*State, Station);
+}
+
+bool ASTSubsystem::KeepFromDocking(AFGTrain* Train)
+{
+	FSTTrainState* State = Train ? FindTrainState(Train) : nullptr;
+	if (!State || !State->bManaged || mSettings.bObserveOnly || !State->bHasJob || !State->Job.bPark || State->Job.Legs.Num() == 0
+		|| Train->GetDockingState() != ETrainDockingState::TDS_ReadyToDock || !STLayout::IsTrainAt(Train, State->Job.Legs.Last().Station))
+	{
+		return false;
+	}
+	if (!State->bParkOnArrival)
+	{
+		State->bParkOnArrival = true;
+		UE_LOG(LogSmartTrains, Log, TEXT("DOCK %s at %s: not docked, it parks there ready to dock"), *STLayout::Name(Train), *STLayout::Name(State->Job.Legs.Last().Station));
+	}
+	return true;
 }
 
 void ASTSubsystem::BeginDock(FSTTrainState& State, AFGTrainStationIdentifier* Station)

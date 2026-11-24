@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.43.0 (beta)
+
+- **A train parked at a station can take the next trip that starts there.** A train sent to park at a station used
+  to dock there and leave again at once. After that the game wouldn't let it dock where it stood, so when a trip
+  started at that station, the parked train was sent away and another one came. Now a train driving to park stops
+  in the station without docking, and a trip starting there docks it where it stands.
+
 ## 0.42.0 (beta)
 
 - **Where a train waits is decided before it leaves, too.** When a train finished its last stop with nothing worth

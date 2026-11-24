@@ -614,6 +614,18 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   the station it is docked at, so a trip found before it leaves replaces the drive. Test server pair E (0.41.0): all 62
   last stops left with nothing chosen went to parking right after leaving (38 parked where they stood, 24 drove off to
   park, chosen after the train had pulled out).
+- **Parking ready to dock (0.43.0)**: a drive to park (`FSTJob::bPark`) used to end with a dock and an undock at once
+  (no transfer), after which the parked train stood in the station with docking state None and couldn't dock there
+  (`bAnchorHere`): 13 "OWNSTATION ... docking state 0" lines and `WantStation` evictions in pair F's as-is half
+  (2026-11-24), and parking trains shuffled between neighbouring supplier stations. From the game (1.2.5.1 server
+  DLL): `AFGTrain::TickAtc` ends with `UpdateReadyToDock`, which sets `TDS_ReadyToDock` when the ATC's next connection
+  ahead (`mAtcData.CurrentConnection`) belongs to a station whose `CanDock` accepts the multiple-unit master, the
+  distance to it is within `DOCK_DISTANCE` of `DOCK_STOP_OFFSET` and the speed is below `DOCK_SPEED`, else None;
+  `AFGTrain::Dock` needs `TDS_ReadyToDock`, clears the path, increments the timetable's current stop and calls
+  `StartDocking`. A before-hook on `AFGTrain::Dock` (`STDockHooks`, `KeepFromDocking`) cancels the dock of a train on a
+  drive to park that is ready to dock at that station, and the next `MonitorTrains` round finishes the job
+  (`bParkOnArrival`): it parks there undocked, still ready to dock ("DOCK ... not docked, it parks there ready to dock"
+  and "PARK ...: docking state N after parking ready to dock" lines), so a trip starting there docks in place.
 - **Docking in place (0.39.0)**: a train standing in a station (not docked) can't dock by driving there, so trips
   starting at that station were refused (`bAnchorHere`, "first stop is the station the train stands in") and the
   parked train was moved out and came back (`WantStation`, 78 times in a 30-minute as-is run on the test server, 0.38.1).

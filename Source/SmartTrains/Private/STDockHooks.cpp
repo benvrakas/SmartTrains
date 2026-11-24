@@ -4,6 +4,7 @@
 #include "SmartTrains.h"
 #include "STSubsystem.h"
 #include "FGLocomotive.h"
+#include "FGTrain.h"
 
 void STDockHooks::Install()
 {
@@ -26,6 +27,20 @@ void STDockHooks::Install()
 		if (ASTSubsystem* Subsystem = ASTSubsystem::Get(Self))
 		{
 			Subsystem->NoteDockStarted(Locomotive->GetTrain(), Self->GetStationIdentifier());
+		}
+	});
+	// A drive to park ends ready to dock in the station, not docked: docking and leaving again would leave it standing
+	// there unable to dock, so a trip starting there could not (Docs/Architecture.md, "Parking ready to dock").
+	SUBSCRIBE_METHOD(AFGTrain::Dock, [](auto& Scope, AFGTrain* Self)
+	{
+		if (!Self || !Self->HasAuthority())
+		{
+			return;
+		}
+		ASTSubsystem* Subsystem = ASTSubsystem::Get(Self);
+		if (Subsystem && Subsystem->KeepFromDocking(Self))
+		{
+			Scope.Cancel();
 		}
 	});
 	UE_LOG(LogSmartTrains, Log, TEXT("Dock hook installed"));

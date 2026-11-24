@@ -430,6 +430,9 @@ struct SMARTTRAINS_API FSTTrainState
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> ExitBlocked;
 	// Runtime only: the last way-out report logged for it, so the same one isn't logged every round.
 	FString LastExitReport;
+	// Runtime only: arrived ready to dock at the station of its drive to park, whose dock was kept from it (it parks
+	// there undocked, still ready to dock; Docs/Architecture.md, "Parking ready to dock").
+	bool bParkOnArrival = false;
 	// Runtime only: docking state at the last check, when the current dock began, and where.
 	bool bWasDocked = false;
 	double DockedAt = 0.0;

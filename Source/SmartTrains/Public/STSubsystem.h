@@ -145,6 +145,8 @@ public:
 
 	// Called by the dock hook when Train starts docking at Station (server), so even docks of a few frames are seen.
 	void NoteDockStarted(AFGTrain* Train, AFGTrainStationIdentifier* Station);
+	// Called by the dock hook before Train docks (server): true if it must not, as it drives only to park at that station.
+	bool KeepFromDocking(AFGTrain* Train);
 
 	//~ Settings, server only. Cause names the player or tool for the log.
 	FSTPlatformConfig* FindPlatformConfig(const AFGBuildableTrainPlatformCargo* Platform);
