@@ -592,6 +592,15 @@ can't measure production, so at least a car load per half hour), clamped to 0..c
   (3315 Caterium from 240/min); the trains arrived 600-940 s early, loaded 200-580, and the rest of each trip failed
   the batch rule at the re-plan ("less than a batch of ..."), 36 times in 30 minutes. The `JOB` line now ends with
   each stop's drive and booking wait (`DescribeTimes`).
+- **Docking in place (0.39.0)**: a train standing in a station (not docked) can't dock by driving there, so trips
+  starting at that station were refused (`bAnchorHere`, "first stop is the station the train stands in") and the
+  parked train was moved out and came back (`WantStation`, 78 times in a 30-minute as-is run on the test server, 0.38.1).
+  The game reports a stopped train that stands in a station as `ETrainDockingState::TDS_ReadyToDock` (with self-driving
+  off too: 45 of 81 such cases, the OWNSTATION log line); `AFGTrain::Dock()` then docks it there, as the player's dock
+  button does. `PrepareCars` counts a train as kept from its own station only when it isn't ready to dock; `WriteJob`
+  calls `Dock()` after writing the timetable when the first stop is the station the train stands in and it is ready
+  (`DOCK ... docks where it stands` log line). Trains standing too far out of the platforms (not ready) still leave and
+  come back.
 - **Leaving on time (0.38.0)**: `SimulateWithSkips` times a trip; if a stop would wait more than `WaitSlackSeconds`
   (30 s, a docking gap) for other trains' bookings (waits for a parked train don't count: it is moved out), a train
   that can wait where it stands (`bCanHold`: standing, not docked or just leaving) leaves that much later

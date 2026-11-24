@@ -2417,6 +2417,14 @@ void ASTSubsystem::WriteJob(FSTTrainState& State, const TCHAR* Why)
 	{
 		Train->SetSelfDrivingEnabled(true);
 	}
+	// Standing in its first stop's station, ready to dock: it docks where it stands (the game doesn't dock a train already
+	// standing in the station it drives to; Docs/Architecture.md, "Docking in place").
+	if (Stops.Num() > 0 && !Train->IsDocked() && Train->GetDockingState() == ETrainDockingState::TDS_ReadyToDock && STLayout::IsTrainAt(Train, Stops[0].Station))
+	{
+		Train->Dock();
+		UE_LOG(LogSmartTrains, Log, TEXT("DOCK %s at %s: docks where it stands for job %d (docking state now %d)"), *STLayout::Name(Train), *STLayout::Name(Stops[0].Station),
+			State.Job.Id, static_cast<int32>(Train->GetDockingState()));
+	}
 	State.Phase = ESTTrainPhase::Working;
 	State.LastCommandAt = Now();
 	FString Listed;

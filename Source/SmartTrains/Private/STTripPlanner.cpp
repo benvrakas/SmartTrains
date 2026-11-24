@@ -870,7 +870,7 @@ bool FSTTripPlanner::PrepareCars(int32 TrainIndex, const AFGTrainStationIdentifi
 	{
 		return false;
 	}
-	bAnchorHere = !bAnchorDocked && STLayout::IsTrainAt(Train, Anchor);
+	bAnchorHere = !bAnchorDocked && STLayout::IsTrainAt(Train, Anchor) && Train->GetDockingState() != ETrainDockingState::TDS_ReadyToDock;
 	bCanHold = !bAnchorDocked && STLayout::GetTrainSpeed(Train) < STLayout::StandingSpeed;
 	for (AFGRailroadVehicle* Vehicle : STLayout::GetVehicles(Train))
 	{

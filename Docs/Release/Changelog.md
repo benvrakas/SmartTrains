@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.39.0 (beta)
+
+- **A parked train loads where it stands.** When a train waiting in a station got a trip starting at that very
+  station, it had to drive away and come back, since the game doesn't dock a train that is already standing in the
+  station it heads for; another train often took its place in the meantime. Now it docks right where it stands, as you
+  would with the dock button, whenever the game allows that there (it did in about half of the cases on the test
+  server; the others had the train standing too far out of the platforms).
+
 ## 0.38.1 (beta)
 
 - Log only: when a parked train has trips starting at the station it stands in, the log says whether the game would let it

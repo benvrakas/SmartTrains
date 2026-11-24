@@ -302,8 +302,9 @@ private:
 	// The train's length, for stations' waiting room (0: unknown). [cm]
 	float mTrainLength = 0.f;
 	bool bAnchorDocked = false;
-	// The train stands in Anchor (a vehicle on its tracks) without being docked: Anchor can't be its first stop either,
-	// as the game doesn't dock a train standing there already.
+	// The train stands in Anchor (a vehicle on its tracks), not docked, and the game wouldn't dock it where it stands (not
+	// ready to dock): Anchor can't be its first stop, as the game doesn't dock a train standing there already. A train
+	// ready to dock there may start there: WriteJob docks it in place.
 	bool bAnchorHere = false;
 	// The current train has a locomotive at each end (travel estimates may reverse and arrive from a far end).
 	bool bPushPull = false;
