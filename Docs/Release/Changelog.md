@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.55.1 (beta)
+
+- **Platform menus no longer show the last platform's numbers.** The game reuses its menus, so the rate on the
+  platform card and in the platform settings could show the previous platform's figure (a 2,400/min Steel Ingot
+  station's, say) until the new one's arrived; they show "-" until then. The rate's label now says it is the
+  station's figure for that item ("the station uses per minute at most"), not the platform's.
+
 ## 0.55.0 (beta)
 
 - **Trains go first to stations their consist matches.** A train serves any station whose unloading platforms each

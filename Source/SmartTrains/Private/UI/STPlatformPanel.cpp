@@ -197,6 +197,10 @@ bool USTPlatformPanel::OnShown()
 	mItemBox->ClearChildren();
 	mLines->SetText(FText::GetEmpty());
 	mTitle->SetText(LOCTEXT("Loading", "Asking the server..."));
+	// No number from the platform shown before until this one's arrives.
+	mStatRate.Value->SetText(FText::FromString(TEXT("-")));
+	mStatLoops.Value->SetText(FText::FromString(TEXT("-")));
+	mNext->SetVisibility(ESlateVisibility::Collapsed);
 	ClosePicker();
 	const AFGBuildableTrainPlatformCargo* Platform = GetPlatform();
 	UE_LOG(LogSmartTrains, Log, TEXT("Platform menu for %s"), *GetNameSafe(Platform));
@@ -243,8 +247,8 @@ void USTPlatformPanel::Refresh(USTRemoteCallObject* RCO)
 	const bool bWorks = View->Role == ESTRole::Supply || View->Role == ESTRole::Demand;
 	mStatRate.Value->SetText(FText::FromString(View->RatePerMinute >= 0.f ? FString::Printf(TEXT("%.0f%s"), View->RatePerMinute, View->bFluid ? TEXT(" m³") : TEXT(""))
 		: FString(TEXT("-"))));
-	mStatRate.Label->SetText(View->Role == ESTRole::Supply ? LOCTEXT("PlatformRateSupply", "made per minute at most")
-		: LOCTEXT("PlatformRateDemand", "used per minute at most"));
+	mStatRate.Label->SetText(View->Role == ESTRole::Supply ? LOCTEXT("PlatformRateSupply", "the station makes per minute at most")
+		: LOCTEXT("PlatformRateDemand", "the station uses per minute at most"));
 	mStatLoops.Value->SetText(FText::AsNumber(View->Loops));
 	mStatLoops.Label->SetText(View->Role == ESTRole::Supply ? LOCTEXT("PlatformLoopsSupply", "loops take from here") : LOCTEXT("PlatformLoopsDemand", "trains on its loop"));
 	mStatRate.Value->GetParent()->GetParent()->SetVisibility(bWorks ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);

@@ -210,6 +210,10 @@ bool USTPlatformLauncher::OnShown()
 {
 	mSummary->SetText(LOCTEXT("Loading", "Asking the server..."));
 	mStatus->SetText(FText::GetEmpty());
+	// The game reuses menu widgets: no number from the platform shown before until this one's arrives.
+	mStats->SetVisibility(ESlateVisibility::Collapsed);
+	mRate.Value->SetText(FText::FromString(TEXT("-")));
+	mLoops.Value->SetText(FText::FromString(TEXT("-")));
 	mItemRows->ClearChildren();
 	mShownItems.Reset();
 	bItemsShown = false;
@@ -245,7 +249,7 @@ void USTPlatformLauncher::Refresh(USTRemoteCallObject* RCO)
 	mStats->SetVisibility(bWorks ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	mRate.Value->SetText(FText::FromString(View->RatePerMinute >= 0.f ? FString::Printf(TEXT("%.0f%s"), View->RatePerMinute, View->bFluid ? TEXT(" m³") : TEXT(""))
 		: FString(TEXT("-"))));
-	mRate.Label->SetText(View->Role == ESTRole::Supply ? LOCTEXT("LauncherRateSupply", "made per minute at most") : LOCTEXT("LauncherRateDemand", "used per minute at most"));
+	mRate.Label->SetText(View->Role == ESTRole::Supply ? LOCTEXT("LauncherRateSupply", "the station makes per minute at most") : LOCTEXT("LauncherRateDemand", "the station uses per minute at most"));
 	mLoops.Value->SetText(FText::AsNumber(View->Loops));
 	mLoops.Label->SetText(View->Role == ESTRole::Supply ? LOCTEXT("LauncherLoopsSupply", "loops take from here") : LOCTEXT("LauncherLoopsDemand", "trains on its loop"));
 	ShowItems(View->Role == ESTRole::Off || View->Role == ESTRole::Sink ? TArray<FSTItemRule>() : View->Items);
