@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.54.2 (beta)
+
+- **Fixed: the station menu's SmartTrains tab showed the world through it** and cut its own tab button off. Its page
+  now has the game's dark background, is as wide as the Timetable page, and is measured shown like the game's own
+  pages, so the window slides to it.
+
 ## 0.54.1 (beta)
 
 - **No train stops on the main line any more.** A train left without a loop drives on to its next station and stops

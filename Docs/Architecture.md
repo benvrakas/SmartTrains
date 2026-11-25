@@ -434,9 +434,11 @@ hook for it: the set-up bar adds it when the menu is shown. The menu's window (`
 `Widget_Window_DarkMode`) lists its tabs in `mTabs` (an array of `FImageAndText`: texture and text), and its
 `Widget_TabsContainer` makes one `Widget_SlidingTabs_Button` per entry (`InitTabs`). Button N shows page N of the
 menu's `Widget_SlidingTabs`, whose `mContent` slot holds `HorizontalBox_0` with one page per tab (`Overlay_1` Train
-Station, `CanvasPanel_127` Timetable). The set-up bar adds a size box (560 wide) around a scroll box with the panel
+Station, `CanvasPanel_127` Timetable). The set-up bar adds a size box (900 wide, as the Timetable page, so the
+window keeps room for three tab buttons) around the game's dark content background and a scroll box with the panel
 as the last page, appends a "SmartTrains" entry with the first tab's icon to `mTabs`, calls `InitTabs`, and after
-0.3 s the tabs' `SetupIndexOffset`. If the menu isn't laid out that way, the panel goes under the set-up bar, and the
+0.3 s works the page offsets out again as the tabs do: `ShowAllIndexes`, a layout prepass, `SetupIndexOffset`,
+`HideNonActiveIndexes` (measured while hidden, a page counts as 0 wide). If the menu isn't laid out that way, the panel goes under the set-up bar, and the
 log has the menu's widget tree (`UI tree` lines). Layout read with `TSDumpWidgets` on 2026-11-25.
 
 Panel names and positions come from the starter project's widget assets, dumped with Telescreen's `TSDumpWidgets`

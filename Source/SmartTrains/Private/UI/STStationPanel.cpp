@@ -29,8 +29,9 @@
 
 namespace
 {
-	// Width of the SmartTrains tab's page in the station menu, as wide as the Train Station page. [slate units]
-	constexpr float StationTabPageWidth = 560.f;
+	// Width of the SmartTrains tab's page in the station menu, as wide as the Timetable page (its list and map), so the
+	// window keeps room for three tab buttons. [slate units]
+	constexpr float StationTabPageWidth = 900.f;
 	// Wait before the tabs work out their page positions again, so the new page has its size. [s]
 	constexpr float StationTabOffsetDelay = 0.3f;
 }
@@ -401,11 +402,26 @@ void USTStationSetupBar::InstallTab()
 	Panel->SetMenu(Menu);
 	if (bFound)
 	{
+		// The page: the game's dark content background under a scroll box with the panel, as wide as the Timetable page.
 		mTabPage = Menu->WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
 		mTabPage->SetWidthOverride(StationTabPageWidth);
+		UOverlay* Layers = Menu->WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass());
+		mTabPage->AddChild(Layers);
+		if (UWidget* Background = STWidgetUtils::CreateVanillaWidget(Menu->WidgetTree, STWidgetUtils::ContentBackgroundClass))
+		{
+			if (UOverlaySlot* BackgroundSlot = Layers->AddChildToOverlay(Background))
+			{
+				BackgroundSlot->SetHorizontalAlignment(HAlign_Fill);
+				BackgroundSlot->SetVerticalAlignment(VAlign_Fill);
+			}
+		}
 		UScrollBox* Scroll = Menu->WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass());
 		Scroll->AddChild(Panel);
-		mTabPage->AddChild(Scroll);
+		if (UOverlaySlot* ScrollSlot = Layers->AddChildToOverlay(Scroll))
+		{
+			ScrollSlot->SetHorizontalAlignment(HAlign_Fill);
+			ScrollSlot->SetVerticalAlignment(VAlign_Fill);
+		}
 		if (STStationTab::AddTab(Parts, mTabPage, Title))
 		{
 			// Once the new page has its size, the tabs work out where each page sits again.
@@ -423,6 +439,7 @@ void USTStationSetupBar::InstallTab()
 			}
 			return;
 		}
+		mTabPage->RemoveFromParent();
 		Scroll->RemoveChild(Panel);
 		mTabPage = nullptr;
 	}

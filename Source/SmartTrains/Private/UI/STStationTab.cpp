@@ -164,12 +164,21 @@ bool STStationTab::AddTab(const FParts& Parts, UWidget* Page, const FText& Title
 	List.Texture->SetObjectPropertyValue_InContainer(Helper.GetRawPtr(Added), Icon);
 	List.Text->SetPropertyValue_InContainer(Helper.GetRawPtr(Added), Title);
 	const bool bInit = CallNoParams(Parts.Window, TEXT("InitTabs"));
-	UpdateOffsets(Parts);
 	UE_LOG(LogSmartTrains, Log, TEXT("Station tab: page %d added, %d tabs listed, buttons remade %d"), Pages, Helper.Num(), bInit);
 	return true;
 }
 
 void STStationTab::UpdateOffsets(const FParts& Parts)
 {
-	CallNoParams(Parts.Tabs, TEXT("SetupIndexOffset"));
+	// As the tabs do themselves: every page shown and measured, the offsets worked out, the others hidden again. Measured
+	// while hidden, a page counts as 0 wide and the window slides to the wrong place.
+	if (!Parts.Tabs)
+	{
+		return;
+	}
+	CallNoParams(Parts.Tabs, TEXT("ShowAllIndexes"));
+	Parts.Tabs->ForceLayoutPrepass();
+	const bool bSet = CallNoParams(Parts.Tabs, TEXT("SetupIndexOffset"));
+	CallNoParams(Parts.Tabs, TEXT("HideNonActiveIndexes"));
+	UE_LOG(LogSmartTrains, Log, TEXT("Station tab: page offsets worked out again (%d)"), bSet);
 }
