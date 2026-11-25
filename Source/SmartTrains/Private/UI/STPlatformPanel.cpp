@@ -18,6 +18,8 @@
 #include "TimerManager.h"
 #include "UI/STControls.h"
 #include "UI/STWidgetUtils.h"
+#include "UI/STStyle.h"
+#include "Components/WrapBox.h"
 
 #define LOCTEXT_NAMESPACE "SmartTrains"
 
@@ -37,12 +39,6 @@ namespace
 		case ESTRole::Sink: return LOCTEXT("HintSink", "A train switching to another station's loop unloads cargo here that its old consumer had no room for, any item. The platform is set to unload.");
 		default: return LOCTEXT("HintOff", "Off: the platform keeps its own load/unload setting and SmartTrains leaves it alone.");
 		}
-	}
-
-	template <typename EnumType>
-	EnumType StepEnum(EnumType Value, int32 Step, int32 Count)
-	{
-		return static_cast<EnumType>(((static_cast<int32>(Value) + Step) % Count + Count) % Count);
 	}
 
 	// Adds Child to Box, filling the rest of the line if bFill.
@@ -90,17 +86,28 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 	Root->AddChildToVerticalBox(mMain);
 	if (ShowsHeading())
 	{
-		MakeHeading(mMain, LOCTEXT("PlatformHeading", "SmartTrains"), FMargin(0.f, 0.f, 0.f, 4.f));
+		MakeTitleBar(mMain, FText::GetEmpty(), 20.f);
 	}
-	mTitle = MakeText(mMain, LOCTEXT("Loading", "Asking the server..."));
+	mTitle = MakeTinted(mMain, LOCTEXT("Loading", "Asking the server..."), 13, STStyle::Text, true, true);
 
-	// Click steps forward, right click back.
-	mRoleButton = MakeButton(mMain, FText::GetEmpty(), [this]() { StepRole(1); }, FMargin(0.f, 6.f, 0.f, 2.f));
-	mRoleButton->OnRightClick = [this]() { StepRole(-1); };
-	mRoleHint = MakeText(mMain, RoleHint(ESTRole::Off), 10);
+	MakeLabel(mMain, LOCTEXT("RoleLabel", "Role"));
+	UHorizontalBox* Roles = MakeHBox(mMain);
+	for (int32 Index = 0; Index <= static_cast<int32>(ESTRole::Sink); ++Index)
+	{
+		const ESTRole Role = static_cast<ESTRole>(Index);
+		USTSegment* Segment = WidgetTree->ConstructWidget<USTSegment>(USTSegment::StaticClass());
+		Segment->SetText(FText::FromString(STNames::Role(Role)));
+		Segment->SetFont(GetFont(11, true));
+		Segment->OnClick = [this, Role]() { SetRole(Role); };
+		Roles->AddChildToHorizontalBox(Segment);
+		SetFill(Segment);
+		SetSlotPadding(Segment, FMargin(Index > 0 ? 3.f : 0.f, 0.f, 0.f, 0.f));
+		mRoleSegments.Add(Segment);
+	}
+	mRoleHint = MakeTinted(mMain, RoleHint(ESTRole::Off), 10, STStyle::Muted, false, true, FMargin(0.f, 4.f, 0.f, 0.f));
 
-	mItemsLabel = MakeText(mMain, LOCTEXT("ItemsLabel", "Items"), 13, false, FMargin(0.f, 8.f, 0.f, 2.f));
-	mNoItems = MakeText(mMain, LOCTEXT("NoItems", "No items yet. Add the item this platform supplies or demands."), 10);
+	mItemsLabel = MakeLabel(mMain, LOCTEXT("ItemsLabel", "Items"));
+	mNoItems = MakeTinted(mMain, LOCTEXT("NoItems", "No items yet. Add the item this platform supplies or demands."), 10, STStyle::Muted);
 	mNoItems->SetVisibility(ESlateVisibility::Collapsed);
 	mItemBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
 	mMain->AddChildToVerticalBox(mItemBox);
@@ -142,22 +149,31 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 			RCO->Server_CopyPlatformToStation(GetPlatform(), mLastEdit);
 		}
 	}, FMargin(0.f, 4.f, 0.f, 2.f));
-	mCopyHint = MakeText(mMain, LOCTEXT("CopyHint", "Copy and Paste carry every setting of the platform. This gives every platform of this kind in the station all of them, once; each keeps its own settings after that."), 9);
+	mCopyHint = MakeTinted(mMain, LOCTEXT("CopyHint", "Gives every platform of this kind in the station these settings, once."), 9, STStyle::Muted);
 
-	mLines = MakeText(mMain, FText::GetEmpty(), 10, true, FMargin(0.f, 8.f, 0.f, 0.f));
-	mEditedBy = MakeText(mMain, FText::GetEmpty(), 9, true, FMargin(0.f, 4.f, 0.f, 0.f));
+	UHorizontalBox* Stats = MakeHBox(mMain, FMargin(0.f, 10.f, 0.f, 0.f));
+	UVerticalBox* A = MakeVBox(Stats);
+	SetFill(A);
+	mStatRate = MakeStat(A, LOCTEXT("PlatformRate", "per minute at most"));
+	UVerticalBox* B = MakeVBox(Stats, FMargin(4.f, 0.f, 0.f, 0.f));
+	SetFill(B);
+	mStatLoops = MakeStat(B, LOCTEXT("PlatformLoops", "loops"));
+	mNext = MakeTinted(mMain, FText::GetEmpty(), 10, STStyle::Text, false, true, FMargin(0.f, 6.f, 0.f, 0.f));
+	mLines = MakeTinted(mMain, FText::GetEmpty(), 10, STStyle::Muted, false, true, FMargin(0.f, 4.f, 0.f, 0.f));
+	mEditedBy = MakeTinted(mMain, FText::GetEmpty(), 9, STStyle::Muted, false, true, FMargin(0.f, 4.f, 0.f, 0.f));
 
 	mPicker = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
 	Root->AddChildToVerticalBox(mPicker);
 	mPicker->SetVisibility(ESlateVisibility::Collapsed);
-	MakeHeading(mPicker, LOCTEXT("PickHeading", "Pick an item"), FMargin(0.f, 0.f, 0.f, 4.f));
-	mSearch = MakeInput(mPicker, LOCTEXT("SearchHint", "Search"));
+	MakeTitleBar(mPicker, LOCTEXT("PickHeading", "Pick an item"), 20.f);
+	mSearch = MakeInput(mPicker, LOCTEXT("SearchHint", "Search items"));
 	mSearch->OnChanged = [this](const FString& Text) { FilterPicker(Text); };
 	MakeButton(mPicker, LOCTEXT("Cancel", "Cancel"), [this]() { ClosePicker(); });
 	USizeBox* ListBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
 	ListBox->SetMaxDesiredHeight(PickerMaxHeight);
 	UScrollBox* ListScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass());
-	mPickerList = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
+	mPickerList = WidgetTree->ConstructWidget<UWrapBox>(UWrapBox::StaticClass());
+	mPickerList->SetInnerSlotPadding(FVector2D(4.f, 4.f));
 	ListScroll->AddChild(mPickerList);
 	ListBox->AddChild(ListScroll);
 	mPicker->AddChildToVerticalBox(ListBox)->SetPadding(FMargin(0.f, 4.f, 0.f, 0.f));
@@ -223,7 +239,29 @@ void USTPlatformPanel::Refresh(USTRemoteCallObject* RCO)
 		mItemLines = View->ItemLines;
 		bHasSettings = true;
 	}
-	SetLines(mLines, View->Lines);
+	// Long readouts stay in /st status; the panel shows the numbers and the next train.
+	const bool bWorks = View->Role == ESTRole::Supply || View->Role == ESTRole::Demand;
+	mStatRate.Value->SetText(FText::FromString(View->RatePerMinute >= 0.f ? FString::Printf(TEXT("%.0f%s"), View->RatePerMinute, View->bFluid ? TEXT(" m³") : TEXT(""))
+		: FString(TEXT("-"))));
+	mStatRate.Label->SetText(View->Role == ESTRole::Supply ? LOCTEXT("PlatformRateSupply", "made per minute at most")
+		: LOCTEXT("PlatformRateDemand", "used per minute at most"));
+	mStatLoops.Value->SetText(FText::AsNumber(View->Loops));
+	mStatLoops.Label->SetText(View->Role == ESTRole::Supply ? LOCTEXT("PlatformLoopsSupply", "loops take from here") : LOCTEXT("PlatformLoopsDemand", "trains on its loop"));
+	mStatRate.Value->GetParent()->GetParent()->SetVisibility(bWorks ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	mStatLoops.Value->GetParent()->GetParent()->SetVisibility(bWorks ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	mNext->SetText(View->NextTrain.IsEmpty() ? FText::GetEmpty() : FText::FromString(View->NextSeconds == 0.f ? FString::Printf(TEXT("Docked now: %s"), *View->NextTrain)
+		: FString::Printf(TEXT("Next train: %s%s"), *View->NextTrain, View->NextSeconds > 0.f ? *FString::Printf(TEXT(" in %s"), *STStyle::Duration(View->NextSeconds)) : TEXT(""))));
+	mNext->SetVisibility(View->NextTrain.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+	// Only the reason a consumer gets no train (its problem), not the history.
+	TArray<FString> Notes;
+	for (const FString& Line : View->Lines)
+	{
+		if (!Line.StartsWith(TEXT("Recent: ")) && !Line.StartsWith(TEXT("Next: ")) && !Line.StartsWith(TEXT("Its station's loop")))
+		{
+			Notes.Add(Line);
+		}
+	}
+	SetLines(mLines, Notes);
 	mCopyToStation->SetVisibility(View->bOnStation ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	mCopyHint->SetVisibility(View->bOnStation ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	mEditedBy->SetText(View->EditedBy.IsEmpty() ? FText::GetEmpty() : FText::Format(LOCTEXT("EditedBy", "Last changed by {0}"), FText::FromString(View->EditedBy)));
@@ -247,11 +285,6 @@ void USTPlatformPanel::SendEdit(const TCHAR* What)
 	UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: %s on %s -> %s, %d items (edit %d)"), What, *Platform->GetName(), STNames::Role(mRole), mItems.Num(), mLastEdit);
 	RCO->Server_SetPlatform(Platform, mRole, mItems, mLastEdit);
 	RefreshEditor();
-}
-
-void USTPlatformPanel::StepRole(int32 Step)
-{
-	SetRole(StepEnum(mRole, Step, static_cast<int32>(ESTRole::Sink) + 1));
 }
 
 void USTPlatformPanel::SetRole(ESTRole NewRole)
@@ -287,8 +320,11 @@ void USTPlatformPanel::RemoveItem(int32 Index)
 
 void USTPlatformPanel::RefreshEditor()
 {
-	mRoleButton->SetText(FText::Format(LOCTEXT("RoleButton", "Role: {0}"), FText::FromString(STNames::Role(mRole))));
-	mRoleButton->SetIsEnabled(bHasSettings);
+	for (int32 Index = 0; Index < mRoleSegments.Num(); ++Index)
+	{
+		mRoleSegments[Index]->SetSelected(static_cast<int32>(mRole) == Index);
+		mRoleSegments[Index]->SetIsEnabled(bHasSettings);
+	}
 	mRoleHint->SetText(RoleHint(mRole));
 	const bool bHasItems = mRole == ESTRole::Supply || mRole == ESTRole::Demand;
 	mItemsLabel->SetVisibility(bHasItems ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
@@ -328,8 +364,7 @@ void USTPlatformPanel::RebuildItemRows()
 	{
 		const TSubclassOf<UFGItemDescriptor> Item = mItems[Index].Item;
 		FItemWidgets& Row = mRows.AddDefaulted_GetRef();
-		UVerticalBox* Box = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
-		mItemBox->AddChildToVerticalBox(Box)->SetPadding(FMargin(0.f, 4.f, 0.f, 6.f));
+		UVerticalBox* Box = MakeCard(mItemBox, STStyle::Card, FMargin(8.f, 6.f), FMargin(0.f, 2.f));
 
 		UHorizontalBox* Head = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
 		Box->AddChildToVerticalBox(Head);
@@ -347,13 +382,13 @@ void USTPlatformPanel::RebuildItemRows()
 		}
 		IconBox->AddChild(Icon);
 		AddToLine(Head, IconBox, false, FMargin(0.f, 0.f, 6.f, 0.f));
-		UTextBlock* Name = MakeText(nullptr, Item ? UFGItemDescriptor::GetItemName(Item) : LOCTEXT("AnyItem", "Any item"), 12, true);
+		UTextBlock* Name = MakeTinted(nullptr, Item ? UFGItemDescriptor::GetItemName(Item) : LOCTEXT("AnyItem", "Any item"), 12, STStyle::Text, true, true);
 		AddToLine(Head, Name, true);
 		AddToLine(Head, MakeButton(nullptr, LOCTEXT("Remove", "Remove"), [this, Index]() { RemoveItem(Index); }), false, FMargin(0.f));
 		Row.Name = Name;
 		Row.Icon = Icon;
 
-		Row.Readout = MakeText(Box, FText::GetEmpty(), 10);
+		Row.Readout = MakeTinted(Box, FText::GetEmpty(), 10, STStyle::Muted, false, true, FMargin(0.f, 3.f, 0.f, 0.f));
 
 	}
 	UE_LOG(LogSmartTrains, Verbose, TEXT("Platform menu: %d item rows built"), mRows.Num());
@@ -372,9 +407,11 @@ void USTPlatformPanel::OpenPicker()
 	auto AddRow = [this, &Shown](TSubclassOf<UFGItemDescriptor> Item, const FText& Text)
 	{
 		Shown.Add(Item.Get());
-		USTRow* Row = MakeRow(mPickerList, Text, [this, Item]() { AddItem(Item); });
-		Row->SetIcon(Item ? UFGItemDescriptor::GetSmallIcon(Item) : nullptr);
-		mPickerRows.Add({Row, Item});
+		USTIconTile* Tile = WidgetTree->ConstructWidget<USTIconTile>(USTIconTile::StaticClass());
+		Tile->SetItem(Item ? UFGItemDescriptor::GetSmallIcon(Item) : nullptr, Text);
+		Tile->OnClick = [this, Item]() { AddItem(Item); };
+		mPickerList->AddChild(Tile);
+		mPickerRows.Add({Tile, Item});
 	};
 	// Items on the platform now come first.
 	if (const UFGInventoryComponent* Inventory = Platform ? Platform->GetInventory() : nullptr)
@@ -419,9 +456,9 @@ void USTPlatformPanel::ClosePicker()
 void USTPlatformPanel::FilterPicker(const FString& Search)
 {
 	const FString Wanted = Search.TrimStartAndEnd();
-	for (const TPair<TWeakObjectPtr<USTRow>, TSubclassOf<UFGItemDescriptor>>& Each : mPickerRows)
+	for (const TPair<TWeakObjectPtr<UWidget>, TSubclassOf<UFGItemDescriptor>>& Each : mPickerRows)
 	{
-		if (USTRow* Row = Each.Key.Get())
+		if (UWidget* Row = Each.Key.Get())
 		{
 			const FString Name = Each.Value ? UFGItemDescriptor::GetItemName(Each.Value).ToString() : FString(TEXT("Any item"));
 			Row->SetVisibility(Wanted.IsEmpty() || Name.Contains(Wanted, ESearchCase::IgnoreCase) ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);

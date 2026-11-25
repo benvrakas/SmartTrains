@@ -19,6 +19,7 @@
 #include "STRemoteCallObject.h"
 #include "UI/STControls.h"
 #include "UI/STWidgetUtils.h"
+#include "UI/STStyle.h"
 
 #define LOCTEXT_NAMESPACE "SmartTrains"
 
@@ -186,12 +187,23 @@ UWidget* USTPlatformLauncher::WrapRoot(UVerticalBox* Root)
 
 void USTPlatformLauncher::BuildContent(UVerticalBox* Root)
 {
-	MakeText(Root, LOCTEXT("LauncherHeading", "SmartTrains"), 15, false, FMargin(0.f, 0.f, 0.f, 4.f));
-	mSummary = MakeText(Root, LOCTEXT("Loading", "Asking the server..."), 11);
+	MakeTitleBar(Root, FText::GetEmpty(), 20.f);
+	UHorizontalBox* RoleRow = MakeHBox(Root, FMargin(0.f, 2.f, 0.f, 2.f));
+	mRole = MakeBadge(RoleRow);
+	mSummary = MakeTinted(RoleRow, LOCTEXT("Loading", "Asking the server..."), 11, STStyle::Text, false, true, FMargin(8.f, 0.f, 0.f, 0.f));
+	SetFill(mSummary);
+	SetVAlignCenter(mSummary);
 	mItemRows = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
 	Root->AddChildToVerticalBox(mItemRows)->SetPadding(FMargin(0.f, 2.f, 0.f, 0.f));
-	mStatus = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 2.f, 0.f, 6.f));
-	MakeButton(Root, LOCTEXT("OpenPlatformWindow", "Open SmartTrains settings"), [this]() { USTPlatformWindow::Open(GetMenu()); });
+	mStats = MakeHBox(Root, FMargin(0.f, 6.f, 0.f, 0.f));
+	UVerticalBox* A = MakeVBox(mStats);
+	SetFill(A);
+	mRate = MakeStat(A, LOCTEXT("LauncherRate", "per minute at most"));
+	UVerticalBox* B = MakeVBox(mStats, FMargin(4.f, 0.f, 0.f, 0.f));
+	SetFill(B);
+	mLoops = MakeStat(B, LOCTEXT("LauncherLoops", "loops"));
+	mStatus = MakeTinted(Root, FText::GetEmpty(), 10, STStyle::Muted, false, true, FMargin(0.f, 4.f, 0.f, 6.f));
+	MakeButton(Root, LOCTEXT("OpenPlatformWindow", "Settings"), [this]() { USTPlatformWindow::Open(GetMenu()); });
 	// Copy and Paste, half the width each, as in the settings window.
 	UHorizontalBox* Clipboard = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
 	Root->AddChildToVerticalBox(Clipboard)->SetPadding(FMargin(0.f, 4.f, 0.f, 0.f));
@@ -251,24 +263,25 @@ void USTPlatformLauncher::Refresh(USTRemoteCallObject* RCO)
 	{
 		return;
 	}
-	if (View->Role == ESTRole::Off)
-	{
-		mSummary->SetText(LOCTEXT("LauncherOff", "Off"));
-	}
-	else if (View->Role == ESTRole::Sink)
-	{
-		mSummary->SetText(LOCTEXT("LauncherSink", "Sink: any item"));
-	}
-	else
-	{
-		mSummary->SetText(FText::FromString(View->Items.Num() > 0 ? FString::Printf(TEXT("%s:"), STNames::Role(View->Role))
-			: FString::Printf(TEXT("%s: no items"), STNames::Role(View->Role))));
-	}
+	const FLinearColor RoleColor = View->Role == ESTRole::Demand ? STStyle::Orange : View->Role == ESTRole::Supply ? STStyle::Good
+		: View->Role == ESTRole::Sink ? STStyle::Warn : STStyle::Muted;
+	SetBadge(mRole, FText::FromString(STNames::Role(View->Role)), RoleColor);
+	mSummary->SetText(View->Role == ESTRole::Off ? LOCTEXT("LauncherOff", "SmartTrains leaves it alone") : View->Role == ESTRole::Sink ? LOCTEXT("LauncherSink", "Any cargo")
+		: View->Items.Num() == 0 ? LOCTEXT("LauncherNoItems", "No items yet") : FText::GetEmpty());
+	const bool bWorks = View->Role == ESTRole::Supply || View->Role == ESTRole::Demand;
+	mStats->SetVisibility(bWorks ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	mRate.Value->SetText(FText::FromString(View->RatePerMinute >= 0.f ? FString::Printf(TEXT("%.0f%s"), View->RatePerMinute, View->bFluid ? TEXT(" m³") : TEXT(""))
+		: FString(TEXT("-"))));
+	mRate.Label->SetText(View->Role == ESTRole::Supply ? LOCTEXT("LauncherRateSupply", "made per minute at most") : LOCTEXT("LauncherRateDemand", "used per minute at most"));
+	mLoops.Value->SetText(FText::AsNumber(View->Loops));
+	mLoops.Label->SetText(View->Role == ESTRole::Supply ? LOCTEXT("LauncherLoopsSupply", "loops take from here") : LOCTEXT("LauncherLoopsDemand", "trains on its loop"));
 	ShowItems(View->Role == ESTRole::Off || View->Role == ESTRole::Sink ? TArray<FSTItemRule>() : View->Items);
 	mPaste->SetIsEnabled(RCO->HasClipboard(View->bFluid));
-	// The readout's last line is the first reason or the inbound trains; one line is enough here.
-	mStatus->SetText(View->Lines.Num() > 0 ? FText::FromString(View->Lines.Last()) : FText::GetEmpty());
-	mStatus->SetVisibility(View->Lines.Num() > 0 ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	// One line: the next train here.
+	const FString Next = View->NextTrain.IsEmpty() ? FString() : View->NextSeconds == 0.f ? FString::Printf(TEXT("Docked now: %s"), *View->NextTrain)
+		: FString::Printf(TEXT("Next: %s%s"), *View->NextTrain, View->NextSeconds > 0.f ? *FString::Printf(TEXT(" in %s"), *STStyle::Duration(View->NextSeconds)) : TEXT(""));
+	mStatus->SetText(FText::FromString(Next));
+	mStatus->SetVisibility(Next.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
 }
 
 void USTPlatformLauncher::ShowItems(const TArray<FSTItemRule>& Items)
@@ -303,7 +316,7 @@ void USTPlatformLauncher::ShowItems(const TArray<FSTItemRule>& Items)
 				IconSlot->SetPadding(FMargin(0.f, 0.f, 8.f, 0.f));
 			}
 		}
-		UTextBlock* Name = MakeText(nullptr, Item ? UFGItemDescriptor::GetItemName(Item) : LOCTEXT("LauncherAnyItem", "Any item"), 12, true);
+		UTextBlock* Name = MakeTinted(nullptr, Item ? UFGItemDescriptor::GetItemName(Item) : LOCTEXT("LauncherAnyItem", "Any item"), 13, STStyle::Text, true, true);
 		if (UHorizontalBoxSlot* NameSlot = Row->AddChildToHorizontalBox(Name))
 		{
 			NameSlot->SetVerticalAlignment(VAlign_Center);

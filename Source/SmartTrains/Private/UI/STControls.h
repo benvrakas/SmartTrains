@@ -141,3 +141,62 @@ private:
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mText;
 };
+
+// One choice of a row of choices (a platform's role): flat, rounded, orange when selected.
+UCLASS()
+class USTSegment : public UUserWidget
+{
+	GENERATED_BODY()
+
+public:
+	void SetText(const FText& Text);
+	void SetSelected(bool bInSelected);
+	void SetFont(const FSlateFontInfo& Font);
+
+	TFunction<void()> OnClick;
+
+protected:
+	virtual TSharedRef<SWidget> RebuildWidget() override;
+
+private:
+	void BuildTree();
+	void ApplyLook();
+
+	UFUNCTION()
+	void HandleClicked();
+
+	UPROPERTY()
+	TObjectPtr<UButton> mButton;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> mText;
+
+	bool bSelected = false;
+};
+
+// An item as a square tile showing only its icon, its name in the tooltip (the item picker's grid).
+UCLASS()
+class USTIconTile : public UUserWidget
+{
+	GENERATED_BODY()
+
+public:
+	void SetItem(UTexture2D* Icon, const FText& Name);
+
+	TFunction<void()> OnClick;
+
+protected:
+	virtual TSharedRef<SWidget> RebuildWidget() override;
+
+private:
+	void BuildTree();
+
+	UFUNCTION()
+	void HandleClicked();
+
+	UPROPERTY()
+	TObjectPtr<UButton> mButton;
+
+	UPROPERTY()
+	TObjectPtr<UImage> mIcon;
+};

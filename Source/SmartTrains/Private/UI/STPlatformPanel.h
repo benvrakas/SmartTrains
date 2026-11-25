@@ -48,8 +48,6 @@ private:
 	void SendEdit(const TCHAR* What);
 
 	void SetRole(ESTRole NewRole);
-	// Steps the role (Off, Supply, Demand, Sink) by Step, wrapping round.
-	void StepRole(int32 Step);
 	void AddItem(TSubclassOf<UFGItemDescriptor> Item);
 	void RemoveItem(int32 Index);
 
@@ -76,8 +74,15 @@ private:
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mTitle;
 
+	// Off, Supply, Demand, Sink.
 	UPROPERTY()
-	TObjectPtr<USTButton> mRoleButton;
+	TArray<TObjectPtr<class USTSegment>> mRoleSegments;
+
+	FStat mStatRate;
+	FStat mStatLoops;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> mNext;
 
 	// The "Items" heading, hidden with the item list where a role has no items (Off, Sink).
 	UPROPERTY()
@@ -117,13 +122,13 @@ private:
 	TObjectPtr<USTTextInput> mSearch;
 
 	UPROPERTY()
-	TObjectPtr<UVerticalBox> mPickerList;
+	TObjectPtr<class UWrapBox> mPickerList;
 
 	TArray<FItemWidgets> mRows;
 	// Items the rows were built for.
 	TArray<TSubclassOf<UFGItemDescriptor>> mRowItems;
 	// Picker rows and the item each stands for (null: any item).
-	TArray<TPair<TWeakObjectPtr<USTRow>, TSubclassOf<UFGItemDescriptor>>> mPickerRows;
+	TArray<TPair<TWeakObjectPtr<UWidget>, TSubclassOf<UFGItemDescriptor>>> mPickerRows;
 	bool bPickerBuiltFluid = false;
 	bool bPickerBuilt = false;
 };

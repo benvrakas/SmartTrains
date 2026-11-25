@@ -12,6 +12,7 @@
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
 #include "SmartTrains.h"
+#include "UI/STStyle.h"
 #include "UI/STWidgetUtils.h"
 
 //~ USTButton
@@ -319,6 +320,137 @@ void USTRow::SetStyle(const FSlateFontInfo& Font, const FSlateColor& Color)
 void USTRow::HandleClicked()
 {
 	UE_LOG(LogSmartTrains, Verbose, TEXT("Row \"%s\" clicked"), *mText->GetText().ToString());
+	if (OnClick)
+	{
+		OnClick();
+	}
+}
+
+//~ USTSegment
+
+TSharedRef<SWidget> USTSegment::RebuildWidget()
+{
+	BuildTree();
+	return Super::RebuildWidget();
+}
+
+void USTSegment::BuildTree()
+{
+	if (!WidgetTree)
+	{
+		WidgetTree = NewObject<UWidgetTree>(this, TEXT("WidgetTree"), RF_Transient);
+	}
+	if (WidgetTree->RootWidget)
+	{
+		return;
+	}
+	mButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass());
+	mButton->OnClicked.AddUniqueDynamic(this, &USTSegment::HandleClicked);
+	WidgetTree->RootWidget = mButton;
+	mText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+	mText->SetJustification(ETextJustify::Center);
+	if (UButtonSlot* TextSlot = Cast<UButtonSlot>(mButton->AddChild(mText)))
+	{
+		TextSlot->SetHorizontalAlignment(HAlign_Center);
+		TextSlot->SetVerticalAlignment(VAlign_Center);
+	}
+	ApplyLook();
+}
+
+void USTSegment::ApplyLook()
+{
+	FButtonStyle Style;
+	const FLinearColor Base = bSelected ? STStyle::Orange : STStyle::Inset;
+	Style.SetNormal(STStyle::Rounded(Base, 3.f));
+	Style.SetHovered(STStyle::Rounded(bSelected ? STStyle::Orange : STStyle::Card, 3.f));
+	Style.SetPressed(STStyle::Rounded(bSelected ? STStyle::Orange : STStyle::Line, 3.f));
+	Style.SetDisabled(STStyle::Rounded(STStyle::Inset, 3.f));
+	Style.SetNormalPadding(FMargin(6.f, 7.f));
+	Style.SetPressedPadding(FMargin(6.f, 7.f));
+	mButton->SetStyle(Style);
+	mText->SetColorAndOpacity(FSlateColor(bSelected ? STStyle::Dark : STStyle::Text));
+}
+
+void USTSegment::SetText(const FText& Text)
+{
+	BuildTree();
+	mText->SetText(Text);
+}
+
+void USTSegment::SetSelected(bool bInSelected)
+{
+	BuildTree();
+	if (bSelected != bInSelected)
+	{
+		bSelected = bInSelected;
+		ApplyLook();
+	}
+}
+
+void USTSegment::SetFont(const FSlateFontInfo& Font)
+{
+	BuildTree();
+	mText->SetFont(Font);
+}
+
+void USTSegment::HandleClicked()
+{
+	if (OnClick)
+	{
+		OnClick();
+	}
+}
+
+//~ USTIconTile
+
+TSharedRef<SWidget> USTIconTile::RebuildWidget()
+{
+	BuildTree();
+	return Super::RebuildWidget();
+}
+
+void USTIconTile::BuildTree()
+{
+	if (!WidgetTree)
+	{
+		WidgetTree = NewObject<UWidgetTree>(this, TEXT("WidgetTree"), RF_Transient);
+	}
+	if (WidgetTree->RootWidget)
+	{
+		return;
+	}
+	mButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass());
+	FButtonStyle Style;
+	Style.SetNormal(STStyle::Rounded(STStyle::Header, 3.f));
+	Style.SetHovered(STStyle::Outlined(STStyle::Card, STStyle::Orange, 1.5f, 3.f));
+	Style.SetPressed(STStyle::Rounded(STStyle::Line, 3.f));
+	Style.SetDisabled(STStyle::Rounded(STStyle::Inset, 3.f));
+	Style.SetNormalPadding(FMargin(5.f));
+	Style.SetPressedPadding(FMargin(5.f));
+	mButton->SetStyle(Style);
+	mButton->OnClicked.AddUniqueDynamic(this, &USTIconTile::HandleClicked);
+	USizeBox* Size = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+	Size->SetWidthOverride(52.f);
+	Size->SetHeightOverride(52.f);
+	Size->AddChild(mButton);
+	WidgetTree->RootWidget = Size;
+	mIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
+	mButton->AddChild(mIcon);
+}
+
+void USTIconTile::SetItem(UTexture2D* Icon, const FText& Name)
+{
+	BuildTree();
+	if (Icon)
+	{
+		mIcon->SetBrushFromTexture(Icon);
+	}
+	mIcon->SetVisibility(Icon ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Hidden);
+	SetToolTipText(Name);
+}
+
+void USTIconTile::HandleClicked()
+{
 	if (OnClick)
 	{
 		OnClick();

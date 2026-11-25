@@ -8,6 +8,7 @@
 class APlayerController;
 class UFGItemDescriptor;
 class USTButton;
+class UHorizontalBox;
 class UTextBlock;
 
 // The platform settings (USTPlatformPanel) in a window of their own, opened from the SmartTrains section of a
@@ -57,6 +58,13 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mSummary;
+
+	FBadge mRole;
+	FStat mRate;
+	FStat mLoops;
+
+	UPROPERTY()
+	TObjectPtr<UHorizontalBox> mStats;
 
 	// One row per item: icon and name.
 	UPROPERTY()
