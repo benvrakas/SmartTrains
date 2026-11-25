@@ -202,6 +202,7 @@ namespace
 	const TCHAR* Help[] = {
 		TEXT("/st status | jobs | fit"),
 		TEXT("/st monitor [text]   (consumers, suppliers and trains of the loop plan; text prints it in chat)"),
+		TEXT("/st depots   (each depot signal's spot, or why it can't be used, and the train parked there)"),
 		TEXT("/st platform [supply|demand|sink|off] [item, item...] | /st platform copy"),
 		TEXT("/st station"),
 		TEXT("/st setup [apply] [keepname]   (platform roles, items and a name for the station you look at, from its factory)"),
@@ -245,6 +246,11 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 		{
 			Sender->SendChatMessage(Line);
 		}
+		return EExecutionStatus::COMPLETED;
+	}
+	if (Verb == TEXT("depots"))
+	{
+		Send(Sender, Subsystem->DescribeDepots());
 		return EExecutionStatus::COMPLETED;
 	}
 	if (Verb == TEXT("status"))

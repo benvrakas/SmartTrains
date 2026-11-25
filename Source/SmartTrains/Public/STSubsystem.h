@@ -4,6 +4,7 @@
 #include "FGSaveInterface.h"
 #include "STConfig.h"
 #include "STTypes.h"
+#include "STDepotSignal.h"
 #include "STViews.h"
 #include "Subsystem/ModSubsystem.h"
 #include "STSubsystem.generated.h"
@@ -59,6 +60,12 @@ struct FSTConsumer
 	TArray<FSTLoopSource> Sources;
 	// Why it gets no train, empty when it has trains or nothing is wrong.
 	FString Problem;
+	// Share of its machines that want input now (powered, running, output not backed up), averaged over a few minutes.
+	double Use = 1.0;
+	// Trains its loop needs running for that use (at least one); the rest of its trains wait at depot signals.
+	int32 Wanted = 0;
+	// Its trains waiting at a depot signal or on their way there.
+	int32 AtDepot = 0;
 };
 
 // What a supplier station offers of one item, and how much of it consumers' loops take.
@@ -258,6 +265,54 @@ private:
 	void FinishJob(FSTTrainState& State);
 	// Switches the train's autopilot off where it stands, with Why kept for readouts.
 	void Park(FSTTrainState& State, const TCHAR* Why);
+
+	//~ Depot signals (Docs/Architecture.md, "Depot signals"): trains a consumer's use doesn't need now wait there.
+	// Measures each consumer's Use and sets Wanted; wakes depot trains of consumers that need them back.
+	void UpdateUse();
+	// After a round of its loop: sends State's empty train to a depot signal if its consumer runs more trains than its use
+	// needs and a free spot fits it. True if it went.
+	bool MaybeSendToDepot(FSTTrainState& State);
+	// Sends State's train to the nearest free depot signal whose passing siding fits it. False if there is none or no
+	// way to one.
+	bool SendToDepotSignal(FSTTrainState& State, const TCHAR* Why);
+	// Back to its loop from a depot signal.
+	void WakeFromDepot(FSTTrainState& State, const TCHAR* Why);
+	// A depot train's drive: parked once it stands at its spot; a drive that ends elsewhere puts it back on its loop.
+	void CheckDepotDrive(FSTTrainState& State);
+	struct FDepotTrip
+	{
+		TWeakObjectPtr<class ASTBuildableDepotSignal> Signal;
+		double SentAt = 0.0;
+		// Where its front stops, the way there (track exits in order) and the signal it stops before (STDepots::Check).
+		TWeakObjectPtr<class UFGRailroadTrackConnectionComponent> Goal;
+		TArray<TWeakObjectPtr<class UFGRailroadTrackConnectionComponent>> Route;
+		TWeakObjectPtr<class AFGBuildableRailroadSignal> StopSignal;
+		// SmartTrains drives it (no Auto Trains): along the game's signals, with StopSignal held at stop.
+		bool bOwnDrive = false;
+		// When SmartTrains last gave it the path (bOwnDrive).
+		double PathSetAt = 0.0;
+	};
+	// Auto Trains drives the train when it is loaded, else SmartTrains along the game's signals. Start: false if it
+	// can't. State: as Auto Trains reports it, or (own drive) arrived once it stands near the goal, the path given again if
+	// the game dropped it. End: lets StopSignal go, and with bCancel stops an Auto Trains drive.
+	bool StartDepotDrive(AFGTrain* Train, FDepotTrip& Trip);
+	STDepots::EDriveState GetDepotDriveState(AFGTrain* Train, FDepotTrip& Trip);
+	void EndDepotDrive(AFGTrain* Train, const FDepotTrip& Trip, bool bCancel);
+	// A train parked on a depot spot with another train (or one heading there) ahead of it on its passing siding.
+	bool IsBoxedInAtDepot(const FSTTrainState& State, const TArray<struct FSTDepotSpot>& Spots) const;
+	TMap<TWeakObjectPtr<AFGTrain>, FDepotTrip> mDepotTrips;
+	// Depot signals no way was found to for a train, and until when (Now()) they aren't offered to it again.
+	TMap<TPair<const AFGTrain*, const class ASTBuildableDepotSignal*>, double> mDepotNoWay;
+	// Each consumer's averaged use, kept across loop models, and when it was last sampled. [Now()]
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mUse;
+	double mUseSampledAt = -1.0;
+	FTimerHandle mUnlockTimer;
+
+public:
+	// One line per depot signal: its spot, or why it can't be used, and the train using it (/st depots).
+	TArray<FString> DescribeDepots() const;
+
+private:
 
 	// Called when State's train docks at Station / leaves it.
 	void BeginDock(FSTTrainState& State, AFGTrainStationIdentifier* Station);

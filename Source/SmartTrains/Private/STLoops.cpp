@@ -205,6 +205,7 @@ void ASTSubsystem::CheckLoops()
 	}
 	bCheckSoon = false;
 	AssignTrains();
+	UpdateUse();
 	for (FSTTrainState& State : mTrains)
 	{
 		UpdateTrainJob(State);
@@ -964,6 +965,16 @@ void ASTSubsystem::UpdateTrainJob(FSTTrainState& State, ESTJobKind After)
 		return;
 	}
 	const FSTConsumer* Consumer = FindConsumer(State.LoopConsumer.Get());
+	// At a depot signal while its consumer is still its own; given another consumer (or none), back on the line first.
+	if (State.bDepot)
+	{
+		if (Consumer && Consumer->Trains.Contains(Train))
+		{
+			CheckDepotDrive(State);
+			return;
+		}
+		WakeFromDepot(State, Consumer ? TEXT("it serves another consumer now") : TEXT("its consumer has no loop any more"));
+	}
 	FSTJob Loop;
 	FString Why;
 	if (!Consumer || !MakeLoopJob(State, *Consumer, Loop, Why))
@@ -1403,6 +1414,12 @@ FString ASTSubsystem::DescribeWork(const FSTTrainState& State) const
 	if (State.bHeld)
 	{
 		return TEXT("held");
+	}
+	if (State.bDepot)
+	{
+		const FSTConsumer* Consumer = FindConsumer(State.LoopConsumer.Get());
+		return FString::Printf(TEXT("%s a depot signal: %s uses %.0f %% of its machines now"), State.Phase == ESTTrainPhase::Parked ? TEXT("waiting at") : TEXT("on its way to"),
+			Consumer ? *STLayout::Name(Consumer->Station.Get()) : TEXT("its consumer"), Consumer ? 100.0 * Consumer->Use : 0.0);
 	}
 	if (!State.bHasJob)
 	{

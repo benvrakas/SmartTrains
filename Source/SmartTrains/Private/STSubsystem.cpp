@@ -93,6 +93,7 @@ void ASTSubsystem::BeginPlay()
 	Timers.SetTimer(mNewTrainTimer, this, &ASTSubsystem::ManageNewTrains, 5.f, true, 10.f);
 	Timers.SetTimer(mTravelTimer, this, &ASTSubsystem::StepTravel, 0.5f, true, 2.f);
 	Timers.SetTimer(mLoopTimer, this, &ASTSubsystem::CheckLoops, LoopCheckSeconds, true, 5.f);
+	Timers.SetTimer(mUnlockTimer, FTimerDelegate::CreateWeakLambda(this, [this]() { STDepots::KeepUnlocked(GetWorld()); }), 5.f, true, 5.f);
 	// A save from before 0.14.0: its platforms' machines are traced once.
 	if (!bMachinesFilled)
 	{
@@ -403,6 +404,10 @@ bool ASTSubsystem::SetTrainManaged(AFGTrain* Train, bool bManaged, const FString
 		return true;
 	}
 
+	if (State.bDepot)
+	{
+		WakeFromDepot(State, TEXT("no longer managed"));
+	}
 	State.bManaged = false;
 	State.bHasJob = false;
 	State.Phase = ESTTrainPhase::Idle;
@@ -871,6 +876,11 @@ void ASTSubsystem::FinishLeg(FSTTrainState& State, AFGTrainStationIdentifier* St
 		State.Job.Leg = 0;
 		++State.Job.Rounds;
 		UE_LOG(LogSmartTrains, Log, TEXT("LOOP %s: round %d done (%s)"), *STLayout::Name(Train), State.Job.Rounds, *State.Job.Summary);
+		// Its consumer runs more trains than its use needs now: it waits at a depot signal if one is free.
+		if (Station == State.Job.AnchorStation.Get())
+		{
+			MaybeSendToDepot(State);
+		}
 		return;
 	}
 	FinishJob(State);

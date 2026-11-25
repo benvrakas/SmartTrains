@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "FGRailroadTimeTable.h"
+#include "STDepotSignal.h"
 
 class AFGBuildableRailroadStation;
 class AFGRailroadVehicle;
@@ -55,4 +56,14 @@ namespace STAt
 
 	// Tells Auto Trains that Train's timetable changed, so it predicts the next leg from the new one.
 	void TimeTableChanged(const UWorld* World, AFGTrain* Train);
+
+	// Has Auto Trains drive Train until its front stops at Goal, a track's end connection that isn't a station (a depot
+	// signal's parking spot). False if Auto Trains can't (not loaded, no way there).
+	bool DriveTo(const UWorld* World, AFGTrain* Train, class UFGRailroadTrackConnectionComponent* Goal);
+
+	// Where Train stands with the goal given to DriveTo (the reason for NoWay is in Auto Trains' log).
+	STDepots::EDriveState GetDriveState(const UWorld* World, AFGTrain* Train);
+
+	// Drops Train's goal from DriveTo (it goes back to its loop, or isn't managed any more).
+	void CancelDrive(const UWorld* World, AFGTrain* Train);
 }

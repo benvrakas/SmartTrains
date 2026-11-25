@@ -318,6 +318,10 @@ struct SMARTTRAINS_API FSTTrainState
 	UPROPERTY(SaveGame)
 	TObjectPtr<AFGTrainStationIdentifier> LoopConsumer = nullptr;
 
+	// Its consumer's use doesn't need it now: it waits at a depot signal (or is on its way there), still on that loop.
+	UPROPERTY(SaveGame)
+	bool bDepot = false;
+
 	// Station the train last docked at, and when it left (game seconds).
 	UPROPERTY(SaveGame)
 	TObjectPtr<AFGTrainStationIdentifier> LastStation = nullptr;
