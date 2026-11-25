@@ -23,7 +23,7 @@ namespace
 {
 	// Width of the card and its distance from the screen's top right corner. [slate units]
 	constexpr float HudWidth = 380.f;
-	const FVector2D HudOffset(-24.f, 150.f);
+	const FVector2D HudOffset(-24.f, 170.f);
 	// How often the client checks what the player rides. [s]
 	constexpr float HudCheckSeconds = 0.5f;
 
