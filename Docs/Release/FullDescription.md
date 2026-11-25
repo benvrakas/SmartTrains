@@ -25,7 +25,8 @@ gets follows how much it needs compared with the rest of your network. You don't
   **Rename station from its factory** names it from what the factory makes, its map area, a number and its most per
   minute, e.g. "Grass Fields Modular Frame Out 1 (288)". Each shows what it would do first; click again to do it.
   `/st setup all` does every station; the name format and words are yours (`/st setup format`, `/st setup words`).
-- **Priority:** a consumer station's menu has **Low**, **Medium** and **High**, for when there aren't enough trains
+- **Station menu:** its **SmartTrains** tab shows the station's platforms, its loop and its suppliers.
+- **Priority:** a consumer station's SmartTrains tab has **Low**, **Medium** and **High**, for when there aren't enough trains
   for every factory: High takes trains from other loops until it has enough for its factory's full input, Low waits
   until every Medium and High loop has.
 - **Trains:** in the locomotive menu, switch **Managed** on. SmartTrains writes its timetable; the game, or Auto

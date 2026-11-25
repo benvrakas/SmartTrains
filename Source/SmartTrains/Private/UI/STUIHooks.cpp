@@ -91,11 +91,9 @@ void STUIHooks::Register(UObject* Outer, TArray<UWidgetBlueprintHookData*>& OutH
 	// buttons. The panel goes right under the stop list.
 	Keep(AddHook(Outer, Manager, STWidgetUtils::LocomotiveMenuClass, TEXT("VerticalBox_1"),
 		USTTrainPanel::StaticClass(), TEXT("ST_TrainPanel"), nullptr, LocomotiveTimetableSlot));
-	Keep(AddHook(Outer, Manager, STWidgetUtils::StationMenuClass, TEXT("VerticalBox_2"),
-		USTStationPanel::StaticClass(), TEXT("ST_StationPanel")));
 	Keep(AddHook(Outer, Manager, STWidgetUtils::StationMenuClass, TEXT("VerticalBox_0"),
 		USTStationSetupBar::StaticClass(), TEXT("ST_StationSetupBar")));
-	UE_LOG(LogSmartTrains, Log, TEXT("%d of 5 UI hooks registered"), OutHooks.Num());
+	UE_LOG(LogSmartTrains, Log, TEXT("%d of 4 UI hooks registered (the station menu's SmartTrains tab is added by its set-up bar)"), OutHooks.Num());
 	USTRideHud::Install();
 #endif
 }

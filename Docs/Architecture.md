@@ -408,8 +408,15 @@ widget blueprint hooks at `POST_INITIALIZATION`, and not on dedicated servers:
 | `Widget_Train_DockingStation` (freight platform) | `CanvasPanel_149` at x 448 | `USTPlatformLauncher`, beside the window; opens `USTPlatformWindow` |
 | `BPW_Train_DockingStation_Fluid` | `CanvasPanel_0` at x 765 | `USTPlatformLauncher` |
 | `Widget_Locomotive_Menu` | `VerticalBox_1` (Timetable column), slot 3: under the stop list | `USTTrainPanel` |
-| `Widget_TrainStationNew` | `VerticalBox_2` (under the train and station lists) | `USTStationPanel` |
 | `Widget_TrainStationNew` | `VerticalBox_0` (first tab, under the name plate) | `USTStationSetupBar` (set-up buttons) |
+
+The station panel has its own tab in the station menu, after Train Station and Timetable (`STStationTab`). There is no
+hook for it: the set-up bar adds it when the menu is shown. The menu's `mTabs` is a `Widget_SlidingTabs`; its `mContent`
+slot holds a panel with one page per tab. The set-up bar walks up from itself to that panel, adds a size box (matched
+to the first page's size when the tab is clicked) around a scroll box with the panel, and copies the last
+`Widget_SlidingTabs_Button` (`mSlidingTabsWidget`, `SetTitle`, the first tab's icon). A click calls the tabs'
+`SetActiveButton` and `SetActiveIndex`. If the menu isn't laid out that way, the panel goes under the set-up bar, and
+the log has the menu's widget tree (`UI tree` lines).
 
 Panel names and positions come from the starter project's widget assets, dumped with Telescreen's `TSDumpWidgets`
 commandlet. It now also lists named-slot content, canvas slot layout and size box overrides

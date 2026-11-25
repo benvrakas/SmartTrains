@@ -18,6 +18,10 @@
 #include "Components/SizeBox.h"
 #include "Components/WrapBox.h"
 #include "UI/STWidgetUtils.h"
+#include "UI/STStationTab.h"
+#include "Components/Button.h"
+#include "Components/PanelWidget.h"
+#include "Components/ScrollBox.h"
 
 #define LOCTEXT_NAMESPACE "SmartTrains"
 
@@ -365,9 +369,71 @@ void USTStationSetupBar::ClickAutodetect()
 	RCO->Server_AutodetectStation(Station, RCO->NextEdit());
 }
 
+void USTStationSetupBar::InstallTab()
+{
+	UUserWidget* Menu = GetMenu();
+	if (!Menu || (mTabPage && mTabPage->GetParent()))
+	{
+		return;
+	}
+	USTStationPanel* Panel = CreateWidget<USTStationPanel>(GetOwningPlayer(), USTStationPanel::StaticClass());
+	if (!Panel)
+	{
+		return;
+	}
+	Panel->SetMenu(Menu);
+	STStationTab::FParts Parts;
+	if (!STStationTab::FindParts(Menu, this, Parts))
+	{
+		if (UVerticalBox* Box = Cast<UVerticalBox>(GetParent()))
+		{
+			Box->AddChildToVerticalBox(Panel);
+		}
+		return;
+	}
+	mTabPage = Menu->WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+	UScrollBox* Scroll = Menu->WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass());
+	Scroll->AddChild(Panel);
+	mTabPage->AddChild(Scroll);
+	mTabs = Parts.Tabs;
+	mPages = Parts.Pages;
+	mTabIndex = STStationTab::AddPage(Parts, mTabPage);
+	mTabButton = STStationTab::AddButton(Parts, LOCTEXT("SmartTrainsTab", "SmartTrains"));
+	if (UButton* Inner = mTabButton ? STWidgetUtils::GetInnerButton(mTabButton) : nullptr)
+	{
+		Inner->OnClicked.AddUniqueDynamic(this, &USTStationSetupBar::HandleTabClicked);
+	}
+	else
+	{
+		UE_LOG(LogSmartTrains, Warning, TEXT("Station tab: its button has no mButton to click"));
+	}
+}
+
+void USTStationSetupBar::HandleTabClicked()
+{
+	UPanelWidget* Pages = mPages.Get();
+	if (!Pages || !mTabPage)
+	{
+		return;
+	}
+	// The page takes the size the other pages have, so it fills the window and scrolls inside it.
+	const UWidget* First = Pages->GetChildAt(0);
+	const FVector2D Size = First ? First->GetCachedGeometry().GetLocalSize() : FVector2D::ZeroVector;
+	if (Size.X > 1.f && Size.Y > 1.f)
+	{
+		mTabPage->SetWidthOverride(Size.X);
+		mTabPage->SetHeightOverride(Size.Y);
+	}
+	STStationTab::FParts Parts;
+	Parts.Tabs = mTabs.Get();
+	Parts.Pages = Pages;
+	STStationTab::ShowPage(Parts, mTabIndex, mTabButton);
+}
+
 bool USTStationSetupBar::OnShown()
 {
 	UE_LOG(LogSmartTrains, Log, TEXT("Station set-up bar for %s"), *STLayout::Name(GetStation()));
+	InstallTab();
 	bAutodetectArmed = false;
 	mAutodetectSentAt = -1.0;
 	mResultUntil = -1.0;

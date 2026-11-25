@@ -88,13 +88,32 @@ protected:
 };
 
 // Autodetect all platforms and Rename from factory, side by side under the station name on the station menu's first
-// tab (Widget_TrainStationNew, VerticalBox_0). One row: that box doesn't push the rest of the menu down.
+// tab (Widget_TrainStationNew, VerticalBox_0). One row: that box doesn't push the rest of the menu down. It also adds
+// the menu's SmartTrains tab (STStationTab) with the station panel as its page.
 UCLASS()
 class USTStationSetupBar : public USTStationPanel
 {
 	GENERATED_BODY()
 
 protected:
+	// Adds the SmartTrains tab once per menu widget; without the menu's tabs, the panel goes under this bar instead.
+	void InstallTab();
+
+	UFUNCTION()
+	void HandleTabClicked();
+
+	// The tab's page (a size box matched to the other pages, around a scroll box with the panel), its button and the
+	// menu's tab parts.
+	UPROPERTY()
+	TObjectPtr<class USizeBox> mTabPage;
+
+	UPROPERTY()
+	TObjectPtr<UUserWidget> mTabButton;
+
+	TWeakObjectPtr<UUserWidget> mTabs;
+	TWeakObjectPtr<class UPanelWidget> mPages;
+	int32 mTabIndex = INDEX_NONE;
+
 	virtual void BuildContent(UVerticalBox* Root) override;
 	virtual bool OnShown() override;
 	virtual FMargin GetOuterPadding() const override { return FMargin(0.f, 6.f, 0.f, 0.f); }

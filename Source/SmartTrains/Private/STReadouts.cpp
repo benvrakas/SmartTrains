@@ -262,7 +262,7 @@ FSTStationView ASTSubsystem::MakeStationView(const AFGTrainStationIdentifier* St
 	if (const FSTConsumer* Consumer = FindConsumer(Station))
 	{
 		View.bConsumer = true;
-		View.Priority = Consumer->Priority;
+		View.Priority = GetStationPriority(Station);
 		View.Rate = static_cast<float>(Consumer->Rate);
 		View.RoundTrip = static_cast<float>(Consumer->RoundTrip);
 		View.Share = TotalNeed > 0.0 && (Consumer->Trains.Num() > 0 || Consumer->Target > 0) ? static_cast<float>(Consumer->Need / TotalNeed) : -1.f;

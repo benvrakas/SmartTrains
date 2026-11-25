@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.53.3 (beta)
+
+- **The station menu has a SmartTrains tab**, next to Train Station and Timetable, with the station's platforms,
+  its loop, its priority and its suppliers. That section used to sit at the bottom of the Timetable tab.
+- **Fixed: the priority buttons jumped back** after a click and needed several clicks to stick. The station's answer
+  read the priority from the loop plan, which only takes the new one a moment later; it now reads the setting itself.
+
 ## 0.53.2 (beta)
 
 - **Priority moved from the platforms to the station.** A consumer's whole pattern is one loop, so its priority is
