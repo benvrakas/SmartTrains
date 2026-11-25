@@ -6,6 +6,7 @@
 #include "FGInventoryComponent.h"
 #include "FGLocomotive.h"
 #include "FGRailroadSubsystem.h"
+#include "FGRailroadTrackConnectionComponent.h"
 #include "FGRailroadTimeTable.h"
 #include "FGTrain.h"
 #include "FGTrainStationIdentifier.h"
