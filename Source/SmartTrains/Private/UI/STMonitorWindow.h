@@ -13,10 +13,10 @@ class UVerticalBox;
 struct FSTMonitorRow;
 struct FSTMonitorView;
 
-// Throughput monitor opened by "/st monitor", in tabs: Overview (tiles and the biggest limits), Items (what limits each
-// item, with rates and trains), Stations (docked share and late arrivals), Platforms (starved and backed up) and Trains
-// (each managed train's state and trip or idle reason). A popup on the viewport, refreshed every second; Close or
-// Escape closes it.
+// The loop plan's monitor opened by "/st monitor": tiles on top, then tabs: Overview (what needs a look), Consumers
+// (each consumer's pattern, trains against its share, rate, round trip), Suppliers (rate and what loops take) and
+// Trains (state and consumer). Rows open their details on a click of their toggle. A popup on the viewport, refreshed
+// every second; Close or Escape closes it.
 UCLASS()
 class USTMonitorWindow : public USTPanel
 {
@@ -59,7 +59,15 @@ private:
 	UHorizontalBox* AddLine(const FMargin& Spacing = FMargin(0.f, 3.f));
 	void AddCell(UHorizontalBox* Line, UWidget* Cell, float Width);
 	UTextBlock* MakeCell(const FString& Text, int32 Size, const FLinearColor& Color, bool bWrap = false);
-	UWidget* MakeIcon(TSubclassOf<UFGItemDescriptor> Item, float Size);
+	UWidget* MakeItemIcon(TSubclassOf<UFGItemDescriptor> Item, float Size);
+	// A row card: severity on its left edge; Toggle opens its details (Key: whose).
+	UHorizontalBox* AddRowCard(uint8 Severity, const FString& Key, const TArray<FString>& Details);
+	void ShowTiles(const FSTMonitorView& View);
+	// Puts the row's details toggle (from AddRowCard) at the end of Line.
+	void FinishRow(UHorizontalBox* Line);
+
+	UPROPERTY()
+	TObjectPtr<UHorizontalBox> mPendingToggle;
 	void AddHeader(const TArray<TPair<FText, float>>& Columns);
 	void AddDivider();
 	void AddHeading(const FText& Text);
@@ -75,12 +83,14 @@ private:
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mWindowText;
 
-	struct FTabWidgets
-	{
-		TWeakObjectPtr<USTButton> Button;
-		TWeakObjectPtr<UBorder> Underline;
-	};
-	TArray<FTabWidgets> mTabs;
+	UPROPERTY()
+	TArray<TObjectPtr<class USTSegment>> mTabs;
+
+	UPROPERTY()
+	TObjectPtr<UHorizontalBox> mTiles;
+
+	// Rows whose details are open, by title.
+	TSet<FString> mExpanded;
 
 	TWeakObjectPtr<APlayerController> mController;
 	bool bInputTaken = false;

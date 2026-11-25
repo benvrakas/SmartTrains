@@ -20,6 +20,8 @@
 #include "TimerManager.h"
 #include "UI/STControls.h"
 #include "UI/STWidgetUtils.h"
+#include "UI/STStyle.h"
+#include "Engine/Texture2D.h"
 
 #define LOCTEXT_NAMESPACE "SmartTrains"
 
@@ -31,22 +33,8 @@ namespace
 	constexpr float MonitorWidth = 1100.f;
 	constexpr float MonitorMaxHeight = 820.f;
 	constexpr float MonitorIconSize = 28.f;
-	const FLinearColor MonitorText(0.92f, 0.92f, 0.92f);
-	const FLinearColor MonitorDim(0.62f, 0.62f, 0.62f);
-	const FLinearColor MonitorProblem(1.f, 0.5f, 0.22f);
-	const FLinearColor MonitorNote(1.f, 0.84f, 0.32f);
-	const FLinearColor MonitorFine(0.5f, 0.85f, 0.5f);
-	// The game's orange, for the selected tab.
-	const FLinearColor MonitorAccent(0.98f, 0.58f, 0.15f);
-	const FLinearColor MonitorTile(0.f, 0.f, 0.f, 0.35f);
-	const FLinearColor MonitorDivider(1.f, 1.f, 1.f, 0.08f);
 	// Wait after the command before taking the input, so the closing chat doesn't take it back. [s]
 	constexpr float MonitorOpenDelay = 0.2f;
-
-	FLinearColor SeverityColor(uint8 Severity)
-	{
-		return Severity >= 2 ? MonitorProblem : (Severity == 1 ? MonitorNote : MonitorFine);
-	}
 
 	FString Signature(const FSTMonitorView& View)
 	{
@@ -55,7 +43,8 @@ namespace
 		{
 			for (const FSTMonitorRow& Row : *Rows)
 			{
-				Text += Row.Title + Row.Verdict + Row.Advice + FString::Join(Row.Columns, TEXT("|")) + FString::Join(Row.Details, TEXT("|"));
+				Text += Row.Title + Row.Verdict + Row.Advice + FString::Join(Row.Columns, TEXT("|")) + FString::Join(Row.Details, TEXT("|"))
+					+ FString::Printf(TEXT("%d/%d/%d"), Row.Trains, Row.Target, Row.AtDepot);
 			}
 		}
 		return Text;
@@ -163,34 +152,21 @@ UWidget* USTMonitorWindow::WrapRoot(UVerticalBox* Root)
 	UOverlay* Screen = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass());
 	// Dims the game and catches clicks beside the window, so the window keeps the keyboard focus.
 	UBorder* Dim = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
-	Dim->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.45f));
+	Dim->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.5f));
 	Dim->SetVisibility(ESlateVisibility::Visible);
 	if (UOverlaySlot* DimSlot = Screen->AddChildToOverlay(Dim))
 	{
 		DimSlot->SetHorizontalAlignment(HAlign_Fill);
 		DimSlot->SetVerticalAlignment(VAlign_Fill);
 	}
-	UOverlay* Frame = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass());
-	UWidget* Background = STWidgetUtils::CreateVanillaWidget(WidgetTree, STWidgetUtils::ContentBackgroundClass);
-	if (!Background)
-	{
-		UBorder* Plain = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
-		Plain->SetBrushColor(FLinearColor(0.02f, 0.02f, 0.025f, 0.96f));
-		Background = Plain;
-	}
-	if (UOverlaySlot* BackgroundSlot = Frame->AddChildToOverlay(Background))
-	{
-		BackgroundSlot->SetHorizontalAlignment(HAlign_Fill);
-		BackgroundSlot->SetVerticalAlignment(VAlign_Fill);
-	}
+	UBorder* Frame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
+	Frame->SetBrush(STStyle::Outlined(STStyle::Panel, STStyle::Line, 1.f, 6.f));
+	Frame->SetPadding(FMargin(18.f, 14.f));
 	USizeBox* Size = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
 	Size->SetWidthOverride(MonitorWidth);
 	Size->SetMaxDesiredHeight(MonitorMaxHeight);
 	Size->AddChild(Root);
-	if (UOverlaySlot* ContentSlot = Frame->AddChildToOverlay(Size))
-	{
-		ContentSlot->SetPadding(FMargin(20.f, 14.f));
-	}
+	Frame->SetContent(Size);
 	if (UOverlaySlot* FrameSlot = Screen->AddChildToOverlay(Frame))
 	{
 		FrameSlot->SetHorizontalAlignment(HAlign_Center);
@@ -201,30 +177,18 @@ UWidget* USTMonitorWindow::WrapRoot(UVerticalBox* Root)
 
 void USTMonitorWindow::BuildContent(UVerticalBox* Root)
 {
-	UHorizontalBox* Title = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
-	Root->AddChildToVerticalBox(Title);
-	if (UHorizontalBoxSlot* TitleSlot = Title->AddChildToHorizontalBox(MakeText(nullptr, LOCTEXT("MonitorHeading", "SmartTrains monitor"), 18, false)))
-	{
-		TitleSlot->SetVerticalAlignment(VAlign_Center);
-		TitleSlot->SetPadding(FMargin(0.f, 0.f, 16.f, 0.f));
-	}
-	mWindowText = MakeText(nullptr, LOCTEXT("MonitorWaiting", "Asking the server..."), 10, false);
-	mWindowText->SetColorAndOpacity(FSlateColor(MonitorDim));
-	if (UHorizontalBoxSlot* WindowSlot = Title->AddChildToHorizontalBox(mWindowText))
-	{
-		WindowSlot->SetVerticalAlignment(VAlign_Center);
-		WindowSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-	}
-	USTButton* CloseButton = MakeButton(nullptr, LOCTEXT("Close", "Close"), [this]() { Close(); });
-	CloseButton->SetFixedWidth(140.f);
-	if (UHorizontalBoxSlot* CloseSlot = Title->AddChildToHorizontalBox(CloseButton))
-	{
-		CloseSlot->SetVerticalAlignment(VAlign_Center);
-	}
+	UHorizontalBox* Title = MakeTitleBar(Root, LOCTEXT("MonitorHeading", "Monitor"), 30.f);
+	mWindowText = MakeTinted(Title, LOCTEXT("MonitorWaiting", "Asking the server..."), 10, STStyle::Muted, false, false, FMargin(12.f, 0.f, 12.f, 0.f));
+	SetVAlignCenter(mWindowText);
+	USTButton* CloseButton = MakeButton(Title, LOCTEXT("Close", "Close"), [this]() { Close(); }, FMargin(0.f));
+	CloseButton->SetFixedWidth(120.f);
+	SetVAlignCenter(CloseButton);
 
-	// Tab bar: a button per tab with a line under the selected one.
-	UHorizontalBox* Bar = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
-	Root->AddChildToVerticalBox(Bar)->SetPadding(FMargin(0.f, 10.f, 0.f, 0.f));
+	// Tiles, the same on every tab.
+	mTiles = MakeHBox(Root, FMargin(0.f, 2.f, 0.f, 8.f));
+
+	// Tab bar: a segment per tab.
+	UHorizontalBox* Bar = MakeHBox(Root, FMargin(0.f, 0.f, 0.f, 8.f));
 	const TArray<TPair<ETab, FText>> Tabs = {
 		{ETab::Overview, LOCTEXT("TabOverview", "Overview")},
 		{ETab::Consumers, LOCTEXT("TabConsumers", "Consumers")},
@@ -234,29 +198,16 @@ void USTMonitorWindow::BuildContent(UVerticalBox* Root)
 	mTabs.Reset();
 	for (const TPair<ETab, FText>& Tab : Tabs)
 	{
-		UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
 		const ETab Which = Tab.Key;
-		USTButton* Button = MakeButton(nullptr, Tab.Value, [this, Which]() { SelectTab(Which); }, FMargin(0.f));
-		Column->AddChildToVerticalBox(Button);
-		UBorder* Underline = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
-		USizeBox* LineBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
-		LineBox->SetHeightOverride(3.f);
-		Underline->SetContent(LineBox);
-		Column->AddChildToVerticalBox(Underline)->SetPadding(FMargin(0.f, 2.f, 0.f, 0.f));
-		if (UHorizontalBoxSlot* TabSlot = Bar->AddChildToHorizontalBox(Column))
-		{
-			TabSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-			TabSlot->SetPadding(FMargin(0.f, 0.f, 6.f, 0.f));
-		}
-		mTabs.Add({Button, Underline});
+		USTSegment* Segment = WidgetTree->ConstructWidget<USTSegment>(USTSegment::StaticClass());
+		Segment->SetText(Tab.Value);
+		Segment->SetFont(GetFont(12, true));
+		Segment->OnClick = [this, Which]() { SelectTab(Which); };
+		Bar->AddChildToHorizontalBox(Segment);
+		SetFill(Segment);
+		SetSlotPadding(Segment, FMargin(mTabs.Num() > 0 ? 4.f : 0.f, 0.f, 0.f, 0.f));
+		mTabs.Add(Segment);
 	}
-
-	UBorder* Rule = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
-	Rule->SetBrushColor(MonitorDivider);
-	USizeBox* RuleBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
-	RuleBox->SetHeightOverride(1.f);
-	Rule->SetContent(RuleBox);
-	Root->AddChildToVerticalBox(Rule)->SetPadding(FMargin(0.f, 0.f, 0.f, 8.f));
 
 	UScrollBox* Scroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass());
 	mContent = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
@@ -265,7 +216,7 @@ void USTMonitorWindow::BuildContent(UVerticalBox* Root)
 	{
 		ScrollSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
 	}
-	MakeText(mContent, LOCTEXT("MonitorLoading", "Asking the server..."), 11);
+	MakeTinted(mContent, LOCTEXT("MonitorLoading", "Asking the server..."), 11, STStyle::Muted);
 }
 
 void USTMonitorWindow::SelectTab(ETab Tab)
@@ -296,16 +247,9 @@ void USTMonitorWindow::UpdateTabs(const FSTMonitorView& View)
 		LOCTEXT("TabOverview", "Overview"), LOCTEXT("TabConsumers", "Consumers"), LOCTEXT("TabSuppliers", "Suppliers"), LOCTEXT("TabTrains", "Trains")};
 	for (int32 Index = 0; Index < mTabs.Num(); ++Index)
 	{
-		const bool bSelected = static_cast<int32>(sTab) == Index;
-		if (USTButton* Button = mTabs[Index].Button.Get())
-		{
-			// Each tab counts its rows that need a look.
-			Button->SetText(Counts[Index] > 0 && Index > 0 ? FText::Format(LOCTEXT("TabCount", "{0}  ({1})"), Names[Index], FText::AsNumber(Counts[Index])) : Names[Index]);
-		}
-		if (UBorder* Underline = mTabs[Index].Underline.Get())
-		{
-			Underline->SetBrushColor(bSelected ? MonitorAccent : FLinearColor::Transparent);
-		}
+		// Each tab counts its rows that need a look.
+		mTabs[Index]->SetText(Counts[Index] > 0 && Index > 0 ? FText::Format(LOCTEXT("TabCount", "{0}  ·  {1}"), Names[Index], FText::AsNumber(Counts[Index])) : Names[Index]);
+		mTabs[Index]->SetSelected(static_cast<int32>(sTab) == Index);
 	}
 }
 
@@ -332,7 +276,26 @@ void USTMonitorWindow::Refresh(USTRemoteCallObject* RCO)
 	mShownTab = sTab;
 	mWindowText->SetText(LOCTEXT("MonitorWindow", "The loop plan as last worked out, updated every few seconds"));
 	UpdateTabs(View);
+	ShowTiles(View);
 	ShowTab(View);
+}
+
+void USTMonitorWindow::ShowTiles(const FSTMonitorView& View)
+{
+	mTiles->ClearChildren();
+	for (const FSTMonitorRow& Tile : View.Tiles)
+	{
+		UBorder* Box = nullptr;
+		UVerticalBox* Inside = MakeCard(mTiles, Tile.Severity > 0 ? STStyle::Alert : STStyle::Header, FMargin(12.f, 8.f), FMargin(0.f), &Box);
+		if (Tile.Severity > 0)
+		{
+			Box->SetBrush(STStyle::Outlined(STStyle::Alert, STStyle::OrangeDeep, 1.f, 4.f));
+		}
+		SetFill(Box);
+		SetSlotPadding(Box, FMargin(mTiles->GetChildrenCount() > 1 ? 6.f : 0.f, 0.f, 0.f, 0.f));
+		MakeTinted(Inside, FText::FromString(Tile.Verdict), 22, Tile.Severity > 0 ? STStyle::Orange : STStyle::Text, true, false);
+		MakeTinted(Inside, FText::FromString(Tile.Title), 9, STStyle::Muted, false, true);
+	}
 }
 
 void USTMonitorWindow::ShowTab(const FSTMonitorView& View)
@@ -379,12 +342,10 @@ void USTMonitorWindow::AddCell(UHorizontalBox* Line, UWidget* Cell, float Width)
 
 UTextBlock* USTMonitorWindow::MakeCell(const FString& Text, int32 Size, const FLinearColor& Color, bool bWrap)
 {
-	UTextBlock* Cell = MakeText(nullptr, FText::FromString(Text), Size, bWrap);
-	Cell->SetColorAndOpacity(FSlateColor(Color));
-	return Cell;
+	return MakeTinted(nullptr, FText::FromString(Text), Size, Color, false, bWrap);
 }
 
-UWidget* USTMonitorWindow::MakeIcon(TSubclassOf<UFGItemDescriptor> Item, float Size)
+UWidget* USTMonitorWindow::MakeItemIcon(TSubclassOf<UFGItemDescriptor> Item, float Size)
 {
 	USizeBox* Box = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
 	Box->SetWidthOverride(Size);
@@ -393,6 +354,7 @@ UWidget* USTMonitorWindow::MakeIcon(TSubclassOf<UFGItemDescriptor> Item, float S
 	{
 		UImage* Icon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
 		Icon->SetBrushFromTexture(Texture);
+		Icon->SetToolTipText(UFGItemDescriptor::GetItemName(Item));
 		Box->AddChild(Icon);
 	}
 	return Box;
@@ -400,29 +362,20 @@ UWidget* USTMonitorWindow::MakeIcon(TSubclassOf<UFGItemDescriptor> Item, float S
 
 void USTMonitorWindow::AddHeader(const TArray<TPair<FText, float>>& Columns)
 {
-	UHorizontalBox* Line = AddLine(FMargin(0.f, 0.f, 0.f, 2.f));
+	UHorizontalBox* Line = AddLine(FMargin(10.f, 0.f, 0.f, 4.f));
 	for (const TPair<FText, float>& Column : Columns)
 	{
-		UTextBlock* Cell = MakeText(nullptr, Column.Key, 10, false);
-		Cell->SetColorAndOpacity(FSlateColor(MonitorDim));
-		AddCell(Line, Cell, Column.Value);
+		AddCell(Line, MakeTinted(nullptr, FText::FromString(Column.Key.ToString().ToUpper()), 9, STStyle::Muted, true, false), Column.Value);
 	}
-	AddDivider();
 }
 
 void USTMonitorWindow::AddDivider()
 {
-	UBorder* Line = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
-	Line->SetBrushColor(MonitorDivider);
-	USizeBox* Box = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
-	Box->SetHeightOverride(1.f);
-	Line->SetContent(Box);
-	mContent->AddChildToVerticalBox(Line)->SetPadding(FMargin(0.f, 3.f));
 }
 
 void USTMonitorWindow::AddHeading(const FText& Text)
 {
-	MakeText(mContent, Text, 15, false, FMargin(0.f, 14.f, 0.f, 6.f));
+	MakeLabel(mContent, Text, FMargin(0.f, 12.f, 0.f, 6.f));
 }
 
 void USTMonitorWindow::AddDetails(const TArray<FString>& Lines, float Indent)
@@ -431,64 +384,92 @@ void USTMonitorWindow::AddDetails(const TArray<FString>& Lines, float Indent)
 	{
 		return;
 	}
-	UTextBlock* Text = MakeText(mContent, FText::GetEmpty(), 10, true, FMargin(Indent, 0.f, 8.f, 2.f));
+	UTextBlock* Text = MakeTinted(mContent, FText::GetEmpty(), 10, STStyle::Muted, false, true, FMargin(Indent, 0.f, 8.f, 4.f));
 	SetLines(Text, Lines);
-	Text->SetColorAndOpacity(FSlateColor(MonitorDim));
 }
 
 void USTMonitorWindow::AddNote(const FText& Text, const FLinearColor& Color)
 {
-	UTextBlock* Note = MakeText(mContent, Text, 11, true, FMargin(0.f, 4.f));
-	Note->SetColorAndOpacity(FSlateColor(Color));
+	MakeTinted(mContent, Text, 11, Color, false, true, FMargin(0.f, 4.f));
+}
+
+UHorizontalBox* USTMonitorWindow::AddRowCard(uint8 Severity, const FString& Key, const TArray<FString>& Details)
+{
+	UBorder* Card = nullptr;
+	UVerticalBox* Inside = MakeCard(mContent, Severity >= 2 ? STStyle::Alert : STStyle::Header, FMargin(10.f, 6.f), FMargin(0.f, 2.f), &Card);
+	if (Severity > 0)
+	{
+		Card->SetBrush(STStyle::Outlined(Severity >= 2 ? STStyle::Alert : STStyle::Header, Severity >= 2 ? STStyle::OrangeDeep : STStyle::Line, 1.f, 4.f));
+	}
+	UHorizontalBox* Line = MakeHBox(Inside);
+	const bool bOpen = mExpanded.Contains(Key);
+	if (Details.Num() > 0)
+	{
+		// The details stay closed until asked for: a toggle at the row's end.
+		UHorizontalBox* Tail = MakeHBox(nullptr);
+		USTSegment* Toggle = WidgetTree->ConstructWidget<USTSegment>(USTSegment::StaticClass());
+		Toggle->SetText(bOpen ? LOCTEXT("Less", "Less") : LOCTEXT("More", "More"));
+		Toggle->SetFont(GetFont(10, true));
+		Toggle->SetSelected(bOpen);
+		Toggle->OnClick = [this, Key]()
+		{
+			if (mExpanded.Remove(Key) == 0)
+			{
+				mExpanded.Add(Key);
+			}
+			mShown.Reset();
+			RefreshSoon();
+		};
+		Tail->AddChildToHorizontalBox(Toggle);
+		if (bOpen)
+		{
+			UTextBlock* Text = MakeTinted(Inside, FText::GetEmpty(), 10, STStyle::Muted, false, true, FMargin(0.f, 6.f, 0.f, 0.f));
+			SetLines(Text, Details);
+		}
+		// Added last by the caller's cells; kept here to place after them.
+		mPendingToggle = Tail;
+	}
+	else
+	{
+		mPendingToggle = nullptr;
+	}
+	return Line;
 }
 
 void USTMonitorWindow::AddRow(const FSTMonitorRow& Row, bool bIcon, const TArray<float>& Widths, float TitleWidth, float VerdictWidth)
 {
-	UHorizontalBox* Line = AddLine();
+	TArray<FString> Lines = Row.Details;
+	if (!Row.Advice.IsEmpty() && !Lines.Contains(Row.Advice))
+	{
+		Lines.Add(TEXT("What to do: ") + Row.Advice);
+	}
+	UHorizontalBox* Line = AddRowCard(Row.Severity, Row.Title, Lines);
 	if (bIcon)
 	{
-		AddCell(Line, MakeIcon(Row.Item, MonitorIconSize), MonitorIconSize);
+		AddCell(Line, MakeItemIcon(Row.Item, MonitorIconSize), MonitorIconSize);
 	}
-	AddCell(Line, MakeCell(Row.Title, 12, MonitorText, true), TitleWidth);
-	AddCell(Line, MakeCell(Row.Verdict, 12, SeverityColor(Row.Severity)), VerdictWidth);
+	AddCell(Line, MakeTinted(nullptr, FText::FromString(Row.Title), 12, STStyle::Text, true, true), TitleWidth);
+	AddCell(Line, MakeCell(Row.Verdict, 11, Row.Severity > 0 ? STStyle::SeverityColor(Row.Severity) : STStyle::Muted), VerdictWidth);
 	for (int32 Index = 0; Index < Widths.Num(); ++Index)
 	{
-		AddCell(Line, MakeCell(Row.Columns.IsValidIndex(Index) ? Row.Columns[Index] : FString(), 11, MonitorText), Widths[Index]);
+		AddCell(Line, MakeCell(Row.Columns.IsValidIndex(Index) ? Row.Columns[Index] : FString(), 11, STStyle::Text), Widths[Index]);
 	}
-	if (Row.Severity > 0)
+	FinishRow(Line);
+}
+
+void USTMonitorWindow::FinishRow(UHorizontalBox* Line)
+{
+	if (mPendingToggle)
 	{
-		TArray<FString> Lines = Row.Details;
-		if (!Row.Advice.IsEmpty())
-		{
-			Lines.Add(TEXT("What to do: ") + Row.Advice);
-		}
-		AddDetails(Lines, bIcon ? MonitorIconSize + 10.f : 0.f);
+		AddCell(Line, mPendingToggle, 64.f);
+		mPendingToggle = nullptr;
 	}
-	AddDivider();
 }
 
 //~ Tabs
 
 void USTMonitorWindow::ShowOverview(const FSTMonitorView& View)
 {
-	// Tiles.
-	UHorizontalBox* Tiles = AddLine(FMargin(0.f, 2.f, 0.f, 6.f));
-	for (const FSTMonitorRow& Tile : View.Tiles)
-	{
-		UBorder* Box = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
-		Box->SetBrushColor(MonitorTile);
-		Box->SetPadding(FMargin(14.f, 10.f));
-		UVerticalBox* Inside = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
-		Inside->AddChildToVerticalBox(MakeCell(Tile.Verdict, 24, Tile.Severity > 0 ? SeverityColor(Tile.Severity) : MonitorText));
-		Inside->AddChildToVerticalBox(MakeCell(Tile.Title, 10, MonitorDim));
-		Box->SetContent(Inside);
-		if (UHorizontalBoxSlot* TileSlot = Tiles->AddChildToHorizontalBox(Box))
-		{
-			TileSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-			TileSlot->SetPadding(FMargin(0.f, 0.f, 8.f, 0.f));
-		}
-	}
-
 	// What needs a look: unserved consumers and trains without a loop.
 	AddHeading(LOCTEXT("NeedsALook", "What needs a look"));
 	int32 Shown = 0;
@@ -501,81 +482,100 @@ void USTMonitorWindow::ShowOverview(const FSTMonitorView& View)
 				continue;
 			}
 			++Shown;
-			UHorizontalBox* Line = AddLine();
-			AddCell(Line, MakeCell(Row.Title, 12, MonitorText, true), 260.f);
-			AddCell(Line, MakeCell(Row.Verdict, 12, SeverityColor(Row.Severity)), 120.f);
-			AddCell(Line, MakeCell(!Row.Advice.IsEmpty() ? Row.Advice : (Row.Details.Num() > 0 ? Row.Details[0] : FString()), 10, MonitorDim, true), 0.f);
-			AddDivider();
+			UHorizontalBox* Line = AddRowCard(Row.Severity, TEXT("look:") + Row.Title, TArray<FString>());
+			AddCell(Line, MakeTinted(nullptr, FText::FromString(Row.Title), 12, STStyle::Text, true, true), 300.f);
+			AddCell(Line, MakeCell(Row.Verdict, 11, STStyle::SeverityColor(Row.Severity)), 120.f);
+			AddCell(Line, MakeCell(!Row.Advice.IsEmpty() ? Row.Advice : (Row.Details.Num() > 0 ? Row.Details[0] : FString()), 10, STStyle::Muted, true), 0.f);
 		}
 	}
 	if (Shown == 0)
 	{
 		AddNote(View.Consumers.Num() > 0 ? LOCTEXT("AllServed", "Every consumer has trains on its loop.")
-			: LOCTEXT("NoConsumersYet", "No consumers yet. Give a station's unloading platforms the Demand role in their menus, or use /st migrate."), MonitorFine);
+			: LOCTEXT("NoConsumersYet", "No consumers yet. Give a station's unloading platforms the Demand role in their menus, or use /st migrate."), STStyle::Good);
 	}
-
-	AddHeading(LOCTEXT("FleetHeading", "Fleet"));
-	AddDetails(View.Summary, 0.f);
 }
 
 void USTMonitorWindow::ShowConsumers(const FSTMonitorView& View)
 {
-	AddCell(AddLine(FMargin(0.f, 0.f, 0.f, 8.f)), MakeCell(TEXT("Each consumer station's pattern (the item for the car beside each unloading platform), what its factory uses at most "
-		"in car loads per minute, its loop's round trip, its share of all trains (rate x round trip) and the trains on its loop."), 10, MonitorDim, true), 0.f);
-	const TArray<float> Widths = {90.f, 90.f, 70.f, 60.f};
-	AddHeader({{LOCTEXT("ColConsumer", "Consumer"), 0.f}, {LOCTEXT("ColStatus", "Status"), 120.f}, {LOCTEXT("ColRate", "Car loads/min"), Widths[0]},
-		{LOCTEXT("ColRoundTrip", "Round trip"), Widths[1]}, {LOCTEXT("ColShare", "Share"), Widths[2]}, {LOCTEXT("ColTrains", "Trains"), Widths[3]}});
+	const TArray<float> Widths = {80.f, 80.f, 60.f};
+	AddHeader({{LOCTEXT("ColConsumer", "Consumer"), 0.f}, {LOCTEXT("ColPattern", "Pattern"), 150.f}, {LOCTEXT("ColTrains", "Trains"), 170.f},
+		{LOCTEXT("ColRate", "Car loads/min"), Widths[0]}, {LOCTEXT("ColRoundTrip", "Round trip"), Widths[1]}, {LOCTEXT("ColShare", "Share"), Widths[2]},
+		{FText::GetEmpty(), 64.f}});
 	for (const FSTMonitorRow& Row : View.Consumers)
 	{
-		UHorizontalBox* Line = AddLine();
-		AddCell(Line, MakeCell(Row.Title, 12, MonitorText, true), 0.f);
-		AddCell(Line, MakeCell(Row.Verdict, 12, Row.Severity > 0 ? SeverityColor(Row.Severity) : MonitorText), 120.f);
+		TArray<FString> Lines = Row.Details;
+		UHorizontalBox* Line = AddRowCard(Row.Severity, Row.Title, Lines);
+		UVerticalBox* Name = MakeVBox(nullptr);
+		MakeTinted(Name, FText::FromString(Row.Title), 12, STStyle::Text, true, true);
+		MakeTinted(Name, FText::FromString(Row.Verdict), 10, Row.Severity > 0 ? STStyle::SeverityColor(Row.Severity) : STStyle::Muted, false, false);
+		AddCell(Line, Name, 0.f);
+		// The pattern: one icon per car.
+		UHorizontalBox* Pattern = MakeHBox(nullptr);
+		for (const TSubclassOf<UFGItemDescriptor>& Item : Row.Pattern)
+		{
+			Pattern->AddChildToHorizontalBox(MakeItemIcon(Item, 24.f))->SetPadding(FMargin(0.f, 0.f, 3.f, 0.f));
+		}
+		AddCell(Line, Pattern, 150.f);
+		// Trains against its share: a pip per train, filled for those on the loop, hollow for the share it lacks.
+		UVerticalBox* Trains = MakeVBox(nullptr);
+		UHorizontalBox* Pips = MakeHBox(Trains);
+		const int32 Count = FMath::Min(FMath::Max(Row.Trains, Row.Target), 10);
+		for (int32 Index = 0; Index < Count; ++Index)
+		{
+			const bool bHas = Index < Row.Trains;
+			const bool bDepot = bHas && Index >= Row.Trains - Row.AtDepot;
+			UBorder* Pip = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
+			Pip->SetBrush(bHas ? STStyle::Rounded(bDepot ? STStyle::Muted : STStyle::Orange, 3.f) : STStyle::Outlined(FLinearColor::Transparent, STStyle::Muted, 1.f, 3.f));
+			USizeBox* PipSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+			PipSize->SetWidthOverride(13.f);
+			PipSize->SetHeightOverride(8.f);
+			Pip->SetContent(PipSize);
+			Pips->AddChildToHorizontalBox(Pip)->SetPadding(FMargin(0.f, 0.f, 3.f, 0.f));
+		}
+		MakeTinted(Trains, FText::FromString(Row.AtDepot > 0 ? FString::Printf(TEXT("%d of %d · %d at depot"), Row.Trains, Row.Target, Row.AtDepot)
+			: FString::Printf(TEXT("%d of %d"), Row.Trains, Row.Target)), 9, STStyle::Muted, false, false, FMargin(0.f, 3.f, 0.f, 0.f));
+		AddCell(Line, Trains, 170.f);
 		for (int32 Index = 0; Index < Widths.Num(); ++Index)
 		{
-			AddCell(Line, MakeCell(Row.Columns.IsValidIndex(Index) ? Row.Columns[Index] : FString(), 11, MonitorText), Widths[Index]);
+			AddCell(Line, MakeCell(Row.Columns.IsValidIndex(Index) ? Row.Columns[Index] : FString(), 11, STStyle::Text), Widths[Index]);
 		}
-		AddDetails(Row.Details, 0.f);
-		AddDivider();
+		FinishRow(Line);
 	}
 	if (View.Consumers.Num() == 0)
 	{
-		AddNote(LOCTEXT("NoConsumers", "No consumers yet: give a station's unloading platforms the Demand role."), MonitorDim);
+		AddNote(LOCTEXT("NoConsumers", "No consumers yet: give a station's unloading platforms the Demand role."), STStyle::Muted);
 	}
 }
 
 void USTMonitorWindow::ShowSuppliers(const FSTMonitorView& View)
 {
-	AddCell(AddLine(FMargin(0.f, 0.f, 0.f, 8.f)), MakeCell(TEXT("Each supplier station per item: what its factory makes at most and how much of it the consumers' loops take, "
-		"in car loads per minute. Loops take the nearest supplier with rate to spare first."), 10, MonitorDim, true), 0.f);
 	const TArray<float> Widths = {200.f, 90.f, 90.f};
 	AddHeader({{FText::GetEmpty(), MonitorIconSize}, {LOCTEXT("ColSupplier", "Supplier"), 0.f}, {LOCTEXT("ColStatus", "Status"), 120.f},
-		{LOCTEXT("ColItem", "Item"), Widths[0]}, {LOCTEXT("ColMakes", "Makes"), Widths[1]}, {LOCTEXT("ColTaken", "Taken"), Widths[2]}});
+		{LOCTEXT("ColItem", "Item"), Widths[0]}, {LOCTEXT("ColMakes", "Makes"), Widths[1]}, {LOCTEXT("ColTaken", "Taken"), Widths[2]}, {FText::GetEmpty(), 64.f}});
 	for (const FSTMonitorRow& Row : View.Suppliers)
 	{
 		AddRow(Row, true, Widths, 0.f, 120.f);
 	}
 	if (View.Suppliers.Num() == 0)
 	{
-		AddNote(LOCTEXT("NoSuppliers", "No suppliers yet: give a station's loading platforms the Supply role."), MonitorDim);
+		AddNote(LOCTEXT("NoSuppliers", "No suppliers yet: give a station's loading platforms the Supply role."), STStyle::Muted);
 	}
 }
 
 void USTMonitorWindow::ShowTrains(const FSTMonitorView& View)
 {
-	const TArray<float> Widths = {260.f};
-	AddHeader({{LOCTEXT("ColTrain", "Train"), 0.f}, {LOCTEXT("ColState", "State"), 150.f}, {LOCTEXT("ColLoop", "Its consumer"), Widths[0]}});
+	AddHeader({{LOCTEXT("ColTrain", "Train"), 0.f}, {LOCTEXT("ColState", "State"), 150.f}, {LOCTEXT("ColLoop", "Its consumer"), 260.f}, {FText::GetEmpty(), 64.f}});
 	for (const FSTMonitorRow& Row : View.Trains)
 	{
-		UHorizontalBox* Line = AddLine();
-		AddCell(Line, MakeCell(Row.Title, 12, MonitorText, true), 0.f);
-		AddCell(Line, MakeCell(Row.Verdict, 12, Row.Severity > 0 ? SeverityColor(Row.Severity) : MonitorText), 150.f);
-		AddCell(Line, MakeCell(Row.Columns.Num() > 0 ? Row.Columns[0] : FString(), 11, MonitorText, true), Widths[0]);
-		AddDetails(Row.Details, 0.f);
-		AddDivider();
+		UHorizontalBox* Line = AddRowCard(Row.Severity, TEXT("train:") + Row.Title, Row.Details);
+		AddCell(Line, MakeTinted(nullptr, FText::FromString(Row.Title), 12, STStyle::Text, true, true), 0.f);
+		AddCell(Line, MakeCell(Row.Verdict, 11, Row.Severity > 0 ? STStyle::SeverityColor(Row.Severity) : STStyle::Good), 150.f);
+		AddCell(Line, MakeCell(Row.Columns.Num() > 0 ? Row.Columns[0] : FString(), 11, STStyle::Text, true), 260.f);
+		FinishRow(Line);
 	}
 	if (View.Trains.Num() == 0)
 	{
-		AddNote(LOCTEXT("NoTrains", "No managed trains. Switch Managed by SmartTrains on in a locomotive menu."), MonitorDim);
+		AddNote(LOCTEXT("NoTrains", "No managed trains. Switch Managed on in a locomotive menu."), STStyle::Muted);
 	}
 }
 
