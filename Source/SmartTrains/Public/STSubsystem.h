@@ -60,6 +60,8 @@ struct FSTConsumer
 	TArray<FSTLoopSource> Sources;
 	// Why it gets no train, empty when it has trains or nothing is wrong.
 	FString Problem;
+	// The same in a few words, for the monitor's row ("no train fits its cars").
+	FString Cause;
 	// Share of its machines that want input now (powered, running, output not backed up), averaged over a few minutes.
 	double Use = 1.0;
 	// Trains its loop needs running for that use (at least one); the rest of its trains wait at depot signals.

@@ -60,11 +60,15 @@ private:
 	void AddCell(UHorizontalBox* Line, UWidget* Cell, float Width);
 	UTextBlock* MakeCell(const FString& Text, int32 Size, const FLinearColor& Color, bool bWrap = false);
 	UWidget* MakeItemIcon(TSubclassOf<UFGItemDescriptor> Item, float Size);
-	// A row card: severity on its left edge; Toggle opens its details (Key: whose).
-	UHorizontalBox* AddRowCard(uint8 Severity, const FString& Key, const TArray<FString>& Details);
+	// A row card: severity on its left edge, and a More toggle when it has details (bHasDetails: the server's, asked
+	// for while open; Extra: lines the window adds). Key: USTRemoteCallObject::MonitorKey, or any text for a row
+	// without details.
+	UHorizontalBox* AddRowCard(uint8 Severity, const FString& Key, bool bHasDetails, const TArray<FString>& Extra = TArray<FString>());
 	void ShowTiles(const FSTMonitorView& View);
-	// Puts the row's details toggle (from AddRowCard) at the end of Line.
+	// Puts the row's More toggle (from AddRowCard), or a gap as wide, at the end of Line, so all rows' cells line up.
 	void FinishRow(UHorizontalBox* Line);
+	// The details of the open rows as last received, for the rebuild check.
+	FString OpenDetailsSignature(const USTRemoteCallObject* RCO) const;
 
 	UPROPERTY()
 	TObjectPtr<UHorizontalBox> mPendingToggle;
@@ -89,7 +93,7 @@ private:
 	UPROPERTY()
 	TObjectPtr<UHorizontalBox> mTiles;
 
-	// Rows whose details are open, by title.
+	// Rows whose details are open, by key.
 	TSet<FString> mExpanded;
 
 	TWeakObjectPtr<APlayerController> mController;

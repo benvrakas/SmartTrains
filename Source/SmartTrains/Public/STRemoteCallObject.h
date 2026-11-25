@@ -72,6 +72,10 @@ public:
 	UFUNCTION(Server, Unreliable)
 	void Server_RequestMonitor();
 
+	// Key: the row's list and title, as MonitorKey makes it.
+	UFUNCTION(Server, Unreliable)
+	void Server_RequestMonitorDetails(const FString& Key);
+
 	UFUNCTION(Client, Reliable)
 	void Client_Platform(const FSTPlatformView& View);
 
@@ -91,6 +95,9 @@ public:
 
 	UFUNCTION(Client, Unreliable)
 	void Client_Monitor(const FSTMonitorView& View);
+
+	UFUNCTION(Client, Unreliable)
+	void Client_MonitorDetails(const FString& Key, const TArray<FString>& Details);
 
 	// Tells the player which clipboard slot now holds settings.
 	UFUNCTION(Client, Reliable)
@@ -130,6 +137,11 @@ public:
 	const FSTStationView* GetStationView(const AFGTrainStationIdentifier* Station) const;
 	const FSTMigrationView& GetMigrationView() const { return mMigration; }
 	const FSTMonitorView& GetMonitorView() const { return mMonitor; }
+	// A monitor row's details as last received, or nullptr.
+	const TArray<FString>* GetMonitorDetails(const FString& Key) const { return mMonitorDetails.Find(Key); }
+
+	// The key of a monitor row: its list ('c' consumers, 's' suppliers, 't' trains) and its title.
+	static FString MonitorKey(TCHAR List, const FString& Title) { return FString::Printf(TEXT("%c:%s"), List, *Title); }
 
 	// True once this player copied settings from a platform of that form.
 	bool HasClipboard(bool bFluid) const { return bFluid ? bHasFluidClipboard : bHasFreightClipboard; }
@@ -182,6 +194,7 @@ private:
 	FSTMigrationView mPendingMigration;
 	int32 mPendingMigrationRows = -1;
 	FSTMonitorView mMonitor;
+	TMap<FString, TArray<FString>> mMonitorDetails;
 	uint32 mRevision = 0;
 	FString mLastMessage;
 	bool bLastMessageError = false;

@@ -69,7 +69,17 @@ namespace
 
 	int32 Bytes(const FSTMonitorRow& Row)
 	{
-		return 16 + Bytes(Row.Title) + Bytes(Row.Verdict) + Bytes(Row.Columns) + Bytes(Row.Advice) + Bytes(Row.Details);
+		return 24 + Bytes(Row.Title) + Bytes(Row.Verdict) + Bytes(Row.Columns) + Bytes(Row.Advice) + 8 * Row.Pattern.Num();
+	}
+
+	// Takes the details out of Rows, keeping whether each row had any.
+	void StripDetails(TArray<FSTMonitorRow>& Rows)
+	{
+		for (FSTMonitorRow& Row : Rows)
+		{
+			Row.bHasDetails = Row.Details.Num() > 0;
+			Row.Details.Reset();
+		}
 	}
 
 	int32 Bytes(const TArray<FSTMonitorRow>& Rows)
@@ -82,30 +92,16 @@ namespace
 		return Total;
 	}
 
-	// Trims View to about MonitorBytes: first the details of the longest lists' last rows, then those rows. Returns the
-	// number of rows dropped.
+	// Takes the details out of View (they go one row at a time, on request), then trims it to about MonitorBytes by
+	// dropping the last (least urgent) rows of the longest list. Returns the number of rows dropped.
 	int32 FitMonitor(FSTMonitorView& View)
 	{
-		// Details go first, from the end of each list (its least urgent rows), in this order; then whole rows of the
-		// longest list.
 		TArray<TArray<FSTMonitorRow>*> Lists = {&View.Trains, &View.Suppliers, &View.Consumers};
-		auto Total = [&]()
-		{
-			int32 Sum = Bytes(View.Summary) + Bytes(View.Tiles);
-			for (const TArray<FSTMonitorRow>* List : Lists)
-			{
-				Sum += Bytes(*List);
-			}
-			return Sum;
-		};
-		int32 Size = Total();
+		int32 Size = Bytes(View.Summary) + Bytes(View.Tiles);
 		for (TArray<FSTMonitorRow>* List : Lists)
 		{
-			for (int32 Index = List->Num() - 1; Index >= 0 && Size > MonitorBytes; --Index)
-			{
-				Size -= Bytes((*List)[Index].Details) - 5;
-				(*List)[Index].Details.Reset();
-			}
+			StripDetails(*List);
+			Size += Bytes(*List);
 		}
 		int32 Dropped = 0;
 		while (Size > MonitorBytes)
@@ -625,9 +621,46 @@ void USTRemoteCallObject::Server_RequestMonitor_Implementation()
 	}
 }
 
+void USTRemoteCallObject::Server_RequestMonitorDetails_Implementation(const FString& Key)
+{
+	const ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
+	if (!Subsystem || Key.Len() < 3 || Key[1] != TEXT(':'))
+	{
+		return;
+	}
+	const FSTMonitorView View = Subsystem->MakeMonitorView();
+	const TArray<FSTMonitorRow>* Rows = Key[0] == TEXT('c') ? &View.Consumers : Key[0] == TEXT('s') ? &View.Suppliers : Key[0] == TEXT('t') ? &View.Trains : nullptr;
+	const FString Title = Key.Mid(2);
+	const FSTMonitorRow* Row = Rows ? Rows->FindByPredicate([&Title](const FSTMonitorRow& Each) { return Each.Title == Title; }) : nullptr;
+	TArray<FString> Details = Row ? Row->Details : TArray<FString>({TEXT("Not in the plan any more.")});
+	// One row's details stay well inside one network message; a very long one is cut.
+	int32 Size = 0;
+	for (int32 Index = 0; Index < Details.Num(); ++Index)
+	{
+		Size += Bytes(Details[Index]);
+		if (Size > MonitorBytes / 2)
+		{
+			Details.SetNum(Index);
+			Details.Add(TEXT("(more left out)"));
+			break;
+		}
+	}
+	Client_MonitorDetails(Key, Details);
+}
+
 void USTRemoteCallObject::Client_Monitor_Implementation(const FSTMonitorView& View)
 {
 	mMonitor = View;
+	++mRevision;
+}
+
+void USTRemoteCallObject::Client_MonitorDetails_Implementation(const FString& Key, const TArray<FString>& Details)
+{
+	if (const TArray<FString>* Known = mMonitorDetails.Find(Key); Known && *Known == Details)
+	{
+		return;
+	}
+	mMonitorDetails.Add(Key, Details);
 	++mRevision;
 }
 

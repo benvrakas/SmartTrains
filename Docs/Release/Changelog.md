@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.52.2 (beta)
+
+- **Fixed: the ride card never showed.** It was placed off the left edge of the screen. It now sits at the top right
+  while you ride a managed train.
+- **Monitor: an unserved consumer says why on its row**, for example "Unserved · no train has the right cars",
+  "no Water supplier" or "rate not known". A consumer no train fits lists the cars it needs in its details ("a fluid
+  car beside platform 3, ...").
+- **Fixed: with many consumers, the monitor lost its More buttons**, and a row without one slid out of line with the
+  columns. The view used to carry every row's details and dropped them when it grew too large for one network
+  message; a row's details now come from the server when you open them.
+
 ## 0.52.1 (beta)
 
 - **Fixed: fill bars showed solid white** instead of the car's fill on a dark track.

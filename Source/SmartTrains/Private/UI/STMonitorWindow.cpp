@@ -258,6 +258,21 @@ void USTMonitorWindow::UpdateTabs(const FSTMonitorView& View)
 void USTMonitorWindow::RequestView(USTRemoteCallObject* RCO)
 {
 	RCO->Server_RequestMonitor();
+	for (const FString& Key : mExpanded)
+	{
+		RCO->Server_RequestMonitorDetails(Key);
+	}
+}
+
+FString USTMonitorWindow::OpenDetailsSignature(const USTRemoteCallObject* RCO) const
+{
+	FString Text;
+	for (const FString& Key : mExpanded)
+	{
+		const TArray<FString>* Details = RCO->GetMonitorDetails(Key);
+		Text += Key + (Details ? FString::Join(*Details, TEXT("|")) : FString(TEXT("?")));
+	}
+	return Text;
 }
 
 void USTMonitorWindow::Refresh(USTRemoteCallObject* RCO)
@@ -267,7 +282,7 @@ void USTMonitorWindow::Refresh(USTRemoteCallObject* RCO)
 	{
 		return;
 	}
-	FString Shown = Signature(View);
+	FString Shown = Signature(View) + OpenDetailsSignature(RCO);
 	if (Shown == mShown && mShownTab == sTab)
 	{
 		return;
@@ -362,7 +377,7 @@ UWidget* USTMonitorWindow::MakeItemIcon(TSubclassOf<UFGItemDescriptor> Item, flo
 
 void USTMonitorWindow::AddHeader(const TArray<TPair<FText, float>>& Columns)
 {
-	UHorizontalBox* Line = AddLine(FMargin(10.f, 0.f, 0.f, 4.f));
+	UHorizontalBox* Line = AddLine(FMargin(10.f, 0.f, 10.f, 4.f));
 	for (const TPair<FText, float>& Column : Columns)
 	{
 		AddCell(Line, MakeTinted(nullptr, FText::FromString(Column.Key.ToString().ToUpper()), 9, STStyle::Muted, true, false), Column.Value);
@@ -393,7 +408,7 @@ void USTMonitorWindow::AddNote(const FText& Text, const FLinearColor& Color)
 	MakeTinted(mContent, Text, 11, Color, false, true, FMargin(0.f, 4.f));
 }
 
-UHorizontalBox* USTMonitorWindow::AddRowCard(uint8 Severity, const FString& Key, const TArray<FString>& Details)
+UHorizontalBox* USTMonitorWindow::AddRowCard(uint8 Severity, const FString& Key, bool bHasDetails, const TArray<FString>& Extra)
 {
 	UBorder* Card = nullptr;
 	UVerticalBox* Inside = MakeCard(mContent, Severity >= 2 ? STStyle::Alert : STStyle::Header, FMargin(10.f, 6.f), FMargin(0.f, 2.f), &Card);
@@ -403,7 +418,7 @@ UHorizontalBox* USTMonitorWindow::AddRowCard(uint8 Severity, const FString& Key,
 	}
 	UHorizontalBox* Line = MakeHBox(Inside);
 	const bool bOpen = mExpanded.Contains(Key);
-	if (Details.Num() > 0)
+	if (bHasDetails || Extra.Num() > 0)
 	{
 		// The details stay closed until asked for: a toggle at the row's end.
 		UHorizontalBox* Tail = MakeHBox(nullptr);
@@ -411,11 +426,16 @@ UHorizontalBox* USTMonitorWindow::AddRowCard(uint8 Severity, const FString& Key,
 		Toggle->SetText(bOpen ? LOCTEXT("Less", "Less") : LOCTEXT("More", "More"));
 		Toggle->SetFont(GetFont(10, true));
 		Toggle->SetSelected(bOpen);
-		Toggle->OnClick = [this, Key]()
+		Toggle->OnClick = [this, Key, bHasDetails]()
 		{
 			if (mExpanded.Remove(Key) == 0)
 			{
 				mExpanded.Add(Key);
+				USTRemoteCallObject* RCO = bHasDetails ? USTRemoteCallObject::GetLocal(this) : nullptr;
+				if (RCO)
+				{
+					RCO->Server_RequestMonitorDetails(Key);
+				}
 			}
 			mShown.Reset();
 			RefreshSoon();
@@ -423,8 +443,19 @@ UHorizontalBox* USTMonitorWindow::AddRowCard(uint8 Severity, const FString& Key,
 		Tail->AddChildToHorizontalBox(Toggle);
 		if (bOpen)
 		{
+			TArray<FString> Lines;
+			if (bHasDetails)
+			{
+				const USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
+				const TArray<FString>* Details = RCO ? RCO->GetMonitorDetails(Key) : nullptr;
+				Lines = Details ? *Details : TArray<FString>({TEXT("Asking the server...")});
+			}
+			for (const FString& Line : Extra)
+			{
+				Lines.AddUnique(Line);
+			}
 			UTextBlock* Text = MakeTinted(Inside, FText::GetEmpty(), 10, STStyle::Muted, false, true, FMargin(0.f, 6.f, 0.f, 0.f));
-			SetLines(Text, Details);
+			SetLines(Text, Lines);
 		}
 		// Added last by the caller's cells; kept here to place after them.
 		mPendingToggle = Tail;
@@ -438,12 +469,12 @@ UHorizontalBox* USTMonitorWindow::AddRowCard(uint8 Severity, const FString& Key,
 
 void USTMonitorWindow::AddRow(const FSTMonitorRow& Row, bool bIcon, const TArray<float>& Widths, float TitleWidth, float VerdictWidth)
 {
-	TArray<FString> Lines = Row.Details;
-	if (!Row.Advice.IsEmpty() && !Lines.Contains(Row.Advice))
+	TArray<FString> Extra;
+	if (!Row.Advice.IsEmpty())
 	{
-		Lines.Add(TEXT("What to do: ") + Row.Advice);
+		Extra.Add(TEXT("What to do: ") + Row.Advice);
 	}
-	UHorizontalBox* Line = AddRowCard(Row.Severity, Row.Title, Lines);
+	UHorizontalBox* Line = AddRowCard(Row.Severity, USTRemoteCallObject::MonitorKey(TEXT('s'), Row.Title), Row.bHasDetails, Extra);
 	if (bIcon)
 	{
 		AddCell(Line, MakeItemIcon(Row.Item, MonitorIconSize), MonitorIconSize);
@@ -459,11 +490,8 @@ void USTMonitorWindow::AddRow(const FSTMonitorRow& Row, bool bIcon, const TArray
 
 void USTMonitorWindow::FinishRow(UHorizontalBox* Line)
 {
-	if (mPendingToggle)
-	{
-		AddCell(Line, mPendingToggle, 64.f);
-		mPendingToggle = nullptr;
-	}
+	AddCell(Line, mPendingToggle ? static_cast<UWidget*>(mPendingToggle) : WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass()), 64.f);
+	mPendingToggle = nullptr;
 }
 
 //~ Tabs
@@ -482,7 +510,7 @@ void USTMonitorWindow::ShowOverview(const FSTMonitorView& View)
 				continue;
 			}
 			++Shown;
-			UHorizontalBox* Line = AddRowCard(Row.Severity, TEXT("look:") + Row.Title, TArray<FString>());
+			UHorizontalBox* Line = AddRowCard(Row.Severity, TEXT("look:") + Row.Title, false);
 			AddCell(Line, MakeTinted(nullptr, FText::FromString(Row.Title), 12, STStyle::Text, true, true), 300.f);
 			AddCell(Line, MakeCell(Row.Verdict, 11, STStyle::SeverityColor(Row.Severity)), 120.f);
 			AddCell(Line, MakeCell(!Row.Advice.IsEmpty() ? Row.Advice : (Row.Details.Num() > 0 ? Row.Details[0] : FString()), 10, STStyle::Muted, true), 0.f);
@@ -497,17 +525,16 @@ void USTMonitorWindow::ShowOverview(const FSTMonitorView& View)
 
 void USTMonitorWindow::ShowConsumers(const FSTMonitorView& View)
 {
-	const TArray<float> Widths = {80.f, 80.f, 60.f};
+	const TArray<float> Widths = {110.f, 80.f, 60.f};
 	AddHeader({{LOCTEXT("ColConsumer", "Consumer"), 0.f}, {LOCTEXT("ColPattern", "Pattern"), 150.f}, {LOCTEXT("ColTrains", "Trains"), 170.f},
 		{LOCTEXT("ColRate", "Car loads/min"), Widths[0]}, {LOCTEXT("ColRoundTrip", "Round trip"), Widths[1]}, {LOCTEXT("ColShare", "Share"), Widths[2]},
 		{FText::GetEmpty(), 64.f}});
 	for (const FSTMonitorRow& Row : View.Consumers)
 	{
-		TArray<FString> Lines = Row.Details;
-		UHorizontalBox* Line = AddRowCard(Row.Severity, Row.Title, Lines);
+		UHorizontalBox* Line = AddRowCard(Row.Severity, USTRemoteCallObject::MonitorKey(TEXT('c'), Row.Title), Row.bHasDetails);
 		UVerticalBox* Name = MakeVBox(nullptr);
 		MakeTinted(Name, FText::FromString(Row.Title), 12, STStyle::Text, true, true);
-		MakeTinted(Name, FText::FromString(Row.Verdict), 10, Row.Severity > 0 ? STStyle::SeverityColor(Row.Severity) : STStyle::Muted, false, false);
+		MakeTinted(Name, FText::FromString(Row.Verdict), 10, Row.Severity > 0 ? STStyle::SeverityColor(Row.Severity) : STStyle::Muted, false, true);
 		AddCell(Line, Name, 0.f);
 		// The pattern: one icon per car.
 		UHorizontalBox* Pattern = MakeHBox(nullptr);
@@ -567,7 +594,7 @@ void USTMonitorWindow::ShowTrains(const FSTMonitorView& View)
 	AddHeader({{LOCTEXT("ColTrain", "Train"), 0.f}, {LOCTEXT("ColState", "State"), 150.f}, {LOCTEXT("ColLoop", "Its consumer"), 260.f}, {FText::GetEmpty(), 64.f}});
 	for (const FSTMonitorRow& Row : View.Trains)
 	{
-		UHorizontalBox* Line = AddRowCard(Row.Severity, TEXT("train:") + Row.Title, Row.Details);
+		UHorizontalBox* Line = AddRowCard(Row.Severity, USTRemoteCallObject::MonitorKey(TEXT('t'), Row.Title), Row.bHasDetails);
 		AddCell(Line, MakeTinted(nullptr, FText::FromString(Row.Title), 12, STStyle::Text, true, true), 0.f);
 		AddCell(Line, MakeCell(Row.Verdict, 11, Row.Severity > 0 ? STStyle::SeverityColor(Row.Severity) : STStyle::Good), 150.f);
 		AddCell(Line, MakeCell(Row.Columns.Num() > 0 ? Row.Columns[0] : FString(), 11, STStyle::Text, true), 260.f);

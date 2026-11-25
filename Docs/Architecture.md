@@ -357,8 +357,9 @@ The subsystem exists on the server only, so every menu (the host's too) talks to
   - Migration answers go in parts (`SendMigration`): `Client_MigrationStart` carries the view without its rows and
     their count, then `Client_MigrationRows` sends batches of about 24 KiB. The client shows the view once every row
     has arrived. A preview of 101 stations and 39 trains came to 104 KB, so on a dedicated server Preview did nothing.
-  - The monitor view goes unreliably in one message, trimmed to about 48 KiB (`FitMonitor`). The details of the
-    longest lists' last rows go first, then those rows, with a warning in the log.
+  - The monitor view goes unreliably in one message without the rows' details (`bHasDetails` says a row has some),
+    trimmed to about 48 KiB (`FitMonitor`) by dropping the longest list's last rows, with a warning in the log. A row's
+    details come on request (`Server_RequestMonitorDetails`, keyed by `MonitorKey`) while its More toggle is open.
 
 ### Admin-gated controls
 

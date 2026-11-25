@@ -475,6 +475,9 @@ void ASTSubsystem::BuildLoopModel()
 			: Consumer.Sources.Num() == 0 ? FString::Printf(TEXT("no supplier of %s on its rail network"), *FString::Join(Missing, TEXT(", ")))
 			: Missing.Num() > 0 ? FString::Printf(TEXT("no supplier of %s on its rail network; its loop brings the rest"), *FString::Join(Missing, TEXT(", ")))
 			: FString();
+		Consumer.Cause = !Consumer.bRateKnown ? FString(TEXT("rate not known"))
+			: Missing.Num() > 0 ? FString::Printf(TEXT("no %s supplier"), *FString::Join(Missing, TEXT(", ")))
+			: FString();
 	}
 	UE_LOG(LogSmartTrains, Verbose, TEXT("LOOPS model: %d consumers, %d supplier items"), mConsumers.Num(), mSuppliers.Num());
 }
@@ -575,7 +578,14 @@ void ASTSubsystem::AssignTrains()
 		FSTConsumer& Consumer = mConsumers[Index];
 		if (Fitting[Index] == 0 && Consumer.Problem.IsEmpty())
 		{
-			Consumer.Problem = TEXT("no managed train fits its pattern (a freight car of the right kind beside every unloading platform)");
+			// The cars it needs: one of the right kind beside each unloading platform.
+			TArray<FString> Cars;
+			for (const FSTLoopSlot& Slot : Consumer.Slots)
+			{
+				Cars.Add(FString::Printf(TEXT("a %s car beside platform %d"), Slot.bFluid ? TEXT("fluid") : TEXT("freight"), Slot.Index + 1));
+			}
+			Consumer.Problem = FString::Printf(TEXT("no managed train fits its pattern: it needs %s"), *FString::Join(Cars, TEXT(", ")));
+			Consumer.Cause = TEXT("no train has the right cars");
 		}
 		Needs.Add(Fitting[Index] > 0 ? Consumer.Need : 0.0);
 	}
@@ -705,6 +715,7 @@ void ASTSubsystem::AssignTrains()
 		if (Consumer.Trains.Num() == 0 && Consumer.Problem.IsEmpty())
 		{
 			Consumer.Problem = TEXT("unserved: fewer trains than consumers, and its share is among the smallest");
+			Consumer.Cause = TEXT("fewer trains than consumers");
 		}
 	}
 	if (bResplit)
@@ -1490,7 +1501,7 @@ FSTMonitorView ASTSubsystem::MakeMonitorView() const
 		}
 		const bool bServed = Consumer.Trains.Num() > 0;
 		Unserved += bServed ? 0 : 1;
-		Row.Verdict = bServed ? TEXT("Served") : TEXT("Unserved");
+		Row.Verdict = FString(bServed ? TEXT("Served") : TEXT("Unserved")) + (Consumer.Cause.IsEmpty() ? FString() : TEXT(" · ") + Consumer.Cause);
 		Row.Severity = bServed ? (Consumer.Problem.IsEmpty() ? 0 : 1) : 2;
 		Row.Columns.Add(FString::Printf(TEXT("%.2f"), Consumer.Rate));
 		Row.Columns.Add(FString::Printf(TEXT("%.1f min"), Consumer.RoundTrip / 60.0));

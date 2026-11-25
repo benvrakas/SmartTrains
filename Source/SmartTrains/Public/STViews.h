@@ -493,8 +493,14 @@ struct SMARTTRAINS_API FSTMonitorRow
 	UPROPERTY()
 	FString Advice;
 
+	// What its More toggle opens. The server keeps them out of the view it sends; a client asks for one row's with
+	// Server_RequestMonitorDetails.
 	UPROPERTY()
 	TArray<FString> Details;
+
+	// True when the row has details to open.
+	UPROPERTY()
+	bool bHasDetails = false;
 
 	// Consumers: their pattern (one item per slot), trains, target, how many wait at a depot signal and their use.
 	UPROPERTY()
