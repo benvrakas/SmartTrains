@@ -117,11 +117,11 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 	mPriorityBar = MakeHBox(mMain);
 	for (int32 Index = 0; Index <= static_cast<int32>(ESTPriority::High); ++Index)
 	{
-		const ESTPriority Priority = static_cast<ESTPriority>(Index);
+		const ESTPriority Level = static_cast<ESTPriority>(Index);
 		USTSegment* Segment = WidgetTree->ConstructWidget<USTSegment>(USTSegment::StaticClass());
-		Segment->SetText(FText::FromString(STNames::Priority(Priority)));
+		Segment->SetText(FText::FromString(STNames::Priority(Level)));
 		Segment->SetFont(GetFont(11, true));
-		Segment->OnClick = [this, Priority]() { SetPriority(Priority); };
+		Segment->OnClick = [this, Level]() { SetPriority(Level); };
 		mPriorityBar->AddChildToHorizontalBox(Segment);
 		SetFill(Segment);
 		SetSlotPadding(Segment, FMargin(Index > 0 ? 3.f : 0.f, 0.f, 0.f, 0.f));
