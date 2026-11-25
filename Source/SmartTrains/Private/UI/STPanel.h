@@ -75,7 +75,7 @@ protected:
 
 	//~ The SmartTrains look (UI/STStyle.h).
 	// A box with rounded corners in Color holding a vertical box (returned), Padding inside it.
-	UVerticalBox* MakeCard(UPanelWidget* Parent, const FLinearColor& Color, const FMargin& Padding = FMargin(8.f), const FMargin& Spacing = FMargin(0.f, 3.f),
+	UVerticalBox* MakeCard(UPanelWidget* Parent, const FLinearColor& Color, const FMargin& Inner = FMargin(8.f), const FMargin& Spacing = FMargin(0.f, 3.f),
 		UBorder** OutBorder = nullptr);
 	UVerticalBox* MakeVBox(UPanelWidget* Parent, const FMargin& Spacing = FMargin(0.f));
 	UHorizontalBox* MakeHBox(UPanelWidget* Parent, const FMargin& Spacing = FMargin(0.f));

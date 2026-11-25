@@ -334,11 +334,11 @@ UWidget* USTPanel::MakeHeading(UPanelWidget* Parent, const FText& Text, const FM
 	return MakeText(Parent, Text, 16, false, Spacing);
 }
 
-UVerticalBox* USTPanel::MakeCard(UPanelWidget* Parent, const FLinearColor& Color, const FMargin& Padding, const FMargin& Spacing, UBorder** OutBorder)
+UVerticalBox* USTPanel::MakeCard(UPanelWidget* Parent, const FLinearColor& Color, const FMargin& Inner, const FMargin& Spacing, UBorder** OutBorder)
 {
 	UBorder* Border = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
 	Border->SetBrush(STStyle::Rounded(Color));
-	Border->SetPadding(Padding);
+	Border->SetPadding(Inner);
 	UVerticalBox* Box = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
 	Border->SetContent(Box);
 	if (Parent)
