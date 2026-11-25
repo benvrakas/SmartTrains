@@ -1,7 +1,14 @@
 # Changelog
 
-## 0.53.3 (beta)
+## 0.54.0 (beta)
 
+- **Trains switching loops no longer queue for a Sink.** A train given another station's loop used to unload at its
+  old station once and then take whatever was left straight to the nearest Sink. When ten trains switched at once on
+  the test server, eight headed for the same Sink and their queue on the main line stopped about 37 trains. Now:
+  - it unloads at stations that use its cargo, its old station first, then the nearest others, loading nothing;
+  - only after **Send leftovers to a Sink after** (new, Mods menu, 10 minutes by default), or when no station takes
+    its cargo, does it take what is left to a Sink;
+  - one train per Sink at a time: with every Sink taken it keeps unloading at stations, or waits where it stands.
 - **The station menu has a SmartTrains tab**, next to Train Station and Timetable, with the station's platforms,
   its loop, its priority and its suppliers. That section used to sit at the bottom of the Timetable tab.
 - **Fixed: the priority buttons jumped back** after a click and needed several clicks to stick. The station's answer

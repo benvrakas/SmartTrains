@@ -16,7 +16,8 @@ gets follows how much it needs compared with the rest of your network. You don't
   - **Supply:** managed trains pick items up here.
   - **Demand:** managed trains deliver here. Several items on one platform make an item group: the car beside it
     carries one of them.
-  - **Sink:** a train switching to another station's loop unloads cargo here that its old station had no room for.
+  - **Sink:** a train switching to another station's loop unloads cargo here that no station took within **Send
+    leftovers to a Sink after** (Mods menu, 10 minutes), one train per Sink at a time.
   - **Off:** vanilla.
   - **Copy**, **Paste** and **Copy to the station's other platforms** carry the platform's settings.
 - **Set up a station from its factory:** build the station and its platforms, connect the belts and pipes, and open
@@ -54,8 +55,9 @@ gets follows how much it needs compared with the rest of your network. You don't
   monitor lists them as unserved and says why.
 - **Changes are slow and clean:** trains are only shared out again when a factory's rate, a station's pattern or the
   set of managed trains changes, and then as few trains as possible change station. A train switching station first
-  delivers what it holds to its old station, takes what that station had no room for to a Sink platform, and only
-  then starts its new loop, empty.
+  unloads what it holds at stations that use it, its old one first, loading nothing; only what no station took within
+  **Send leftovers to a Sink after** goes to a Sink platform, one train per Sink at a time, so no train queues for
+  one. Then it starts its new loop, empty.
 
 ### Highly recommended mods
 

@@ -944,6 +944,20 @@ bool ASTSubsystem::MakeUnloadJob(const FSTTrainState& State, AFGTrainStationIden
 	return true;
 }
 
+bool ASTSubsystem::HasSinkStation(const FSTTrainState& State) const
+{
+	for (const FSTPlatformConfig& Config : mPlatforms)
+	{
+		AFGTrainStationIdentifier* Station = IsValid(Config.Platform) && Config.Role == ESTRole::Sink ? STLayout::GetIdentifier(STLayout::FindStation(Config.Platform)) : nullptr;
+		FSTJob Job;
+		if (Station && MakeUnloadJob(State, Station, ESTJobKind::Sink, Job))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 AFGTrainStationIdentifier* ASTSubsystem::FindSinkStation(const FSTTrainState& State) const
 {
 	AFGTrainStationIdentifier* Best = nullptr;
@@ -960,6 +974,15 @@ AFGTrainStationIdentifier* ASTSubsystem::FindSinkStation(const FSTTrainState& St
 		}
 		FSTJob Job;
 		if (!MakeUnloadJob(State, Station, ESTJobKind::Sink, Job))
+		{
+			continue;
+		}
+		// One train per Sink at a time: another heading there or docked there takes it.
+		const bool bTaken = mTrains.ContainsByPredicate([&State, Station](const FSTTrainState& Other)
+		{
+			return &Other != &State && Other.bManaged && Other.bHasJob && Other.Job.Kind == ESTJobKind::Sink && Other.Job.AnchorStation.Get() == Station;
+		});
+		if (bTaken)
 		{
 			continue;
 		}
@@ -1041,50 +1064,77 @@ void ASTSubsystem::UpdateTrainJob(FSTTrainState& State, ESTJobKind After)
 	{
 		return;
 	}
-	// Cargo its new loop doesn't carry in that car goes first: back to the consumer it served, then to a sink.
+	// Cargo its new loop doesn't carry in that car goes first (Docs/Architecture.md, "Switching patterns"): it unloads at
+	// consumers that take it, its old one first, and only after the Sink delay (or when no consumer takes it) at a Sink
+	// no other train is heading to. It never queues for a Sink.
 	if (After != ESTJobKind::Sink && HoldsOtherCargo(State, Loop))
 	{
-		AFGTrainStationIdentifier* Old = State.bHasJob && State.Job.Kind == ESTJobKind::Loop ? State.Job.AnchorStation.Get() : nullptr;
-		FSTJob Unload;
-		if (After != ESTJobKind::Deliver)
+		if (State.ClearingSince < 0.0)
 		{
-			// Without a loop before (just managed, or loaded from an older save): any consumer whose platforms take it.
-			if (!Old || !MakeUnloadJob(State, Old, ESTJobKind::Deliver, Unload))
+			State.ClearingSince = Now();
+		}
+		AFGTrainStationIdentifier* Old = State.bHasJob && State.Job.Kind == ESTJobKind::Loop ? State.Job.AnchorStation.Get() : nullptr;
+		AFGTrainStationIdentifier* JustTried = After == ESTJobKind::Deliver ? State.Job.AnchorStation.Get() : nullptr;
+		FSTJob Unload;
+		// A consumer that takes some of it: its old consumer, else the nearest other, else the one it just tried again.
+		if (!Old || !MakeUnloadJob(State, Old, ESTJobKind::Deliver, Unload))
+		{
+			float Best = TNumericLimits<float>::Max();
+			for (const FSTConsumer& Each : mConsumers)
 			{
-				float Best = TNumericLimits<float>::Max();
-				for (const FSTConsumer& Each : mConsumers)
+				FSTJob Job;
+				const float Travel = State.LastStation ? EstimateTravelSeconds(State.LastStation.Get(), Each.Station.Get(), IsPushPull(Train)) : 0.f;
+				if (Each.Station.Get() != JustTried && Travel >= 0.f && Travel < Best && MakeUnloadJob(State, Each.Station.Get(), ESTJobKind::Deliver, Job))
 				{
-					FSTJob Job;
-					const float Travel = State.LastStation ? EstimateTravelSeconds(State.LastStation.Get(), Each.Station.Get(), IsPushPull(Train)) : 0.f;
-					if (Travel >= 0.f && Travel < Best && MakeUnloadJob(State, Each.Station.Get(), ESTJobKind::Deliver, Job))
-					{
-						Best = Travel;
-						Unload = MoveTemp(Job);
-					}
+					Best = Travel;
+					Unload = MoveTemp(Job);
 				}
 			}
-			if (Unload.Legs.Num() > 0)
+			if (Unload.Legs.Num() == 0 && JustTried)
 			{
-				Unload.Id = mNextJobId++;
-				Unload.StartedAt = Now();
-				Unload.LegStartedAt = Unload.StartedAt;
-				CommitJob(State, MoveTemp(Unload), FString::Printf(TEXT("%s: switching patterns to %s; %s first"), *STLayout::Name(Train),
-					*STLayout::Name(Consumer->Station.Get()), *Unload.Summary));
-				return;
+				MakeUnloadJob(State, JustTried, ESTJobKind::Deliver, Unload);
 			}
 		}
-		if (AFGTrainStationIdentifier* Sink = FindSinkStation(State); Sink && MakeUnloadJob(State, Sink, ESTJobKind::Sink, Unload))
+		const double Clearing = Now() - State.ClearingSince;
+		const bool bSinkDue = Unload.Legs.Num() == 0 || Clearing >= 60.0 * mSettings.SinkAfterMinutes;
+		FSTJob ToSink;
+		AFGTrainStationIdentifier* Sink = bSinkDue ? FindSinkStation(State) : nullptr;
+		if (Sink && MakeUnloadJob(State, Sink, ESTJobKind::Sink, ToSink))
+		{
+			ToSink.Id = mNextJobId++;
+			ToSink.StartedAt = Now();
+			ToSink.LegStartedAt = ToSink.StartedAt;
+			CommitJob(State, MoveTemp(ToSink), FString::Printf(TEXT("%s: switching patterns to %s; after %.0f min, what no consumer took goes to a sink (%s)"),
+				*STLayout::Name(Train), *STLayout::Name(Consumer->Station.Get()), Clearing / 60.0, *ToSink.Summary));
+			return;
+		}
+		if (Unload.Legs.Num() > 0)
 		{
 			Unload.Id = mNextJobId++;
 			Unload.StartedAt = Now();
 			Unload.LegStartedAt = Unload.StartedAt;
-			CommitJob(State, MoveTemp(Unload), FString::Printf(TEXT("%s: switching patterns to %s; what no consumer took goes to a sink first (%s)"),
-				*STLayout::Name(Train), *STLayout::Name(Consumer->Station.Get()), *Unload.Summary));
+			CommitJob(State, MoveTemp(Unload), FString::Printf(TEXT("%s: switching patterns to %s; %s first%s"), *STLayout::Name(Train),
+				*STLayout::Name(Consumer->Station.Get()), *Unload.Summary, bSinkDue ? TEXT(" (every Sink taken)") : TEXT("")));
+			return;
+		}
+		if (HasSinkStation(State))
+		{
+			// Every Sink it fits is taken and no consumer takes its cargo: it waits where it is and tries again next check.
+			if (State.bHasJob)
+			{
+				EndJob(State, TEXT("waits for a free Sink"));
+			}
+			if (State.Phase != ESTTrainPhase::Parked)
+			{
+				Park(State, TEXT("waits for a free Sink"));
+			}
+			State.IdleReason = TEXT("waits for a free Sink");
 			return;
 		}
 		UE_LOG(LogSmartTrains, Warning, TEXT("LOOP %s: holds cargo its new loop doesn't carry and no consumer or Sink platform takes it; it starts its loop with it (/st emptycars clears it)"),
 			*STLayout::Name(Train));
 	}
+	State.ClearingSince = -1.0;
 	// The pattern its cars carry on the loop.
 	State.CarSets.Reset();
 	for (AFGFreightWagon* Car : GetCars(Train))

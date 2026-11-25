@@ -55,6 +55,8 @@ namespace
 	const TArray<FNumberSetting>& GetNumberSettings()
 	{
 		static const TArray<FNumberSetting> Settings = {
+			{TEXT("SinkAfterMinutes"), &FSTSettings::SinkAfterMinutes, 0.f, 240.f, LOCTEXT("SinkAfter", "Send leftovers to a Sink after (minutes)"),
+				LOCTEXT("SinkAfterTip", "A train switching to another station's loop first unloads cargo its new loop doesn't carry at stations that use it. Only after this many minutes (or when no station takes it) does it take what is left to a Sink, one train per Sink at a time, 0 to 240.")},
 			{TEXT("AverageSpeedKmh"), &FSTSettings::AverageSpeedKmh, 20.f, 300.f, LOCTEXT("Speed", "Speed estimate (km/h)"),
 				LOCTEXT("SpeedTip", "Average speed used to estimate travel times between stations (for each loop's round trip) until a trip between them has been timed, 20 to 300 km/h.")},
 			{TEXT("DefaultStaySeconds"), &FSTSettings::DefaultStaySeconds, 0.f, 600.f, LOCTEXT("Stay", "Station stay estimate (seconds)"),

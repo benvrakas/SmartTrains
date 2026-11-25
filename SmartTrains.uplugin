@@ -1,8 +1,8 @@
 {
 	"FileVersion": 3,
 	"Version": 0,
-	"VersionName": "0.53.3",
-	"SemVersion": "0.53.3",
+	"VersionName": "0.54.0",
+	"SemVersion": "0.54.0",
 	"GameVersion": ">=520140",
 	"FriendlyName": "SmartTrains",
 	"Description": "Each consumer station gets trains that carry its car pattern, looping between its suppliers and it, split over the network in proportion to what each consumer needs.",

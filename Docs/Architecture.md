@@ -85,13 +85,19 @@ holds the pattern. `UpdateTrainJob` leaves a loop alone while its stops, cars an
 
 ### Switching patterns
 
-A train given another consumer first gets rid of cargo its new loop doesn't carry in that car (`HoldsOtherCargo`):
-- **Deliver** (`ESTJobKind::Deliver`, `MakeUnloadJob`): at its old consumer (its loop's `AnchorStation`; without a
-  loop, the nearest consumer whose platforms take its cargo), load/unload once, so what doesn't fit stays.
-- **Sink:** after the Deliver stop, if it still holds such cargo, the nearest station with a Sink platform beside a car
-  holding cargo, unloading once.
-- Then its loop (after a Sink stop without another check). With no consumer or Sink platform for its cargo it starts
-  its loop with it, with a warning (`/st emptycars` clears it).
+A train given another consumer first gets rid of cargo its new loop doesn't carry in that car (`HoldsOtherCargo`). It
+loads nothing meanwhile. `FSTTrainState::ClearingSince` marks when it started.
+- **Deliver** (`ESTJobKind::Deliver`, `MakeUnloadJob`), one stop each, unloading once: its old consumer (its loop's
+  `AnchorStation`) first, then the nearest other consumer whose platforms take some of it, never the one it just tried
+  while another takes it, else that one again (it keeps feeding a factory that uses its cargo slowly).
+- **Sink:** once **Send leftovers to a Sink after** (`SinkAfterMinutes`, 10 by default) has passed since it started,
+  or when no consumer takes its cargo, the nearest station with a Sink platform beside a car holding cargo that no
+  other train is heading to or docked at (`FindSinkStation`): one train per Sink at a time. With every Sink taken it
+  goes on delivering, or, with no consumer either, waits where it stands and tries again next check. No train queues
+  for a Sink. On 2026-11-25 ten trains switched at once and eight took their leftovers to the same Sink straight
+  away; their queue on the main line joined a circle of waiting trains and stopped about 37 trains.
+- Then its loop (after a Sink stop without another check). With no consumer or Sink platform for its cargo at all it
+  starts its loop with it, with a warning (`/st emptycars` clears it).
 
 ### Timetables
 
@@ -411,12 +417,14 @@ widget blueprint hooks at `POST_INITIALIZATION`, and not on dedicated servers:
 | `Widget_TrainStationNew` | `VerticalBox_0` (first tab, under the name plate) | `USTStationSetupBar` (set-up buttons) |
 
 The station panel has its own tab in the station menu, after Train Station and Timetable (`STStationTab`). There is no
-hook for it: the set-up bar adds it when the menu is shown. The menu's `mTabs` is a `Widget_SlidingTabs`; its `mContent`
-slot holds a panel with one page per tab. The set-up bar walks up from itself to that panel, adds a size box (matched
-to the first page's size when the tab is clicked) around a scroll box with the panel, and copies the last
-`Widget_SlidingTabs_Button` (`mSlidingTabsWidget`, `SetTitle`, the first tab's icon). A click calls the tabs'
-`SetActiveButton` and `SetActiveIndex`. If the menu isn't laid out that way, the panel goes under the set-up bar, and
-the log has the menu's widget tree (`UI tree` lines).
+hook for it: the set-up bar adds it when the menu is shown. The menu's window (`mTrainStationWindow`, a
+`Widget_Window_DarkMode`) lists its tabs in `mTabs` (an array of `FImageAndText`: texture and text), and its
+`Widget_TabsContainer` makes one `Widget_SlidingTabs_Button` per entry (`InitTabs`). Button N shows page N of the
+menu's `Widget_SlidingTabs`, whose `mContent` slot holds `HorizontalBox_0` with one page per tab (`Overlay_1` Train
+Station, `CanvasPanel_127` Timetable). The set-up bar adds a size box (560 wide) around a scroll box with the panel
+as the last page, appends a "SmartTrains" entry with the first tab's icon to `mTabs`, calls `InitTabs`, and after
+0.3 s the tabs' `SetupIndexOffset`. If the menu isn't laid out that way, the panel goes under the set-up bar, and the
+log has the menu's widget tree (`UI tree` lines). Layout read with `TSDumpWidgets` on 2026-11-25.
 
 Panel names and positions come from the starter project's widget assets, dumped with Telescreen's `TSDumpWidgets`
 commandlet. It now also lists named-slot content, canvas slot layout and size box overrides

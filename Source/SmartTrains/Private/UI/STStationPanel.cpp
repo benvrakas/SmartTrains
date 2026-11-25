@@ -22,8 +22,18 @@
 #include "Components/Button.h"
 #include "Components/PanelWidget.h"
 #include "Components/ScrollBox.h"
+#include "Engine/World.h"
+#include "TimerManager.h"
 
 #define LOCTEXT_NAMESPACE "SmartTrains"
+
+namespace
+{
+	// Width of the SmartTrains tab's page in the station menu, as wide as the Train Station page. [slate units]
+	constexpr float StationTabPageWidth = 560.f;
+	// Wait before the tabs work out their page positions again, so the new page has its size. [s]
+	constexpr float StationTabOffsetDelay = 0.3f;
+}
 
 namespace
 {
@@ -372,7 +382,14 @@ void USTStationSetupBar::ClickAutodetect()
 void USTStationSetupBar::InstallTab()
 {
 	UUserWidget* Menu = GetMenu();
-	if (!Menu || (mTabPage && mTabPage->GetParent()))
+	if (!Menu || mFallbackPanel)
+	{
+		return;
+	}
+	const FText Title = LOCTEXT("SmartTrainsTab", "SmartTrains");
+	STStationTab::FParts Parts;
+	const bool bFound = STStationTab::FindParts(Menu, this, Parts);
+	if (bFound && STStationTab::HasTab(Parts, Title))
 	{
 		return;
 	}
@@ -382,52 +399,38 @@ void USTStationSetupBar::InstallTab()
 		return;
 	}
 	Panel->SetMenu(Menu);
-	STStationTab::FParts Parts;
-	if (!STStationTab::FindParts(Menu, this, Parts))
+	if (bFound)
 	{
-		if (UVerticalBox* Box = Cast<UVerticalBox>(GetParent()))
+		mTabPage = Menu->WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+		mTabPage->SetWidthOverride(StationTabPageWidth);
+		UScrollBox* Scroll = Menu->WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass());
+		Scroll->AddChild(Panel);
+		mTabPage->AddChild(Scroll);
+		if (STStationTab::AddTab(Parts, mTabPage, Title))
 		{
-			Box->AddChildToVerticalBox(Panel);
+			// Once the new page has its size, the tabs work out where each page sits again.
+			if (UWorld* World = GetWorld())
+			{
+				const STStationTab::FParts Kept = Parts;
+				TWeakObjectPtr<UUserWidget> WeakTabs = Parts.Tabs;
+				World->GetTimerManager().SetTimer(mOffsetTimer, FTimerDelegate::CreateWeakLambda(this, [WeakTabs, Kept]()
+				{
+					if (WeakTabs.IsValid())
+					{
+						STStationTab::UpdateOffsets(Kept);
+					}
+				}), StationTabOffsetDelay, false);
+			}
+			return;
 		}
-		return;
+		Scroll->RemoveChild(Panel);
+		mTabPage = nullptr;
 	}
-	mTabPage = Menu->WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
-	UScrollBox* Scroll = Menu->WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass());
-	Scroll->AddChild(Panel);
-	mTabPage->AddChild(Scroll);
-	mTabs = Parts.Tabs;
-	mPages = Parts.Pages;
-	mTabIndex = STStationTab::AddPage(Parts, mTabPage);
-	mTabButton = STStationTab::AddButton(Parts, LOCTEXT("SmartTrainsTab", "SmartTrains"));
-	if (UButton* Inner = mTabButton ? STWidgetUtils::GetInnerButton(mTabButton) : nullptr)
+	if (UVerticalBox* Box = Cast<UVerticalBox>(GetParent()))
 	{
-		Inner->OnClicked.AddUniqueDynamic(this, &USTStationSetupBar::HandleTabClicked);
+		Box->AddChildToVerticalBox(Panel);
+		mFallbackPanel = Panel;
 	}
-	else
-	{
-		UE_LOG(LogSmartTrains, Warning, TEXT("Station tab: its button has no mButton to click"));
-	}
-}
-
-void USTStationSetupBar::HandleTabClicked()
-{
-	UPanelWidget* Pages = mPages.Get();
-	if (!Pages || !mTabPage)
-	{
-		return;
-	}
-	// The page takes the size the other pages have, so it fills the window and scrolls inside it.
-	const UWidget* First = Pages->GetChildAt(0);
-	const FVector2D Size = First ? First->GetCachedGeometry().GetLocalSize() : FVector2D::ZeroVector;
-	if (Size.X > 1.f && Size.Y > 1.f)
-	{
-		mTabPage->SetWidthOverride(Size.X);
-		mTabPage->SetHeightOverride(Size.Y);
-	}
-	STStationTab::FParts Parts;
-	Parts.Tabs = mTabs.Get();
-	Parts.Pages = Pages;
-	STStationTab::ShowPage(Parts, mTabIndex, mTabButton);
 }
 
 bool USTStationSetupBar::OnShown()

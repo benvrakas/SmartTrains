@@ -357,6 +357,10 @@ struct SMARTTRAINS_API FSTTrainState
 	UPROPERTY(SaveGame)
 	double LastDepartureAt = 0.0;
 
+	// Switching patterns: when it started clearing cargo its new loop doesn't carry (game seconds), -1 when not.
+	UPROPERTY(SaveGame)
+	double ClearingSince = -1.0;
+
 	// Timetable and autopilot the train had before it was managed, put back when management ends.
 	UPROPERTY(SaveGame)
 	TArray<FTimeTableStop> SavedStops;

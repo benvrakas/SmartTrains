@@ -6,32 +6,31 @@ class UPanelWidget;
 class UUserWidget;
 class UWidget;
 
-// The SmartTrains tab of the vanilla station menu (Widget_TrainStationNew), next to Train Station and Timetable
-// (Docs/Architecture.md, "UI"). The menu's tabs are a Widget_SlidingTabs (its mTabs) whose mContent slot holds one page
-// per tab; the tab buttons are Widget_SlidingTabs_Button. C++ reaches them by reflection only.
+// The SmartTrains tab of the vanilla station menu (Widget_TrainStationNew), after Train Station and Timetable
+// (Docs/Architecture.md, "UI"). The menu's window (mTrainStationWindow, a Widget_Window_DarkMode) lists its tabs in
+// mTabs (icon and title each) and its Widget_TabsContainer makes one button per entry (InitTabs); a button shows page
+// N of the menu's Widget_SlidingTabs, whose mContent slot holds a HorizontalBox with one page per tab. C++ reaches
+// them by reflection only.
 namespace STStationTab
 {
 	struct FParts
 	{
-		// The menu's Widget_SlidingTabs.
+		UUserWidget* Window = nullptr;
 		UUserWidget* Tabs = nullptr;
-		// The panel whose children are the pages, one per tab.
 		UPanelWidget* Pages = nullptr;
-		// The last vanilla tab button, copied for the new tab.
-		UUserWidget* TemplateButton = nullptr;
 	};
 
-	// Finds the tabs, their pages and a tab button of Menu, starting from Anchor, a widget on the first tab's page.
-	// Returns false and logs what is missing (with the menu's widget tree, once per game) if the menu isn't as
-	// expected.
+	// Finds the window, the sliding tabs and their pages of Menu; Anchor is a widget on the first tab's page. Returns
+	// false and logs what is missing (with the menu's widget tree, once per game) if the menu isn't as expected.
 	bool FindParts(UUserWidget* Menu, UWidget* Anchor, FParts& OutParts);
 
-	// Adds Page as the last page, with its slot set up like the first page's. Returns its index.
-	int32 AddPage(const FParts& Parts, UWidget* Page);
+	// True when the window lists a tab titled Title.
+	bool HasTab(const FParts& Parts, const FText& Title);
 
-	// Adds a copy of the template tab button after it, titled Title with the first tab's icon. Returns it or nullptr.
-	UUserWidget* AddButton(const FParts& Parts, const FText& Title);
+	// Adds Page as the last page (its slot set up like the first page's) and a tab titled Title with the first tab's
+	// icon, then has the window remake its tab buttons. Returns false (logged) if the window's tab list can't be changed.
+	bool AddTab(const FParts& Parts, UWidget* Page, const FText& Title);
 
-	// Shows page Index: the tabs' own SetActiveButton (Button) and SetActiveIndex, or the switcher's index.
-	void ShowPage(const FParts& Parts, int32 Index, UUserWidget* Button);
+	// Has the sliding tabs work out each page's position again (after the new page has its size).
+	void UpdateOffsets(const FParts& Parts);
 }

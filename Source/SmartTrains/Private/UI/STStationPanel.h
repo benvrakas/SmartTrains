@@ -99,20 +99,15 @@ protected:
 	// Adds the SmartTrains tab once per menu widget; without the menu's tabs, the panel goes under this bar instead.
 	void InstallTab();
 
-	UFUNCTION()
-	void HandleTabClicked();
-
-	// The tab's page (a size box matched to the other pages, around a scroll box with the panel), its button and the
-	// menu's tab parts.
+	// The tab's page: a size box around a scroll box with the station panel.
 	UPROPERTY()
 	TObjectPtr<class USizeBox> mTabPage;
 
+	// The station panel under this bar when the menu has no room for a tab.
 	UPROPERTY()
-	TObjectPtr<UUserWidget> mTabButton;
+	TObjectPtr<USTStationPanel> mFallbackPanel;
 
-	TWeakObjectPtr<UUserWidget> mTabs;
-	TWeakObjectPtr<class UPanelWidget> mPages;
-	int32 mTabIndex = INDEX_NONE;
+	FTimerHandle mOffsetTimer;
 
 	virtual void BuildContent(UVerticalBox* Root) override;
 	virtual bool OnShown() override;

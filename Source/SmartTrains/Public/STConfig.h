@@ -21,6 +21,8 @@ struct FSTSettings
 	bool bAdminsOnly = false;
 	// A loop's stops wait for full (loading) or empty (unloading) cars instead of moving what is there once.
 	bool bWaitForFullCars = false;
+	// Switching patterns: how long a train unloads leftover cargo at consumers before it may take it to a Sink. [min]
+	float SinkAfterMinutes = 10.f;
 	// Average speed used for travel times until trips have been timed. [km/h]
 	float AverageSpeedKmh = 80.f;
 	// Stay assumed at a station until stays there have been timed. [s]

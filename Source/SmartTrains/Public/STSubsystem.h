@@ -269,7 +269,11 @@ private:
 	// Sink platforms (Sink). False if no car of it stands beside such a platform holding cargo.
 	bool MakeUnloadJob(const FSTTrainState& State, AFGTrainStationIdentifier* Station, ESTJobKind Kind, FSTJob& OutJob) const;
 	// The nearest station with a Sink platform State's cargo can go to, or null.
+	// The nearest station with Sink platforms that take some of State's cargo and that no other train is heading to or
+	// docked at, or nullptr.
 	AFGTrainStationIdentifier* FindSinkStation(const FSTTrainState& State) const;
+	// Whether any station's Sink platforms take some of State's cargo, taken or not.
+	bool HasSinkStation(const FSTTrainState& State) const;
 
 	// Gives State's train Job (or only logs it in observe-only mode).
 	void CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& Line);
