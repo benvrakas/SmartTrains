@@ -284,6 +284,7 @@ USTButton* USTPanel::MakeButton(UPanelWidget* Parent, const FText& Text, TFuncti
 {
 	USTButton* Button = WidgetTree->ConstructWidget<USTButton>(USTButton::StaticClass());
 	Button->SetText(Text);
+	Button->SetFont(GetFont(11, true));
 	Button->OnClick = MoveTemp(OnClick);
 	if (Parent)
 	{

@@ -15,7 +15,7 @@ class USizeBox;
 class UTextBlock;
 class UTexture2D;
 
-// A vanilla standard button (a plain one if the game's is missing) that reports left and right clicks.
+// A rounded text button in the SmartTrains style (STStyle) that reports left and right clicks.
 UCLASS()
 class USTButton : public UUserWidget
 {
@@ -23,6 +23,8 @@ class USTButton : public UUserWidget
 
 public:
 	void SetText(const FText& Text);
+
+	void SetFont(const FSlateFontInfo& Font);
 
 	// Makes the button exactly Width wide; 0 sizes it to its text.
 	void SetFixedWidth(float Width);
@@ -50,10 +52,7 @@ private:
 	TObjectPtr<USizeBox> mFrame;
 
 	UPROPERTY()
-	TObjectPtr<UUserWidget> mVanillaButton;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> mFallbackText;
+	TObjectPtr<UTextBlock> mLabel;
 
 	FText mText;
 	bool bFitToSlot = false;

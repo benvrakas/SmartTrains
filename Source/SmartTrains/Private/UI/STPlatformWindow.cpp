@@ -118,30 +118,16 @@ UWidget* USTPlatformWindow::WrapRoot(UVerticalBox* Root)
 		ShadeSlot->SetVerticalAlignment(VAlign_Fill);
 	}
 
-	UOverlay* Frame = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass());
-	UWidget* Background = STWidgetUtils::CreateVanillaWidget(WidgetTree, STWidgetUtils::ContentBackgroundClass);
-	if (!Background)
-	{
-		UBorder* Plain = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
-		Plain->SetBrushColor(FLinearColor(0.02f, 0.02f, 0.025f, 0.97f));
-		Background = Plain;
-	}
-	if (UOverlaySlot* BackgroundSlot = Frame->AddChildToOverlay(Background))
-	{
-		BackgroundSlot->SetHorizontalAlignment(HAlign_Fill);
-		BackgroundSlot->SetVerticalAlignment(VAlign_Fill);
-	}
+	UBorder* Frame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
+	Frame->SetBrush(STStyle::Outlined(STStyle::Panel, STStyle::Line, 1.f, 6.f));
+	Frame->SetPadding(FMargin(18.f, 14.f));
 	UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
-	UHorizontalBox* Title = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
-	Column->AddChildToVerticalBox(Title)->SetPadding(FMargin(0.f, 0.f, 0.f, 6.f));
-	if (UHorizontalBoxSlot* TitleSlot = Title->AddChildToHorizontalBox(MakeText(nullptr, LOCTEXT("PlatformWindowTitle", "SmartTrains: platform settings"), 16, false)))
-	{
-		TitleSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-		TitleSlot->SetVerticalAlignment(VAlign_Center);
-	}
+	Frame->SetContent(Column);
+	UHorizontalBox* Title = MakeTitleBar(Column, LOCTEXT("PlatformWindowTitle", "Platform settings"), 26.f);
 	USTButton* CloseButton = MakeButton(nullptr, LOCTEXT("Close", "Close"), [this]() { Close(); });
 	CloseButton->SetFixedWidth(120.f);
 	Title->AddChildToHorizontalBox(CloseButton);
+	SetVAlignCenter(CloseButton);
 
 	USizeBox* Size = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
 	Size->SetWidthOverride(PlatformWindowWidth);
@@ -150,10 +136,6 @@ UWidget* USTPlatformWindow::WrapRoot(UVerticalBox* Root)
 	Scroll->AddChild(Root);
 	Size->AddChild(Scroll);
 	Column->AddChildToVerticalBox(Size);
-	if (UOverlaySlot* ContentSlot = Frame->AddChildToOverlay(Column))
-	{
-		ContentSlot->SetPadding(FMargin(18.f, 14.f));
-	}
 	if (UOverlaySlot* FrameSlot = Screen->AddChildToOverlay(Frame))
 	{
 		FrameSlot->SetHorizontalAlignment(HAlign_Center);
@@ -166,22 +148,13 @@ UWidget* USTPlatformWindow::WrapRoot(UVerticalBox* Root)
 
 UWidget* USTPlatformLauncher::WrapRoot(UVerticalBox* Root)
 {
-	UOverlay* Frame = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass());
-	if (UWidget* Background = STWidgetUtils::CreateVanillaWidget(WidgetTree, STWidgetUtils::ContentBackgroundClass))
-	{
-		if (UOverlaySlot* BackgroundSlot = Frame->AddChildToOverlay(Background))
-		{
-			BackgroundSlot->SetHorizontalAlignment(HAlign_Fill);
-			BackgroundSlot->SetVerticalAlignment(VAlign_Fill);
-		}
-	}
+	UBorder* Frame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
+	Frame->SetBrush(STStyle::Rounded(STStyle::Panel));
+	Frame->SetPadding(FMargin(14.f, 10.f));
 	USizeBox* Size = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
 	Size->SetWidthOverride(LauncherWidth);
 	Size->AddChild(Root);
-	if (UOverlaySlot* ContentSlot = Frame->AddChildToOverlay(Size))
-	{
-		ContentSlot->SetPadding(FMargin(14.f, 10.f));
-	}
+	Frame->SetContent(Size);
 	return Frame;
 }
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.53.1 (beta)
+
+- **The last square pieces are rounded now:** every text button (Close, Add item, Copy, Paste, Autodetect, Copy to
+  the station, Settings and the rest) is a rounded SmartTrains button with an orange edge on hover, list rows
+  highlight with rounded corners, and the platform Settings window and the card in the platform menu use the same
+  rounded frame and title bar as the other SmartTrains panels.
+
 ## 0.53.0 (beta)
 
 - **Platform priority is back: Low, Medium or High** on Demand platforms (platform panel, under the items; Copy,

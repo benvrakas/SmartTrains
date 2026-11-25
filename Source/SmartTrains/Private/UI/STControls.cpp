@@ -12,6 +12,7 @@
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
 #include "SmartTrains.h"
+#include "Styling/CoreStyle.h"
 #include "UI/STStyle.h"
 #include "UI/STWidgetUtils.h"
 
@@ -19,19 +20,19 @@
 
 void USTButton::SetText(const FText& Text)
 {
+	BuildTree();
 	mText = Text;
 	if (bFitToSlot)
 	{
 		SetToolTipText(Text);
 	}
-	if (mVanillaButton)
-	{
-		STWidgetUtils::SetWidgetText(mVanillaButton, Text);
-	}
-	else if (mFallbackText)
-	{
-		mFallbackText->SetText(Text);
-	}
+	mLabel->SetText(Text);
+}
+
+void USTButton::SetFont(const FSlateFontInfo& Font)
+{
+	BuildTree();
+	mLabel->SetFont(Font);
 }
 
 void USTButton::SetFixedWidth(float Width)
@@ -52,15 +53,9 @@ void USTButton::SetFitToSlot(float MaxWidth)
 	BuildTree();
 	bFitToSlot = true;
 	mFrame->SetMaxDesiredWidth(MaxWidth);
-	UTextBlock* Text = mVanillaButton ? Cast<UTextBlock>(STWidgetUtils::GetObjectProperty(mVanillaButton, TEXT("mTextObject"))) : mFallbackText.Get();
-	if (!Text)
-	{
-		UE_LOG(LogSmartTrains, Warning, TEXT("Button has no text block to shorten; long text may be cut off"));
-		return;
-	}
-	Text->SetAutoWrapText(false);
-	Text->SetClipping(EWidgetClipping::ClipToBounds);
-	Text->SetTextOverflowPolicy(ETextOverflowPolicy::Ellipsis);
+	mLabel->SetAutoWrapText(false);
+	mLabel->SetClipping(EWidgetClipping::ClipToBounds);
+	mLabel->SetTextOverflowPolicy(ETextOverflowPolicy::Ellipsis);
 	SetText(mText);
 }
 
@@ -82,30 +77,27 @@ void USTButton::BuildTree()
 	}
 	mFrame = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
 	WidgetTree->RootWidget = mFrame;
-	mVanillaButton = STWidgetUtils::CreateVanillaWidget(WidgetTree, STWidgetUtils::StandardButtonClass);
-	UButton* Inner = mVanillaButton ? STWidgetUtils::GetInnerButton(mVanillaButton) : nullptr;
-	if (mVanillaButton && Inner)
+	UButton* Button = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass());
+	FButtonStyle Style;
+	Style.SetNormal(STStyle::Rounded(STStyle::Card, 3.f));
+	Style.SetHovered(STStyle::Outlined(STStyle::Card, STStyle::Orange, 1.5f, 3.f));
+	Style.SetPressed(STStyle::Rounded(STStyle::Line, 3.f));
+	Style.SetDisabled(STStyle::Rounded(STStyle::Inset, 3.f));
+	Style.SetNormalPadding(FMargin(10.f, 6.f));
+	Style.SetPressedPadding(FMargin(10.f, 6.f));
+	Button->SetStyle(Style);
+	Button->OnClicked.AddUniqueDynamic(this, &USTButton::HandleClicked);
+	mLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+	mLabel->SetJustification(ETextJustify::Center);
+	mLabel->SetColorAndOpacity(FSlateColor(STStyle::Text));
+	mLabel->SetFont(FCoreStyle::GetDefaultFontStyle("Bold", 11));
+	mLabel->SetText(mText);
+	if (UButtonSlot* LabelSlot = Cast<UButtonSlot>(Button->AddChild(mLabel)))
 	{
-		mFrame->AddChild(mVanillaButton);
-		Inner->OnClicked.AddUniqueDynamic(this, &USTButton::HandleClicked);
+		LabelSlot->SetHorizontalAlignment(HAlign_Center);
+		LabelSlot->SetVerticalAlignment(VAlign_Center);
 	}
-	else
-	{
-		if (mVanillaButton)
-		{
-			UE_LOG(LogSmartTrains, Warning, TEXT("Vanilla button has no mButton; using a plain button"));
-			mVanillaButton = nullptr;
-		}
-		UButton* Button = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass());
-		mFallbackText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
-		FSlateFontInfo Font = mFallbackText->GetFont();
-		Font.Size = 12;
-		mFallbackText->SetFont(Font);
-		Button->AddChild(mFallbackText);
-		Button->OnClicked.AddUniqueDynamic(this, &USTButton::HandleClicked);
-		mFrame->AddChild(Button);
-	}
-	SetText(mText);
+	mFrame->AddChild(Button);
 }
 
 FReply USTButton::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
@@ -254,8 +246,8 @@ void USTRow::BuildTree()
 	mButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass());
 	FButtonStyle Style;
 	Style.SetNormal(FSlateNoResource());
-	Style.SetHovered(FSlateColorBrush(FLinearColor(1.f, 1.f, 1.f, 0.08f)));
-	Style.SetPressed(FSlateColorBrush(FLinearColor(1.f, 1.f, 1.f, 0.16f)));
+	Style.SetHovered(STStyle::Rounded(FLinearColor(1.f, 1.f, 1.f, 0.08f), 3.f));
+	Style.SetPressed(STStyle::Rounded(FLinearColor(1.f, 1.f, 1.f, 0.16f), 3.f));
 	Style.SetDisabled(FSlateNoResource());
 	Style.SetNormalPadding(FMargin(4.f, 2.f));
 	Style.SetPressedPadding(FMargin(4.f, 2.f));
