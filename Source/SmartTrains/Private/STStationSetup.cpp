@@ -901,16 +901,17 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 		{
 			continue;
 		}
-		TSet<const AActor*> Users;
+		// Each machine using the item takes at most its own use of it per minute at its clock speed.
+		TMap<const AActor*, double> Users;
 		for (const AActor* Machine : Machines)
 		{
 			TMap<FString, FSetupMachineGroup> One;
 			SetupAddMachine(Machine, One);
 			for (const TPair<FString, FSetupMachineGroup>& Each : One)
 			{
-				if (Each.Value.Ingredients.Contains(Cap.Key))
+				if (const double* PerRun = Each.Value.Ingredients.Find(Cap.Key))
 				{
-					Users.Add(Machine);
+					Users.FindOrAdd(Machine) += *PerRun * Each.Value.Capacity;
 				}
 			}
 		}
@@ -925,10 +926,19 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 			Factory.Notes.Add(FString::Printf(TEXT("the belts carrying %s are larger than the scan depth (%d buildings and belts); raise it in the mod settings"),
 				*STNames::Item(Cap.Key), SetupScanDepth(Subsystem)));
 		}
-		if (Belts.PerMinute >= 0.0 && Belts.PerMinute < Cap.Value * 0.999)
+		// A limit only where the belts bring the machines less than they use (some not reached, or only through a narrow
+		// branch) and less than the platforms send; machines that are simply too few are the rate search's to find.
+		double Use = 0.0;
+		for (const TPair<const AActor*, double>& Each : Users)
+		{
+			Use += Each.Value;
+		}
+		if (Belts.PerMinute >= 0.0 && Belts.PerMinute < Cap.Value * 0.999 && Belts.PerMinute < Use * 0.999)
 		{
 			OwnCaps.FindOrAdd(Cap.Key) *= Cap.Value > 0.0 ? Belts.PerMinute / Cap.Value : 0.0;
-			CapText.Add(Cap.Key, FString::Printf(TEXT("%s on the way from %s"), *Belts.Cut, *FString::Join(CapStations.FindRef(Cap.Key), TEXT(", "))));
+			const FString Where = Belts.Cut.IsEmpty() ? FString::Printf(TEXT("the belts reach only part of its machines (%s/min of the %s/min they use)"),
+				*STSetup::FormatRate(Belts.PerMinute), *STSetup::FormatRate(Use)) : Belts.Cut;
+			CapText.Add(Cap.Key, FString::Printf(TEXT("%s on the way from %s"), *Where, *FString::Join(CapStations.FindRef(Cap.Key), TEXT(", "))));
 			Cap.Value = Belts.PerMinute;
 		}
 	}

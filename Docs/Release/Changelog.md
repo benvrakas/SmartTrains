@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.56.0 (beta)
+
+- **A factory's rate counts only the machines its belts can feed.** The estimate measured what the belts from the
+  train platforms carry in total and compared it with what all machines use. Belts that carried enough in total
+  passed even when part of the machines got nothing (a block of 108 assemblers with input belts laid to fewer of
+  them came out at the rate of all 108). Now each machine takes at most its own use from the belts, so the rate
+  counts what the belts actually bring the machines, one by one, and the readout says when the belts reach only part
+  of them. Rename the station from its factory for its name to show the new rate.
+
 ## 0.55.1 (beta)
 
 - **Platform menus no longer show the last platform's numbers.** The game reuses its menus, so the rate on the

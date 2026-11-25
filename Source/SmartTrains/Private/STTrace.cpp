@@ -913,7 +913,7 @@ STTrace::FFlood STTrace::Flood(const TArray<const AActor*>& Starts, bool bUpstre
 	return Result;
 }
 
-STTrace::FBeltCapacity STTrace::BeltCapacity(const TArray<const AActor*>& Sources, const TSet<const AActor*>& Sinks, int32 Limit)
+STTrace::FBeltCapacity STTrace::BeltCapacity(const TArray<const AActor*>& Sources, const TMap<const AActor*, double>& Sinks, int32 Limit)
 {
 	FBeltCapacity Result;
 	// A link with no belt on it (a splitter plugged straight into a machine).
@@ -925,6 +925,8 @@ STTrace::FBeltCapacity STTrace::BeltCapacity(const TArray<const AActor*>& Source
 		int32 From = 0;
 		int32 To = 0;
 		double Capacity = Unlimited;
+		// A machine's own use, not a belt: left out of the cut's description.
+		bool bMachine = false;
 	};
 	TArray<FLink> Links;
 	// One node per building; a balancer group is one node (its leader).
@@ -953,9 +955,9 @@ STTrace::FBeltCapacity STTrace::BeltCapacity(const TArray<const AActor*>& Source
 		}
 		const int32 Node = NodeCount++;
 		NodeOf.Add(Key, Node);
-		if (Sinks.Contains(Actor))
+		if (const double* Use = Sinks.Find(Actor))
 		{
-			Links.Add({Node, SinkNode, Unlimited});
+			Links.Add({Node, SinkNode, *Use > 0.0 ? *Use : Unlimited, true});
 		}
 		else if (PassesOn(Actor))
 		{
@@ -1082,7 +1084,7 @@ STTrace::FBeltCapacity STTrace::BeltCapacity(const TArray<const AActor*>& Source
 	TMap<int32, int32> BySpeed;
 	for (const FLink& Link : Links)
 	{
-		if (Side[Link.From] && !Side[Link.To] && Link.Capacity < Unlimited)
+		if (Side[Link.From] && !Side[Link.To] && Link.Capacity < Unlimited && !Link.bMachine)
 		{
 			++BySpeed.FindOrAdd(FMath::RoundToInt(Link.Capacity));
 			++Result.CutBelts;

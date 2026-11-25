@@ -97,9 +97,12 @@ namespace STTrace
 		bool bCut = false;
 	};
 
-	// The most per minute belts carry from Sources (train platforms, out of their outputs) to Sinks (machines): a maximum
-	// flow over the belt network downstream. Each run of belts and lifts is one link as fast as its slowest belt;
-	// splitters, mergers, storage and balancers join links without a limit of their own; other machines and platforms
-	// end the walk. Splitter filters aren't followed, so it is an upper bound (Docs/Architecture.md, "Station set-up").
-	FBeltCapacity BeltCapacity(const TArray<const AActor*>& Sources, const TSet<const AActor*>& Sinks, int32 Limit);
+	// The most per minute belts carry from Sources (train platforms, out of their outputs) to Sinks (machines, each taking
+	// at most its own use per minute; 0 or less: no limit): a maximum flow over the belt network downstream. Each run of
+	// belts and lifts is one link as fast as its slowest belt; splitters, mergers, storage and balancers join links
+	// without a limit of their own; other machines and platforms end the walk. With each machine's use as its limit, the
+	// flow is what the belts can bring the machines one by one: machines the belts don't reach, or reach only through a
+	// narrow branch, count only for what they get. Splitter filters aren't followed, so it is an upper bound
+	// (Docs/Architecture.md, "Station set-up").
+	FBeltCapacity BeltCapacity(const TArray<const AActor*>& Sources, const TMap<const AActor*, double>& Sinks, int32 Limit);
 }

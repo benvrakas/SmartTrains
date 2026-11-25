@@ -231,9 +231,14 @@ window's Rename stations); never automatic.
     spacing, pipe flow limit x 60), for the items it is set to, and for belts no more than they carry on to the
     machines that use the item (0.24.0, `STTrace::BeltCapacity`): a maximum flow downstream from all platforms bringing
     the item, each run of belts and lifts one link as fast as its slowest belt, splitters, mergers, storage and
-    balancers joining links, the machines using the item as sinks (`FSTMinCostFlow::SolveMaxFlow`, breadth-first
-    augmenting paths; the min-cost solver's Bellman-Ford is too slow on belt networks). The minimum cut names the
-    limit ("2 belts at 780/min on the way from ..."). Without it, platforms with four belts out merged onto two Mk5
+    balancers joining links, the machines using the item as sinks, each taking at most its own use of the item at its
+    clock speed (0.56.0; `FSTMinCostFlow::SolveMaxFlow`, breadth-first augmenting paths; the min-cost solver's
+    Bellman-Ford is too slow on belt networks). With each machine's use as its limit the flow is what the belts bring
+    the machines one by one, so machines the belts don't reach, or reach through a narrow branch, count only for what
+    they get; before 0.56.0 the machines were one unlimited sink, and belts that carried enough in total passed even
+    when part of the machines got nothing. It caps the item only where it brings less than the machines use and less
+    than the platforms send. The minimum cut names the limit ("2 belts at 780/min on the way from ...", or "the belts
+    reach only part of its machines" when the cut runs through machines). Without it, platforms with four belts out merged onto two Mk5
     belts into a manifold counted as four (IB: Dune Desert Circuit Board Out 1 named 945 where 874 can run). Splitter
     filters aren't followed, so it is an upper bound; pipes keep the platform's own limit (pipe networks have no
     direction to follow). The target fails when a machine group would run over
