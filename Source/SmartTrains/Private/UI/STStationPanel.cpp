@@ -11,6 +11,12 @@
 #include "STLayout.h"
 #include "STRemoteCallObject.h"
 #include "UI/STControls.h"
+#include "UI/STStyle.h"
+#include "Components/Border.h"
+#include "Components/Overlay.h"
+#include "Components/OverlaySlot.h"
+#include "Components/SizeBox.h"
+#include "Components/WrapBox.h"
 #include "UI/STWidgetUtils.h"
 
 #define LOCTEXT_NAMESPACE "SmartTrains"
@@ -25,9 +31,51 @@ namespace
 
 void USTStationPanel::BuildContent(UVerticalBox* Root)
 {
-	MakeHeading(Root, LOCTEXT("StationHeading", "SmartTrains"));
-	mLines = MakeText(Root, LOCTEXT("Loading", "Asking the server..."), 10, true, FMargin(0.f, 6.f, 0.f, 0.f));
-	mNetwork = MakeText(Root, FText::GetEmpty(), 10, true, FMargin(0.f, 6.f, 0.f, 0.f));
+	UHorizontalBox* Bar = MakeTitleBar(Root, FText::GetEmpty(), 20.f);
+	mRole = MakeBadge(Bar, FMargin(6.f, 0.f, 0.f, 0.f));
+
+	MakeLabel(Root, LOCTEXT("PlatformsLabel", "Platforms from the station"));
+	mStrip = WidgetTree->ConstructWidget<UWrapBox>(UWrapBox::StaticClass());
+	mStrip->SetInnerSlotPadding(FVector2D(4.f, 4.f));
+	Root->AddChildToVerticalBox(mStrip);
+
+	mConsumer = MakeCard(Root, STStyle::Header, FMargin(10.f, 8.f), FMargin(0.f, 8.f, 0.f, 0.f));
+	UHorizontalBox* Top = MakeHBox(mConsumer);
+	USizeBox* RingSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+	RingSize->SetWidthOverride(72.f);
+	RingSize->SetHeightOverride(72.f);
+	UOverlay* RingStack = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass());
+	RingSize->AddChild(RingStack);
+	mRing = WidgetTree->ConstructWidget<USTRing>(USTRing::StaticClass());
+	RingStack->AddChildToOverlay(mRing);
+	mRingText = MakeTinted(nullptr, FText::FromString(TEXT("-")), 16, STStyle::Text, true, false);
+	if (UOverlaySlot* TextSlot = RingStack->AddChildToOverlay(mRingText))
+	{
+		TextSlot->SetHorizontalAlignment(HAlign_Center);
+		TextSlot->SetVerticalAlignment(VAlign_Center);
+	}
+	Top->AddChildToHorizontalBox(RingSize);
+	SetVAlignCenter(RingSize);
+	UVerticalBox* Grid = MakeVBox(Top, FMargin(10.f, 0.f, 0.f, 0.f));
+	SetFill(Grid);
+	UHorizontalBox* RowA = MakeHBox(Grid);
+	UVerticalBox* A1 = MakeVBox(RowA);
+	SetFill(A1);
+	mRate = MakeStat(A1, LOCTEXT("StationRate", "car loads / min at most"));
+	UVerticalBox* A2 = MakeVBox(RowA, FMargin(4.f, 0.f, 0.f, 0.f));
+	SetFill(A2);
+	mTrip = MakeStat(A2, LOCTEXT("StationTrip", "round trip"));
+	UHorizontalBox* RowB = MakeHBox(Grid, FMargin(0.f, 4.f, 0.f, 0.f));
+	UVerticalBox* B1 = MakeVBox(RowB);
+	SetFill(B1);
+	mShare = MakeStat(B1, LOCTEXT("StationShare", "of the network's need"));
+	UVerticalBox* B2 = MakeVBox(RowB, FMargin(4.f, 0.f, 0.f, 0.f));
+	SetFill(B2);
+	mServed = MakeStat(B2, LOCTEXT("StationServed", "trains of its share"));
+	mNote = MakeTinted(mConsumer, FText::GetEmpty(), 10, STStyle::Muted, false, true, FMargin(0.f, 6.f, 0.f, 0.f));
+
+	mSourcesLabel = MakeLabel(Root, LOCTEXT("SuppliedFrom", "Supplied from"));
+	mSources = MakeVBox(Root);
 }
 
 AFGTrainStationIdentifier* USTStationPanel::GetStation() const
@@ -112,18 +160,120 @@ void USTStationPanel::ShowSetUp(const TArray<FString>& Lines, uint8 Ready)
 
 void USTStationPanel::Refresh(USTRemoteCallObject* RCO)
 {
-	if (const FSTStationView* View = RCO->GetStationView(GetStation()))
+	const FSTStationView* View = RCO->GetStationView(GetStation());
+	if (!View)
 	{
-		if (mLines)
-		{
-			SetLines(mLines, View->Lines);
-		}
-		if (mNetwork)
-		{
-			SetLines(mNetwork, View->NetworkLines);
-		}
-		ShowSetUp(View->SetupLines, View->SetupReady);
+		return;
 	}
+	ShowSetUp(View->SetupLines, View->SetupReady);
+	if (!mStrip)
+	{
+		return;
+	}
+	// The role badge: what the station is to the loops.
+	const bool bSupplier = View->Supplies.Num() > 0;
+	const FText Role = View->bConsumer && bSupplier ? LOCTEXT("RoleBoth", "Consumer + supplier") : View->bConsumer ? LOCTEXT("RoleConsumer", "Consumer")
+		: bSupplier ? LOCTEXT("RoleSupplier", "Supplier") : LOCTEXT("RoleNone", "Not used");
+	SetBadge(mRole, Role, View->bConsumer ? STStyle::Orange : bSupplier ? STStyle::Good : STStyle::Muted);
+
+	// Platforms in order from the station: a tile each with its role's colour, icon and item.
+	FString StripKey;
+	for (const FSTPlatformChip& Chip : View->Platforms)
+	{
+		StripKey += FString::Printf(TEXT("%d:%d:"), Chip.Index, static_cast<int32>(Chip.Role));
+		for (const TSubclassOf<UFGItemDescriptor>& Item : Chip.Items)
+		{
+			StripKey += GetNameSafe(Item.Get()) + TEXT(",");
+		}
+		StripKey += TEXT(";");
+	}
+	if (StripKey != mStripKey)
+	{
+		mStripKey = StripKey;
+		mStrip->ClearChildren();
+		for (const FSTPlatformChip& Chip : View->Platforms)
+		{
+			const FLinearColor RoleColor = Chip.Role == ESTRole::Demand ? STStyle::Orange : Chip.Role == ESTRole::Supply ? STStyle::Good
+				: Chip.Role == ESTRole::Sink ? STStyle::Warn : STStyle::Line;
+			USizeBox* Width = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+			Width->SetWidthOverride(118.f);
+			mStrip->AddChild(Width);
+			UBorder* Edge = nullptr;
+			UVerticalBox* Outer = MakeCard(nullptr, RoleColor, FMargin(0.f, 3.f, 0.f, 0.f), FMargin(0.f), &Edge);
+			Width->AddChild(Edge);
+			UVerticalBox* Tile = MakeCard(Outer, Chip.Role == ESTRole::Off ? STStyle::Inset : STStyle::Card, FMargin(7.f, 5.f), FMargin(0.f));
+			MakeTinted(Tile, FText::FromString(FString::Printf(TEXT("P%d · %s"), Chip.Index + 1, STNames::Role(Chip.Role))), 9, STStyle::Muted, true, false);
+			if (Chip.Items.Num() == 0)
+			{
+				MakeTinted(Tile, Chip.Role == ESTRole::Sink ? LOCTEXT("SinkAny", "Any cargo") : LOCTEXT("NotUsed", "Not used"), 10, STStyle::Muted, false, true,
+					FMargin(0.f, 3.f, 0.f, 0.f));
+			}
+			for (const TSubclassOf<UFGItemDescriptor>& Item : Chip.Items)
+			{
+				UHorizontalBox* Line = MakeHBox(Tile, FMargin(0.f, 3.f, 0.f, 0.f));
+				SetIcon(MakeIcon(Line, 22.f), Item.Get());
+				UTextBlock* Name = MakeTinted(Line, FText::FromString(STNames::Item(Item)), 10, STStyle::Text, true, true, FMargin(5.f, 0.f, 0.f, 0.f));
+				SetFill(Name);
+				SetVAlignCenter(Name);
+			}
+		}
+	}
+
+	// The consumer's loop.
+	mConsumer->SetVisibility(View->bConsumer ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	if (View->bConsumer)
+	{
+		mRing->SetValue(View->Target > 0 ? FMath::Clamp(static_cast<float>(View->Trains) / View->Target, 0.f, 1.f) : 0.f);
+		mRing->SetColor(View->Trains >= View->Target && View->Trains > 0 ? STStyle::Orange : STStyle::Warn);
+		mRingText->SetText(FText::AsNumber(View->Trains));
+		mRate.Value->SetText(FText::FromString(FString::Printf(TEXT("%.2f"), View->Rate)));
+		mTrip.Value->SetText(FText::FromString(STStyle::Duration(View->RoundTrip)));
+		mShare.Value->SetText(FText::FromString(View->Share >= 0.f ? FString::Printf(TEXT("%.0f %%"), 100.f * View->Share) : FString(TEXT("-"))));
+		mServed.Value->SetText(FText::FromString(View->Trains == 0 ? FString(TEXT("Unserved")) : FString::Printf(TEXT("%d of %d"), View->Trains, View->Target)));
+		FString Note;
+		if (!View->Problem.IsEmpty())
+		{
+			Note = View->Problem;
+		}
+		else if (View->AtDepot > 0)
+		{
+			Note = FString::Printf(TEXT("%d of its trains wait at depot signals: its machines want %.0f %% of their input now."), View->AtDepot, 100.f * View->Use);
+		}
+		mNote->SetText(FText::FromString(Note));
+		Tint(mNote, View->Problem.IsEmpty() ? STStyle::Muted : STStyle::Orange);
+		mNote->SetVisibility(Note.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+	}
+
+	// Its suppliers (a consumer) or what it offers (a supplier).
+	const TArray<FSTSourceView>& Sources = View->bConsumer ? View->Suppliers : View->Supplies;
+	FString SourcesKey = View->bConsumer ? TEXT("c") : TEXT("s");
+	for (const FSTSourceView& Source : Sources)
+	{
+		SourcesKey += Source.Station + GetNameSafe(Source.Item.Get()) + FString::Printf(TEXT("%.0f:%.2f:%.2f;"), Source.Seconds, Source.Rate, Source.Taken);
+	}
+	if (SourcesKey != mSourcesKey)
+	{
+		mSourcesKey = SourcesKey;
+		mSources->ClearChildren();
+		for (const FSTSourceView& Source : Sources)
+		{
+			UVerticalBox* Row = MakeCard(mSources, STStyle::Inset, FMargin(7.f, 4.f), FMargin(0.f, 1.f));
+			UHorizontalBox* Line = MakeHBox(Row);
+			SetIcon(MakeIcon(Line, 20.f), Source.Item.Get());
+			UTextBlock* Name = MakeTinted(Line, FText::FromString(View->bConsumer ? Source.Station : STNames::Item(Source.Item)), 10, STStyle::Text, false, true,
+				FMargin(6.f, 0.f, 0.f, 0.f));
+			SetFill(Name);
+			SetVAlignCenter(Name);
+			const FString Right = View->bConsumer ? STStyle::Duration(Source.Seconds)
+				: Source.Rate >= 0.f ? FString::Printf(TEXT("loops take %.2f of %.2f"), Source.Taken, Source.Rate) : FString::Printf(TEXT("loops take %.2f"), Source.Taken);
+			UTextBlock* Side = MakeTinted(Line, FText::FromString(Right), 9, STStyle::Muted, false, false, FMargin(6.f, 0.f, 0.f, 0.f));
+			SetVAlignCenter(Side);
+		}
+	}
+	mSourcesLabel->SetText(FText::FromString((View->bConsumer ? FString(TEXT("Supplied from")) : FString(TEXT("Offers"))).ToUpper()));
+	const bool bSources = Sources.Num() > 0;
+	mSourcesLabel->SetVisibility(bSources ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	mSources->SetVisibility(bSources ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 }
 
 void USTStationSetupBar::BuildContent(UVerticalBox* Root)

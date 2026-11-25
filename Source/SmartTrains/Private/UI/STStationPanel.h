@@ -9,7 +9,8 @@ class USTButton;
 class UTextBlock;
 
 // "SmartTrains" section added under the train and station lists of the vanilla station menu (Widget_TrainStationNew):
-// the station's platform roles and the fleet status.
+// its platforms in order with their roles and items, and for a consumer its loop (trains against its share, rate,
+// round trip, use) and suppliers; for a supplier what it offers and what loops take.
 UCLASS()
 class USTStationPanel : public USTPanel
 {
@@ -29,11 +30,38 @@ protected:
 	void SendRename(bool bApply);
 	// Shows the lines and turns the rename button into its confirm step while its preview can be applied (Ready 1).
 	void ShowSetUp(const TArray<FString>& Lines, uint8 Ready);
-	UPROPERTY()
-	TObjectPtr<UTextBlock> mLines;
+	// The station panel's widgets (none of them in the set-up bar, which shares the class).
+	FBadge mRole;
 
 	UPROPERTY()
-	TObjectPtr<UTextBlock> mNetwork;
+	TObjectPtr<class UWrapBox> mStrip;
+
+	UPROPERTY()
+	TObjectPtr<UVerticalBox> mConsumer;
+
+	UPROPERTY()
+	TObjectPtr<class USTRing> mRing;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> mRingText;
+
+	FStat mRate;
+	FStat mTrip;
+	FStat mShare;
+	FStat mServed;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> mNote;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> mSourcesLabel;
+
+	UPROPERTY()
+	TObjectPtr<UVerticalBox> mSources;
+
+	// What the strip and the source rows were built for.
+	FString mStripKey;
+	FString mSourcesKey;
 
 	UPROPERTY()
 	TObjectPtr<USTButton> mRename;
