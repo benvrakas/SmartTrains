@@ -7,6 +7,7 @@
 #include "EngineUtils.h"
 #include "FGInventoryComponent.h"
 #include "FGLocomotive.h"
+#include "FGFreightWagon.h"
 #include "FGRailroadTimeTable.h"
 #include "FGRailroadTrackConnectionComponent.h"
 #include "FGTrain.h"
@@ -142,7 +143,7 @@ bool ASTSubsystem::IsLoopFull(const FSTTrainState& State) const
 				continue;
 			}
 			bAny = true;
-			const double Capacity = STLayout::GetCarCapacity(Work.Car, Work.Item);
+			const double Capacity = STLayout::GetCarCapacity(Cast<AFGFreightWagon>(Work.Car.Get()), Work.Item);
 			if (Capacity <= 0.0 || CountInCar(Work.Car, Work.Item) < Capacity * FullShare)
 			{
 				return false;
