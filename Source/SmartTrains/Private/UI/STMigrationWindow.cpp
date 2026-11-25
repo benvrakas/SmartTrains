@@ -21,6 +21,7 @@
 #include "TimerManager.h"
 #include "UI/STControls.h"
 #include "UI/STWidgetUtils.h"
+#include "UI/STStyle.h"
 
 #define LOCTEXT_NAMESPACE "SmartTrains"
 
@@ -36,16 +37,16 @@ namespace
 	constexpr float MigrationWidth = 1120.f;
 	constexpr float MigrationMaxHeight = 860.f;
 	constexpr float MigrationIconSize = 24.f;
-	const FLinearColor MigrationText(0.92f, 0.92f, 0.92f);
-	const FLinearColor MigrationDim(0.62f, 0.62f, 0.62f);
-	const FLinearColor MigrationFlag(1.f, 0.55f, 0.22f);
-	const FLinearColor MigrationCheck(1.f, 0.84f, 0.32f);
-	const FLinearColor MigrationReady(0.5f, 0.85f, 0.5f);
-	const FLinearColor MigrationSupply(0.5f, 0.85f, 0.5f);
-	const FLinearColor MigrationDemand(0.45f, 0.72f, 1.f);
+	const FLinearColor& MigrationText = STStyle::Text;
+	const FLinearColor& MigrationDim = STStyle::Muted;
+	const FLinearColor& MigrationFlag = STStyle::Orange;
+	const FLinearColor& MigrationCheck = STStyle::Warn;
+	const FLinearColor& MigrationReady = STStyle::Good;
+	const FLinearColor& MigrationSupply = STStyle::Good;
+	const FLinearColor& MigrationDemand = STStyle::Orange;
 	// The game's orange, for the selected tab.
-	const FLinearColor MigrationAccent(0.98f, 0.58f, 0.15f);
-	const FLinearColor MigrationDivider(1.f, 1.f, 1.f, 0.08f);
+	const FLinearColor& MigrationAccent = STStyle::Orange;
+	const FLinearColor& MigrationDivider = STStyle::Line;
 	// Stations table columns: tick, new name, platforms, status (the station name fills the rest). [px]
 	constexpr float TickWidth = 44.f;
 	constexpr float NewNameWidth = 330.f;
@@ -236,27 +237,14 @@ UWidget* USTMigrationWindow::WrapRoot(UVerticalBox* Root)
 		DimSlot->SetHorizontalAlignment(HAlign_Fill);
 		DimSlot->SetVerticalAlignment(VAlign_Fill);
 	}
-	UOverlay* Frame = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass());
-	UWidget* Background = STWidgetUtils::CreateVanillaWidget(WidgetTree, STWidgetUtils::ContentBackgroundClass);
-	if (!Background)
-	{
-		UBorder* Plain = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
-		Plain->SetBrushColor(FLinearColor(0.02f, 0.02f, 0.025f, 0.96f));
-		Background = Plain;
-	}
-	if (UOverlaySlot* BackgroundSlot = Frame->AddChildToOverlay(Background))
-	{
-		BackgroundSlot->SetHorizontalAlignment(HAlign_Fill);
-		BackgroundSlot->SetVerticalAlignment(VAlign_Fill);
-	}
+	UBorder* Frame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
+	Frame->SetBrush(STStyle::Outlined(STStyle::Panel, STStyle::Line, 1.f, 6.f));
+	Frame->SetPadding(FMargin(18.f, 14.f));
 	USizeBox* Size = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
 	Size->SetWidthOverride(MigrationWidth);
 	Size->SetMaxDesiredHeight(MigrationMaxHeight);
 	Size->AddChild(Root);
-	if (UOverlaySlot* ContentSlot = Frame->AddChildToOverlay(Size))
-	{
-		ContentSlot->SetPadding(FMargin(20.f, 14.f));
-	}
+	Frame->SetContent(Size);
 	if (UOverlaySlot* FrameSlot = Screen->AddChildToOverlay(Frame))
 	{
 		FrameSlot->SetHorizontalAlignment(HAlign_Center);
@@ -268,15 +256,8 @@ UWidget* USTMigrationWindow::WrapRoot(UVerticalBox* Root)
 void USTMigrationWindow::BuildContent(UVerticalBox* Root)
 {
 	// Title and close.
-	UHorizontalBox* Title = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
-	Root->AddChildToVerticalBox(Title);
-	if (UHorizontalBoxSlot* TitleSlot = Title->AddChildToHorizontalBox(MakeText(nullptr, LOCTEXT("MigrationHeading", "SmartTrains migration"), 18, false)))
-	{
-		TitleSlot->SetVerticalAlignment(VAlign_Center);
-		TitleSlot->SetPadding(FMargin(0.f, 0.f, 16.f, 0.f));
-	}
-	mStatus = MakeText(nullptr, LOCTEXT("MigrationNoPreview", "Press Preview to see what would change."), 10, true);
-	mStatus->SetColorAndOpacity(FSlateColor(MigrationDim));
+	UHorizontalBox* Title = MakeTitleBar(Root, LOCTEXT("MigrationHeading", "Migration"), 30.f);
+	mStatus = MakeTinted(nullptr, LOCTEXT("MigrationNoPreview", "Press Preview to see what would change."), 10, STStyle::Muted, false, true);
 	if (UHorizontalBoxSlot* StatusSlot = Title->AddChildToHorizontalBox(mStatus))
 	{
 		StatusSlot->SetVerticalAlignment(VAlign_Center);
