@@ -1,5 +1,6 @@
 #include "STStationSetup.h"
 #include "Buildables/FGBuildableConveyorBase.h"
+#include "Buildables/FGBuildableGeneratorFuel.h"
 #include "Buildables/FGBuildableManufacturer.h"
 #include "Buildables/FGBuildablePipeline.h"
 #include "Buildables/FGBuildableRailroadStation.h"
@@ -169,6 +170,40 @@ namespace
 				}
 			}
 			Group.Capacity += 60.0 / Cycle;
+			++Group.Count;
+			return;
+		}
+		if (const AFGBuildableGeneratorFuel* Generator = Cast<AFGBuildableGeneratorFuel>(Machine))
+		{
+			// A power plant: the fuel it burns per minute at its most (its power at its clock speed over the fuel's energy),
+			// and the supplemental resource (water) it takes besides. It makes nothing.
+			UClass* Fuel = Generator->GetCurrentFuelClass().Get();
+			for (const TSoftClassPtr<UFGItemDescriptor>& Each : Generator->GetDefaultFuelClasses())
+			{
+				Fuel = Fuel ? Fuel : Each.LoadSynchronous();
+			}
+			const float Energy = Fuel ? UFGItemDescriptor::GetEnergyValue(Fuel) : 0.f;
+			const float Power = Generator->GetPowerProductionCapacity();
+			if (!Fuel || Energy <= 0.f || Power <= 0.f)
+			{
+				return;
+			}
+			FSetupMachineGroup& Group = Groups.FindOrAdd(FString::Printf(TEXT("burn:%s|%s|%d"), *Machine->GetClass()->GetPathName(), *Fuel->GetPathName(),
+				FMath::RoundToInt(Power * 10.f)));
+			if (Group.Count == 0)
+			{
+				Group.Name = FString::Printf(TEXT("generators burning %s"), *STNames::Item(Fuel));
+				// Energy is per item, or per litre of a fluid; the scan counts fluids in m3.
+				const double FuelPerMinute = 60.0 * Power / Energy / (SetupIsFluid(Fuel) ? 1000.0 : 1.0);
+				Group.Ingredients.Add(Fuel, FuelPerMinute);
+				UClass* Extra = Generator->GetSupplementalResourceClass().Get();
+				const double ExtraPerMinute = 60.0 * Generator->GetSupplementalConsumptionRateMaximum();
+				if (Extra && ExtraPerMinute > 0.0)
+				{
+					Group.Ingredients.FindOrAdd(Extra) += ExtraPerMinute;
+				}
+			}
+			Group.Capacity += 1.0;
 			++Group.Count;
 			return;
 		}
@@ -943,8 +978,9 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 
 	if (!Factory.bManufactured)
 	{
-		// Unloading into machines that make nothing (power plants, storage): its own belts or pipes. Loading what no
-		// machine it reaches makes: unknown.
+		// Unloading into machines that make nothing: power plants use what they burn at their most, within this station's
+		// own belts or pipes; others (storage, sinks) only have those belts or pipes to go by. Loading what no machine it
+		// reaches makes: unknown.
 		if (!bAnyDemand)
 		{
 			Factory.Limit = TEXT("no machine reached");
@@ -953,6 +989,36 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 		FString Text;
 		Factory.Rate = OwnThroughput(Product, true, Text);
 		Factory.Limit = Factory.Rate > 0.0 ? Text : FString(TEXT("nothing measurable attached"));
+		TMap<UClass*, double> Burned;
+		for (const FSetupMachineGroup& Group : GroupsOf(Down.Machines))
+		{
+			for (const TPair<UClass*, double>& Ingredient : Group.Ingredients)
+			{
+				Burned.FindOrAdd(Ingredient.Key) += Ingredient.Value * Group.Capacity;
+			}
+		}
+		for (UClass* Item : InputItems)
+		{
+			const double Use = Burned.FindRef(Item);
+			if (Use <= 0.0)
+			{
+				continue;
+			}
+			FString Own;
+			const double Belts = OwnThroughput(Item, true, Own);
+			const double Rate = Belts > 0.0 ? FMath::Min(Use, Belts) : Use;
+			Factory.InputRates.Add(Item, Rate);
+			if (Item == Product)
+			{
+				Factory.Rate = Rate;
+				Factory.Limit = Belts > 0.0 && Belts < Use ? Own : FString(TEXT("what its generators burn at their most"));
+			}
+			if (Item == Factory.InputItem.Get())
+			{
+				Factory.InputRate = Rate;
+				Factory.InputLimit = Belts > 0.0 && Belts < Use ? Own : FString(TEXT("what its generators burn at their most"));
+			}
+		}
 		return Factory;
 	}
 

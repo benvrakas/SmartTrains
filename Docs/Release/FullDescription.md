@@ -38,7 +38,9 @@ gets follows how much it needs compared with the rest of your network. You don't
   depot signal's passing siding, then deliver straight away when it picks up. Without one they keep circulating.
 - **Car patterns:** a consumer station's unloading platforms, in order from the station, make its pattern: car 1 iron,
   car 2 wire, and so on. Every train serving that station carries exactly that pattern, so a car only ever carries
-  its one item (or one of its group). A train only serves stations its cars line up with.
+  its one item (or one of its group). A train only serves stations its cars line up with, and goes first to stations
+  its whole consist matches: as many cars as the pattern, and as long as the station and its platforms, locomotives
+  at the front and back included.
 - **Loops:** each train serving a consumer runs one loop, over and over: it loads what each supplier of its pattern has,
   then unloads what fits at the consumer, and goes round again. It never waits at a platform for more cargo or room,
   so it doesn't hold up the trains behind it; partly filled cars just mean another round. Its timetable repeats by

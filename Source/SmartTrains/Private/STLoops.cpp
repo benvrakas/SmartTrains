@@ -516,6 +516,21 @@ const FSTConsumer* ASTSubsystem::FindConsumer(const AFGTrainStationIdentifier* S
 	return Station ? mConsumers.FindByPredicate([Station](const FSTConsumer& Each) { return Each.Station.Get() == Station; }) : nullptr;
 }
 
+int32 ASTSubsystem::GetMismatch(const AFGTrain* Train, const FSTConsumer& Consumer) const
+{
+	const AFGTrainStationIdentifier* Identifier = Consumer.Station.Get();
+	const AFGBuildableRailroadStation* Station = Identifier ? Identifier->GetStation() : nullptr;
+	if (!Train || !Station)
+	{
+		return 0;
+	}
+	// Cars it carries nothing in, and how far its length (locomotives included) is from the station's: the station
+	// itself holds one vehicle, each platform one more.
+	const int32 IdleCars = FMath::Max(0, GetCars(Train).Num() - Consumer.Slots.Num());
+	const int32 Places = 1 + STLayout::GetPlatforms(Station).Num();
+	return IdleCars + FMath::Abs(STLayout::GetVehicles(Train).Num() - Places);
+}
+
 bool ASTSubsystem::FitsConsumer(const AFGTrain* Train, const FSTConsumer& Consumer, TArray<AFGFreightWagon*>& OutCars, FString& OutWhy) const
 {
 	OutCars.Reset();
@@ -560,8 +575,9 @@ void ASTSubsystem::AssignTrains()
 			Available.Add(&State);
 		}
 	}
-	// Which consumers each train fits.
+	// Which consumers each train fits, and how far its consist is from each one's station (GetMismatch).
 	TMap<const FSTTrainState*, TArray<int32>> Fits;
+	TMap<TPair<const FSTTrainState*, int32>, int32> Mismatch;
 	TArray<int32> Fitting;
 	Fitting.Init(0, mConsumers.Num());
 	for (const FSTTrainState* State : Available)
@@ -575,9 +591,11 @@ void ASTSubsystem::AssignTrains()
 			{
 				List.Add(Index);
 				++Fitting[Index];
+				Mismatch.Add(TPair<const FSTTrainState*, int32>(State, Index), GetMismatch(State->Train, mConsumers[Index]));
 			}
 		}
 	}
+	auto MismatchOf = [&Mismatch](const FSTTrainState* State, int32 Index) { return Mismatch.FindRef(TPair<const FSTTrainState*, int32>(State, Index)); };
 	// A new split only when what it depends on changed: the consumers, their sources and priority, the trains and what
 	// they fit, or a consumer's rate (what its suppliers can give of it) by more than the Mods menu's share since the
 	// last split. Moving a train costs a round or more, so small changes don't move any.
@@ -667,55 +685,74 @@ void ASTSubsystem::AssignTrains()
 				Free.Add(State);
 			}
 		}
-		// Consumers short of their target take free trains that fit them: empty ones first, then the nearest.
+		// Consumers short of their target take free trains that fit them, pair by pair: the train whose consist matches
+		// the station best first (GetMismatch), then the consumer furthest short, then empty trains, then the nearest.
 		auto Distance = [this](const FSTTrainState* State, const FSTConsumer& Consumer)
 		{
 			const float Travel = State->LastStation ? EstimateTravelSeconds(State->LastStation.Get(), Consumer.Station.Get(), IsPushPull(State->Train)) : -1.f;
 			return Travel >= 0.f ? Travel : TNumericLimits<float>::Max() / 2.f;
 		};
-		for (bool bFilled = true; bFilled;)
+		for (;;)
 		{
-			bFilled = false;
 			int32 Best = INDEX_NONE;
+			FSTTrainState* Pick = nullptr;
+			int32 PickMismatch = 0;
+			bool bPickEmpty = false;
+			float PickDistance = 0.f;
 			for (int32 Index = 0; Index < mConsumers.Num(); ++Index)
 			{
 				const int32 Short = Targets[Index] - On[Index].Num();
-				const bool bAnyFits = Free.ContainsByPredicate([&](const FSTTrainState* State) { return Fits.FindRef(State).Contains(Index); });
-				if (Short > 0 && bAnyFits && (Best == INDEX_NONE || Short > Targets[Best] - On[Best].Num()))
-				{
-					Best = Index;
-				}
-			}
-			if (Best == INDEX_NONE)
-			{
-				break;
-			}
-			FSTTrainState* Pick = nullptr;
-			for (FSTTrainState* State : Free)
-			{
-				if (!Fits.FindRef(State).Contains(Best))
+				if (Short <= 0)
 				{
 					continue;
 				}
-				const bool bEmpty = GetCargo(State->Train).Num() == 0;
-				const bool bPickEmpty = Pick && GetCargo(Pick->Train).Num() == 0;
-				if (!Pick || (bEmpty && !bPickEmpty) || (bEmpty == bPickEmpty && Distance(State, mConsumers[Best]) < Distance(Pick, mConsumers[Best])))
+				for (FSTTrainState* State : Free)
 				{
-					Pick = State;
+					if (!Fits.FindRef(State).Contains(Index))
+					{
+						continue;
+					}
+					const int32 Off = MismatchOf(State, Index);
+					const bool bEmpty = GetCargo(State->Train).Num() == 0;
+					const int32 BestShort = Best != INDEX_NONE ? Targets[Best] - On[Best].Num() : 0;
+					bool bBetter = !Pick || Off < PickMismatch;
+					if (Pick && Off == PickMismatch)
+					{
+						bBetter = Short > BestShort || (Short == BestShort && ((bEmpty && !bPickEmpty)
+							|| (bEmpty == bPickEmpty && Distance(State, mConsumers[Index]) < PickDistance)));
+					}
+					if (bBetter)
+					{
+						Best = Index;
+						Pick = State;
+						PickMismatch = Off;
+						bPickEmpty = bEmpty;
+						PickDistance = Distance(State, mConsumers[Index]);
+					}
 				}
+			}
+			if (!Pick)
+			{
+				break;
 			}
 			On[Best].Add(Pick);
 			Free.Remove(Pick);
-			bFilled = true;
 		}
-		// Trains left over (their fitting consumers are full): each goes where it fits that is furthest below its share.
+		// Trains left over (their fitting consumers are full): each goes where its consist matches best, then where it fits
+		// that is furthest below its share.
 		for (FSTTrainState* State : Free)
 		{
 			int32 Best = INDEX_NONE;
 			for (const int32 Index : Fits.FindRef(State))
 			{
+				if (Needs[Index] <= 0.0)
+				{
+					continue;
+				}
 				const double Ratio = Needs[Index] / (On[Index].Num() + 1.0);
-				if (Needs[Index] > 0.0 && (Best == INDEX_NONE || Ratio > Needs[Best] / (On[Best].Num() + 1.0)))
+				const int32 Off = MismatchOf(State, Index);
+				const int32 BestOff = Best != INDEX_NONE ? MismatchOf(State, Best) : 0;
+				if (Best == INDEX_NONE || Off < BestOff || (Off == BestOff && Ratio > Needs[Best] / (On[Best].Num() + 1.0)))
 				{
 					Best = Index;
 				}

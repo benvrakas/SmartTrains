@@ -225,6 +225,10 @@ public:
 	const TArray<FSTSupplier>& GetSuppliers() const { return mSuppliers; }
 	// The consumer whose station is Station, or nullptr.
 	const FSTConsumer* FindConsumer(const AFGTrainStationIdentifier* Station) const;
+	// How far Train's consist is from Consumer's station: cars it carries nothing in, plus how many vehicles (locomotives
+	// included) it has more or fewer than the station and its platforms hold. 0 is an exact match; the split gives trains
+	// to the consumers they match best first.
+	int32 GetMismatch(const AFGTrain* Train, const FSTConsumer& Consumer) const;
 	// Whether Train's cars line up with Consumer's pattern (a freight car beside every slot's platform, whatever it
 	// holds); OutCars gets the car beside each slot, OutWhy why not.
 	bool FitsConsumer(const AFGTrain* Train, const FSTConsumer& Consumer, TArray<AFGFreightWagon*>& OutCars, FString& OutWhy) const;

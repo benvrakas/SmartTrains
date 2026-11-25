@@ -75,8 +75,12 @@ sources and priority, and the available trains with what each fits; or when a co
 moved by more than **Share trains out again after a rate change of** (`ResplitPercent`, 15 %) since the last split
 (`mSplitRates`). Moving a train costs at least a round, so small rate changes (the server split 32 times in 20 minutes
 on rates changing in the third digit) move none. Round trips are left out, so learned travel times don't move trains. On a new split, each train keeps its consumer while it fits there and the consumer isn't over its
-target; consumers short of their target take free trains that fit them, empty ones first, then the nearest
-(`EstimateTravelSeconds` from its last station); trains left over go where they fit furthest below their share. A
+target; consumers short of their target take free trains that fit them pair by pair: the train whose consist matches
+the station best first (`GetMismatch`: cars it carries nothing in, plus how many vehicles, locomotives included, it has
+more or fewer than the station and its platforms hold; 0 is exact), then the consumer furthest short, then empty
+trains, then the nearest (`EstimateTravelSeconds` from its last station); trains left over go where they match best,
+then where they fit furthest below their share. A train keeps its consumer on a new split as before, so a better
+match only changes where free trains go. A
 train whose consumer changes logs a `LOOP` line; each split logs a `SPLIT` line.
 
 ### A train's loop
@@ -235,15 +239,18 @@ window's Rename stations); never automatic.
     direction to follow). The target fails when a machine group would run over
     its capacity or a train-fed item over its belts. The first failing one is the limit named in the readout.
     Ingredients nothing in the factory makes and no train brings are assumed to arrive (noted). A station that only
-    loads is also capped by the belts or pipes into its platforms. Unloading into machines that make nothing (power
-    plants), the rate is the station's own belts or pipes; loading what no reached machine makes, it is unknown and
-    the name has no rate.
+    loads is also capped by the belts or pipes into its platforms. Unloading into machines that make nothing: power plants
+    (`AFGBuildableGeneratorFuel`, read like a machine group in `SetupAddMachine`) use what they burn at their most, 60 x
+    their power at their clock speed over the fuel's energy (per litre for fluids), plus their supplemental water,
+    within the station's own belts or pipes (0.55.0; before, the belts or pipes alone, so power plants were named for a
+    full belt and their loops had no rate); storage and sinks only have the station's belts or pipes. Loading what no
+    reached machine makes, it is unknown and the name has no rate.
   - **Scan depth** (`ScanDepth` setting, 50,000 buildings and belt segments, 1,000 to 500,000): the limit of every
     flood fill, platform trace and belt capacity walk in set-up (`SetupScanDepth`); a walk cut short says so in the
     set-up notes.
 - **Which item names a station:** what it loads (only loading); the one item it unloads, with
   `FFactory::InputRate`, how much of it the factory uses at its most rate (its share of all trains bringing that
-  item, within its own belts), or its own belts when nothing is made (power plants); several unloaded items: the
+  item, within its own belts), what its power plants burn when nothing is made, else its own belts; several unloaded items: the
   factory's product and rate. A loading station's rate is its share of the factory: its belts or pipes into its
   platforms against all loading platforms for the product that the factory's machines feed (`DownPlatforms`), so
   two stations loading from one factory don't both claim all of it.

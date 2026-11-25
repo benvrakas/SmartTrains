@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.55.0 (beta)
+
+- **Trains go first to stations their consist matches.** A train serves any station whose unloading platforms each
+  have one of its freight cars beside them, and still does; but when trains are shared out, each goes first to the
+  station it matches best: as many freight cars as the station's pattern, and as long as the station and its
+  platforms, locomotives at the front and back included (two locomotives, three cars and a reverse locomotive go to
+  a station of six places with three unloading platforms where the cars stop). Trains keep their station as before,
+  so only free trains move by this.
+- **Power plants get their real rate.** A station unloading into generators was named and planned for its full
+  belts or pipes, and its loop had no known rate at all. Now its rate is what its generators burn at their most
+  (their power at their clock speed over the fuel's energy), plus the water coal generators take, within its own
+  belts or pipes. Storage and sinks still go by their belts or pipes.
+
 ## 0.54.2 (beta)
 
 - **Fixed: the station menu's SmartTrains tab showed the world through it** and cut its own tab button off. Its page
