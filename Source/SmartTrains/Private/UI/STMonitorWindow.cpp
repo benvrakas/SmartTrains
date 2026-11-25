@@ -450,9 +450,9 @@ UHorizontalBox* USTMonitorWindow::AddRowCard(uint8 Severity, const FString& Key,
 				const TArray<FString>* Details = RCO ? RCO->GetMonitorDetails(Key) : nullptr;
 				Lines = Details ? *Details : TArray<FString>({TEXT("Asking the server...")});
 			}
-			for (const FString& Line : Extra)
+			for (const FString& Each : Extra)
 			{
-				Lines.AddUnique(Line);
+				Lines.AddUnique(Each);
 			}
 			UTextBlock* Text = MakeTinted(Inside, FText::GetEmpty(), 10, STStyle::Muted, false, true, FMargin(0.f, 6.f, 0.f, 0.f));
 			SetLines(Text, Lines);
