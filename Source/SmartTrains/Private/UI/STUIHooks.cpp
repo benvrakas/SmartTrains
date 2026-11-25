@@ -4,6 +4,7 @@
 #include "SmartTrains.h"
 #include "UI/STPlatformPanel.h"
 #include "UI/STPlatformWindow.h"
+#include "UI/STRideHud.h"
 #include "UI/STStationPanel.h"
 #include "UI/STTrainPanel.h"
 #include "UI/STWidgetUtils.h"
@@ -95,5 +96,6 @@ void STUIHooks::Register(UObject* Outer, TArray<UWidgetBlueprintHookData*>& OutH
 	Keep(AddHook(Outer, Manager, STWidgetUtils::StationMenuClass, TEXT("VerticalBox_0"),
 		USTStationSetupBar::StaticClass(), TEXT("ST_StationSetupBar")));
 	UE_LOG(LogSmartTrains, Log, TEXT("%d of 5 UI hooks registered"), OutHooks.Num());
+	USTRideHud::Install();
 #endif
 }
