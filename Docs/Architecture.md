@@ -55,8 +55,8 @@ notes are in the git history of this file.
 
 ### Priority
 
-Each Demand platform has a priority (`FSTPlatformConfig::Priority`: Low, Medium by default, High); a consumer takes
-the highest of its platforms'. A consumer's **full need** is its need rounded up (a need within 0.05 of a whole train
+Each consumer station has a priority (`FSTStationConfig::Priority` in `mStationConfigs`: Low, Medium by default,
+High), set on its station menu's consumer card; it is the station's, since its whole pattern is one loop. A consumer's **full need** is its need rounded up (a need within 0.05 of a whole train
 rounds down), at least one and at most the available trains that fit it. The tiers take turns from High down: a tier
 whose full needs the trains left cover gets them all; otherwise it splits what is left in proportion to its full
 needs (`Split`: one each while there are enough, then largest remainder) and the lower tiers get none. So High takes

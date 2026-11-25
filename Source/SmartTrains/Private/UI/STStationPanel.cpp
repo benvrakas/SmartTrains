@@ -74,6 +74,22 @@ void USTStationPanel::BuildContent(UVerticalBox* Root)
 	mServed = MakeStat(B2, LOCTEXT("StationServed", "trains of its share"));
 	mNote = MakeTinted(mConsumer, FText::GetEmpty(), 10, STStyle::Muted, false, true, FMargin(0.f, 6.f, 0.f, 0.f));
 
+	MakeLabel(mConsumer, LOCTEXT("PriorityLabel", "Priority"));
+	UHorizontalBox* Priorities = MakeHBox(mConsumer);
+	for (int32 Index = 0; Index <= static_cast<int32>(ESTPriority::High); ++Index)
+	{
+		const ESTPriority Level = static_cast<ESTPriority>(Index);
+		USTSegment* Segment = WidgetTree->ConstructWidget<USTSegment>(USTSegment::StaticClass());
+		Segment->SetText(FText::FromString(STNames::Priority(Level)));
+		Segment->SetFont(GetFont(11, true));
+		Segment->OnClick = [this, Level]() { SetPriority(Level); };
+		Priorities->AddChildToHorizontalBox(Segment);
+		SetFill(Segment);
+		SetSlotPadding(Segment, FMargin(Index > 0 ? 3.f : 0.f, 0.f, 0.f, 0.f));
+		mPrioritySegments.Add(Segment);
+	}
+	mPriorityHint = MakeTinted(mConsumer, FText::GetEmpty(), 10, STStyle::Muted, false, true, FMargin(0.f, 4.f, 0.f, 0.f));
+
 	mSourcesLabel = MakeLabel(Root, LOCTEXT("SuppliedFrom", "Supplied from"));
 	mSources = MakeVBox(Root);
 }
@@ -91,7 +107,24 @@ AFGTrainStationIdentifier* USTStationPanel::GetStation() const
 bool USTStationPanel::OnShown()
 {
 	UE_LOG(LogSmartTrains, Log, TEXT("Station menu for %s"), *STLayout::Name(GetStation()));
+	// The game reuses menu widgets: the priority shown is the next readout's.
+	mPriority = ESTPriority::Medium;
 	return true;
+}
+
+void USTStationPanel::SetPriority(ESTPriority NewPriority)
+{
+	USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
+	AFGTrainStationIdentifier* Station = GetStation();
+	if (!RCO || !Station || NewPriority == mPriority)
+	{
+		return;
+	}
+	mPriority = NewPriority;
+	mPriorityEdit = RCO->NextEdit();
+	UE_LOG(LogSmartTrains, Log, TEXT("Station menu: %s priority -> %s (edit %d)"), *STLayout::Name(Station), STNames::Priority(NewPriority), mPriorityEdit);
+	RCO->Server_SetStationPriority(Station, NewPriority, mPriorityEdit);
+	RefreshSoon();
 }
 
 void USTStationPanel::RequestView(USTRemoteCallObject* RCO)
@@ -242,6 +275,19 @@ void USTStationPanel::Refresh(USTRemoteCallObject* RCO)
 		mNote->SetText(FText::FromString(Note));
 		Tint(mNote, View->Problem.IsEmpty() ? STStyle::Muted : STStyle::Orange);
 		mNote->SetVisibility(Note.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+		if (View->AppliedEdit >= mPriorityEdit)
+		{
+			mPriority = View->Priority;
+		}
+		for (int32 Index = 0; Index < mPrioritySegments.Num(); ++Index)
+		{
+			mPrioritySegments[Index]->SetSelected(static_cast<int32>(mPriority) == Index);
+		}
+		mPriorityHint->SetText(mPriority == ESTPriority::High
+			? LOCTEXT("PriorityHigh", "Takes trains from other loops until it has enough for its factory's full input.")
+			: mPriority == ESTPriority::Low
+			? LOCTEXT("PriorityLow", "Gets trains only once every Medium and High loop has enough for its full input.")
+			: LOCTEXT("PriorityMedium", "Shares the trains High loops leave with the other Medium loops, by need."));
 	}
 
 	// Its suppliers (a consumer) or what it offers (a supplier).

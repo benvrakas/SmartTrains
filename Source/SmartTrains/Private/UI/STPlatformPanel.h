@@ -48,7 +48,6 @@ private:
 	void SendEdit(const TCHAR* What);
 
 	void SetRole(ESTRole NewRole);
-	void SetPriority(ESTPriority NewPriority);
 	void AddItem(TSubclassOf<UFGItemDescriptor> Item);
 	void RemoveItem(int32 Index);
 
@@ -63,7 +62,6 @@ private:
 	// Settings as the player last set them (or as the server last reported them).
 	ESTRole mRole = ESTRole::Off;
 	TArray<FSTItemRule> mItems;
-	ESTPriority mPriority = ESTPriority::Medium;
 	bool bHasSettings = false;
 	bool bFluid = false;
 	// Edit number of this panel's last change; older readouts don't overwrite the panel's copy.
@@ -79,19 +77,6 @@ private:
 	// Off, Supply, Demand, Sink.
 	UPROPERTY()
 	TArray<TObjectPtr<class USTSegment>> mRoleSegments;
-
-	// Demand platforms only: the "Priority" heading, the Low, Medium and High segments and what the choice does.
-	UPROPERTY()
-	TObjectPtr<UTextBlock> mPriorityLabel;
-
-	UPROPERTY()
-	TObjectPtr<class UHorizontalBox> mPriorityBar;
-
-	UPROPERTY()
-	TArray<TObjectPtr<class USTSegment>> mPrioritySegments;
-
-	UPROPERTY()
-	TObjectPtr<UTextBlock> mPriorityHint;
 
 	FStat mStatRate;
 	FStat mStatLoops;

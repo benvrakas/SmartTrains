@@ -20,7 +20,10 @@ public:
 	//~ Edits. Edit is the sender's edit number, echoed in later views.
 
 	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_SetPlatform(AFGBuildableTrainPlatformCargo* Platform, ESTRole Role, const TArray<FSTItemRule>& Items, ESTPriority Priority, int32 Edit);
+	void Server_SetPlatform(AFGBuildableTrainPlatformCargo* Platform, ESTRole Role, const TArray<FSTItemRule>& Items, int32 Edit);
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_SetStationPriority(AFGTrainStationIdentifier* Station, ESTPriority Priority, int32 Edit);
 
 	// Gives every platform of the same cargo type in Platform's station Platform's settings.
 	UFUNCTION(Server, Reliable, WithValidation)

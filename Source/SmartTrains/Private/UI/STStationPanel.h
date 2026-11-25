@@ -26,6 +26,9 @@ protected:
 
 	AFGTrainStationIdentifier* GetStation() const;
 
+	// Sends the station's priority as a consumer.
+	void SetPriority(ESTPriority NewPriority);
+
 	// Station name from its factory: shows it (bApply false) or renames the station.
 	void SendRename(bool bApply);
 	// Shows the lines and turns the rename button into its confirm step while its preview can be applied (Ready 1).
@@ -52,6 +55,17 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mNote;
+
+	// Its priority: Low, Medium and High, and what the choice does.
+	UPROPERTY()
+	TArray<TObjectPtr<class USTSegment>> mPrioritySegments;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> mPriorityHint;
+
+	ESTPriority mPriority = ESTPriority::Medium;
+	// Edit number of the last priority click; older readouts don't undo it.
+	int32 mPriorityEdit = 0;
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mSourcesLabel;

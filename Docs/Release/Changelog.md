@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.53.2 (beta)
+
+- **Priority moved from the platforms to the station.** A consumer's whole pattern is one loop, so its priority is
+  the station's: Low, Medium and High are on the consumer card in the station menu, and no longer on platforms.
+  Priorities set on platforms in 0.53.0 or 0.53.1 aren't carried over; set them again on the station.
+
 ## 0.53.1 (beta)
 
 - **The last square pieces are rounded now:** every text button (Close, Add item, Copy, Paste, Autodetect, Copy to

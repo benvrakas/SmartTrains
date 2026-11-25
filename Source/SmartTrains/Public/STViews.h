@@ -123,9 +123,6 @@ struct SMARTTRAINS_API FSTPlatformView
 	UPROPERTY()
 	TArray<FSTItemRule> Items;
 
-	UPROPERTY()
-	ESTPriority Priority = ESTPriority::Medium;
-
 	// One readout per entry of Items: stock, rate, batch or target.
 	UPROPERTY()
 	TArray<FString> ItemLines;
@@ -175,9 +172,6 @@ struct SMARTTRAINS_API FSTPlatformSettings
 
 	UPROPERTY()
 	TArray<FSTItemRule> Items;
-
-	UPROPERTY()
-	ESTPriority Priority = ESTPriority::Medium;
 };
 
 USTRUCT()
@@ -290,6 +284,9 @@ struct SMARTTRAINS_API FSTStationView
 	// It is a consumer (its loop's numbers below), and a supplier (Supplies).
 	UPROPERTY()
 	bool bConsumer = false;
+
+	UPROPERTY()
+	ESTPriority Priority = ESTPriority::Medium;
 
 	UPROPERTY()
 	float Rate = 0.f;

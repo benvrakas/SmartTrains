@@ -15,9 +15,7 @@ gets follows how much it needs compared with the rest of your network. You don't
   next train; **Settings** opens the editor.
   - **Supply:** managed trains pick items up here.
   - **Demand:** managed trains deliver here. Several items on one platform make an item group: the car beside it
-    carries one of them. **Priority** (Low, Medium, High) decides who gets trains when there aren't enough for
-    every factory: High takes trains from other loops until it has enough for its factory's full input, Low waits
-    until every Medium and High loop has.
+    carries one of them.
   - **Sink:** a train switching to another station's loop unloads cargo here that its old station had no room for.
   - **Off:** vanilla.
   - **Copy**, **Paste** and **Copy to the station's other platforms** carry the platform's settings.
@@ -27,6 +25,9 @@ gets follows how much it needs compared with the rest of your network. You don't
   **Rename station from its factory** names it from what the factory makes, its map area, a number and its most per
   minute, e.g. "Grass Fields Modular Frame Out 1 (288)". Each shows what it would do first; click again to do it.
   `/st setup all` does every station; the name format and words are yours (`/st setup format`, `/st setup words`).
+- **Priority:** a consumer station's menu has **Low**, **Medium** and **High**, for when there aren't enough trains
+  for every factory: High takes trains from other loops until it has enough for its factory's full input, Low waits
+  until every Medium and High loop has.
 - **Trains:** in the locomotive menu, switch **Managed** on. SmartTrains writes its timetable; the game, or Auto
   Trains, drives it. The menu shows its pattern as car tiles with fill bars, its loop's stops and how many trains share
   its pattern; while you ride it, the same shows as a card at the top right of the screen.

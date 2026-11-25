@@ -28,7 +28,7 @@ enum class ESTRole : uint8
 };
 
 // How a consumer station gets trains when there aren't enough for every loop's full need (Docs/Architecture.md,
-// "Priority"). A station's priority is the highest of its Demand platforms'.
+// "Priority"). Set per station, since its whole pattern is one loop.
 UENUM()
 enum class ESTPriority : uint8
 {
@@ -113,10 +113,6 @@ struct SMARTTRAINS_API FSTPlatformConfig
 	UPROPERTY(SaveGame)
 	TArray<FSTItemRule> Items;
 
-	// Demand platforms: how their station gets trains.
-	UPROPERTY(SaveGame)
-	ESTPriority Priority = ESTPriority::Medium;
-
 	// Load/unload setting the platform had before it got a role, put back when the role is removed.
 	UPROPERTY(SaveGame)
 	bool bOriginalLoadMode = false;
@@ -135,6 +131,20 @@ struct SMARTTRAINS_API FSTPlatformConfig
 
 	// Returns the rule for Item, or the any-item rule of a sink, or nullptr.
 	const FSTItemRule* FindRule(TSubclassOf<UFGItemDescriptor> Item) const;
+};
+
+// A station's own SmartTrains settings.
+USTRUCT()
+struct SMARTTRAINS_API FSTStationConfig
+{
+	GENERATED_BODY()
+
+	UPROPERTY(SaveGame)
+	TObjectPtr<AFGTrainStationIdentifier> Station = nullptr;
+
+	// As a consumer: how its loop gets trains.
+	UPROPERTY(SaveGame)
+	ESTPriority Priority = ESTPriority::Medium;
 };
 
 // How the station set-up names stations (Docs/Architecture.md, "Station set-up"), per world. {area}, {product},

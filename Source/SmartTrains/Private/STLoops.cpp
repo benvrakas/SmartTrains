@@ -347,6 +347,7 @@ void ASTSubsystem::BuildLoopModel()
 		Each.Value.Sort([](const TPair<int32, const FSTPlatformConfig*>& A, const TPair<int32, const FSTPlatformConfig*>& B) { return A.Key < B.Key; });
 		FSTConsumer Consumer;
 		Consumer.Station = Each.Key;
+		Consumer.Priority = GetStationPriority(Each.Key);
 		TMap<UClass*, int32> SlotsOf;
 		for (const TPair<int32, const FSTPlatformConfig*>& Platform : Each.Value)
 		{
@@ -354,7 +355,6 @@ void ASTSubsystem::BuildLoopModel()
 			{
 				continue;
 			}
-			Consumer.Priority = FMath::Max(Consumer.Priority, Platform.Value->Priority);
 			FSTLoopSlot& Slot = Consumer.Slots.AddDefaulted_GetRef();
 			Slot.Index = Platform.Key;
 			Slot.Platform = Platform.Value->Platform.Get();

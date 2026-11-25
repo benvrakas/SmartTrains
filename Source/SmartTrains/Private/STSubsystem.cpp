@@ -138,6 +138,7 @@ void ASTSubsystem::PreSaveGame_Implementation(int32 SaveVersion, int32 GameVersi
 	mClockAtSave = Now();
 	mLoopsVersion = 1;
 	mPlatforms.RemoveAll([](const FSTPlatformConfig& Config) { return !IsValid(Config.Platform) || (Config.Role == ESTRole::Off && Config.Items.Num() == 0); });
+	mStationConfigs.RemoveAll([](const FSTStationConfig& Config) { return !IsValid(Config.Station) || Config.Priority == ESTPriority::Medium; });
 	mTrains.RemoveAll([](const FSTTrainState& State) { return !IsValid(State.Train) || (!State.bManaged && !State.bKeepVanilla); });
 	mDockMaps.RemoveAll([](const FSTDockMap& Map) { return !IsValid(Map.Train) || !IsValid(Map.Station); });
 	mTrips.RemoveAll([](const FSTTripTime& Trip) { return !IsValid(Trip.From) || !IsValid(Trip.To); });
@@ -356,20 +357,26 @@ void ASTSubsystem::SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, E
 	bCheckSoon = true;
 }
 
-void ASTSubsystem::SetPlatformPriority(AFGBuildableTrainPlatformCargo* Platform, ESTPriority Priority, const FString& Cause)
+ESTPriority ASTSubsystem::GetStationPriority(const AFGTrainStationIdentifier* Station) const
 {
-	FSTPlatformConfig* Config = Platform ? FindPlatformConfig(Platform) : nullptr;
-	if (!Config || Config->Priority == Priority)
+	const FSTStationConfig* Config = Station ? mStationConfigs.FindByPredicate([Station](const FSTStationConfig& Each) { return Each.Station == Station; }) : nullptr;
+	return Config ? Config->Priority : ESTPriority::Medium;
+}
+
+void ASTSubsystem::SetStationPriority(AFGTrainStationIdentifier* Station, ESTPriority Priority, const FString& Cause)
+{
+	if (!Station || GetStationPriority(Station) == Priority)
 	{
 		return;
 	}
-	const ESTPriority Old = Config->Priority;
+	UE_LOG(LogSmartTrains, Log, TEXT("STATION %s: priority %s -> %s by %s"), *STLayout::Name(Station), STNames::Priority(GetStationPriority(Station)), STNames::Priority(Priority), *Cause);
+	FSTStationConfig* Config = mStationConfigs.FindByPredicate([Station](const FSTStationConfig& Each) { return Each.Station == Station; });
+	if (!Config)
+	{
+		Config = &mStationConfigs.AddDefaulted_GetRef();
+		Config->Station = Station;
+	}
 	Config->Priority = Priority;
-	Config->EditedBy = Cause;
-	int32 Index = INDEX_NONE;
-	const AFGBuildableRailroadStation* Station = STLayout::FindStation(Platform, &Index);
-	UE_LOG(LogSmartTrains, Log, TEXT("PLATFORM %s #%d (%s): priority %s -> %s by %s"), *STLayout::Name(Station), Index + 1, *Platform->GetName(),
-		STNames::Priority(Old), STNames::Priority(Priority), *Cause);
 	bCheckSoon = true;
 }
 

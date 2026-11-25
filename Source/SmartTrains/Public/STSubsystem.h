@@ -65,7 +65,7 @@ struct FSTConsumer
 	// Problem and Cause as the model found them, before the split adds its own.
 	FString ModelProblem;
 	FString ModelCause;
-	// The highest priority of its Demand platforms.
+	// Its station's priority.
 	ESTPriority Priority = ESTPriority::Medium;
 	// Share of its machines that want input now (powered, running, output not backed up), averaged over a few minutes.
 	double Use = 1.0;
@@ -111,8 +111,9 @@ public:
 
 	// Sets Platform's role and items, switching its load/unload setting to match; Off puts its own setting back.
 	void SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, ESTRole NewRole, const TArray<FSTItemRule>& Items, const FString& Cause);
-	// Sets the priority of Platform (kept with any role; it counts on Demand platforms).
-	void SetPlatformPriority(AFGBuildableTrainPlatformCargo* Platform, ESTPriority Priority, const FString& Cause);
+	// A station's priority as a consumer (Medium unless set).
+	ESTPriority GetStationPriority(const AFGTrainStationIdentifier* Station) const;
+	void SetStationPriority(AFGTrainStationIdentifier* Station, ESTPriority Priority, const FString& Cause);
 	// Keeps the machines Platform's trace reached (for its recipe rate); only Autodetect, station set-up and the
 	// migration trace platforms.
 	void SetPlatformMachines(AFGBuildableTrainPlatformCargo* Platform, const TArray<TWeakObjectPtr<const AActor>>& Machines);
@@ -367,6 +368,9 @@ private:
 
 	UPROPERTY(SaveGame)
 	TArray<FSTPlatformConfig> mPlatforms;
+
+	UPROPERTY(SaveGame)
+	TArray<FSTStationConfig> mStationConfigs;
 
 	UPROPERTY(SaveGame)
 	TArray<FSTTrainState> mTrains;
