@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.51.0 (beta)
+
+- **Trains no longer wait at a platform.** A loop's train loads what each supplier has and unloads what fits at its
+  consumer, once, then goes on. It used to stay at a supplier until its cars were full and at the consumer until they
+  were empty; with several loops sharing a supplier, the trains behind queued out on the line for 20 minutes or more
+  on the test server. Partly filled cars now just mean another round.
+- **New setting: Wait for full cars** (Mods menu, off by default) brings back waiting for full and empty cars.
+- **Monitor:** a consumer no managed train fits shows no share of the need (its share wasn't counted anyway).
+
 ## 0.50.1 (beta)
 
 - **Test tool:** the `SmartTrains.EmptyPlatforms` server console command takes `supply` to empty only Supply

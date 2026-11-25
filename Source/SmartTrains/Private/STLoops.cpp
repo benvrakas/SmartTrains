@@ -24,8 +24,6 @@ namespace
 	constexpr double ModelSeconds = 30.0;
 	// A station's factory is scanned again for its most rates after this long. [s]
 	constexpr double RateScanSeconds = 1800.0;
-	// Docked this long, a train counts as waiting for full or empty cars in readouts. [s]
-	constexpr double WaitReportSeconds = 60.0;
 	// Auto Trains travel-time questions per loop check. [calls]
 	constexpr int32 AtTravelCallsPerCheck = 4;
 
@@ -124,9 +122,9 @@ namespace
 		return Held;
 	}
 
-	// Rules for a stop: only its items move; a loop's stops wait for full or empty cars, a Deliver stop moves what it
-	// can once.
-	FTrainDockingRuleSet MakeRules(const FSTJobLeg& Leg)
+	// Rules for a stop: only its items move, once, and the train goes on with what it has; with bWaitFull it leaves
+	// only with full (loading) or empty (unloading) cars.
+	FTrainDockingRuleSet MakeRules(const FSTJobLeg& Leg, bool bWaitFull)
 	{
 		FTrainDockingRuleSet Rules;
 		// A car only moves its filtered items, so cargo kept for a later stop never counts against "fully".
@@ -150,17 +148,10 @@ namespace
 			Rules.UnloadFilterDescriptors.Add(None);
 		}
 		Rules.DockForDuration = 0.f;
-		if (Leg.bOnce || !Leg.HasWork())
-		{
-			Rules.DockingDefinition = ETrainDockingDefinition::TDD_LoadUnloadOnce;
-			Rules.IsDurationAndRule = false;
-		}
-		else
-		{
-			// Both the (zero) duration and the rule must hold: it leaves only with full (or empty) cars.
-			Rules.DockingDefinition = ETrainDockingDefinition::TDD_FullyLoadUnload;
-			Rules.IsDurationAndRule = true;
-		}
+		const bool bWait = bWaitFull && Leg.HasWork();
+		Rules.DockingDefinition = bWait ? ETrainDockingDefinition::TDD_FullyLoadUnload : ETrainDockingDefinition::TDD_LoadUnloadOnce;
+		// With the wait, both the (zero) duration and the rule must hold.
+		Rules.IsDurationAndRule = bWait;
 		return Rules;
 	}
 
@@ -896,7 +887,6 @@ bool ASTSubsystem::MakeUnloadJob(const FSTTrainState& State, AFGTrainStationIden
 	const TArray<AFGBuildableTrainPlatform*> Platforms = STLayout::GetPlatforms(Station->GetStation());
 	FSTJobLeg Leg;
 	Leg.Station = Station;
-	Leg.bOnce = Kind == ESTJobKind::Deliver;
 	for (AFGFreightWagon* Car : GetCars(Train))
 	{
 		const int32 Position = Maps[0].IndexOfByKey(Car);
@@ -1186,7 +1176,7 @@ void ASTSubsystem::WriteJob(FSTTrainState& State, const TCHAR* Why)
 		const FSTJobLeg& Leg = State.Job.Legs[Index];
 		FTimeTableStop& Stop = Stops.AddDefaulted_GetRef();
 		Stop.Station = Leg.Station;
-		Stop.DockingRuleSet = MakeRules(Leg);
+		Stop.DockingRuleSet = MakeRules(Leg, mSettings.bWaitForFullCars && State.Job.Kind == ESTJobKind::Loop);
 		for (AFGRailroadVehicle* Car : Leg.SkipCars)
 		{
 			SkipStops.Add(Stops.Num() - 1);
@@ -1421,12 +1411,7 @@ FString ASTSubsystem::DescribeWork(const FSTTrainState& State) const
 	const FSTJob& Job = State.Job;
 	const FSTJobLeg* Leg = Job.Legs.IsValidIndex(Job.Leg) ? &Job.Legs[Job.Leg] : nullptr;
 	FString Where;
-	if (Leg && IsValid(State.Train) && State.Train->IsDocked() && State.DockedStation.Get() == Leg->Station && Now() - State.DockedAt >= WaitReportSeconds)
-	{
-		Where = Leg->GetItems(true).Num() > 0 ? FString::Printf(TEXT(", waiting %.0f s at %s for full cars (supply short)"), Now() - State.DockedAt, *STLayout::Name(Leg->Station))
-			: FString::Printf(TEXT(", waiting %.0f s at %s to unload (consumer full)"), Now() - State.DockedAt, *STLayout::Name(Leg->Station));
-	}
-	else if (Leg)
+	if (Leg)
 	{
 		Where = FString::Printf(TEXT(", to %s"), *STLayout::Name(Leg->Station));
 	}
@@ -1492,7 +1477,8 @@ FSTMonitorView ASTSubsystem::MakeMonitorView() const
 		Row.Severity = bServed ? (Consumer.Problem.IsEmpty() ? 0 : 1) : 2;
 		Row.Columns.Add(FString::Printf(TEXT("%.2f"), Consumer.Rate));
 		Row.Columns.Add(FString::Printf(TEXT("%.1f min"), Consumer.RoundTrip / 60.0));
-		Row.Columns.Add(TotalNeed > 0.0 && Consumer.Need > 0.0 ? FString::Printf(TEXT("%.0f%%"), 100.0 * Consumer.Need / TotalNeed) : FString(TEXT("-")));
+		const bool bCounted = bServed || Consumer.Target > 0;
+		Row.Columns.Add(bCounted && TotalNeed > 0.0 && Consumer.Need > 0.0 ? FString::Printf(TEXT("%.0f%%"), 100.0 * Consumer.Need / TotalNeed) : FString(TEXT("-")));
 		Row.Columns.Add(FString::Printf(TEXT("%d"), Consumer.Trains.Num()));
 		Row.Details.Add(FString::Printf(TEXT("Pattern: %s"), *FString::Join(Pattern, TEXT(" | "))));
 		TArray<FString> Sources;

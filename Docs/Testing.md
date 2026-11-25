@@ -17,7 +17,7 @@ push-pull train (locomotives at both ends) arriving each way.
    `/st platform demand Iron Plate`; set B up from its factory (station menu) so its rate is traced (`FACTORY` line).
 2. Manage a train with a freight car beside B's platform. Within 5 s: a `SPLIT` line, `LOOP <train>: serves B`, a
    `JOB ... loop` and a `WRITE` line with both stops.
-3. The train fills at A until full, unloads at B until empty, and starts again on its own (`LOOP <train>: round N
+3. The train loads what A has once, unloads what fits at B once, and starts again on its own (`LOOP <train>: round N
    done`). Its timetable is written once.
 4. Save and load: the loop goes on.
 

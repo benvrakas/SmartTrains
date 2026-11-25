@@ -234,6 +234,17 @@ void ASTSubsystem::ReadSettings()
 			UpdateTrainName(State);
 		}
 	}
+	if (Before.bWaitForFullCars != mSettings.bWaitForFullCars)
+	{
+		for (FSTTrainState& State : mTrains)
+		{
+			if (State.bManaged && State.bHasJob)
+			{
+				State.WrittenStopKeys.Reset();
+				WriteJob(State, TEXT("stop rules changed"));
+			}
+		}
+	}
 }
 
 bool ASTSubsystem::IsFccAvailable() const

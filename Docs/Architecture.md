@@ -77,15 +77,17 @@ A train given another consumer first gets rid of cargo its new loop doesn't carr
 - **Deliver** (`ESTJobKind::Deliver`, `MakeUnloadJob`): at its old consumer (its loop's `AnchorStation`; without a
   loop, the nearest consumer whose platforms take its cargo), load/unload once, so what doesn't fit stays.
 - **Sink:** after the Deliver stop, if it still holds such cargo, the nearest station with a Sink platform beside a car
-  holding cargo, unloading until empty.
+  holding cargo, unloading once.
 - Then its loop (after a Sink stop without another check). With no consumer or Sink platform for its cargo it starts
   its loop with it, with a warning (`/st emptycars` clears it).
 
 ### Timetables
 
-A loop is written once: all its stops, which the game's timetable repeats by itself. Pickup and delivery stops are
-*fully load/unload* with *duration and rule* and a duration of 0 (it leaves only with full or empty cars), filters set
-to the stop's items, `IgnoreFullLoadUnloadIfTransferBlockedByFilters` on. A Deliver stop is *load/unload once*.
+A loop is written once: all its stops, which the game's timetable repeats by itself. Every stop is *load/unload once*:
+the train moves what is there in one go and goes on, so it never holds a platform waiting for cargo or room. Filters
+are set to the stop's items, `IgnoreFullLoadUnloadIfTransferBlockedByFilters` on. With the **Wait for full cars**
+setting (`bWaitForFullCars`, off by default) a loop's pickup and delivery stops are *fully load/unload* with *duration
+and rule* and a duration of 0 instead (it leaves only with full or empty cars); changing it rewrites every loop.
 
 The game moves a timetable's current stop on when the train docks (`AFGTrain::Dock` calls
 `AFGRailroadTimeTable::IncrementCurrentStop` before `StartDocking`; nothing else does). So a job written while the
@@ -447,7 +449,7 @@ switching patterns, without a loop, consumers, unserved consumers), fleet lines,
   suppliers taken, and the consumer's problem. Unserved first.
 - **Suppliers:** per station and item, its most rate and what the loops take; "Over its rate" when they take more.
 - **Trains:** state (on its loop, switching, no loop, held), its consumer, and what it does (`DescribeWork`: the stop
-  it heads for, or how long it has waited docked for full or empty cars).
+  it heads for).
 
 The view goes to `USTMonitorWindow` (Overview, Consumers, Suppliers and Trains tabs) through
 `Server_RequestMonitor` / `Client_Monitor` once a second while the window is open. `/st monitor text` and the server

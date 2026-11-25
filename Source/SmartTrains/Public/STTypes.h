@@ -193,10 +193,6 @@ struct SMARTTRAINS_API FSTJobLeg
 	UPROPERTY(SaveGame)
 	TArray<TObjectPtr<AFGRailroadVehicle>> SkipCars;
 
-	// Load/unload once and go on (a Deliver stop), instead of waiting for full or empty cars.
-	UPROPERTY(SaveGame)
-	bool bOnce = false;
-
 	// Items loaded (bLoad) or unloaded here, each once.
 	TArray<UClass*> GetItems(bool bWantLoad) const;
 	// Total planned or moved amount of the loads or unloads here.

@@ -46,6 +46,8 @@ namespace
 				LOCTEXT("ManageNewTrainsTip", "A new train with freight cars and no timetable is managed by SmartTrains 30 seconds after its cars last changed. A train with a timetable of its own, kept vanilla, or switched off in its locomotive menu is left alone.")},
 			{TEXT("AdminsOnly"), &FSTSettings::bAdminsOnly, LOCTEXT("AdminsOnly", "Only admins change SmartTrains"),
 				LOCTEXT("AdminsOnlyTip", "In multiplayer, only the host (or, on a dedicated server, its admins) can change platform, station and train settings. Server settings, migration, test copies and backups are always admin only. On a dedicated server, an admin's Mods menu changes go to the server; /st set works too.")},
+			{TEXT("WaitForFullCars"), &FSTSettings::bWaitForFullCars, LOCTEXT("WaitForFullCars", "Wait for full cars"),
+				LOCTEXT("WaitForFullCarsTip", "Off: a train loads what is at each supplier and unloads what fits at its consumer, once, then goes on, so no platform is held up. On: it stays at each supplier until its cars are full and at its consumer until they are empty.")},
 		};
 		return Settings;
 	}

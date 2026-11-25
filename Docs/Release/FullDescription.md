@@ -29,9 +29,11 @@ gets follows how much it needs compared with the rest of your network. You don't
 - **Car patterns:** a consumer station's unloading platforms, in order from the station, make its pattern: car 1 iron,
   car 2 wire, and so on. Every train serving that station carries exactly that pattern, so a car only ever carries
   its one item (or one of its group). A train only serves stations its cars line up with.
-- **Loops:** each train serving a consumer runs one loop, over and over: it fills each car at a supplier of its item,
-  waiting until the cars are full, then unloads everything at the consumer, waiting until the cars are empty. Its
-  timetable repeats by itself.
+- **Loops:** each train serving a consumer runs one loop, over and over: it loads what each supplier of its pattern has,
+  then unloads what fits at the consumer, and goes round again. It never waits at a platform for more cargo or room,
+  so it doesn't hold up the trains behind it; partly filled cars just mean another round. Its timetable repeats by
+  itself. The Mods menu setting **Wait for full cars** (off by default) makes it wait at suppliers until its cars are
+  full and at the consumer until they are empty.
 - **How many trains each consumer gets:** what its factory uses at most, its theoretical rate from the belts and
   machines behind it (the same scan that names stations), in car loads per minute, times how long its loop takes.
   Every managed train is shared out over the consumers in that proportion: a consumer using twice as much, or twice as
