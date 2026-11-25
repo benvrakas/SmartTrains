@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.51.0 (beta)
+## 0.52.0 (beta)
 
 - **Trains no longer wait at a platform.** A loop's train loads what each supplier has and unloads what fits at its
   consumer, once, then goes on. It used to stay at a supplier until its cars were full and at the consumer until they
@@ -8,6 +8,25 @@
   on the test server. Partly filled cars now just mean another round.
 - **New setting: Wait for full cars** (Mods menu, off by default) brings back waiting for full and empty cars.
 - **Monitor:** a consumer no managed train fits shows no share of the need (its share wasn't counted anyway).
+- **Depot Signals are back, for spare trains.** When a factory runs well below its theoretical most (its machines on
+  standby, without power or with their output backed up), its loop keeps only the trains that use needs, at least
+  one, and the rest wait at the nearest free Depot Signal whose passing siding fits them. They stay on that loop and
+  go back as soon as the factory picks up. Without a free depot signal they keep circulating, ready. A consumer's use
+  is averaged over about five minutes, so a short stall doesn't send trains away. `/st depots` lists the depot signals.
+- **New look.** Every SmartTrains panel and window is redone in one style, dark panels with FICSIT orange and the
+  SmartTrains mark, with the long text lists replaced by tiles, icons and bars:
+  - **Locomotive menu:** the train's state, its pattern as car tiles with fill bars (the car being loaded or unloaded
+    glows), its loop as numbered stops with the next one and its arrival, and its pattern's numbers: trains on it
+    against its share, rate and round trip.
+  - **While you ride a managed train:** the same as a card at the top right of the screen.
+  - **Station menu:** its platforms in order with role colours and item icons; for a consumer a ring of trains
+    against its share, rate, round trip, share of the network and its suppliers with their travel times; for a
+    supplier what it offers and what loops take.
+  - **Platform menu and settings:** the role as four buttons, items as cards, the item picker as a grid of icons with
+    search, and the platform's rate, loops and next train.
+  - **Monitor:** tiles on every tab, consumers with their pattern as icons and a pip per train, details behind a
+    toggle per row.
+  - **Migration:** the same frame and colours.
 
 ## 0.50.1 (beta)
 

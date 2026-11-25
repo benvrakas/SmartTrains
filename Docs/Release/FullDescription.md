@@ -11,7 +11,8 @@ gets follows how much it needs compared with the rest of your network. You don't
 
 ### How it works
 
-- **Platforms:** open a freight or fluid platform and click **Open SmartTrains settings**.
+- **Platforms:** open a freight or fluid platform: the SmartTrains panel beside it shows its role, items, rate and the
+  next train; **Settings** opens the editor.
   - **Supply:** managed trains pick items up here.
   - **Demand:** managed trains deliver here. Several items on one platform make an item group: the car beside it
     carries one of them.
@@ -24,8 +25,12 @@ gets follows how much it needs compared with the rest of your network. You don't
   **Rename station from its factory** names it from what the factory makes, its map area, a number and its most per
   minute, e.g. "Grass Fields Modular Frame Out 1 (288)". Each shows what it would do first; click again to do it.
   `/st setup all` does every station; the name format and words are yours (`/st setup format`, `/st setup words`).
-- **Trains:** in the locomotive menu, switch **Managed by SmartTrains** on. SmartTrains writes its timetable; the
-  game, or Auto Trains, drives it.
+- **Trains:** in the locomotive menu, switch **Managed** on. SmartTrains writes its timetable; the game, or Auto
+  Trains, drives it. The menu shows its pattern as car tiles with fill bars, its loop's stops and how many trains share
+  its pattern; while you ride it, the same shows as a card at the top right of the screen.
+- **Depot Signals** (build menu, next to the Block Signal): when a factory runs well below its most (machines on
+  standby, without power or backed up), its spare trains wait at the nearest free depot signal's passing siding and go
+  back when it picks up. Without one they keep circulating.
 - **Car patterns:** a consumer station's unloading platforms, in order from the station, make its pattern: car 1 iron,
   car 2 wire, and so on. Every train serving that station carries exactly that pattern, so a car only ever carries
   its one item (or one of its group). A train only serves stations its cars line up with.
@@ -65,8 +70,10 @@ supplier's platforms line up with the cars that load there.
 
 - **Migration** (`/st migrate`): sets up a whole network at once, with preview, apply and undo: every station's
   platforms as Autodetect would, optionally every station's name, and which trains SmartTrains manages.
-- **Monitor** (`/st monitor`): Overview, Consumers, Suppliers and Trains tabs. Each consumer's pattern, rate, round
-  trip, share and trains; each supplier's rate and what the loops take of it; each train's loop, or why it has none.
+- **Monitor** (`/st monitor`): tiles, then Overview, Consumers, Suppliers and Trains tabs. Each consumer's pattern as
+  icons, a pip per train against its share, its rate and round trip; each supplier's rate and what the loops take of
+  it; each train's loop, or why it has none. **More** on a row opens its details.
+- **Depots** (`/st depots`): each depot signal's spot, or why it can't be used, and the train parked there.
 - **Status, jobs, fit, patterns** (`/st status`, `/st jobs`, `/st fit`, `/st patterns`): the loop plan in chat, each
   train's loop, which consumers a train fits, and every consumer's pattern with its trains.
 - **Empty cars** (`/st emptycars`, admin): deletes the cargo of the train you drive or look at;
@@ -87,8 +94,8 @@ supplier's platforms line up with the cars that load there.
 
 0.50.0 replaces trip-by-trip dispatching with loops. Loading an older save drops the trips trains were on; each
 managed train then gets its loop. Platform roles and items carry over; the removed settings (targets, least per visit,
-priority, manual rates) are ignored. Depot Signals are gone: SmartTrains no longer parks trains, as every train has a
-loop. A save with Depot Signals loads without them.
+priority, manual rates) are ignored. Depot Signals (0.52.0) now only hold spare trains of a factory running below
+its most.
 
 ### Multiplayer
 

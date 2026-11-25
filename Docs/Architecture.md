@@ -441,10 +441,45 @@ second after it opens, to check that.
   - Ticks, opened stations, the tab and the filters live in the window. A fresh preview resets the ticks to the
     proposals and opens the Stations tab.
 
+### Style (UI/STStyle.h)
+
+One look for every panel: `STStyle` colours (FICSIT orange on dark panels; references, never copies, so other files'
+statics can't read them before they are set), rounded brushes, and the game's font copied from the menu a panel sits
+in (`USTPanel::GetFont`; a text made with `MakeTinted` keeps its own colour and weight when the font arrives). Drawn
+widgets: `USTLogo` (the hexagon mark), `USTBar` (a fill bar easing to its value over 0.35 s, glowing with `SetPulse`),
+`USTRing` (the same as a ring). Controls: `USTSegment` (one of a row of choices), `USTIconTile` (an item as its icon,
+its name in the tooltip). Panels fade and rise in over 0.22 s (`USTPanel::NativeTick`). Views carry structured data
+for them (`FSTCarView`, `FSTStopView`, `FSTPlatformChip`, `FSTSourceView`, and the pattern and train counts of
+`FSTMonitorRow`); the text lines are left for `/st status` and the log.
+
+### Ride HUD
+
+`USTRideHud` (a `USTTrainDisplay`, like the locomotive panel): a core ticker every 0.5 s (`USTRideHud::Install`, from
+`STUIHooks::Register`) finds the train the local player sits in (the possessed `AFGLocomotive`, or the character's
+driven vehicle) and shows the card 170 units down at the top right, under Auto Trains' strip; hidden while the train
+isn't managed. It copies the font from a hidden vanilla label and never takes input.
+
+## Depot signals
+
+`ASTBuildableDepotSignal` (STDepotSignal.h, back in 0.52.0): a block signal that also marks the passing siding behind
+it as a parking spot (`STDepots::Check`); dead-end sidings aren't used. Spare trains wait there:
+
+- **Use** (`UpdateUse`, every loop check): the share of a consumer's traced machines (its Demand platforms'
+  `Machines`) that want input: not on standby, powered (manufacturers), output not backed up (no full output stack).
+  Averaged with a 300 s time constant, kept across loop models (`mUse`). Without traced machines it counts as 1.
+- **Wanted** = its trains times its use, rounded up, at least one. After a round (leaving its consumer, cars empty) a
+  train of a consumer running more than Wanted goes to the nearest free fitting spot (`MaybeSendToDepot`,
+  `SendToDepotSignal`): far end first, the way in clear. It keeps its consumer (`LoopConsumer`), marked `bDepot`
+  (saved), so it still counts for its share; Auto Trains drives it (`STAt::DriveTo`), or without Auto Trains the game
+  along a path with the signal held at stop. Arrived, its autopilot goes off (Parked).
+- **Back** (`UpdateUse`): while a consumer runs fewer than Wanted, its depot trains with a clear way out
+  (`IsBoxedInAtDepot`) go back to their loop (`WakeFromDepot`), as does one whose consumer changed. A drive that ends
+  elsewhere also puts the train back on its loop, and that spot isn't offered to it for 10 minutes.
+
 ## Monitor
 
 `MakeMonitorView` builds the view from the loop plan as last worked out: tiles (managed trains, on their loop,
-switching patterns, without a loop, consumers, unserved consumers), fleet lines, and three tables:
+switching patterns, without a loop, at depot signals, consumers, unserved consumers), fleet lines, and three tables:
 - **Consumers:** pattern, rate (car loads per minute), round trip, share of the need, trains; details: pattern,
   suppliers taken, and the consumer's problem. Unserved first.
 - **Suppliers:** per station and item, its most rate and what the loops take; "Over its rate" when they take more.
