@@ -356,6 +356,23 @@ void ASTSubsystem::SetPlatformConfig(AFGBuildableTrainPlatformCargo* Platform, E
 	bCheckSoon = true;
 }
 
+void ASTSubsystem::SetPlatformPriority(AFGBuildableTrainPlatformCargo* Platform, ESTPriority Priority, const FString& Cause)
+{
+	FSTPlatformConfig* Config = Platform ? FindPlatformConfig(Platform) : nullptr;
+	if (!Config || Config->Priority == Priority)
+	{
+		return;
+	}
+	const ESTPriority Old = Config->Priority;
+	Config->Priority = Priority;
+	Config->EditedBy = Cause;
+	int32 Index = INDEX_NONE;
+	const AFGBuildableRailroadStation* Station = STLayout::FindStation(Platform, &Index);
+	UE_LOG(LogSmartTrains, Log, TEXT("PLATFORM %s #%d (%s): priority %s -> %s by %s"), *STLayout::Name(Station), Index + 1, *Platform->GetName(),
+		STNames::Priority(Old), STNames::Priority(Priority), *Cause);
+	bCheckSoon = true;
+}
+
 bool ASTSubsystem::SetTrainManaged(AFGTrain* Train, bool bManaged, const FString& Cause, FString& OutWhy)
 {
 	if (!Train)

@@ -12,6 +12,16 @@ const TCHAR* STNames::Role(ESTRole Role)
 	}
 }
 
+const TCHAR* STNames::Priority(ESTPriority Priority)
+{
+	switch (Priority)
+	{
+	case ESTPriority::Low: return TEXT("Low");
+	case ESTPriority::High: return TEXT("High");
+	default: return TEXT("Medium");
+	}
+}
+
 bool STNames::Unloads(ESTRole Role)
 {
 	return Role == ESTRole::Demand || Role == ESTRole::Sink;

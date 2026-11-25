@@ -354,6 +354,7 @@ void ASTSubsystem::BuildLoopModel()
 			{
 				continue;
 			}
+			Consumer.Priority = FMath::Max(Consumer.Priority, Platform.Value->Priority);
 			FSTLoopSlot& Slot = Consumer.Slots.AddDefaulted_GetRef();
 			Slot.Index = Platform.Key;
 			Slot.Platform = Platform.Value->Platform.Get();
@@ -478,6 +479,8 @@ void ASTSubsystem::BuildLoopModel()
 		Consumer.Cause = !Consumer.bRateKnown ? FString(TEXT("rate not known"))
 			: Missing.Num() > 0 ? FString::Printf(TEXT("no %s supplier"), *FString::Join(Missing, TEXT(", ")))
 			: FString();
+		Consumer.ModelProblem = Consumer.Problem;
+		Consumer.ModelCause = Consumer.Cause;
 	}
 	UE_LOG(LogSmartTrains, Verbose, TEXT("LOOPS model: %d consumers, %d supplier items"), mConsumers.Num(), mSuppliers.Num());
 }
@@ -559,7 +562,7 @@ void ASTSubsystem::AssignTrains()
 	for (int32 Index = 0; Index < mConsumers.Num(); ++Index)
 	{
 		const FSTConsumer& Consumer = mConsumers[Index];
-		Inputs += FString::Printf(TEXT("%p:%.3g:%d;"), Consumer.Station.Get(), Consumer.Rate, Consumer.Sources.Num());
+		Inputs += FString::Printf(TEXT("%p:%.3g:%d:%d;"), Consumer.Station.Get(), Consumer.Rate, Consumer.Sources.Num(), static_cast<int32>(Consumer.Priority));
 	}
 	for (const FSTTrainState* State : Available)
 	{
@@ -573,9 +576,14 @@ void ASTSubsystem::AssignTrains()
 	const bool bResplit = Inputs != mSplitInputs;
 	// The targets: all trains that fit some consumer, split by need over the consumers some train fits.
 	TArray<double> Needs;
+	TArray<uint8> Tiers;
 	for (int32 Index = 0; Index < mConsumers.Num(); ++Index)
 	{
 		FSTConsumer& Consumer = mConsumers[Index];
+		// The split's own reasons are worked out afresh each time.
+		Consumer.Problem = Consumer.ModelProblem;
+		Consumer.Cause = Consumer.ModelCause;
+		Tiers.Add(static_cast<uint8>(Consumer.Priority));
 		if (Fitting[Index] == 0 && Consumer.Problem.IsEmpty())
 		{
 			// The cars it needs: one of the right kind beside each unloading platform.
@@ -594,7 +602,7 @@ void ASTSubsystem::AssignTrains()
 	{
 		Usable += Fits.FindRef(State).Num() > 0 ? 1 : 0;
 	}
-	const TArray<int32> Targets = STLoopMath::Split(Needs, Usable);
+	const TArray<int32> Targets = STLoopMath::SplitByPriority(Needs, Tiers, Fitting, Usable);
 	TArray<TArray<FSTTrainState*>> On;
 	On.SetNum(mConsumers.Num());
 	if (!bResplit)
@@ -712,10 +720,15 @@ void ASTSubsystem::AssignTrains()
 		{
 			Consumer.Trains.Add(State->Train.Get());
 		}
+	}
+	for (FSTConsumer& Consumer : mConsumers)
+	{
 		if (Consumer.Trains.Num() == 0 && Consumer.Problem.IsEmpty())
 		{
-			Consumer.Problem = TEXT("unserved: fewer trains than consumers, and its share is among the smallest");
-			Consumer.Cause = TEXT("fewer trains than consumers");
+			const bool bOutranked = mConsumers.ContainsByPredicate([&Consumer](const FSTConsumer& Each) { return Each.Priority > Consumer.Priority && Each.Trains.Num() > 0; });
+			Consumer.Problem = bOutranked ? TEXT("unserved: higher-priority loops take the trains it fits until they have their full need")
+				: TEXT("unserved: fewer trains than consumers, and its share is among the smallest");
+			Consumer.Cause = bOutranked ? TEXT("higher priority loops come first") : TEXT("fewer trains than consumers");
 		}
 	}
 	if (bResplit)
@@ -723,7 +736,8 @@ void ASTSubsystem::AssignTrains()
 		TArray<FString> Parts;
 		for (const FSTConsumer& Consumer : mConsumers)
 		{
-			Parts.Add(FString::Printf(TEXT("%s %d (need %.2f)"), *STLayout::Name(Consumer.Station.Get()), Consumer.Trains.Num(), Consumer.Need));
+			Parts.Add(FString::Printf(TEXT("%s %d (need %.2f%s)"), *STLayout::Name(Consumer.Station.Get()), Consumer.Trains.Num(), Consumer.Need,
+				Consumer.Priority == ESTPriority::Medium ? TEXT("") : *FString::Printf(TEXT(", %s"), STNames::Priority(Consumer.Priority))));
 		}
 		UE_LOG(LogSmartTrains, Log, TEXT("SPLIT %d trains over %d consumers: %s"), Usable, mConsumers.Num(), *FString::Join(Parts, TEXT(", ")));
 	}
@@ -1501,7 +1515,9 @@ FSTMonitorView ASTSubsystem::MakeMonitorView() const
 		}
 		const bool bServed = Consumer.Trains.Num() > 0;
 		Unserved += bServed ? 0 : 1;
-		Row.Verdict = FString(bServed ? TEXT("Served") : TEXT("Unserved")) + (Consumer.Cause.IsEmpty() ? FString() : TEXT(" · ") + Consumer.Cause);
+		Row.Verdict = FString(bServed ? TEXT("Served") : TEXT("Unserved"))
+			+ (Consumer.Priority == ESTPriority::Medium ? FString() : FString::Printf(TEXT(" · %s priority"), STNames::Priority(Consumer.Priority)))
+			+ (Consumer.Cause.IsEmpty() ? FString() : TEXT(" · ") + Consumer.Cause);
 		Row.Severity = bServed ? (Consumer.Problem.IsEmpty() ? 0 : 1) : 2;
 		Row.Columns.Add(FString::Printf(TEXT("%.2f"), Consumer.Rate));
 		Row.Columns.Add(FString::Printf(TEXT("%.1f min"), Consumer.RoundTrip / 60.0));

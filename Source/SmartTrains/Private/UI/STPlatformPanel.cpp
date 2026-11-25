@@ -113,6 +113,22 @@ void USTPlatformPanel::BuildContent(UVerticalBox* Root)
 	mMain->AddChildToVerticalBox(mItemBox);
 	mAddItem = MakeButton(mMain, LOCTEXT("AddItem", "Add item..."), [this]() { OpenPicker(); }, FMargin(0.f, 4.f));
 
+	mPriorityLabel = MakeLabel(mMain, LOCTEXT("PriorityLabel", "Priority"));
+	mPriorityBar = MakeHBox(mMain);
+	for (int32 Index = 0; Index <= static_cast<int32>(ESTPriority::High); ++Index)
+	{
+		const ESTPriority Priority = static_cast<ESTPriority>(Index);
+		USTSegment* Segment = WidgetTree->ConstructWidget<USTSegment>(USTSegment::StaticClass());
+		Segment->SetText(FText::FromString(STNames::Priority(Priority)));
+		Segment->SetFont(GetFont(11, true));
+		Segment->OnClick = [this, Priority]() { SetPriority(Priority); };
+		mPriorityBar->AddChildToHorizontalBox(Segment);
+		SetFill(Segment);
+		SetSlotPadding(Segment, FMargin(Index > 0 ? 3.f : 0.f, 0.f, 0.f, 0.f));
+		mPrioritySegments.Add(Segment);
+	}
+	mPriorityHint = MakeTinted(mMain, FText::GetEmpty(), 10, STStyle::Muted, false, true, FMargin(0.f, 4.f, 0.f, 0.f));
+
 	UHorizontalBox* Tools = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
 	mMain->AddChildToVerticalBox(Tools)->SetPadding(FMargin(0.f, 8.f, 0.f, 2.f));
 	AddToLine(Tools, MakeButton(nullptr, LOCTEXT("Copy", "Copy"), [this]()
@@ -191,6 +207,7 @@ bool USTPlatformPanel::OnShown()
 	mLastEdit = 0;
 	mRole = ESTRole::Off;
 	mItems.Reset();
+	mPriority = ESTPriority::Medium;
 	mItemLines.Reset();
 	mRowItems.Reset();
 	mRows.Reset();
@@ -236,6 +253,7 @@ void USTPlatformPanel::Refresh(USTRemoteCallObject* RCO)
 	{
 		mRole = View->Role;
 		mItems = View->Items;
+		mPriority = View->Priority;
 		mItemLines = View->ItemLines;
 		bHasSettings = true;
 	}
@@ -282,8 +300,9 @@ void USTPlatformPanel::SendEdit(const TCHAR* What)
 		mItems.RemoveAll([](const FSTItemRule& Rule) { return !Rule.Item; });
 	}
 	mLastEdit = RCO->NextEdit();
-	UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: %s on %s -> %s, %d items (edit %d)"), What, *Platform->GetName(), STNames::Role(mRole), mItems.Num(), mLastEdit);
-	RCO->Server_SetPlatform(Platform, mRole, mItems, mLastEdit);
+	UE_LOG(LogSmartTrains, Log, TEXT("Platform menu: %s on %s -> %s, %d items, %s priority (edit %d)"), What, *Platform->GetName(), STNames::Role(mRole), mItems.Num(),
+		STNames::Priority(mPriority), mLastEdit);
+	RCO->Server_SetPlatform(Platform, mRole, mItems, mPriority, mLastEdit);
 	RefreshEditor();
 }
 
@@ -295,6 +314,16 @@ void USTPlatformPanel::SetRole(ESTRole NewRole)
 	}
 	mRole = NewRole;
 	SendEdit(TEXT("role"));
+}
+
+void USTPlatformPanel::SetPriority(ESTPriority NewPriority)
+{
+	if (!bHasSettings || NewPriority == mPriority)
+	{
+		return;
+	}
+	mPriority = NewPriority;
+	SendEdit(TEXT("priority"));
 }
 
 void USTPlatformPanel::AddItem(TSubclassOf<UFGItemDescriptor> Item)
@@ -331,6 +360,20 @@ void USTPlatformPanel::RefreshEditor()
 	mItemBox->SetVisibility(bHasItems ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	mAddItem->SetVisibility(bHasItems ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	mAddItem->SetIsEnabled(bHasSettings);
+	const bool bDemand = mRole == ESTRole::Demand;
+	mPriorityLabel->SetVisibility(bDemand ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	mPriorityBar->SetVisibility(bDemand ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	mPriorityHint->SetVisibility(bDemand ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	for (int32 Index = 0; Index < mPrioritySegments.Num(); ++Index)
+	{
+		mPrioritySegments[Index]->SetSelected(static_cast<int32>(mPriority) == Index);
+		mPrioritySegments[Index]->SetIsEnabled(bHasSettings);
+	}
+	mPriorityHint->SetText(mPriority == ESTPriority::High
+		? LOCTEXT("PriorityHigh", "Its station takes trains from other loops until it has enough for its factory's full input. The station's highest platform priority counts.")
+		: mPriority == ESTPriority::Low
+		? LOCTEXT("PriorityLow", "Its station gets trains only once every Medium and High loop has enough for its full input.")
+		: LOCTEXT("PriorityMedium", "Its station shares the trains High loops leave with the other Medium loops, by need."));
 	const USTRemoteCallObject* RCO = USTRemoteCallObject::GetLocal(this);
 	mPaste->SetIsEnabled(bHasSettings && RCO && RCO->HasClipboard(bFluid));
 

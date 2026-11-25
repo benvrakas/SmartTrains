@@ -1,5 +1,89 @@
 #include "STLoopMath.h"
 
+TArray<int32> STLoopMath::SplitByPriority(const TArray<double>& Needs, const TArray<uint8>& Tiers, const TArray<int32>& Caps, int32 Trains)
+{
+	TArray<int32> Out;
+	Out.Init(0, Needs.Num());
+	TArray<int32> Full;
+	Full.Init(0, Needs.Num());
+	for (int32 Index = 0; Index < Needs.Num(); ++Index)
+	{
+		const int32 Cap = Caps.IsValidIndex(Index) ? Caps[Index] : MAX_int32;
+		Full[Index] = Needs[Index] > 0.0 && Cap > 0 ? FMath::Clamp(FMath::CeilToInt(Needs[Index] - 0.05), 1, Cap) : 0;
+	}
+	int32 Left = FMath::Max(0, Trains);
+	for (int32 Tier = 2; Tier >= 0 && Left > 0; --Tier)
+	{
+		TArray<int32> Members;
+		int32 Wanted = 0;
+		for (int32 Index = 0; Index < Needs.Num(); ++Index)
+		{
+			if (Full[Index] > 0 && (Tiers.IsValidIndex(Index) ? Tiers[Index] : 1) == Tier)
+			{
+				Members.Add(Index);
+				Wanted += Full[Index];
+			}
+		}
+		if (Members.Num() == 0)
+		{
+			continue;
+		}
+		if (Left >= Wanted)
+		{
+			for (const int32 Index : Members)
+			{
+				Out[Index] = Full[Index];
+			}
+			Left -= Wanted;
+			continue;
+		}
+		// Short: this tier shares what is left by full need, and the lower tiers get none.
+		TArray<double> Weights;
+		for (const int32 Index : Members)
+		{
+			Weights.Add(Full[Index]);
+		}
+		const TArray<int32> Shares = Split(Weights, Left);
+		for (int32 Member = 0; Member < Members.Num(); ++Member)
+		{
+			Out[Members[Member]] = Shares[Member];
+		}
+		return Out;
+	}
+	// Every full need met: the rest by need to consumers that more trains still fit.
+	while (Left > 0)
+	{
+		TArray<double> Weights;
+		TArray<int32> Room;
+		int32 Open = 0;
+		for (int32 Index = 0; Index < Needs.Num(); ++Index)
+		{
+			const int32 Cap = Caps.IsValidIndex(Index) ? Caps[Index] : MAX_int32;
+			Room.Add(Needs[Index] > 0.0 ? FMath::Max(0, Cap - Out[Index]) : 0);
+			Weights.Add(Room.Last() > 0 ? Needs[Index] : 0.0);
+			Open += Room.Last() > 0 ? 1 : 0;
+		}
+		if (Open == 0)
+		{
+			break;
+		}
+		const TArray<int32> Extra = Split(Weights, Left);
+		int32 Given = 0;
+		for (int32 Index = 0; Index < Needs.Num(); ++Index)
+		{
+			const int32 Take = FMath::Min(Extra[Index], Room[Index]);
+			Out[Index] += Take;
+			Given += Take;
+		}
+		if (Given == 0)
+		{
+			break;
+		}
+		Left -= Given;
+	}
+	return Out;
+}
+
 TArray<int32> STLoopMath::Split(const TArray<double>& Weights, int32 Trains)
 {
 	TArray<int32> Out;

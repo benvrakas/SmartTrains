@@ -15,7 +15,9 @@ gets follows how much it needs compared with the rest of your network. You don't
   next train; **Settings** opens the editor.
   - **Supply:** managed trains pick items up here.
   - **Demand:** managed trains deliver here. Several items on one platform make an item group: the car beside it
-    carries one of them.
+    carries one of them. **Priority** (Low, Medium, High) decides who gets trains when there aren't enough for
+    every factory: High takes trains from other loops until it has enough for its factory's full input, Low waits
+    until every Medium and High loop has.
   - **Sink:** a train switching to another station's loop unloads cargo here that its old station had no room for.
   - **Off:** vanilla.
   - **Copy**, **Paste** and **Copy to the station's other platforms** carry the platform's settings.
@@ -46,8 +48,8 @@ gets follows how much it needs compared with the rest of your network. You don't
   right now, a factory starting up doesn't send trains back and forth.
 - **Suppliers:** each item comes from the nearest supplier with rate to spare, then the next nearest for the rest;
   a supplier's most rate is shared out over the consumers that use it.
-- **Fewer trains than consumers:** the consumers with the smallest needs get none; the monitor lists them as
-  unserved.
+- **Fewer trains than consumers:** the consumers with the smallest needs get none, Low priority ones first; the
+  monitor lists them as unserved and says why.
 - **Changes are slow and clean:** trains are only shared out again when a factory's rate, a station's pattern or the
   set of managed trains changes, and then as few trains as possible change station. A train switching station first
   delivers what it holds to its old station, takes what that station had no room for to a Sink platform, and only

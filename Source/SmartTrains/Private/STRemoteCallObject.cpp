@@ -176,12 +176,12 @@ const FSTStationView* USTRemoteCallObject::GetStationView(const AFGTrainStationI
 
 //~ Edits
 
-bool USTRemoteCallObject::Server_SetPlatform_Validate(AFGBuildableTrainPlatformCargo* Platform, ESTRole Role, const TArray<FSTItemRule>& Items, int32 Edit)
+bool USTRemoteCallObject::Server_SetPlatform_Validate(AFGBuildableTrainPlatformCargo* Platform, ESTRole Role, const TArray<FSTItemRule>& Items, ESTPriority Priority, int32 Edit)
 {
-	return Items.Num() <= MaxItems && Role <= ESTRole::Sink;
+	return Items.Num() <= MaxItems && Role <= ESTRole::Sink && Priority <= ESTPriority::High;
 }
 
-void USTRemoteCallObject::Server_SetPlatform_Implementation(AFGBuildableTrainPlatformCargo* Platform, ESTRole Role, const TArray<FSTItemRule>& Items, int32 Edit)
+void USTRemoteCallObject::Server_SetPlatform_Implementation(AFGBuildableTrainPlatformCargo* Platform, ESTRole Role, const TArray<FSTItemRule>& Items, ESTPriority Priority, int32 Edit)
 {
 	mAppliedEdit = FMath::Max(mAppliedEdit, Edit);
 	ASTSubsystem* Subsystem = ASTSubsystem::Get(GetOwnerPlayerController());
@@ -220,7 +220,9 @@ void USTRemoteCallObject::Server_SetPlatform_Implementation(AFGBuildableTrainPla
 		}
 		Clean.Add(Rule);
 	}
-	Subsystem->SetPlatformConfig(Platform, Role, Clean, FString::Printf(TEXT("platform menu (%s)"), *GetPlayerName()));
+	const FString Cause = FString::Printf(TEXT("platform menu (%s)"), *GetPlayerName());
+	Subsystem->SetPlatformConfig(Platform, Role, Clean, Cause);
+	Subsystem->SetPlatformPriority(Platform, Priority, Cause);
 	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
 }
 
@@ -262,10 +264,12 @@ void USTRemoteCallObject::Server_CopyPlatformSettings_Implementation(AFGBuildabl
 	Slot.bValid = true;
 	Slot.Role = ESTRole::Off;
 	Slot.Items.Reset();
+	Slot.Priority = ESTPriority::Medium;
 	if (const FSTPlatformConfig* Config = Subsystem->FindPlatformConfig(Platform))
 	{
 		Slot.Role = Config->Role;
 		Slot.Items = Config->Items;
+		Slot.Priority = Config->Priority;
 	}
 	const FString Summary = STNames::Settings(Slot.Role, Slot.Items);
 	UE_LOG(LogSmartTrains, Log, TEXT("CLIPBOARD %s copied %s from %s (%s)"), *GetPlayerName(), *Summary, *Platform->GetName(), bFromGameKey ? TEXT("game key") : TEXT("panel"));
@@ -320,6 +324,7 @@ void USTRemoteCallObject::Server_PastePlatformSettings_Implementation(AFGBuildab
 		}
 	}
 	Subsystem->SetPlatformConfig(Platform, Slot.Role, Slot.Items, Cause);
+	Subsystem->SetPlatformPriority(Platform, Slot.Priority, Cause);
 	Client_Message(FString::Printf(TEXT("Pasted SmartTrains settings: %s."), *STNames::Settings(Slot.Role, Slot.Items)), false);
 	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
 }

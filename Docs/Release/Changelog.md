@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.53.0 (beta)
+
+- **Platform priority is back: Low, Medium or High** on Demand platforms (platform panel, under the items; Copy,
+  Paste and Copy to the station carry it). A station takes its platforms' highest priority.
+  - **High:** its loop takes trains from Medium and Low loops until it has enough for its factory's full
+    theoretical input (its need rounded up, as many as fit its pattern).
+  - **Medium** (the default): shares what High loops leave with the other Medium loops, by need, as before.
+  - **Low:** gets trains only once every Medium and High loop has its full need.
+- **Monitor:** a consumer's row shows its priority when it isn't Medium, and an unserved one outranked by a higher
+  priority loop says so. A row's reason now clears as soon as it gets trains, instead of at the next model update.
+
 ## 0.52.2 (beta)
 
 - **Fixed: the ride card never showed.** It was placed off the left edge of the screen. It now sits at the top right

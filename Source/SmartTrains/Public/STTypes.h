@@ -27,6 +27,19 @@ enum class ESTRole : uint8
 	Sink,
 };
 
+// How a consumer station gets trains when there aren't enough for every loop's full need (Docs/Architecture.md,
+// "Priority"). A station's priority is the highest of its Demand platforms'.
+UENUM()
+enum class ESTPriority : uint8
+{
+	// Trains only once every Medium and High loop has its full need.
+	Low,
+	// The default: shares what High loops leave, by need.
+	Medium,
+	// Takes trains from Medium and Low loops until it has its full need.
+	High,
+};
+
 // What a managed train is doing.
 UENUM()
 enum class ESTTrainPhase : uint8
@@ -54,6 +67,7 @@ enum class ESTJobKind : uint8
 namespace STNames
 {
 	SMARTTRAINS_API const TCHAR* Role(ESTRole Role);
+	SMARTTRAINS_API const TCHAR* Priority(ESTPriority Priority);
 	// True for roles whose platforms managed trains unload at (Demand, Sink).
 	SMARTTRAINS_API bool Unloads(ESTRole Role);
 	SMARTTRAINS_API const TCHAR* Phase(ESTTrainPhase Phase);
@@ -98,6 +112,10 @@ struct SMARTTRAINS_API FSTPlatformConfig
 	// Several items on a Demand platform make its car's slot an item group: the car carries any one of them.
 	UPROPERTY(SaveGame)
 	TArray<FSTItemRule> Items;
+
+	// Demand platforms: how their station gets trains.
+	UPROPERTY(SaveGame)
+	ESTPriority Priority = ESTPriority::Medium;
 
 	// Load/unload setting the platform had before it got a role, put back when the role is removed.
 	UPROPERTY(SaveGame)

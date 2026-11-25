@@ -28,6 +28,7 @@ int32 ASTSubsystem::CopyPlatformToStation(AFGBuildableTrainPlatformCargo* Platfo
 		if (Other && Other != Platform && STLayout::GetPlatformCargoType(Other) == Type && STLayout::CanMoveCargo(Other))
 		{
 			SetPlatformConfig(Other, Copy.Role, Copy.Items, Cause);
+			SetPlatformPriority(Other, Copy.Priority, Cause);
 			++Copied;
 		}
 	}
@@ -55,6 +56,7 @@ FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCa
 	}
 	View.Role = Config->Role;
 	View.Items = Config->Items;
+	View.Priority = Config->Priority;
 	View.EditedBy = Config->EditedBy;
 	const UFGInventoryComponent* Inventory = Platform ? Platform->GetInventory() : nullptr;
 	const AFGTrainStationIdentifier* Identifier = STLayout::GetIdentifier(Station);

@@ -10,6 +10,13 @@ namespace STLoopMath
 	// of 0 or less get none. Ties go to the larger weight, then to the lower index.
 	TArray<int32> Split(const TArray<double>& Weights, int32 Trains);
 
+	// Whole trains per consumer by priority (Tiers: 0 Low, 1 Medium, 2 High). A consumer's full need is its need
+	// rounded up, at least one and at most Caps (the trains that fit it). The tiers take turns from High down: a tier
+	// whose full needs the trains left cover gets them; otherwise it splits what is left in proportion to its full
+	// needs (Split) and the lower tiers get none. Trains left once every tier has its full need go by need to consumers
+	// below their cap. Needs of 0 or less get none.
+	TArray<int32> SplitByPriority(const TArray<double>& Needs, const TArray<uint8>& Tiers, const TArray<int32>& Caps, int32 Trains);
+
 	// A supplier's offer of one item: how far it is and how much of its rate is still free (below 0: not known, it
 	// counts as having enough).
 	struct FOffer

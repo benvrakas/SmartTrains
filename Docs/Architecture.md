@@ -48,10 +48,22 @@ notes are in the git history of this file.
    - **Round trip:** from the consumer to the nearest supplier still to visit, and so on, then back, plus the stays
      (`EstimateTravelSeconds`, `EstimateStaySeconds`). **Need** = rate x round trip.
 3. **The split** (`AssignTrains`): the available trains (managed, not held, not driven by hand) and the consumers
-   each fits (`FitsConsumer`). The targets are `STLoopMath::Split` of the trains that fit some consumer over the needs
-   of the consumers some train fits: largest remainder; with at least as many trains as consumers each gets one; with
-   fewer, the largest needs get one each (the rest are unserved, `FSTConsumer::Problem`).
+   each fits (`FitsConsumer`). The targets are `STLoopMath::SplitByPriority` of the trains that fit some consumer
+   over the needs of the consumers some train fits (see Priority below); consumers left with none are unserved
+   (`FSTConsumer::Problem`, and `Cause` in a few words for the monitor's row).
 4. **Each train's job** (`UpdateTrainJob`): its loop, unless it is switching patterns.
+
+### Priority
+
+Each Demand platform has a priority (`FSTPlatformConfig::Priority`: Low, Medium by default, High); a consumer takes
+the highest of its platforms'. A consumer's **full need** is its need rounded up (a need within 0.05 of a whole train
+rounds down), at least one and at most the available trains that fit it. The tiers take turns from High down: a tier
+whose full needs the trains left cover gets them all; otherwise it splits what is left in proportion to its full
+needs (`Split`: one each while there are enough, then largest remainder) and the lower tiers get none. So High takes
+trains from Medium and Low loops until it has enough for its factory's theoretical input, and Low only gets trains
+once every Medium loop has its full need. Trains left once every full need is met go by need to consumers more
+trains fit. With every consumer on Medium this is the plain split by need. Priority is part of the split's inputs,
+so changing it splits again.
 
 ### Rebalancing
 

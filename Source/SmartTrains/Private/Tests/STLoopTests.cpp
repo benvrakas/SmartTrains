@@ -42,6 +42,24 @@ bool FSTLoopSplitTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// Priority: High takes trains up to its full need first, Medium shares what is left, Low waits for both.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTLoopPriorityTest, "SmartTrains.Loops.Priority", LoopTestFlags)
+bool FSTLoopPriorityTest::RunTest(const FString& Parameters)
+{
+	const TArray<int32> NoCap = {99, 99, 99};
+	TestEqual(TEXT("High takes every train while short of its full need"), STLoopMath::SplitByPriority({5.0, 2.0, 1.0}, {2, 1, 1}, NoCap, 4), TArray<int32>({4, 0, 0}));
+	TestEqual(TEXT("High full, Medium shares the rest by full need"), STLoopMath::SplitByPriority({5.0, 2.0, 1.0}, {2, 1, 1}, NoCap, 8), TArray<int32>({5, 2, 1}));
+	TestEqual(TEXT("Low waits for Medium's full need"), STLoopMath::SplitByPriority({2.0, 2.0}, {1, 0}, {99, 99}, 2), TArray<int32>({2, 0}));
+	TestEqual(TEXT("Low gets what Medium leaves"), STLoopMath::SplitByPriority({2.0, 2.0}, {1, 0}, {99, 99}, 3), TArray<int32>({2, 1}));
+	TestEqual(TEXT("a full need is capped by the trains that fit"), STLoopMath::SplitByPriority({5.0, 2.0}, {2, 1}, {2, 99}, 4), TArray<int32>({2, 2}));
+	TestEqual(TEXT("all full: the rest by need"), STLoopMath::SplitByPriority({1.0, 3.0}, {1, 1}, {99, 99}, 8), TArray<int32>({2, 6}));
+	TestEqual(TEXT("a need just over a whole train rounds down"), STLoopMath::SplitByPriority({2.03}, {2}, {99}, 2), TArray<int32>({2}));
+	TestEqual(TEXT("no need, no train"), STLoopMath::SplitByPriority({0.0, 3.0}, {2, 1}, {99, 99}, 3), TArray<int32>({0, 3}));
+	const TArray<int32> Medium = STLoopMath::SplitByPriority({0.7, 2.9, 1.3, 5.1}, {1, 1, 1, 1}, {99, 99, 99, 99}, 23);
+	TestEqual(TEXT("all Medium: every train given out"), Sum(Medium), 23);
+	return true;
+}
+
 // With fewer trains than consumers, the consumers with the smallest needs go unserved.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTLoopUnservedTest, "SmartTrains.Loops.Unserved", LoopTestFlags)
 bool FSTLoopUnservedTest::RunTest(const FString& Parameters)
