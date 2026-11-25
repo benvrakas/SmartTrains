@@ -2,9 +2,7 @@
 
 #include "CoreMinimal.h"
 
-// Minimum-cost maximum flow on a small directed graph with real capacities (successive shortest paths with
-// Bellman-Ford, so negative edge costs are allowed). Used by the flow plan (Docs/Architecture.md, "Dispatching").
-// SolveMaxFlow ignores costs, for larger graphs (belt networks, Docs/Architecture.md, "Station set-up").
+// Maximum flow on a directed graph with real capacities, for belt networks (Docs/Architecture.md, "Station set-up").
 class FSTMinCostFlow
 {
 public:
@@ -13,9 +11,6 @@ public:
 	// Adds an edge and returns its id for GetFlow.
 	int32 AddEdge(int32 From, int32 To, double Capacity, double Cost);
 
-	// Sends as much flow as possible from Source to Sink at the least total cost; returns the amount sent.
-	double Solve(int32 Source, int32 Sink);
-
 	// Sends as much flow as possible from Source to Sink, costs ignored (shortest augmenting paths by breadth-first
 	// search); returns the amount sent.
 	double SolveMaxFlow(int32 Source, int32 Sink);
@@ -23,7 +18,6 @@ public:
 	// After solving: true for each node still reachable from Source with room left, the source side of a minimum cut.
 	TArray<bool> GetSourceSide(int32 Source) const;
 
-	double GetFlow(int32 Edge) const;
 
 private:
 	struct FEdge

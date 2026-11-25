@@ -22,107 +22,11 @@
 #include "Patching/NativeHookManager.h"
 #include "Resources/FGItemDescriptor.h"
 #include "SmartTrains.h"
-#include "STDepotSignal.h"
 #include "STTypes.h"
 
 EFreightCargoType FSTPlatformAccess::GetCargoType(const AFGBuildableTrainPlatformCargo* Platform)
 {
 	return Platform ? Platform->mFreightCargoType : EFreightCargoType::FCT_NONE;
-}
-
-bool FSTPlatformAccess::FollowPath(AFGTrain* Train, const TArray<UFGRailroadTrackConnectionComponent*>& Route)
-{
-	if (!IsValid(Train) || Route.Num() == 0)
-	{
-		return false;
-	}
-	FRailroadPathSharedPtr Path = MakeShared<FRailroadPath>();
-	Path->PathPoints.SetNum(Route.Num());
-	float DistanceToEnd = 0.f;
-	for (int32 Index = Route.Num() - 1; Index >= 0; --Index)
-	{
-		Path->PathPoints[Index].TrackConnection = Route[Index];
-		Path->PathPoints[Index].Distance = DistanceToEnd;
-		const AFGBuildableRailroadTrack* Track = Route[Index] ? Route[Index]->GetTrack() : nullptr;
-		DistanceToEnd += Track ? Track->GetLength() : 0.f;
-	}
-	FRailroadPathFindingResult Result;
-	Result.Locomotive = Train->GetMultipleUnitMaster();
-	Result.Goal = Route.Last();
-	Result.Path = Path;
-	Result.Result = ERailroadPathFindingResult::RPFR_Success;
-	if (!Train->mAtcData.SetPath(Result))
-	{
-		return false;
-	}
-	Train->GotoSelfDrivingState(ESelfDrivingLocomotiveState::SDLS_FollowPath);
-	return true;
-}
-
-bool FSTPlatformAccess::IsFollowing(const AFGTrain* Train, const UFGRailroadTrackConnectionComponent* Goal)
-{
-	return IsValid(Train) && Train->mSelfDrivingData.State == ESelfDrivingLocomotiveState::SDLS_FollowPath && Train->mAtcData.HasPath()
-		&& Train->mAtcData.Path->PathPoints.Num() > 0 && Train->mAtcData.Path->PathPoints.Last().TrackConnection.Get() == Goal;
-}
-
-void FSTPlatformAccess::HoldSignal(AFGBuildableRailroadSignal* Signal, bool bHold)
-{
-	if (!IsValid(Signal))
-	{
-		return;
-	}
-	if (bHold)
-	{
-		ShowStop(Signal);
-		return;
-	}
-	Signal->UpdateAspect();
-}
-
-void FSTPlatformAccess::GuardConnection(AFGBuildableRailroadSignal* Signal, UFGRailroadTrackConnectionComponent* Connection)
-{
-	if (IsValid(Signal) && Connection)
-	{
-		Signal->AddGuardedConnection(Connection);
-	}
-}
-
-void FSTPlatformAccess::ShowStop(AFGBuildableRailroadSignal* Signal)
-{
-	const ERailroadSignalAspect Previous = Signal->mAspect;
-	if (Previous == ERailroadSignalAspect::RSA_Stop)
-	{
-		return;
-	}
-	Signal->mAspect = ERailroadSignalAspect::RSA_Stop;
-	// Its lights and sounds, as when the aspect arrives on a client (the game doesn't export the function behind it).
-	if (UFunction* OnRep = Signal->FindFunction(TEXT("OnRep_Aspect")))
-	{
-		ERailroadSignalAspect Params = Previous;
-		Signal->ProcessEvent(OnRep, &Params);
-	}
-}
-
-void FSTPlatformAccess::InstallSignalHook()
-{
-#if WITH_EDITOR
-	UE_LOG(LogSmartTrains, Log, TEXT("Editor build: signal hold hook not installed"));
-#else
-	static bool bInstalled = false;
-	if (bInstalled)
-	{
-		return;
-	}
-	bInstalled = true;
-	SUBSCRIBE_METHOD_AFTER(AFGBuildableRailroadSignal::UpdateAspect, [](AFGBuildableRailroadSignal* Self)
-	{
-		if (Self && STDepots::IsHeld(Self))
-		{
-			ShowStop(Self);
-		}
-	});
-	UE_LOG(LogSmartTrains, Log, TEXT("Signal hold hook installed"));
-#endif
 }
 
 void FSTPlatformAccess::CountConnections(const AFGBuildableTrainPlatformCargo* Platform, int32& OutInputs, int32& OutOutputs)

@@ -21,24 +21,6 @@ public:
 
 	// Number of source stations searched at least once.
 	int32 GetSearchedCount() const { return mRows.Num(); }
-	// True if Station has been searched and no station can be reached past its building (a dead end): a train in it
-	// can only leave the way trains come in.
-	bool IsDeadEnd(const AFGTrainStationIdentifier* Station) const;
-	// True if the shortest way from some searched station to another runs over Station's track: trains pass through it,
-	// so a train standing there is in their way (Docs/Architecture.md, "Parking").
-	bool IsThroughStation(const AFGTrainStationIdentifier* Station) const;
-
-	// What lies outside a station's platform end, the trains' way in: track a train can wait on before the first
-	// switch (platforms not counted), and that switch (null when the way in has none before a track end or another
-	// station).
-	struct FApproach
-	{
-		float WaitLength = 0.f;
-		const void* Junction = nullptr;
-	};
-	// False until Station has been searched.
-	bool GetApproach(const AFGTrainStationIdentifier* Station, FApproach& Out) const;
-
 	// For SmartTrains.CheckTravel: both stations' ends as the search sees them, and from which end of From each end of
 	// To is reached, with and without the one-way signal rule.
 	static FString Explain(const AFGTrainStationIdentifier* From, const AFGTrainStationIdentifier* To);
@@ -55,25 +37,15 @@ private:
 		// Arriving through the far end, station building first (push-pull trains).
 		TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float> ForwardBack;
 		TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float> ReverseBack;
-		// Other stations whose track the shortest forward ways from this station to the others run over.
-		TSet<TWeakObjectPtr<AFGTrainStationIdentifier>> PassedThrough;
 	};
 
-	// Runs the search from Source's departure through Exit, recording arrival distances through the platform ends into
-	// Out and through the far ends into OutBack.
-	// With StationTracks and OutPassed: the stations whose track the shortest ways to the arrivals through the platform
-	// ends run over (the source's own and the arrival's own left out) go into OutPassed.
+	// Runs the search from a station's departure through Exit, recording arrival distances through the platform ends
+	// into Out and through the far ends into OutBack.
 	static void Search(UFGRailroadTrackConnectionComponent* Exit, const TMap<UFGRailroadTrackConnectionComponent*, AFGTrainStationIdentifier*>& Arrivals,
 		const TMap<UFGRailroadTrackConnectionComponent*, AFGTrainStationIdentifier*>& BackArrivals, const TMap<AFGTrainStationIdentifier*, float>& ArrivalExtra,
-		TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& Out, TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& OutBack,
-		const TMap<const AFGBuildableRailroadTrack*, AFGTrainStationIdentifier*>* StationTracks = nullptr, AFGTrainStationIdentifier* Source = nullptr,
-		TSet<TWeakObjectPtr<AFGTrainStationIdentifier>>* OutPassed = nullptr);
-
-	// Walks out from a station's platform end to the first switch, track end or other station (StationEnds).
-	static FApproach WalkApproach(UFGRailroadTrackConnectionComponent* PlatformEnd, const TSet<UFGRailroadTrackConnectionComponent*>& StationEnds);
+		TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& Out, TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, float>& OutBack);
 
 	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, FRow> mRows;
-	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, FApproach> mApproaches;
 	TArray<TWeakObjectPtr<AFGTrainStationIdentifier>> mOrder;
 	int32 mNext = 0;
 };

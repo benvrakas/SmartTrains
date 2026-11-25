@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "FGRailroadTimeTable.h"
-#include "STDepotSignal.h"
 
 class AFGBuildableRailroadStation;
 class AFGRailroadVehicle;
@@ -50,64 +49,10 @@ namespace STAt
 	// Returns true if the Auto Trains mod is installed (server and clients alike; no world needed).
 	bool IsInstalled();
 
-	// The trains Train waits for, the one holding it up first (parked and undriven trains included), how long it has
-	// been held up and why. Returns false if Auto Trains doesn't drive Train now or isn't loaded.
-	bool GetWaitingFor(const UWorld* World, AFGTrain* Train, TArray<AFGTrain*>& OutWaitingFor, float& OutWaitedSeconds, FString& OutReason);
-
-	// Seconds until the last train docked at Station or heading there is expected to have left; 0 if none, -1 if one
-	// has no plan or Auto Trains isn't loaded.
-	float GetStationQueue(const UWorld* World, AFGBuildableRailroadStation* Station, TArray<AFGTrain*>& OutTrains);
-
-	// Seconds until Train reaches OutGoal by Auto Trains' plan, around every booking and queue (for a docked train its
-	// next stop, the stay included); -1 without such a plan or without Auto Trains.
-	float GetPlannedArrival(const UWorld* World, AFGTrain* Train, AFGBuildableRailroadStation*& OutGoal);
-
 	// Seconds from From to To on the shortest way the signals allow, without other traffic; -1 if there is no way or
 	// Auto Trains isn't loaded. A search over the whole network: call sparingly.
 	float EstimateTravelSeconds(const UWorld* World, AFGTrain* Train, AFGBuildableRailroadStation* From, AFGBuildableRailroadStation* To);
 
-	struct FTroubled
-	{
-		AFGTrain* Train = nullptr;
-		// Deadlock, Stuck, Lost or Stalled.
-		FString Kind;
-		float Seconds = 0.f;
-	};
-	// Trains in trouble now; empty if none or Auto Trains isn't loaded.
-	TArray<FTroubled> GetTroubledTrains(const UWorld* World);
-
-	// How busy the switches and crossings within ApproachMetres of Station are over the next HorizonSeconds (booked
-	// time / horizon, the busiest one; above 1 = more booked than fits), and OutWaitingSeconds of trains held up before
-	// them now. -1 without Auto Trains 1.4.12 or traffic control.
-	float GetTrackLoad(const UWorld* World, AFGBuildableRailroadStation* Station, float HorizonSeconds, float ApproachMetres, float& OutWaitingSeconds);
-
 	// Tells Auto Trains that Train's timetable changed, so it predicts the next leg from the new one.
 	void TimeTableChanged(const UWorld* World, AFGTrain* Train);
-
-	// Has Auto Trains drive Train until its front stops at Goal, a track's end connection that isn't a station (a depot
-	// signal's parking spot). False if Auto Trains can't (not loaded, no way there).
-	bool DriveTo(const UWorld* World, AFGTrain* Train, UFGRailroadTrackConnectionComponent* Goal);
-
-	// Where Train stands with the goal given to DriveTo (the reason for NoWay is in Auto Trains' log).
-	STDepots::EDriveState GetDriveState(const UWorld* World, AFGTrain* Train);
-
-	// Drops Train's goal from DriveTo (it got a trip, or isn't managed any more).
-	void CancelDrive(const UWorld* World, AFGTrain* Train);
-
-	enum class ELegCheck : uint8
-	{
-		// Auto Trains isn't loaded or has no ExternalCheckLeg.
-		Unavailable,
-		// Being planned; ask again with the same station.
-		Pending,
-		// The train could go now; OutSeconds until it would arrive.
-		Clear,
-		// No plan gets it there now; OutReason says what is in the way.
-		Blocked,
-		// It can't be asked (driving, no path, traffic control off); OutReason says why.
-		NotAsked,
-	};
-	// Asks whether Train, standing in a station (docked, or parked with self-driving off), could drive to To now,
-	// planned after every other train. Asynchronous: a first call usually answers Pending.
-	ELegCheck CheckLeg(const UWorld* World, AFGTrain* Train, AFGBuildableRailroadStation* To, float& OutSeconds, FString& OutReason);
 }

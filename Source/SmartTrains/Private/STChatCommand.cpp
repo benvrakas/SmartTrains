@@ -201,17 +201,14 @@ namespace
 
 	const TCHAR* Help[] = {
 		TEXT("/st status | jobs | fit"),
-		TEXT("/st monitor [text]   (what limits throughput: supply, trains, fit or congestion; text prints it in chat)"),
-		TEXT("/st platform [supply|demand|off] [item, item...] [target %|auto] [sendat %] [priority low|normal|high|critical] [rate n/min] | /st platform copy"),
-		TEXT("/st station | /st depots   (depot signals and their sidings)"),
+		TEXT("/st monitor [text]   (consumers, suppliers and trains of the loop plan; text prints it in chat)"),
+		TEXT("/st platform [supply|demand|sink|off] [item, item...] | /st platform copy"),
+		TEXT("/st station"),
 		TEXT("/st setup [apply] [keepname]   (platform roles, items and a name for the station you look at, from its factory)"),
 		TEXT("/st setup all [apply] [keepname]   (every station; report in Saved/SmartTrains; apply is admin only)"),
 		TEXT("/st setup format <text> | words <loads> <unloads several> <unloads one> [both] | default   (how stations are named)"),
-		TEXT("/st train [manage|unmanage] [keepvanilla on|off] [hold|resume|canceljob]"),
-		TEXT("/st snapshot   (the next dispatch round's planning inputs to a file in the server's Saved/SmartTrains/Snapshots, for replay tests; admin only)"),
-		TEXT("/st group [item]   (per item: the flow plan's routes, trains needed and working on it)"),
-		TEXT("/st patterns   (train groups by the item in each car, and consumer stations' platforms)"),
-		TEXT("/st job <item> from <station> to <station>   (a test job for the train you drive or look at)"),
+		TEXT("/st train [manage|unmanage] [keepvanilla on|off] [hold|resume]"),
+		TEXT("/st patterns   (every consumer's pattern and the trains on its loop)"),
 		TEXT("/st migrate   (opens the migration window)"),
 		TEXT("/st migrate preview | apply all [rename | namesonly] [confirm] | apply stations 1,2 trains 3 | undo"),
 		TEXT("/st testcopy [session name] | /st backup"),
@@ -286,7 +283,7 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 	{
 		if (Arguments.Num() < 3)
 		{
-			Sender->SendChatMessage(TEXT("Usage: /st set <setting> <value>, e.g. /st set ArrivalGapSeconds 45. /st settings lists them."), FLinearColor::Red);
+			Sender->SendChatMessage(TEXT("Usage: /st set <setting> <value>, e.g. /st set AverageSpeedKmh 100. /st settings lists them."), FLinearColor::Red);
 			return EExecutionStatus::BAD_ARGUMENTS;
 		}
 		if (!Allowed(Sender, *Subsystem, STAccess::EChange::Network, TEXT("change SmartTrains' settings")))
@@ -384,37 +381,10 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			}
 			const FSTPlatformConfig* Existing = Subsystem->FindPlatformConfig(Platform);
 			TArray<FSTItemRule> Rules = Existing ? Existing->Items : TArray<FSTItemRule>();
-			float Target = -1.f;
-			float SendAt = -1.f;
-			float Rate = -1.f;
-			TOptional<ESTPriority> Priority;
 			FString ItemText;
 			for (int32 Index = 2; Index < Arguments.Num(); ++Index)
 			{
-				const FString Word = Arguments[Index].ToLower();
-				const bool bHasValue = Index + 1 < Arguments.Num();
-				if (Word == TEXT("target") && bHasValue)
-				{
-					// "auto" (or 0): enough to last until a train can bring more.
-					const FString Value = Arguments[++Index].ToLower();
-					Target = Value == TEXT("auto") ? 0.f : FMath::Max(0.f, FCString::Atof(*Value.Replace(TEXT("%"), TEXT(""))));
-				}
-				else if (Word == TEXT("sendat") && bHasValue)
-				{
-					SendAt = FCString::Atof(*Arguments[++Index].Replace(TEXT("%"), TEXT("")));
-				}
-				else if (Word == TEXT("rate") && bHasValue)
-				{
-					Rate = FCString::Atof(*Arguments[++Index]);
-				}
-				else if (Word == TEXT("priority") && bHasValue)
-				{
-					Priority = STNames::ParsePriority(Arguments[++Index]);
-				}
-				else
-				{
-					ItemText += (ItemText.IsEmpty() ? TEXT("") : TEXT(" ")) + Arguments[Index];
-				}
+				ItemText += (ItemText.IsEmpty() ? TEXT("") : TEXT(" ")) + Arguments[Index];
 			}
 			if (!ItemText.IsEmpty())
 			{
@@ -430,9 +400,9 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 						Sender->SendChatMessage(Error, FLinearColor::Red);
 						return EExecutionStatus::BAD_ARGUMENTS;
 					}
-					if (!Item && !STNames::Unloads(WantedRole.GetValue()))
+					if (!Item)
 					{
-						Sender->SendChatMessage(TEXT("'any' only works on a demand or sink platform."), FLinearColor::Red);
+						Sender->SendChatMessage(TEXT("Name an item: a Sink platform takes any item by itself (/st platform sink)."), FLinearColor::Red);
 						return EExecutionStatus::BAD_ARGUMENTS;
 					}
 					if (Item && !STLayout::ItemFitsCargoType(Item, STLayout::GetPlatformCargoType(Platform)))
@@ -442,20 +412,12 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 					}
 					FSTItemRule& Rule = Rules.AddDefaulted_GetRef();
 					Rule.Item = Item;
-					Rule.Priority = Item ? ESTPriority::Normal : ESTPriority::Low;
 				}
 			}
 			if (WantedRole.GetValue() != ESTRole::Off && WantedRole.GetValue() != ESTRole::Sink && Rules.Num() == 0)
 			{
 				Sender->SendChatMessage(TEXT("Name at least one item, e.g. /st platform supply Iron Plate"), FLinearColor::Red);
 				return EExecutionStatus::BAD_ARGUMENTS;
-			}
-			for (FSTItemRule& Rule : Rules)
-			{
-				Rule.TargetPercent = Target > 0.f ? FMath::Clamp(Target, 1.f, 100.f) : (Target == 0.f ? 0.f : Rule.TargetPercent);
-				Rule.SendAtPercent = SendAt >= 0.f ? FMath::Clamp(SendAt, 0.f, 100.f) : Rule.SendAtPercent;
-				Rule.ManualRatePerMinute = Rate >= 0.f ? (STNames::IsFluid(Rule.Item) ? Rate * 1000.f : Rate) : Rule.ManualRatePerMinute;
-				Rule.Priority = Priority.IsSet() ? Priority.GetValue() : Rule.Priority;
 			}
 			Subsystem->SetPlatformConfig(Platform, WantedRole.GetValue(), WantedRole.GetValue() == ESTRole::Off ? TArray<FSTItemRule>() : Rules, Who);
 		}
@@ -555,10 +517,6 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 			{
 				Subsystem->SetTrainHeld(Train, Word == TEXT("hold"), Who);
 			}
-			else if (Word == TEXT("canceljob") && !Subsystem->CancelTrainJob(Train, Who))
-			{
-				Sender->SendChatMessage(FString::Printf(TEXT("%s has no job to cancel."), *STLayout::Name(Train)), FLinearColor::Red);
-			}
 		}
 		Send(Sender, Subsystem->DescribeTrain(Train));
 		return EExecutionStatus::COMPLETED;
@@ -568,93 +526,6 @@ EExecutionStatus ASTChatCommand::ExecuteCommand_Implementation(UCommandSender* S
 	{
 		Send(Sender, Subsystem->DescribePatterns());
 		return EExecutionStatus::COMPLETED;
-	}
-
-	if (Verb == TEXT("depots"))
-	{
-		Send(Sender, Subsystem->DescribeDepots());
-		return EExecutionStatus::COMPLETED;
-	}
-
-	if (Verb == TEXT("snapshot"))
-	{
-		if (!Allowed(Sender, *Subsystem, STAccess::EChange::Network, TEXT("write a planner snapshot")))
-		{
-			return EExecutionStatus::UNCOMPLETED;
-		}
-		Subsystem->RequestSnapshot();
-		Sender->SendChatMessage(TEXT("The next dispatch round writes its planning inputs to Saved/SmartTrains/Snapshots (SNAPSHOT in the log)."));
-		return EExecutionStatus::COMPLETED;
-	}
-
-	if (Verb == TEXT("group"))
-	{
-		// /st group [item words]
-		if (Arguments.Num() <= 1)
-		{
-			Send(Sender, Subsystem->DescribeGroups());
-			return EExecutionStatus::COMPLETED;
-		}
-		const FString ItemName = FString::Join(TArray<FString>(Arguments.GetData() + 1, Arguments.Num() - 1), TEXT(" "));
-		TSubclassOf<UFGItemDescriptor> Item;
-		FString Error;
-		if (!FindItem(ItemName, Item, Error) || !Item)
-		{
-			Sender->SendChatMessage(Error.IsEmpty() ? TEXT("Name an item, e.g. /st group sulfur.") : Error, FLinearColor::Red);
-			return EExecutionStatus::UNCOMPLETED;
-		}
-		const FSTGroup* Group = Subsystem->FindGroup(Item.Get());
-		if (!Group)
-		{
-			Sender->SendChatMessage(FString::Printf(TEXT("%s has no group now: the flow plan has no route for it a managed train fits."), *STNames::Item(Item)));
-			return EExecutionStatus::COMPLETED;
-		}
-		for (const FString& Line : Subsystem->DescribeGroups())
-		{
-			if (Line.StartsWith(ASTSubsystem::DescribeGroup(*Group) + TEXT(":")))
-			{
-				Sender->SendChatMessage(Line);
-			}
-		}
-		for (const FSTFlowRoute& Route : Group->Routes)
-		{
-			Sender->SendChatMessage(FString::Printf(TEXT("  %s -> %s: %s/min, %.2f trains"), *STLayout::Name(Route.From.Get()), *STLayout::Name(Route.To.Get()),
-				*STNames::Amount(Item, Route.Flow * 60.0), Route.Trains));
-		}
-		return EExecutionStatus::COMPLETED;
-	}
-
-	if (Verb == TEXT("job"))
-	{
-		const FString Rest = FString::Join(TArray<FString>(Arguments.GetData() + 1, Arguments.Num() - 1), TEXT(" "));
-		FString ItemName;
-		FString FromName;
-		FString ToName;
-		FString AfterFrom;
-		if (!Rest.Split(TEXT(" from "), &ItemName, &AfterFrom, ESearchCase::IgnoreCase) || !AfterFrom.Split(TEXT(" to "), &FromName, &ToName, ESearchCase::IgnoreCase))
-		{
-			Sender->SendChatMessage(TEXT("Usage: /st job <item> from <station> to <station>"), FLinearColor::Red);
-			return EExecutionStatus::BAD_ARGUMENTS;
-		}
-		if (!Allowed(Sender, *Subsystem, STAccess::EChange::Edit, TEXT("give a train a test job")))
-		{
-			return EExecutionStatus::UNCOMPLETED;
-		}
-		AFGTrain* Train = FindTrain(Sender);
-		TSubclassOf<UFGItemDescriptor> Item;
-		FString Error;
-		AFGTrainStationIdentifier* From = FindStationByName(World, FromName.TrimStartAndEnd());
-		AFGTrainStationIdentifier* To = FindStationByName(World, ToName.TrimStartAndEnd());
-		if (!Train || !FindItem(ItemName, Item, Error) || !Item || !From || !To)
-		{
-			Sender->SendChatMessage(FString::Printf(TEXT("Need a train you drive or look at, an item and two stations by name: train %s, item %s, from %s, to %s"),
-				Train ? TEXT("ok") : TEXT("missing"), Item ? TEXT("ok") : *Error, From ? TEXT("ok") : TEXT("not found"), To ? TEXT("ok") : TEXT("not found")), FLinearColor::Red);
-			return EExecutionStatus::BAD_ARGUMENTS;
-		}
-		FString Result;
-		const bool bOk = Subsystem->AssignManualJob(Train, From, To, Item, Result);
-		Sender->SendChatMessage(Result, bOk ? FLinearColor::White : FLinearColor::Red);
-		return bOk ? EExecutionStatus::COMPLETED : EExecutionStatus::UNCOMPLETED;
 	}
 
 	if (Verb == TEXT("migrate"))

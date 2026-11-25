@@ -14,8 +14,8 @@ class USTTextInput;
 class UTextBlock;
 class UFGItemDescriptor;
 
-// SmartTrains settings of one freight or fluid platform: role, items with their batch or target, priority and manual
-// rate, an item picker, copy/paste, the station switch, and the live readout. Shown in its own window
+// SmartTrains settings of one freight or fluid platform: role, items, an item picker, copy/paste, the station switch,
+// and the live readout. Shown in its own window
 // (USTPlatformWindow), opened from the platform menu. Edits are sent at once; the panel keeps its own copy
 // until the server's readout includes them.
 UCLASS()
@@ -39,11 +39,7 @@ private:
 	{
 		TWeakObjectPtr<UTextBlock> Name;
 		TWeakObjectPtr<UImage> Icon;
-		TWeakObjectPtr<USTButton> Priority;
-		TWeakObjectPtr<UTextBlock> Amount;
 		TWeakObjectPtr<UTextBlock> Readout;
-		TWeakObjectPtr<USTTextInput> Rate;
-		TWeakObjectPtr<UWidget> AmountRow;
 	};
 
 	AFGBuildableTrainPlatformCargo* GetPlatform() const;
@@ -56,9 +52,6 @@ private:
 	void StepRole(int32 Step);
 	void AddItem(TSubclassOf<UFGItemDescriptor> Item);
 	void RemoveItem(int32 Index);
-	void CyclePriority(int32 Index, int32 Step);
-	void StepAmount(int32 Index, int32 Step);
-	void SetRate(int32 Index, const FString& Text);
 
 	// Rebuilds the item rows if the item list changed, then updates all texts.
 	void RefreshEditor();

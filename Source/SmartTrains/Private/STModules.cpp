@@ -9,7 +9,6 @@
 #include "STClientSettingsSubsystem.h"
 #include "STClipboardHooks.h"
 #include "STConfig.h"
-#include "STDepotSignal.h"
 #include "STDockHooks.h"
 #include "STLayout.h"
 #include "STRemoteCallObject.h"
@@ -35,8 +34,6 @@ void USTGameInstanceModule::DispatchLifecycleEvent(ELifecyclePhase Phase)
 	{
 		STClipboardHooks::Install();
 		STDockHooks::Install();
-		FSTPlatformAccess::InstallSignalHook();
-		STDepots::ResolveVanillaAssets();
 		TArray<UWidgetBlueprintHookData*> Hooks;
 		STUIHooks::Register(this, Hooks);
 		mWidgetHooks.Append(Hooks);

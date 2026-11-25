@@ -21,33 +21,34 @@ enum class ESTRole : uint8
 	Off,
 	// The platform's items are picked up by managed trains.
 	Supply,
-	// Managed trains deliver the platform's items.
+	// Managed trains deliver the platform's items; its station's unloading platforms make a car pattern.
 	Demand,
-	// Managed trains unload cargo here that no consumer takes; any item.
+	// Managed trains switching patterns unload cargo here that their old consumer had no room for; any item.
 	Sink,
-};
-
-// How urgent a platform item is.
-UENUM()
-enum class ESTPriority : uint8
-{
-	Low,
-	Normal,
-	High,
-	// Sent before anything else, even as a part load.
-	Critical,
 };
 
 // What a managed train is doing.
 UENUM()
 enum class ESTTrainPhase : uint8
 {
-	// Waiting for a job; self-driving is left as it is.
+	// No loop: it stands where it is with its timetable as it was.
 	Idle,
-	// Following a job's legs.
+	// Following its job's stops.
 	Working,
-	// Standing still with self-driving switched off by SmartTrains until it gets a job.
+	// Standing still with self-driving switched off by SmartTrains (held, or no consumer it fits).
 	Parked,
+};
+
+// What a job is for.
+UENUM()
+enum class ESTJobKind : uint8
+{
+	// The train's loop: its suppliers, then its consumer, repeated by its timetable.
+	Loop,
+	// Switching patterns: what it holds goes to the consumer it served before.
+	Deliver,
+	// Switching patterns: what its old consumer had no room for goes to a Sink platform.
+	Sink,
 };
 
 namespace STNames
@@ -55,15 +56,9 @@ namespace STNames
 	SMARTTRAINS_API const TCHAR* Role(ESTRole Role);
 	// True for roles whose platforms managed trains unload at (Demand, Sink).
 	SMARTTRAINS_API bool Unloads(ESTRole Role);
-	SMARTTRAINS_API const TCHAR* Priority(ESTPriority Priority);
 	SMARTTRAINS_API const TCHAR* Phase(ESTTrainPhase Phase);
+	SMARTTRAINS_API const TCHAR* JobKind(ESTJobKind Kind);
 	SMARTTRAINS_API TOptional<ESTRole> ParseRole(const FString& Text);
-	SMARTTRAINS_API TOptional<ESTPriority> ParsePriority(const FString& Text);
-	// Returns the score multiplier of Priority.
-	SMARTTRAINS_API float PriorityWeight(ESTPriority Priority);
-	// Send-at share of a load for a rule's SendAtPercent (0: the default). [%]
-	constexpr float DefaultSendAtPercent = 50.f;
-	inline float SendAtPercent(float Percent) { return Percent > 0.f ? Percent : DefaultSendAtPercent; }
 	// Returns the item's display name, or "any item" for null.
 	SMARTTRAINS_API FString Item(TSubclassOf<UFGItemDescriptor> Item);
 	// Returns true for liquids and gases.
@@ -72,7 +67,7 @@ namespace STNames
 	SMARTTRAINS_API FString Amount(TSubclassOf<UFGItemDescriptor> Item, double Amount);
 }
 
-// One item a platform supplies or demands. A null Item on a Demand platform accepts any item (a sink).
+// One item a platform supplies or demands. A Sink platform has one rule with no item (it takes anything).
 USTRUCT()
 struct SMARTTRAINS_API FSTItemRule
 {
@@ -80,23 +75,6 @@ struct SMARTTRAINS_API FSTItemRule
 
 	UPROPERTY(SaveGame)
 	TSubclassOf<UFGItemDescriptor> Item;
-
-	// Supply: a train is sent once the station holds this share of the train's load; 0 means the default
-	// (STNames::DefaultSendAtPercent). [%]
-	UPROPERTY(SaveGame)
-	float SendAtPercent = 0.f;
-
-	// Demand: the platform is kept stocked at this share of its capacity; 0: automatic, enough to last until a train can
-	// bring more (Docs/Architecture.md, "Automatic target"). [%]
-	UPROPERTY(SaveGame)
-	float TargetPercent = 0.f;
-
-	UPROPERTY(SaveGame)
-	ESTPriority Priority = ESTPriority::Normal;
-
-	// Rate used instead of the measured one when above 0, in the item's inventory unit per minute.
-	UPROPERTY(SaveGame)
-	float ManualRatePerMinute = 0.f;
 };
 
 namespace STNames
@@ -117,6 +95,7 @@ struct SMARTTRAINS_API FSTPlatformConfig
 	UPROPERTY(SaveGame)
 	ESTRole Role = ESTRole::Off;
 
+	// Several items on a Demand platform make its car's slot an item group: the car carries any one of them.
 	UPROPERTY(SaveGame)
 	TArray<FSTItemRule> Items;
 
@@ -127,12 +106,12 @@ struct SMARTTRAINS_API FSTPlatformConfig
 	UPROPERTY(SaveGame)
 	bool bHasOriginalLoadMode = false;
 
-	// Who last changed the settings, for the log and readouts.
 	// The machines its belts or pipes reached when it was last set up from them (Autodetect, station set-up or the
-	// migration): their recipes give its theoretical rate.
+	// migration): their recipes give its rate when the factory scan gives none.
 	UPROPERTY(SaveGame)
 	TArray<TObjectPtr<AActor>> Machines;
 
+	// Who last changed the settings, for the log and readouts.
 	UPROPERTY(SaveGame)
 	FString EditedBy;
 
@@ -140,7 +119,6 @@ struct SMARTTRAINS_API FSTPlatformConfig
 	const FSTItemRule* FindRule(TSubclassOf<UFGItemDescriptor> Item) const;
 };
 
-// A station's SmartTrains settings.
 // How the station set-up names stations (Docs/Architecture.md, "Station set-up"), per world. {area}, {product},
 // {role}, {n} and {rate} are filled in; empty ones and their brackets drop out.
 USTRUCT()
@@ -185,14 +163,15 @@ struct SMARTTRAINS_API FSTCarWork
 	UPROPERTY(SaveGame)
 	bool bLoad = false;
 
+	// A full car of the item.
 	UPROPERTY(SaveGame)
 	int32 PlannedAmount = 0;
 
-	// The platform the car was planned to load from or unload into, so the promise counts against that platform only.
+	// The platform the car stands beside there.
 	UPROPERTY(SaveGame)
 	TObjectPtr<AFGBuildableTrainPlatformCargo> Platform = nullptr;
 
-	// Amount actually moved, filled in when the train leaves.
+	// Amount actually moved at the last visit, filled in when the train leaves.
 	UPROPERTY(SaveGame)
 	int32 MovedAmount = 0;
 };
@@ -206,26 +185,17 @@ struct SMARTTRAINS_API FSTJobLeg
 	UPROPERTY(SaveGame)
 	TObjectPtr<AFGTrainStationIdentifier> Station = nullptr;
 
-	// Per car: what it loads or unloads here. Empty for a stop that moves nothing (depot, out of the way).
+	// Per car: what it loads or unloads here.
 	UPROPERTY(SaveGame)
 	TArray<FSTCarWork> Work;
-
-	// Load/unload once and go on, instead of waiting for full or empty cars.
-	UPROPERTY(SaveGame)
-	bool bPartial = false;
-
-	// A pickup whose supplier fills the rest of its cars, or a delivery whose consumer takes its cargo, fast enough that
-	// waiting pays: wait until the cars are full or empty, at most this long (0: no wait). [s]
-	UPROPERTY(SaveGame)
-	float TopOffSeconds = 0.f;
 
 	// Cars told to skip this stop through Freight Car Control.
 	UPROPERTY(SaveGame)
 	TArray<TObjectPtr<AFGRailroadVehicle>> SkipCars;
 
-	// Expected arrival, in game seconds.
+	// Load/unload once and go on (a Deliver stop), instead of waiting for full or empty cars.
 	UPROPERTY(SaveGame)
-	double PlannedArrival = 0.0;
+	bool bOnce = false;
 
 	// Items loaded (bLoad) or unloaded here, each once.
 	TArray<UClass*> GetItems(bool bWantLoad) const;
@@ -235,7 +205,7 @@ struct SMARTTRAINS_API FSTJobLeg
 	bool HasWork() const { return Work.Num() > 0; }
 };
 
-// A managed train's work: stops in order, written into its timetable.
+// The items one freight car carries in its train's pattern (empty: none).
 USTRUCT()
 struct SMARTTRAINS_API FSTCarItems
 {
@@ -245,6 +215,8 @@ struct SMARTTRAINS_API FSTCarItems
 	TArray<TSubclassOf<UFGItemDescriptor>> Items;
 };
 
+// A managed train's work: stops in order, written into its timetable. A Loop repeats; Deliver and Sink end after their
+// last stop.
 USTRUCT()
 struct SMARTTRAINS_API FSTJob
 {
@@ -252,6 +224,9 @@ struct SMARTTRAINS_API FSTJob
 
 	UPROPERTY(SaveGame)
 	int32 Id = 0;
+
+	UPROPERTY(SaveGame)
+	ESTJobKind Kind = ESTJobKind::Loop;
 
 	UPROPERTY(SaveGame)
 	TArray<FSTJobLeg> Legs;
@@ -266,35 +241,13 @@ struct SMARTTRAINS_API FSTJob
 	UPROPERTY(SaveGame)
 	double LegStartedAt = 0.0;
 
-	// Park after the last leg instead of waiting for the next job where it stands.
-	UPROPERTY(SaveGame)
-	bool bPark = false;
-
-	// When the train leaves for its first stop (Now()); until then it waits where it stands, so it drives straight into
-	// every stop instead of waiting on the line (Docs/Architecture.md, "Leaving on time"). 0: it leaves at once.
-	UPROPERTY(SaveGame)
-	double ReleaseAt = 0.0;
-
-	// The item the trip unloads most of, in car loads.
-	UPROPERTY(SaveGame)
-	TSubclassOf<UFGItemDescriptor> GroupItem;
-
-	// The consumer station the trip was built around; re-plans only add deliveries there.
+	// Loop: its consumer station. Deliver: the consumer the cargo goes back to.
 	UPROPERTY(SaveGame)
 	TObjectPtr<AFGTrainStationIdentifier> AnchorStation = nullptr;
 
-	// The trip's other stations: a second consumer or supplier (Several per trip), backhaul stops. Re-plans add moves
-	// to (pull) or from (push) these as well as the anchor.
+	// Loops run so far.
 	UPROPERTY(SaveGame)
-	TArray<TObjectPtr<AFGTrainStationIdentifier>> OtherStations;
-
-	// Built around a supplier (push): AnchorStation is that supplier.
-	UPROPERTY(SaveGame)
-	bool bPushTrip = false;
-
-	// The items each car may load on this trip (re-plans keep them); empty for jobs from before 0.35.0.
-	UPROPERTY(SaveGame)
-	TArray<FSTCarItems> CarItems;
+	int32 Rounds = 0;
 
 	// One line for logs and readouts.
 	UPROPERTY(SaveGame)
@@ -302,16 +255,6 @@ struct SMARTTRAINS_API FSTJob
 };
 
 // SmartTrains' state for one train.
-// A move that moved nothing: not planned again for the train until Until (runtime only).
-struct FSTNoProgress
-{
-	TWeakObjectPtr<AFGTrainStationIdentifier> Station;
-	TWeakObjectPtr<UClass> Item;
-	bool bLoad = false;
-	double Until = 0.0;
-};
-
-// The items one freight car carries in its train's pattern (empty: none given yet).
 USTRUCT()
 struct SMARTTRAINS_API FSTTrainState
 {
@@ -331,12 +274,12 @@ struct SMARTTRAINS_API FSTTrainState
 		}
 		return Out;
 	}
-	// True when no car has items given yet.
+	// True when no car has items given.
 	bool IsPatternOpen() const
 	{
 		return !CarSets.ContainsByPredicate([](const FSTCarItems& Car) { return Car.Items.Num() > 0; });
 	}
-	// "Iron Plate | Wire + Cable | - | Wire", or "open" when no car has items.
+	// "Iron Plate | Wire | - | Wire", or "open" when no car has items.
 	FString DescribePattern() const
 	{
 		TArray<FString> Parts;
@@ -368,12 +311,16 @@ struct SMARTTRAINS_API FSTTrainState
 	UPROPERTY(SaveGame)
 	bool bHasJob = false;
 
-	// Held by a player (locomotive menu Hold): autopilot off, no new trips, until Resume.
+	// Held by a player (locomotive menu Hold): autopilot off, no loop given, until Resume.
 	UPROPERTY(SaveGame)
 	bool bHeld = false;
 
 	UPROPERTY(SaveGame)
 	FSTJob Job;
+
+	// The consumer station whose loop the train is given (Docs/Architecture.md, "Loops"); null if none.
+	UPROPERTY(SaveGame)
+	TObjectPtr<AFGTrainStationIdentifier> LoopConsumer = nullptr;
 
 	// Station the train last docked at, and when it left (game seconds).
 	UPROPERTY(SaveGame)
@@ -395,7 +342,7 @@ struct SMARTTRAINS_API FSTTrainState
 	UPROPERTY(SaveGame)
 	bool bHasSaved = false;
 
-	// Name before SmartTrains showed jobs in it.
+	// Name before SmartTrains showed its loop in it.
 	UPROPERTY(SaveGame)
 	FText OriginalName;
 
@@ -406,63 +353,35 @@ struct SMARTTRAINS_API FSTTrainState
 	UPROPERTY(SaveGame)
 	TArray<TObjectPtr<AFGTrainStationIdentifier>> WrittenStations;
 
-	// When the train began carrying cargo no trip wanted (game seconds), 0 if it doesn't.
-	UPROPERTY(SaveGame)
-	double UnwantedCargoSince = 0.0;
-
-	// Its group: the items each freight car carries, front to back, from its last trip's consumer station; kept while
-	// it holds cargo and cleared once it is empty (Docs/Architecture.md, "Car patterns").
+	// The items each freight car carries on its loop, front to back (Docs/Architecture.md, "Car patterns").
 	UPROPERTY(SaveGame)
 	TArray<FSTCarItems> CarSets;
-
-	// Runtime only: moves that moved nothing at their station lately.
-	TArray<FSTNoProgress> NoProgress;
 
 	// Runtime only: the name SmartTrains last gave the train, to notice a player renaming it.
 	FString LastWrittenName;
 	// Runtime only: one key per stop SmartTrains last wrote (station, rules, skipped cars), to skip rewriting the same.
 	TArray<FString> WrittenStopKeys;
-	// Runtime only: the rest of the trip is re-planned in the next dispatch.
-	bool bReplan = false;
-	// Runtime only: when its trip was last ended because a parked train couldn't leave the station it was heading for.
-	double LastRerouted = -1000.0;
-	// Runtime only: parking stations its way out to was blocked lately (ClearNeededBays), and until when (Now()).
-	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> ExitBlocked;
-	// Runtime only: the last way-out report logged for it, so the same one isn't logged every round.
-	FString LastExitReport;
-	// Runtime only: arrived ready to dock at the station of its drive to park, whose dock was kept from it (it parks
-	// there undocked, still ready to dock; Docs/Architecture.md, "Parking ready to dock").
-	bool bParkOnArrival = false;
 	// Runtime only: docking state at the last check, when the current dock began, and where.
 	bool bWasDocked = false;
 	double DockedAt = 0.0;
 	TWeakObjectPtr<AFGTrainStationIdentifier> DockedStation;
+	// Runtime only: the cars that skip the stop the train is docked at, to write that stop again ahead of a new job.
+	TArray<TObjectPtr<AFGRailroadVehicle>> DockedSkipCars;
 	// Runtime only: when SmartTrains last told the train to drive, for the stuck report.
 	double LastCommandAt = 0.0;
-	// Runtime only: the game's self-driving error at the last check, logged when it changes (0 = none).
-	uint8 LastSelfDrivingError = 0;
-	// Runtime only: the self-driving error now, since when, and whether it was logged (only once it lasts a while).
+	// Runtime only: the game's self-driving error now, since when, and the one last logged (0 = none).
 	uint8 SelfDrivingError = 0;
 	double SelfDrivingErrorSince = 0.0;
-	// Runtime only: the lasting no-way error was acted on (left out its station).
-	bool bUnreachableHandled = false;
-	// Runtime only: stations the game found no way to for this train, left out of its trips until then.
-	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> Unreachable;
+	uint8 LastSelfDrivingError = 0;
+	// Runtime only: a lasting invalid-stop error was acted on (its timetable written again).
+	bool bInvalidStopHandled = false;
 	// Runtime only: a player in the driver's seat at the last check (0 none, 1 with autopilot on, 2 driving by hand).
 	uint8 PlayerAboard = 0;
-	// Runtime only, for the current dock: the stay was ended early, the cargo moved so far, and when it last changed.
-	bool bDockReleased = false;
-	int32 DockMoved = 0;
-	double DockProgressAt = 0.0;
-	// Runtime only: the job whose last stop the train is docked at, after its next job was chosen there (Job); that stop
-	// is counted and the job ends when the train leaves (Docs/Architecture.md, "Deciding before leaving").
-	FSTJob DockedJob;
-	bool bDockedJobOpen = false;
-	// Runtime only: the cars that skip the stop the train is docked at, to write that stop again ahead of its next leg.
-	TArray<TObjectPtr<AFGRailroadVehicle>> DockedSkipCars;
 	// Runtime only: timetable changes by others this minute, and when the count started.
 	int32 ExternalChanges = 0;
 	double ExternalChangesSince = 0.0;
+	// Runtime only: why it has no loop, for readouts; empty when it has one.
+	FString IdleReason;
 };
 
 // Which vehicle stood beside each platform of a station the last time a train docked there.

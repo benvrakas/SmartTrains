@@ -25,7 +25,6 @@
 
 TWeakObjectPtr<USTMonitorWindow> USTMonitorWindow::sOpen;
 USTMonitorWindow::ETab USTMonitorWindow::sTab = USTMonitorWindow::ETab::Overview;
-bool USTMonitorWindow::sProblemsOnly = false;
 
 namespace
 {
@@ -51,8 +50,8 @@ namespace
 
 	FString Signature(const FSTMonitorView& View)
 	{
-		FString Text = FString::Join(View.Summary, TEXT("|")) + FString::Join(View.Idle, TEXT("|"));
-		for (const TArray<FSTMonitorRow>* Rows : {&View.Tiles, &View.Groups, &View.Items, &View.Stations, &View.Platforms, &View.Trains})
+		FString Text = FString::Join(View.Summary, TEXT("|"));
+		for (const TArray<FSTMonitorRow>* Rows : {&View.Tiles, &View.Consumers, &View.Suppliers, &View.Trains})
 		{
 			for (const FSTMonitorRow& Row : *Rows)
 			{
@@ -228,10 +227,8 @@ void USTMonitorWindow::BuildContent(UVerticalBox* Root)
 	Root->AddChildToVerticalBox(Bar)->SetPadding(FMargin(0.f, 10.f, 0.f, 0.f));
 	const TArray<TPair<ETab, FText>> Tabs = {
 		{ETab::Overview, LOCTEXT("TabOverview", "Overview")},
-		{ETab::Groups, LOCTEXT("TabGroups", "Groups")},
-		{ETab::Items, LOCTEXT("TabItems", "Items")},
-		{ETab::Stations, LOCTEXT("TabStations", "Stations")},
-		{ETab::Platforms, LOCTEXT("TabPlatforms", "Platforms")},
+		{ETab::Consumers, LOCTEXT("TabConsumers", "Consumers")},
+		{ETab::Suppliers, LOCTEXT("TabSuppliers", "Suppliers")},
 		{ETab::Trains, LOCTEXT("TabTrains", "Trains")},
 	};
 	mTabs.Reset();
@@ -290,22 +287,19 @@ void USTMonitorWindow::SelectTab(ETab Tab)
 void USTMonitorWindow::UpdateTabs(const FSTMonitorView& View)
 {
 	const TArray<int32> Counts = {
-		CountProblems(View.Items, 2) + CountProblems(View.Stations, 2) + CountProblems(View.Groups, 2),
-		CountProblems(View.Groups, 2),
-		CountProblems(View.Items, 2),
-		CountProblems(View.Stations, 2),
-		View.Platforms.Num(),
+		CountProblems(View.Consumers, 2) + CountProblems(View.Trains, 1),
+		CountProblems(View.Consumers, 1),
+		CountProblems(View.Suppliers, 1),
 		CountProblems(View.Trains, 1),
 	};
 	const TArray<FText> Names = {
-		LOCTEXT("TabOverview", "Overview"), LOCTEXT("TabGroups", "Groups"), LOCTEXT("TabItems", "Items"), LOCTEXT("TabStations", "Stations"), LOCTEXT("TabPlatforms", "Platforms"),
-		LOCTEXT("TabTrains", "Trains")};
+		LOCTEXT("TabOverview", "Overview"), LOCTEXT("TabConsumers", "Consumers"), LOCTEXT("TabSuppliers", "Suppliers"), LOCTEXT("TabTrains", "Trains")};
 	for (int32 Index = 0; Index < mTabs.Num(); ++Index)
 	{
 		const bool bSelected = static_cast<int32>(sTab) == Index;
 		if (USTButton* Button = mTabs[Index].Button.Get())
 		{
-			// The overview counts what limits deliveries; the other tabs count their rows that need a look.
+			// Each tab counts its rows that need a look.
 			Button->SetText(Counts[Index] > 0 && Index > 0 ? FText::Format(LOCTEXT("TabCount", "{0}  ({1})"), Names[Index], FText::AsNumber(Counts[Index])) : Names[Index]);
 		}
 		if (UBorder* Underline = mTabs[Index].Underline.Get())
@@ -336,9 +330,7 @@ void USTMonitorWindow::Refresh(USTRemoteCallObject* RCO)
 	}
 	mShown = MoveTemp(Shown);
 	mShownTab = sTab;
-	mWindowText->SetText(View.WindowMinutes > 0
-		? FText::Format(LOCTEXT("MonitorWindow", "Judged over the last {0} min, updated every 10 s"), FText::AsNumber(View.WindowMinutes))
-		: LOCTEXT("MonitorFirstMinute", "Collecting the first minute of samples"));
+	mWindowText->SetText(LOCTEXT("MonitorWindow", "The loop plan as last worked out, updated every few seconds"));
 	UpdateTabs(View);
 	ShowTab(View);
 }
@@ -348,10 +340,8 @@ void USTMonitorWindow::ShowTab(const FSTMonitorView& View)
 	mContent->ClearChildren();
 	switch (sTab)
 	{
-	case ETab::Groups: ShowGroups(View); break;
-	case ETab::Items: ShowItems(View); break;
-	case ETab::Stations: ShowStations(View); break;
-	case ETab::Platforms: ShowPlatforms(View); break;
+	case ETab::Consumers: ShowConsumers(View); break;
+	case ETab::Suppliers: ShowSuppliers(View); break;
 	case ETab::Trains: ShowTrains(View); break;
 	default: ShowOverview(View); break;
 	}
@@ -499,146 +489,81 @@ void USTMonitorWindow::ShowOverview(const FSTMonitorView& View)
 		}
 	}
 
-	// The biggest limits, each with its last advice line.
-	AddHeading(LOCTEXT("BiggestLimits", "What limits deliveries"));
+	// What needs a look: unserved consumers and trains without a loop.
+	AddHeading(LOCTEXT("NeedsALook", "What needs a look"));
 	int32 Shown = 0;
-	for (const FSTMonitorRow& Row : View.Items)
+	for (const TArray<FSTMonitorRow>* Rows : {&View.Consumers, &View.Trains})
 	{
-		if (Row.Severity < 2 || Shown >= 8)
+		for (const FSTMonitorRow& Row : *Rows)
 		{
-			continue;
+			if (Row.Severity < 1 || Shown >= 12)
+			{
+				continue;
+			}
+			++Shown;
+			UHorizontalBox* Line = AddLine();
+			AddCell(Line, MakeCell(Row.Title, 12, MonitorText, true), 260.f);
+			AddCell(Line, MakeCell(Row.Verdict, 12, SeverityColor(Row.Severity)), 120.f);
+			AddCell(Line, MakeCell(!Row.Advice.IsEmpty() ? Row.Advice : (Row.Details.Num() > 0 ? Row.Details[0] : FString()), 10, MonitorDim, true), 0.f);
+			AddDivider();
 		}
-		++Shown;
-		UHorizontalBox* Line = AddLine();
-		AddCell(Line, MakeIcon(Row.Item, MonitorIconSize), MonitorIconSize);
-		AddCell(Line, MakeCell(Row.Title, 12, MonitorText, true), 240.f);
-		AddCell(Line, MakeCell(Row.Verdict, 12, SeverityColor(Row.Severity)), 150.f);
-		AddCell(Line, MakeCell(!Row.Advice.IsEmpty() ? Row.Advice : (Row.Details.Num() > 0 ? Row.Details[0] : FString()), 10, MonitorDim, true), 0.f);
-		AddDivider();
-	}
-	for (const FSTMonitorRow& Row : View.Stations)
-	{
-		if (Row.Severity < 2 || Shown >= 10)
-		{
-			continue;
-		}
-		++Shown;
-		UHorizontalBox* Line = AddLine();
-		AddCell(Line, MakeIcon(nullptr, MonitorIconSize), MonitorIconSize);
-		AddCell(Line, MakeCell(Row.Title, 12, MonitorText, true), 240.f);
-		AddCell(Line, MakeCell(Row.Verdict, 12, SeverityColor(Row.Severity)), 150.f);
-		AddCell(Line, MakeCell(!Row.Advice.IsEmpty() ? Row.Advice : (Row.Details.Num() > 0 ? Row.Details[0] : FString()), 10, MonitorDim, true), 0.f);
-		AddDivider();
 	}
 	if (Shown == 0)
 	{
-		AddNote(View.Items.Num() > 0 ? LOCTEXT("NothingLimits", "Nothing limits deliveries right now.")
-			: LOCTEXT("NoItemsYet", "No supply or demand platforms yet. Give platforms a role in their menus, or use /st migrate."), MonitorFine);
+		AddNote(View.Consumers.Num() > 0 ? LOCTEXT("AllServed", "Every consumer has trains on its loop.")
+			: LOCTEXT("NoConsumersYet", "No consumers yet. Give a station's unloading platforms the Demand role in their menus, or use /st migrate."), MonitorFine);
 	}
 
 	AddHeading(LOCTEXT("FleetHeading", "Fleet"));
 	AddDetails(View.Summary, 0.f);
-	if (View.Idle.Num() > 0)
-	{
-		AddHeading(LOCTEXT("IdleHeading", "Idle trains and why"));
-		AddDetails(View.Idle, 0.f);
-	}
 }
 
-void USTMonitorWindow::ShowItems(const FSTMonitorView& View)
+void USTMonitorWindow::ShowConsumers(const FSTMonitorView& View)
 {
-	UHorizontalBox* Tools = AddLine(FMargin(0.f, 0.f, 0.f, 8.f));
-	USTButton* Filter = MakeButton(nullptr, sProblemsOnly ? LOCTEXT("ShowAllItems", "Showing items that need a look; click for all")
-		: LOCTEXT("ShowProblems", "Showing all items; click for the ones that need a look"), [this]()
+	AddCell(AddLine(FMargin(0.f, 0.f, 0.f, 8.f)), MakeCell(TEXT("Each consumer station's pattern (the item for the car beside each unloading platform), what its factory uses at most "
+		"in car loads per minute, its loop's round trip, its share of all trains (rate x round trip) and the trains on its loop."), 10, MonitorDim, true), 0.f);
+	const TArray<float> Widths = {90.f, 90.f, 70.f, 60.f};
+	AddHeader({{LOCTEXT("ColConsumer", "Consumer"), 0.f}, {LOCTEXT("ColStatus", "Status"), 120.f}, {LOCTEXT("ColRate", "Car loads/min"), Widths[0]},
+		{LOCTEXT("ColRoundTrip", "Round trip"), Widths[1]}, {LOCTEXT("ColShare", "Share"), Widths[2]}, {LOCTEXT("ColTrains", "Trains"), Widths[3]}});
+	for (const FSTMonitorRow& Row : View.Consumers)
 	{
-		sProblemsOnly = !sProblemsOnly;
-		SelectTab(ETab::Items);
-	}, FMargin(0.f));
-	AddCell(Tools, Filter, 520.f);
-	AddCell(Tools, MakeCell(TEXT("Rates per minute. Trains needed / able: trains the flow plan needs / managed trains that could serve its routes (not trains sent)."), 10, MonitorDim, true), 0.f);
-
-	const TArray<float> Widths = {120.f, 120.f, 110.f, 100.f};
-	AddHeader({{FText::GetEmpty(), MonitorIconSize}, {LOCTEXT("ColItem", "Item"), 0.f}, {LOCTEXT("ColLimit", "Limit"), 150.f},
-		{LOCTEXT("ColSupply", "Supply"), Widths[0]}, {LOCTEXT("ColDemand", "Demand"), Widths[1]}, {LOCTEXT("ColTrains", "Needed / able"), Widths[2]},
-		{LOCTEXT("ColBelow", "Below target"), Widths[3]}});
-	int32 Shown = 0;
-	for (const FSTMonitorRow& Row : View.Items)
-	{
-		if (sProblemsOnly && Row.Severity == 0)
+		UHorizontalBox* Line = AddLine();
+		AddCell(Line, MakeCell(Row.Title, 12, MonitorText, true), 0.f);
+		AddCell(Line, MakeCell(Row.Verdict, 12, Row.Severity > 0 ? SeverityColor(Row.Severity) : MonitorText), 120.f);
+		for (int32 Index = 0; Index < Widths.Num(); ++Index)
 		{
-			continue;
+			AddCell(Line, MakeCell(Row.Columns.IsValidIndex(Index) ? Row.Columns[Index] : FString(), 11, MonitorText), Widths[Index]);
 		}
-		++Shown;
-		AddRow(Row, true, Widths, 0.f, 150.f);
+		AddDetails(Row.Details, 0.f);
+		AddDivider();
 	}
-	if (Shown == 0)
+	if (View.Consumers.Num() == 0)
 	{
-		AddNote(sProblemsOnly ? LOCTEXT("NoItemProblems", "No item needs a look.") : LOCTEXT("NoItems", "No supply or demand platforms yet."), MonitorFine);
-	}
-}
-
-void USTMonitorWindow::ShowGroups(const FSTMonitorView& View)
-{
-	AddCell(AddLine(FMargin(0.f, 0.f, 0.f, 8.f)), MakeCell(TEXT("Each item the flow plan moves, with its routes (supplier, consumer, rate) and the trains they need. "
-		"Trips are planned around consumers, not groups: this is a readout. Needed: trains the routes call for. Working: trains moving the item now. "
-		"Short only while no train that fits has time for it."), 10, MonitorDim, true), 0.f);
-	const TArray<float> Widths = {100.f, 80.f, 70.f};
-	AddHeader({{LOCTEXT("ColGroup", "Item"), 0.f}, {LOCTEXT("ColStatus", "Status"), 150.f}, {LOCTEXT("ColNeeded", "Needed"), Widths[0]},
-		{LOCTEXT("ColWorking", "Working"), Widths[1]}, {LOCTEXT("ColRoutes", "Routes"), Widths[2]}});
-	for (const FSTMonitorRow& Row : View.Groups)
-	{
-		AddRow(Row, false, Widths, 0.f, 150.f);
-	}
-	if (View.Groups.Num() == 0)
-	{
-		AddNote(LOCTEXT("NoGroups", "No groups yet: they form from the flow plan once platforms have roles and managed trains fit them."), MonitorDim);
+		AddNote(LOCTEXT("NoConsumers", "No consumers yet: give a station's unloading platforms the Demand role."), MonitorDim);
 	}
 }
 
-void USTMonitorWindow::ShowStations(const FSTMonitorView& View)
+void USTMonitorWindow::ShowSuppliers(const FSTMonitorView& View)
 {
-	AddCell(AddLine(FMargin(0.f, 0.f, 0.f, 8.f)), MakeCell(TEXT("Stations with platform roles. Docked: share of the time a train is docked there. Late: "
-		"average arrival against the plan."), 10, MonitorDim, true), 0.f);
-	const TArray<float> Widths = {110.f, 90.f, 100.f};
-	AddHeader({{LOCTEXT("ColStation", "Station"), 0.f}, {LOCTEXT("ColStatus", "Status"), 150.f}, {LOCTEXT("ColDocked", "Docked"), Widths[0]},
-		{LOCTEXT("ColArrivals", "Arrivals"), Widths[1]}, {LOCTEXT("ColLate", "Late"), Widths[2]}});
-	for (const FSTMonitorRow& Row : View.Stations)
+	AddCell(AddLine(FMargin(0.f, 0.f, 0.f, 8.f)), MakeCell(TEXT("Each supplier station per item: what its factory makes at most and how much of it the consumers' loops take, "
+		"in car loads per minute. Loops take the nearest supplier with rate to spare first."), 10, MonitorDim, true), 0.f);
+	const TArray<float> Widths = {200.f, 90.f, 90.f};
+	AddHeader({{FText::GetEmpty(), MonitorIconSize}, {LOCTEXT("ColSupplier", "Supplier"), 0.f}, {LOCTEXT("ColStatus", "Status"), 120.f},
+		{LOCTEXT("ColItem", "Item"), Widths[0]}, {LOCTEXT("ColMakes", "Makes"), Widths[1]}, {LOCTEXT("ColTaken", "Taken"), Widths[2]}});
+	for (const FSTMonitorRow& Row : View.Suppliers)
 	{
-		AddRow(Row, false, Widths, 0.f, 150.f);
+		AddRow(Row, true, Widths, 0.f, 120.f);
 	}
-	if (View.Stations.Num() == 0)
+	if (View.Suppliers.Num() == 0)
 	{
-		AddNote(LOCTEXT("NoStations", "No samples yet."), MonitorDim);
-	}
-}
-
-void USTMonitorWindow::ShowPlatforms(const FSTMonitorView& View)
-{
-	AddCell(AddLine(FMargin(0.f, 0.f, 0.f, 8.f)), MakeCell(TEXT("Each row is one station's platforms for one item, judged together. Starved: all of them empty most of the time; partly starved: some of them empty half the time or more while others hold stock; backing up: supply platforms full half the time or more. Under the station: its platforms for that item by position (P1 is the first from the station building) and how full each is now. Requested: a single platform asking for a train to be emptied for it (Request a train), with the train on it, or why there is none yet."),
-		10, MonitorDim, true), 0.f);
-	const TArray<float> Widths = {220.f, 100.f};
-	AddHeader({{FText::GetEmpty(), MonitorIconSize}, {LOCTEXT("ColStationPlatforms", "Station and its platforms"), 0.f}, {LOCTEXT("ColStatus", "Status"), 150.f},
-		{LOCTEXT("ColItem", "Item"), Widths[0]}, {LOCTEXT("ColShare", "Of the time"), Widths[1]}});
-	for (const FSTMonitorRow& Row : View.Platforms)
-	{
-		AddRow(Row, true, Widths, 0.f, 150.f);
-	}
-	if (View.Platforms.Num() == 0)
-	{
-		AddNote(LOCTEXT("NoPlatformProblems", "No platform is starved or backing up."), MonitorFine);
+		AddNote(LOCTEXT("NoSuppliers", "No suppliers yet: give a station's loading platforms the Supply role."), MonitorDim);
 	}
 }
 
 void USTMonitorWindow::ShowTrains(const FSTMonitorView& View)
 {
-	if (View.Idle.Num() > 0)
-	{
-		AddHeading(LOCTEXT("IdleReasons", "Why idle trains wait"));
-		AddDetails(View.Idle, 0.f);
-		AddHeading(LOCTEXT("AllTrains", "Managed trains"));
-	}
 	const TArray<float> Widths = {260.f};
-	AddHeader({{LOCTEXT("ColTrain", "Train"), 0.f}, {LOCTEXT("ColState", "State"), 150.f}, {LOCTEXT("ColWhere", "Last station"), Widths[0]}});
+	AddHeader({{LOCTEXT("ColTrain", "Train"), 0.f}, {LOCTEXT("ColState", "State"), 150.f}, {LOCTEXT("ColLoop", "Its consumer"), Widths[0]}});
 	for (const FSTMonitorRow& Row : View.Trains)
 	{
 		UHorizontalBox* Line = AddLine();

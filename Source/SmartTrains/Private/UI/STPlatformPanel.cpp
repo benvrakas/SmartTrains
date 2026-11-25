@@ -26,8 +26,6 @@ namespace
 	constexpr float PanelWidth = 340.f;
 	constexpr float PanelMaxHeight = 640.f;
 	constexpr float PickerMaxHeight = 440.f;
-	// Step of the batch and target buttons. [%]
-	constexpr float PercentStep = 10.f;
 
 
 	FText RoleHint(ESTRole Role)
@@ -35,8 +33,8 @@ namespace
 		switch (Role)
 		{
 		case ESTRole::Supply: return LOCTEXT("HintSupply", "Managed trains pick up these items here. The platform is set to load.");
-		case ESTRole::Demand: return LOCTEXT("HintDemand", "Managed trains deliver these items here. The platform is set to unload.");
-		case ESTRole::Sink: return LOCTEXT("HintSink", "Managed trains unload cargo here that no consumer takes, any item. The platform is set to unload.");
+		case ESTRole::Demand: return LOCTEXT("HintDemand", "Managed trains deliver these items here: the car beside this platform carries one of them on every train of this station's loop. Several items make a group. The platform is set to unload.");
+		case ESTRole::Sink: return LOCTEXT("HintSink", "A train switching to another station's loop unloads cargo here that its old consumer had no room for, any item. The platform is set to unload.");
 		default: return LOCTEXT("HintOff", "Off: the platform keeps its own load/unload setting and SmartTrains leaves it alone.");
 		}
 	}
@@ -45,18 +43,6 @@ namespace
 	EnumType StepEnum(EnumType Value, int32 Step, int32 Count)
 	{
 		return static_cast<EnumType>(((static_cast<int32>(Value) + Step) % Count + Count) % Count);
-	}
-
-	ESTPriority StepPriority(ESTPriority Priority, int32 Step)
-	{
-		const int32 Count = static_cast<int32>(ESTPriority::Critical) + 1;
-		return static_cast<ESTPriority>(((static_cast<int32>(Priority) + Step) % Count + Count) % Count);
-	}
-
-	// The amount the +/- buttons change: send-at share of a load for supply, target share for demand. [%]
-	float GetPercent(const FSTItemRule& Rule, ESTRole Role)
-	{
-		return Role == ESTRole::Supply ? STNames::SendAtPercent(Rule.SendAtPercent) : Rule.TargetPercent;
 	}
 
 	// Adds Child to Box, filling the rest of the line if bFill.
@@ -287,7 +273,6 @@ void USTPlatformPanel::AddItem(TSubclassOf<UFGItemDescriptor> Item)
 	}
 	FSTItemRule& Rule = mItems.AddDefaulted_GetRef();
 	Rule.Item = Item;
-	Rule.Priority = Item ? ESTPriority::Normal : ESTPriority::Low;
 	SendEdit(TEXT("add item"));
 }
 
@@ -298,53 +283,6 @@ void USTPlatformPanel::RemoveItem(int32 Index)
 		mItems.RemoveAt(Index);
 		SendEdit(TEXT("remove item"));
 	}
-}
-
-void USTPlatformPanel::CyclePriority(int32 Index, int32 Step)
-{
-	if (mItems.IsValidIndex(Index))
-	{
-		mItems[Index].Priority = StepPriority(mItems[Index].Priority, Step);
-		SendEdit(TEXT("priority"));
-	}
-}
-
-void USTPlatformPanel::StepAmount(int32 Index, int32 Step)
-{
-	if (!mItems.IsValidIndex(Index))
-	{
-		return;
-	}
-	FSTItemRule& Rule = mItems[Index];
-	if (mRole == ESTRole::Supply)
-	{
-		Rule.SendAtPercent = FMath::Clamp(GetPercent(Rule, mRole) + Step * PercentStep, PercentStep, 100.f);
-	}
-	else
-	{
-		// Automatic below the lowest share; from automatic the steps start at 50 %.
-		const float From = Rule.TargetPercent > 0.f ? Rule.TargetPercent : 50.f;
-		const float Value = From + Step * PercentStep;
-		Rule.TargetPercent = Value < PercentStep ? 0.f : FMath::Min(Value, 100.f);
-	}
-	SendEdit(TEXT("amount"));
-}
-
-void USTPlatformPanel::SetRate(int32 Index, const FString& Text)
-{
-	if (!mItems.IsValidIndex(Index))
-	{
-		return;
-	}
-	const float Shown = Text.TrimStartAndEnd().IsEmpty() ? 0.f : FMath::Max(0.f, FCString::Atof(*Text));
-	// Inventories count fluids in litres; the field is in m³ like the rest of the game's UI.
-	const float Rate = STNames::IsFluid(mItems[Index].Item) ? Shown * 1000.f : Shown;
-	if (FMath::IsNearlyEqual(Rate, mItems[Index].ManualRatePerMinute))
-	{
-		return;
-	}
-	mItems[Index].ManualRatePerMinute = Rate;
-	SendEdit(TEXT("manual rate"));
 }
 
 void USTPlatformPanel::RefreshEditor()
@@ -374,31 +312,9 @@ void USTPlatformPanel::RefreshEditor()
 	{
 		const FSTItemRule& Rule = mItems[Index];
 		FItemWidgets& Row = mRows[Index];
-		if (Row.Priority.IsValid())
-		{
-			Row.Priority->SetText(FText::Format(LOCTEXT("Priority", "Priority: {0}"), FText::FromString(STNames::Priority(Rule.Priority))));
-			// Priority counts only where cargo is delivered.
-			Row.Priority->SetVisibility(mRole == ESTRole::Supply ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
-		}
-		if (Row.Amount.IsValid())
-		{
-			Row.Amount->SetText(mRole == ESTRole::Supply
-				? FText::Format(LOCTEXT("SendAt", "Least per visit: {0}% of the cars here"), FText::AsNumber(FMath::RoundToInt(GetPercent(Rule, mRole))))
-				: (Rule.TargetPercent > 0.f ? FText::Format(LOCTEXT("Target", "Keep stocked at {0}%"), FText::AsNumber(FMath::RoundToInt(GetPercent(Rule, mRole))))
-					: LOCTEXT("TargetAuto", "Keep stocked: automatic (lasts until a train can bring more)")));
-		}
-		if (Row.AmountRow.IsValid())
-		{
-			Row.AmountRow->SetVisibility(Rule.Item ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
-		}
 		if (Row.Readout.IsValid())
 		{
 			Row.Readout->SetText(mItemLines.IsValidIndex(Index) ? FText::FromString(mItemLines[Index]) : FText::GetEmpty());
-		}
-		if (Row.Rate.IsValid())
-		{
-			const float Shown = STNames::IsFluid(Rule.Item) ? Rule.ManualRatePerMinute / 1000.f : Rule.ManualRatePerMinute;
-			Row.Rate->SetTextIfIdle(Rule.ManualRatePerMinute > 0.f ? FString::SanitizeFloat(Shown, 0) : FString());
 		}
 	}
 	mNoItems->SetVisibility(bHasSettings && mItems.Num() == 0 && bHasItems ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
@@ -431,43 +347,14 @@ void USTPlatformPanel::RebuildItemRows()
 		}
 		IconBox->AddChild(Icon);
 		AddToLine(Head, IconBox, false, FMargin(0.f, 0.f, 6.f, 0.f));
-		UTextBlock* Name = MakeText(nullptr, Item ? UFGItemDescriptor::GetItemName(Item) : LOCTEXT("AnyItem", "Any item (sink for surplus)"), 12, true);
+		UTextBlock* Name = MakeText(nullptr, Item ? UFGItemDescriptor::GetItemName(Item) : LOCTEXT("AnyItem", "Any item"), 12, true);
 		AddToLine(Head, Name, true);
 		AddToLine(Head, MakeButton(nullptr, LOCTEXT("Remove", "Remove"), [this, Index]() { RemoveItem(Index); }), false, FMargin(0.f));
 		Row.Name = Name;
 		Row.Icon = Icon;
 
-		UHorizontalBox* Settings = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
-		Box->AddChildToVerticalBox(Settings)->SetPadding(FMargin(0.f, 2.f, 0.f, 0.f));
-		USTButton* PriorityButton = MakeButton(nullptr, FText::GetEmpty(), [this, Index]() { CyclePriority(Index, 1); });
-		PriorityButton->OnRightClick = [this, Index]() { CyclePriority(Index, -1); };
-		AddToLine(Settings, PriorityButton, true);
-		Row.Priority = PriorityButton;
-
-		UHorizontalBox* AmountRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
-		Box->AddChildToVerticalBox(AmountRow)->SetPadding(FMargin(0.f, 2.f, 0.f, 0.f));
-		AddToLine(AmountRow, MakeButton(nullptr, FText::FromString(TEXT("-")), [this, Index]() { StepAmount(Index, -1); }));
-		UTextBlock* Amount = MakeText(nullptr, FText::GetEmpty(), 11, false);
-		AddToLine(AmountRow, Amount, true, FMargin(4.f, 0.f));
-		AddToLine(AmountRow, MakeButton(nullptr, FText::FromString(TEXT("+")), [this, Index]() { StepAmount(Index, 1); }), false, FMargin(0.f));
-		Row.Amount = Amount;
-		Row.AmountRow = AmountRow;
-
 		Row.Readout = MakeText(Box, FText::GetEmpty(), 10);
 
-		if (Item)
-		{
-			UHorizontalBox* RateRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
-			Box->AddChildToVerticalBox(RateRow)->SetPadding(FMargin(0.f, 2.f, 0.f, 0.f));
-			AddToLine(RateRow, MakeText(nullptr, STNames::IsFluid(Item) ? LOCTEXT("RateFluid", "Manual rate (m³/min):") : LOCTEXT("RateSolid", "Manual rate (/min):"), 10, false));
-			USizeBox* RateBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
-			RateBox->SetWidthOverride(110.f);
-			USTTextInput* Rate = MakeInput(nullptr, LOCTEXT("RateHint", "auto"));
-			Rate->OnCommitted = [this, Index](const FString& Text) { SetRate(Index, Text); };
-			RateBox->AddChild(Rate);
-			AddToLine(RateRow, RateBox, false, FMargin(0.f));
-			Row.Rate = Rate;
-		}
 	}
 	UE_LOG(LogSmartTrains, Verbose, TEXT("Platform menu: %d item rows built"), mRows.Num());
 }

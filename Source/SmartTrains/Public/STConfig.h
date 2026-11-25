@@ -7,53 +7,22 @@
 // SmartTrains settings, read live from SML's Mods menu (the host's in multiplayer).
 struct FSTSettings
 {
-	// Works out jobs and logs them but never touches a train.
+	// Works out loops and logs them but never touches a train.
 	bool bObserveOnly = false;
 	// Enables /st testcopy and /st backup.
 	bool bBetaTools = true;
-	// Writes SmartTrains' Verbose lines (planner rounds, re-plans, traces, dock maps) to the log.
+	// Writes SmartTrains' Verbose lines (loop plans, traces, dock maps) to the log.
 	bool bDetailedLog = false;
-	// Shows each managed train's job in its name.
+	// Shows each managed train's loop in its name.
 	bool bJobNames = false;
 	// New trains without a timetable are managed once their consist hasn't changed for a while.
 	bool bManageNewTrains = false;
-	// Depot signals facing into dead-end sidings park trains with a locomotive at each end, which back out.
-	bool bDeadEndDepots = true;
 	// Only admins (the host, or dedicated server admins) may change platform, station and train settings.
 	bool bAdminsOnly = false;
-	// Every stop is load/unload once, and a train with a trip leaves at once instead of holding in the station.
-	bool bLeaveAtOnce = true;
-	// Push: trips are built around a supplier, whose full cars go to any consumers with room. Pull (off): around a
-	// consumer that runs short.
-	bool bPush = false;
-	// A trip may serve a second consumer (pull) or supplier (push) with the cars its first one leaves unused.
-	bool bSeveralPerTrip = false;
-	// How often jobs are handed out. [s]
-	float DispatchSeconds = 3.f;
-	// How often the flow plan is worked out again. [s]
-	float PlanSeconds = 30.f;
-	// Window over which platform rates are averaged. [min]
-	float RateWindowMinutes = 5.f;
 	// Average speed used for travel times until trips have been timed. [km/h]
 	float AverageSpeedKmh = 80.f;
 	// Stay assumed at a station until stays there have been timed. [s]
 	float DefaultStaySeconds = 40.f;
-	// Longest wait at a pickup for the cars to fill. [s]
-	float LoadWaitSeconds = 30.f;
-	// Longest wait at a delivery for the platform to take everything. [s]
-	float UnloadWaitSeconds = 120.f;
-	// Planning time per dispatch round; trains not planned in time wait for the next round. [ms]
-	float PlanBudgetMs = 25.f;
-	// Most stops in one trip.
-	float MaxStops = 4.f;
-	// Longest trip planned. [min]
-	float MaxTripMinutes = 45.f;
-	// After this long carrying cargo no trip delivers, the monitor counts the train as holding unwanted cargo. [min]
-	float LeftoverMinutes = 30.f;
-	// Least time between one train leaving a station and the next arriving there. [s]
-	float ArrivalGapSeconds = 30.f;
-	// With bLeaveAtOnce: no trip makes more than this many trains wait on the line before a stop, itself included, nor
-	// more than fit before its way-in switch. 0: only the switch decides. [trains]
 	// Most buildings and belt segments one scan of a factory (station set-up, Autodetect, rates) visits.
 	float ScanDepth = 50000.f;
 };

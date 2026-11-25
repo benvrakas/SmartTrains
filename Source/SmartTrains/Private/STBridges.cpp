@@ -328,33 +328,10 @@ namespace
 		return true;
 	}
 
-	template <typename TValue>
-	const TValue* ParamValue(const UFunction* Function, const uint8* Memory, const TCHAR* Name)
-	{
-		const FProperty* Property = Function->FindPropertyByName(Name);
-		return Property ? Property->ContainerPtrToValuePtr<TValue>(Memory) : nullptr;
-	}
-
 	float ReturnFloat(const UFunction* Function, const uint8* Memory)
 	{
 		const FFloatProperty* Return = CastField<FFloatProperty>(Function->GetReturnProperty());
 		return Return ? Return->GetPropertyValue_InContainer(Memory) : -1.f;
-	}
-
-	TArray<AFGTrain*> ReadTrains(const UFunction* Function, const uint8* Memory, const TCHAR* Name)
-	{
-		TArray<AFGTrain*> Trains;
-		if (const TArray<TObjectPtr<AFGTrain>>* Value = ParamValue<TArray<TObjectPtr<AFGTrain>>>(Function, Memory, Name))
-		{
-			for (const TObjectPtr<AFGTrain>& Train : *Value)
-			{
-				if (IsValid(Train))
-				{
-					Trains.Add(Train.Get());
-				}
-			}
-		}
-		return Trains;
 	}
 }
 
@@ -367,49 +344,6 @@ bool STAt::IsAvailable(const UWorld* World)
 {
 	UObject* Subsystem = GetAtSubsystem(World);
 	return Subsystem && Subsystem->FindFunction(TEXT("ExternalGetWaitingFor"));
-}
-
-bool STAt::GetWaitingFor(const UWorld* World, AFGTrain* Train, TArray<AFGTrain*>& OutWaitingFor, float& OutWaitedSeconds, FString& OutReason)
-{
-	OutWaitingFor.Reset();
-	OutWaitedSeconds = 0.f;
-	OutReason.Reset();
-	bool bDriven = false;
-	TObjectPtr<AFGTrain> TrainPtr = Train;
-	CallAt(World, TEXT("ExternalGetWaitingFor"), [&](const UFunction* Function, FStructOnScope& Params)
-	{
-		return SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr);
-	}, [&](const UFunction* Function, const uint8* Memory)
-	{
-		OutWaitingFor = ReadTrains(Function, Memory, TEXT("OutWaitingFor"));
-		if (const float* Waited = ParamValue<float>(Function, Memory, TEXT("OutWaitedSeconds")))
-		{
-			OutWaitedSeconds = *Waited;
-		}
-		if (const FString* Reason = ParamValue<FString>(Function, Memory, TEXT("OutReason")))
-		{
-			OutReason = *Reason;
-		}
-		const FBoolProperty* Return = CastField<FBoolProperty>(Function->GetReturnProperty());
-		bDriven = Return && Return->GetPropertyValue_InContainer(Memory);
-	});
-	return bDriven;
-}
-
-float STAt::GetStationQueue(const UWorld* World, AFGBuildableRailroadStation* Station, TArray<AFGTrain*>& OutTrains)
-{
-	OutTrains.Reset();
-	float Seconds = -1.f;
-	TObjectPtr<AFGBuildableRailroadStation> StationPtr = Station;
-	CallAt(World, TEXT("ExternalGetStationQueue"), [&](const UFunction* Function, FStructOnScope& Params)
-	{
-		return Station && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Station"), StationPtr);
-	}, [&](const UFunction* Function, const uint8* Memory)
-	{
-		OutTrains = ReadTrains(Function, Memory, TEXT("OutTrains"));
-		Seconds = ReturnFloat(Function, Memory);
-	});
-	return Seconds;
 }
 
 float STAt::EstimateTravelSeconds(const UWorld* World, AFGTrain* Train, AFGBuildableRailroadStation* From, AFGBuildableRailroadStation* To)
@@ -429,47 +363,6 @@ float STAt::EstimateTravelSeconds(const UWorld* World, AFGTrain* Train, AFGBuild
 	return Seconds;
 }
 
-TArray<STAt::FTroubled> STAt::GetTroubledTrains(const UWorld* World)
-{
-	TArray<FTroubled> Troubled;
-	CallAt(World, TEXT("ExternalGetTroubledTrains"), [](const UFunction*, FStructOnScope&) { return true; }, [&](const UFunction* Function, const uint8* Memory)
-	{
-		const TArray<TObjectPtr<AFGTrain>>* Trains = ParamValue<TArray<TObjectPtr<AFGTrain>>>(Function, Memory, TEXT("OutTrains"));
-		const TArray<FString>* Kinds = ParamValue<TArray<FString>>(Function, Memory, TEXT("OutKinds"));
-		const TArray<float>* Seconds = ParamValue<TArray<float>>(Function, Memory, TEXT("OutSeconds"));
-		for (int32 Index = 0; Trains && Index < Trains->Num(); ++Index)
-		{
-			if (IsValid((*Trains)[Index]))
-			{
-				Troubled.Add({(*Trains)[Index].Get(), Kinds && Kinds->IsValidIndex(Index) ? (*Kinds)[Index] : FString(),
-					Seconds && Seconds->IsValidIndex(Index) ? (*Seconds)[Index] : 0.f});
-			}
-		}
-	});
-	return Troubled;
-}
-
-float STAt::GetTrackLoad(const UWorld* World, AFGBuildableRailroadStation* Station, float HorizonSeconds, float ApproachMetres, float& OutWaitingSeconds)
-{
-	OutWaitingSeconds = 0.f;
-	float Load = -1.f;
-	TObjectPtr<AFGBuildableRailroadStation> StationPtr = Station;
-	CallAt(World, TEXT("ExternalGetTrackLoad"), [&](const UFunction* Function, FStructOnScope& Params)
-	{
-		return Station && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Station"), StationPtr)
-			&& SetParam<FFloatProperty>(Function, Params, TEXT("HorizonSeconds"), HorizonSeconds)
-			&& SetParam<FFloatProperty>(Function, Params, TEXT("ApproachMetres"), ApproachMetres);
-	}, [&](const UFunction* Function, const uint8* Memory)
-	{
-		if (const float* Waiting = ParamValue<float>(Function, Memory, TEXT("OutWaitingSeconds")))
-		{
-			OutWaitingSeconds = *Waiting;
-		}
-		Load = ReturnFloat(Function, Memory);
-	});
-	return Load;
-}
-
 void STAt::TimeTableChanged(const UWorld* World, AFGTrain* Train)
 {
 	TObjectPtr<AFGTrain> TrainPtr = Train;
@@ -479,107 +372,3 @@ void STAt::TimeTableChanged(const UWorld* World, AFGTrain* Train)
 	}, [](const UFunction*, const uint8*) {});
 }
 
-bool STAt::DriveTo(const UWorld* World, AFGTrain* Train, UFGRailroadTrackConnectionComponent* Goal)
-{
-	bool bStarted = false;
-	TObjectPtr<AFGTrain> TrainPtr = Train;
-	TObjectPtr<UFGRailroadTrackConnectionComponent> GoalPtr = Goal;
-	CallAt(World, TEXT("ExternalDriveTo"), [&](const UFunction* Function, FStructOnScope& Params)
-	{
-		return Train && Goal && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr) && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Goal"), GoalPtr);
-	}, [&](const UFunction* Function, const uint8* Memory)
-	{
-		const FBoolProperty* Return = CastField<FBoolProperty>(Function->GetReturnProperty());
-		bStarted = Return && Return->GetPropertyValue_InContainer(Memory);
-	});
-	return bStarted;
-}
-
-STDepots::EDriveState STAt::GetDriveState(const UWorld* World, AFGTrain* Train)
-{
-	int32 Answer = -1;
-	TObjectPtr<AFGTrain> TrainPtr = Train;
-	const bool bCalled = CallAt(World, TEXT("ExternalGetDriveState"), [&](const UFunction* Function, FStructOnScope& Params)
-	{
-		return Train && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr);
-	}, [&](const UFunction* Function, const uint8* Memory)
-	{
-		if (const FIntProperty* Return = CastField<FIntProperty>(Function->GetReturnProperty()))
-		{
-			Answer = Return->GetPropertyValue_InContainer(Memory);
-		}
-	});
-	switch (bCalled ? Answer : -1)
-	{
-	case 0: return STDepots::EDriveState::None;
-	case 1: return STDepots::EDriveState::UnderWay;
-	case 2: return STDepots::EDriveState::Arrived;
-	case 3: return STDepots::EDriveState::NoWay;
-	default: return STDepots::EDriveState::Unavailable;
-	}
-}
-
-void STAt::CancelDrive(const UWorld* World, AFGTrain* Train)
-{
-	TObjectPtr<AFGTrain> TrainPtr = Train;
-	CallAt(World, TEXT("ExternalCancelDrive"), [&](const UFunction* Function, FStructOnScope& Params)
-	{
-		return Train && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr);
-	}, [](const UFunction*, const uint8*) {});
-}
-
-STAt::ELegCheck STAt::CheckLeg(const UWorld* World, AFGTrain* Train, AFGBuildableRailroadStation* To, float& OutSeconds, FString& OutReason)
-{
-	OutSeconds = -1.f;
-	OutReason.Reset();
-	int32 Answer = -1;
-	TObjectPtr<AFGTrain> TrainPtr = Train;
-	TObjectPtr<AFGBuildableRailroadStation> ToPtr = To;
-	const bool bCalled = CallAt(World, TEXT("ExternalCheckLeg"), [&](const UFunction* Function, FStructOnScope& Params)
-	{
-		return Train && To && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr) && SetParam<FObjectPropertyBase>(Function, Params, TEXT("To"), ToPtr);
-	}, [&](const UFunction* Function, const uint8* Memory)
-	{
-		if (const float* Seconds = ParamValue<float>(Function, Memory, TEXT("OutSeconds")))
-		{
-			OutSeconds = *Seconds;
-		}
-		if (const FString* Reason = ParamValue<FString>(Function, Memory, TEXT("OutReason")))
-		{
-			OutReason = *Reason;
-		}
-		const FIntProperty* Return = CastField<FIntProperty>(Function->GetReturnProperty());
-		Answer = Return ? Return->GetPropertyValue_InContainer(Memory) : -1;
-	});
-	if (!bCalled)
-	{
-		return ELegCheck::Unavailable;
-	}
-	switch (Answer)
-	{
-	case 0: return ELegCheck::Pending;
-	case 1: return ELegCheck::Clear;
-	case 2: return ELegCheck::Blocked;
-	case 3: return ELegCheck::NotAsked;
-	default: return ELegCheck::Unavailable;
-	}
-}
-
-float STAt::GetPlannedArrival(const UWorld* World, AFGTrain* Train, AFGBuildableRailroadStation*& OutGoal)
-{
-	OutGoal = nullptr;
-	float Seconds = -1.f;
-	TObjectPtr<AFGTrain> TrainPtr = Train;
-	CallAt(World, TEXT("ExternalGetPlannedArrival"), [&](const UFunction* Function, FStructOnScope& Params)
-	{
-		return Train && SetParam<FObjectPropertyBase>(Function, Params, TEXT("Train"), TrainPtr);
-	}, [&](const UFunction* Function, const uint8* Memory)
-	{
-		if (const TObjectPtr<AFGBuildableRailroadStation>* Goal = ParamValue<TObjectPtr<AFGBuildableRailroadStation>>(Function, Memory, TEXT("OutGoal")))
-		{
-			OutGoal = Goal->Get();
-		}
-		Seconds = ReturnFloat(Function, Memory);
-	});
-	return Seconds;
-}

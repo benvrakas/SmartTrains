@@ -1,0 +1,25 @@
+#pragma once
+
+#include "CoreMinimal.h"
+
+// The arithmetic of the loop plan (Docs/Architecture.md, "Loops"), apart from the game so the tests can reach it.
+namespace STLoopMath
+{
+	// Whole trains per weight in proportion to the weights, by largest remainder. With at least as many trains as
+	// positive weights, every positive weight gets at least one; with fewer, the largest weights get one each. Weights
+	// of 0 or less get none. Ties go to the larger weight, then to the lower index.
+	TArray<int32> Split(const TArray<double>& Weights, int32 Trains);
+
+	// A supplier's offer of one item: how far it is and how much of its rate is still free (below 0: not known, it
+	// counts as having enough).
+	struct FOffer
+	{
+		double Distance = 0.0;
+		double Spare = -1.0;
+	};
+
+	// Takes Need from the nearest offer with spare rate, then the next nearest for the rest; an offer whose spare isn't
+	// known takes all that is left. What no offer has room for goes to the nearest offer anyway. Returns the amount
+	// taken from each offer, in Offers' order, and lowers their Spare.
+	TArray<double> Allocate(double Need, TArray<FOffer>& Offers);
+}

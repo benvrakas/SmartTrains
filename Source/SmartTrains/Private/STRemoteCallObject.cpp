@@ -88,10 +88,10 @@ namespace
 	{
 		// Details go first, from the end of each list (its least urgent rows), in this order; then whole rows of the
 		// longest list.
-		TArray<TArray<FSTMonitorRow>*> Lists = {&View.Trains, &View.Platforms, &View.Stations, &View.Groups, &View.Items};
+		TArray<TArray<FSTMonitorRow>*> Lists = {&View.Trains, &View.Suppliers, &View.Consumers};
 		auto Total = [&]()
 		{
-			int32 Sum = Bytes(View.Summary) + Bytes(View.Idle) + Bytes(View.Tiles);
+			int32 Sum = Bytes(View.Summary) + Bytes(View.Tiles);
 			for (const TArray<FSTMonitorRow>* List : Lists)
 			{
 				Sum += Bytes(*List);
@@ -209,7 +209,7 @@ void USTRemoteCallObject::Server_SetPlatform_Implementation(AFGBuildableTrainPla
 	TArray<FSTItemRule> Clean;
 	for (const FSTItemRule& Rule : Items)
 	{
-		if (!Rule.Item && Role == ESTRole::Supply)
+		if (!Rule.Item && Role != ESTRole::Sink)
 		{
 			continue;
 		}
@@ -222,11 +222,7 @@ void USTRemoteCallObject::Server_SetPlatform_Implementation(AFGBuildableTrainPla
 		{
 			continue;
 		}
-		FSTItemRule& Kept = Clean.Add_GetRef(Rule);
-		Kept.TargetPercent = Kept.TargetPercent <= 0.f ? 0.f : FMath::Clamp(Kept.TargetPercent, 1.f, 100.f);
-		Kept.SendAtPercent = FMath::Clamp(Kept.SendAtPercent, 0.f, 100.f);
-		Kept.ManualRatePerMinute = FMath::Max(0.f, Kept.ManualRatePerMinute);
-		Kept.Priority = static_cast<ESTPriority>(FMath::Min(static_cast<uint8>(Kept.Priority), static_cast<uint8>(ESTPriority::Critical)));
+		Clean.Add(Rule);
 	}
 	Subsystem->SetPlatformConfig(Platform, Role, Clean, FString::Printf(TEXT("platform menu (%s)"), *GetPlayerName()));
 	Client_Platform(Subsystem->MakePlatformView(Platform, mAppliedEdit));
@@ -434,7 +430,7 @@ void USTRemoteCallObject::PushMigrationView(const TArray<FString>& Lines)
 
 bool USTRemoteCallObject::Server_SetTrain_Validate(AFGTrain* Train, ESTTrainAction Action, int32 Edit)
 {
-	return Action <= ESTTrainAction::CancelJob;
+	return Action <= ESTTrainAction::Resume;
 }
 
 void USTRemoteCallObject::Server_SetTrain_Implementation(AFGTrain* Train, ESTTrainAction Action, int32 Edit)
@@ -468,12 +464,6 @@ void USTRemoteCallObject::Server_SetTrain_Implementation(AFGTrain* Train, ESTTra
 	case ESTTrainAction::Hold:
 	case ESTTrainAction::Resume:
 		Subsystem->SetTrainHeld(Train, Action == ESTTrainAction::Hold, Cause);
-		break;
-	case ESTTrainAction::CancelJob:
-		if (!Subsystem->CancelTrainJob(Train, Cause))
-		{
-			Client_Message(FString::Printf(TEXT("%s has no job to cancel."), *STLayout::Name(Train)), true);
-		}
 		break;
 	}
 	Client_Train(Subsystem->MakeTrainView(Train, mAppliedEdit));

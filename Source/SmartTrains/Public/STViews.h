@@ -280,16 +280,15 @@ enum class ESTTrainAction : uint8
 	KeepVanillaOff,
 	Hold,
 	Resume,
-	CancelJob,
 };
 
-// One row of the throughput monitor: an item, station, platform or train, or an overview tile.
+// One row of the monitor: a consumer, supplier or train, or an overview tile.
 USTRUCT()
 struct SMARTTRAINS_API FSTMonitorRow
 {
 	GENERATED_BODY()
 
-	// Item, station or train name; a tile's label.
+	// Station or train name; a tile's label.
 	UPROPERTY()
 	FString Title;
 
@@ -297,12 +296,11 @@ struct SMARTTRAINS_API FSTMonitorRow
 	UPROPERTY()
 	TSubclassOf<UFGItemDescriptor> Item;
 
-	// Items: what limits it (OK, Measuring, Supply short, Trains short, No train fits, Congested, Blocked, No demand,
-	// No supply). Stations: Congested or OK. Platforms: Starved or Backing up. Trains: their state. Tiles: the value.
+	// Consumers: Served or Unserved. Suppliers: Used, Not used or Over its rate. Trains: their state. Tiles: the value.
 	UPROPERTY()
 	FString Verdict;
 
-	// 0 fine, 1 worth a look, 2 limits deliveries.
+	// 0 fine, 1 worth a look, 2 needs a look.
 	UPROPERTY()
 	uint8 Severity = 0;
 
@@ -318,7 +316,7 @@ struct SMARTTRAINS_API FSTMonitorRow
 	TArray<FString> Details;
 };
 
-// The throughput monitor's content ("/st monitor").
+// The monitor's content ("/st monitor"): the loop plan as last worked out.
 USTRUCT()
 struct SMARTTRAINS_API FSTMonitorView
 {
@@ -332,31 +330,15 @@ struct SMARTTRAINS_API FSTMonitorView
 	UPROPERTY()
 	TArray<FString> Summary;
 
-	// Item groups, short ones first. Columns: home trains / needed, working now, routes.
+	// Consumer stations, unserved first. Columns: rate (car loads/min), round trip, share of the need, trains.
 	UPROPERTY()
-	TArray<FSTMonitorRow> Groups;
+	TArray<FSTMonitorRow> Consumers;
 
-	// Per item, the ones that limit deliveries first. Columns: supply, demand, trains, below target.
+	// Supplier stations per item. Columns: item, rate, taken by loops (car loads/min).
 	UPROPERTY()
-	TArray<FSTMonitorRow> Items;
+	TArray<FSTMonitorRow> Suppliers;
 
-	// Stations with roles, congested ones first. Columns: docked, arrivals, average lateness.
-	UPROPERTY()
-	TArray<FSTMonitorRow> Stations;
-
-	// Starved demand platforms and backed-up supply platforms. Columns: share of the time.
-	UPROPERTY()
-	TArray<FSTMonitorRow> Platforms;
-
-	// Managed trains: state in Verdict, trip or idle reason in Details.
+	// Managed trains: state in Verdict, consumer in Columns, what it does in Details.
 	UPROPERTY()
 	TArray<FSTMonitorRow> Trains;
-
-	// Idle managed trains grouped by why they got no trip.
-	UPROPERTY()
-	TArray<FString> Idle;
-
-	// Minutes of history behind the verdicts.
-	UPROPERTY()
-	int32 WindowMinutes = 0;
 };

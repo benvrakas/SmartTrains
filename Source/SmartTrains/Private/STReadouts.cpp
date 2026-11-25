@@ -33,38 +33,6 @@ int32 ASTSubsystem::CopyPlatformToStation(AFGBuildableTrainPlatformCargo* Platfo
 	return Copied;
 }
 
-FString ASTSubsystem::DescribeItemRule(const AFGBuildableTrainPlatformCargo* Platform, const FSTPlatformConfig& Config, const FSTItemRule& Rule) const
-{
-	if (!Rule.Item)
-	{
-		return Config.Role == ESTRole::Sink ? FString(TEXT("takes any cargo no consumer wants")) : FString::Printf(TEXT("takes any surplus, %s priority"), STNames::Priority(Rule.Priority));
-	}
-	const UFGInventoryComponent* Inventory = Platform ? Platform->GetInventory() : nullptr;
-	const bool bManual = Rule.ManualRatePerMinute > 0.f;
-	bool bKnown = false;
-	const double Rate = bManual ? Rule.ManualRatePerMinute / 60.0 : GetMeasuredRate(Platform, Rule.Item, &bKnown);
-	const int32 Stock = Inventory ? Inventory->GetNumItems(Rule.Item) : 0;
-	const int32 Capacity = STLayout::GetCapacity(Inventory, Rule.Item);
-	const FString Goal = Config.Role == ESTRole::Supply
-		? FString::Printf(TEXT("least per visit %.0f%% of a load"), STNames::SendAtPercent(Rule.SendAtPercent))
-		: (Rule.TargetPercent > 0.f ? FString::Printf(TEXT("target %.0f%%"), Rule.TargetPercent) : FString(TEXT("target automatic")));
-	// Priority counts only where cargo is delivered.
-	const FString Priority = Config.Role == ESTRole::Supply ? FString() : FString::Printf(TEXT(", %s priority"), STNames::Priority(Rule.Priority));
-	// An automatic target comes from what the factory can use at its most (the belt scan), shown first; measured use after.
-	const AFGTrainStationIdentifier* Identifier = STLayout::GetIdentifier(STLayout::FindStation(Platform));
-	const double* Theory = Config.Role == ESTRole::Demand && Rule.TargetPercent <= 0.f && !bManual
-		? mFactoryUse.Find(TPair<TWeakObjectPtr<AFGTrainStationIdentifier>, TWeakObjectPtr<UClass>>(const_cast<AFGTrainStationIdentifier*>(Identifier), Rule.Item.Get()))
-		: nullptr;
-	if (Theory && *Theory > 0.0)
-	{
-		return FString::Printf(TEXT("%s / %s, uses at most %s/min at this station (now %s/min%s), %s%s"), *STNames::Amount(Rule.Item, Stock),
-			*STNames::Amount(Rule.Item, Capacity), *STNames::Amount(Rule.Item, *Theory * 60.0), *STNames::Amount(Rule.Item, Rate * 60.0),
-			bKnown ? TEXT("") : TEXT(", still measuring"), *Goal, *Priority);
-	}
-	return FString::Printf(TEXT("%s / %s, %s%s/min%s, %s%s"), *STNames::Amount(Rule.Item, Stock), *STNames::Amount(Rule.Item, Capacity),
-		bManual ? TEXT("manual ") : TEXT(""), *STNames::Amount(Rule.Item, Rate * 60.0), bKnown || bManual ? TEXT("") : TEXT(" (still measuring)"), *Goal, *Priority);
-}
-
 FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCargo* Platform, int32 AppliedEdit) const
 {
 	FSTPlatformView View;
@@ -86,36 +54,65 @@ FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCa
 	View.Role = Config->Role;
 	View.Items = Config->Items;
 	View.EditedBy = Config->EditedBy;
+	const UFGInventoryComponent* Inventory = Platform ? Platform->GetInventory() : nullptr;
+	const AFGTrainStationIdentifier* Identifier = STLayout::GetIdentifier(Station);
+	const FSTConsumer* Consumer = FindConsumer(Identifier);
+	const FSTLoopSlot* Slot = Consumer ? Consumer->Slots.FindByPredicate([Index](const FSTLoopSlot& Each) { return Each.Index == Index; }) : nullptr;
 	for (const FSTItemRule& Rule : Config->Items)
 	{
-		View.ItemLines.Add(DescribeItemRule(Platform, *Config, Rule));
+		if (!Rule.Item)
+		{
+			View.ItemLines.Add(TEXT("takes any cargo a train switching patterns has left"));
+			continue;
+		}
+		const int32 Stock = Inventory ? Inventory->GetNumItems(Rule.Item) : 0;
+		const int32 Capacity = STLayout::GetCapacity(Inventory, Rule.Item);
+		FString Rate;
+		if (Config->Role == ESTRole::Demand && Slot)
+		{
+			const int32 ItemIndex = Slot->Items.IndexOfByKey(Rule.Item.Get());
+			Rate = Slot->ItemRates.IsValidIndex(ItemIndex) && Slot->ItemRates[ItemIndex] > 0.0
+				? FString::Printf(TEXT(", uses at most %.2f car loads/min"), Slot->ItemRates[ItemIndex]) : FString(TEXT(", rate not known"));
+		}
+		else if (Config->Role == ESTRole::Supply)
+		{
+			const FSTSupplier* Supplier = mSuppliers.FindByPredicate([&](const FSTSupplier& Each) { return Each.Station.Get() == Identifier && Each.Item.Get() == Rule.Item.Get(); });
+			Rate = Supplier && Supplier->Rate >= 0.0 ? FString::Printf(TEXT(", makes at most %.2f car loads/min, loops take %.2f"), Supplier->Rate, Supplier->Taken)
+				: FString(TEXT(", rate not known"));
+		}
+		View.ItemLines.Add(FString::Printf(TEXT("%s / %s%s"), *STNames::Amount(Rule.Item, Stock), *STNames::Amount(Rule.Item, Capacity), *Rate));
 	}
 	if (Config->Role == ESTRole::Off)
 	{
 		return View;
 	}
-	const AFGTrainStationIdentifier* Identifier = STLayout::GetIdentifier(Station);
+	if (Config->Role == ESTRole::Demand)
+	{
+		if (!Consumer)
+		{
+			View.Lines.Add(TEXT("Its station is not a consumer yet: the loop plan is worked out every few seconds."));
+		}
+		else
+		{
+			View.Lines.Add(FString::Printf(TEXT("Its station's loop: %d trains (target %d)"), Consumer->Trains.Num(), Consumer->Target));
+			if (!Consumer->Problem.IsEmpty())
+			{
+				View.Lines.Add(Consumer->Problem);
+			}
+		}
+	}
 	for (const FSTTrainState& State : mTrains)
 	{
-		if (!State.bManaged || !State.bHasJob)
+		if (!State.bManaged || !State.bHasJob || !State.Job.Legs.IsValidIndex(State.Job.Leg) || State.Job.Legs[State.Job.Leg].Station != Identifier)
 		{
 			continue;
 		}
-		for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
+		for (const FSTCarWork& Work : State.Job.Legs[State.Job.Leg].Work)
 		{
-			const FSTJobLeg& Each = State.Job.Legs[Leg];
-			if (!Identifier || Each.Station != Identifier)
+			if (Work.Platform == Platform)
 			{
-				continue;
-			}
-			for (const FSTCarWork& Work : Each.Work)
-			{
-				if (Config->FindRule(Work.Item) && Work.bLoad == (Config->Role == ESTRole::Supply))
-				{
-					View.Lines.Add(FString::Printf(TEXT("Inbound: %s, %s %s %s %s, ETA %.0f s"), *STLayout::Name(State.Train), *STLayout::DescribeVehicle(State.Train, Work.Car),
-						Work.bLoad ? TEXT("loads") : TEXT("unloads"), *STNames::Amount(Work.Item, Work.PlannedAmount), *STNames::Item(Work.Item),
-						FMath::Max(0.0, Each.PlannedArrival - Now())));
-				}
+				View.Lines.Add(FString::Printf(TEXT("Next: %s, %s %s %s"), *STLayout::Name(State.Train), *STLayout::DescribeVehicle(State.Train, Work.Car),
+					Work.bLoad ? TEXT("loads") : TEXT("unloads"), *STNames::Item(Work.Item)));
 			}
 		}
 	}
@@ -126,242 +123,7 @@ FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCa
 			View.Lines.Add(TEXT("Recent: ") + Line);
 		}
 	}
-	View.Lines.Append(ExplainPlatform(Platform));
 	return View;
-}
-
-TArray<FString> ASTSubsystem::ExplainPlatform(const AFGBuildableTrainPlatformCargo* Platform) const
-{
-	TArray<FString> Lines;
-	const FSTPlatformConfig* Config = FindPlatformConfig(Platform);
-	if (!Config || Config->Role == ESTRole::Off)
-	{
-		return Lines;
-	}
-	Lines.Append(DescribePlatformGroups(Platform));
-	if (mSettings.bObserveOnly)
-	{
-		Lines.Add(TEXT("Observe only is on (Mods menu): rates are measured, but no jobs are given."));
-		return Lines;
-	}
-	const AFGBuildableRailroadStation* Station = STLayout::FindStation(Platform);
-	const AFGTrainStationIdentifier* Identifier = STLayout::GetIdentifier(Station);
-	if (!Identifier)
-	{
-		Lines.Add(TEXT("Not on a station's output side: trains can't dock here."));
-		return Lines;
-	}
-	if (Config->Items.Num() == 0)
-	{
-		Lines.Add(TEXT("No items yet: add the item this platform supplies or demands."));
-		return Lines;
-	}
-	TArray<FSTNode> Nodes;
-	BuildNodes(Nodes);
-	const int32 Graph = Station->GetTrackGraphID();
-	const bool bSupply = Config->Role == ESTRole::Supply;
-	const ESTRole Other = bSupply ? ESTRole::Demand : ESTRole::Supply;
-	for (const FSTItemRule& Rule : Config->Items)
-	{
-		if (!Rule.Item)
-		{
-			continue;
-		}
-		const FString Name = STNames::Item(Rule.Item);
-		const bool bInbound = mTrains.ContainsByPredicate([&](const FSTTrainState& State)
-		{
-			if (!State.bManaged || !State.bHasJob)
-			{
-				return false;
-			}
-			for (int32 Leg = State.Job.Leg; Leg < State.Job.Legs.Num(); ++Leg)
-			{
-				const FSTJobLeg& Each = State.Job.Legs[Leg];
-				if (Each.Station == Identifier && Each.Work.ContainsByPredicate([&](const FSTCarWork& Work) { return Work.Item == Rule.Item && Work.bLoad == bSupply; }))
-				{
-					return true;
-				}
-			}
-			return false;
-		});
-		const int32 Own = FindNode(Nodes, Identifier, Rule.Item, Config->Role);
-		if (bInbound || Own == INDEX_NONE)
-		{
-			continue;
-		}
-		const FSTNode& Node = Nodes[Own];
-
-		TArray<int32> Partners;
-		for (int32 Index = 0; Index < Nodes.Num(); ++Index)
-		{
-			const FSTNode& Each = Nodes[Index];
-			if (Each.Role == Other && Each.Station.Get() != Identifier && Each.TrackGraph == Graph && (Each.Item == Rule.Item || (bSupply && Each.bAnyItem)))
-			{
-				Partners.Add(Index);
-			}
-		}
-		if (Partners.Num() == 0)
-		{
-			Lines.Add(FString::Printf(TEXT("%s: no %s platform for it on this rail network."), *Name, bSupply ? TEXT("demand") : TEXT("supply")));
-			continue;
-		}
-
-		// The item sets of this station's demand platforms, for car patterns.
-		TArray<TArray<UClass*>> DemandSets;
-		for (AFGBuildableTrainPlatform* Each : STLayout::GetPlatforms(Station))
-		{
-			const AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Each);
-			const FSTPlatformConfig* PlatformConfig = Cargo ? FindPlatformConfig(Cargo) : nullptr;
-			if (PlatformConfig && PlatformConfig->Role == ESTRole::Demand)
-			{
-				TArray<UClass*>& Set = DemandSets.AddDefaulted_GetRef();
-				for (const FSTItemRule& ItemRule : PlatformConfig->Items)
-				{
-					Set.AddUnique(ItemRule.Item.Get());
-				}
-			}
-		}
-		// A free train can take a trip for this item: it is empty (no group), or it holds cargo and (demand) each of its
-		// patterned cars has a platform here for the same items, (supply) a car carries the item (Docs/Architecture.md,
-		// "Car patterns").
-		auto PatternMayCome = [&](const FSTTrainState& State)
-		{
-			if (State.IsPatternOpen() || GetCargo(State.Train).Num() == 0)
-			{
-				return true;
-			}
-			for (const TArray<UClass*>& Car : State.GetPattern())
-			{
-				if (bSupply)
-				{
-					if (Car.Contains(Rule.Item.Get()))
-					{
-						return true;
-					}
-					continue;
-				}
-				if (Car.Num() > 0 && !DemandSets.ContainsByPredicate([&Car](const TArray<UClass*>& Set)
-					{
-						return Set.Num() == Car.Num() && !Car.ContainsByPredicate([&Set](UClass* Item) { return !Set.Contains(Item); });
-					}))
-				{
-					return false;
-				}
-			}
-			return !bSupply;
-		};
-
-		int32 Serving = 0;
-		int32 Fitting = 0;
-		int32 FreeFitting = 0;
-		int32 FreeLinedUp = 0;
-		// Why the first such train got no trip at its last turn.
-		FString LastTry;
-		int32 BestCapacity = 0;
-		FString Problem;
-		for (const FSTTrainState& State : mTrains)
-		{
-			if (!State.bManaged || !IsValid(State.Train) || !CanServe(State, Identifier))
-			{
-				continue;
-			}
-			++Serving;
-			bool bFits = false;
-			for (const int32 Partner : Partners)
-			{
-				const AFGTrainStationIdentifier* PartnerStation = Nodes[Partner].Station.Get();
-				if (!CanServe(State, PartnerStation))
-				{
-					continue;
-				}
-				const FSTFit Fit = bSupply ? ComputeFit(State.Train, Identifier, PartnerStation, Rule.Item, true) : ComputeFit(State.Train, PartnerStation, Identifier, Rule.Item, true);
-				if (Fit.Capacity > 0)
-				{
-					bFits = true;
-					BestCapacity = FMath::Max(BestCapacity, Fit.Capacity);
-				}
-				else if (Problem.IsEmpty())
-				{
-					Problem = Fit.Problem;
-				}
-			}
-			Fitting += bFits ? 1 : 0;
-			// Free: no job.
-			FreeFitting += bFits && !State.bHasJob ? 1 : 0;
-			if (bFits && !State.bHasJob && PatternMayCome(State))
-			{
-				++FreeLinedUp;
-				const FString* Reason = mIdleReasons.Find(State.Train);
-				if (Reason && LastTry.IsEmpty())
-				{
-					LastTry = *Reason;
-				}
-			}
-		}
-		if (Serving == 0)
-		{
-			Lines.Add(FString::Printf(TEXT("%s: no managed train can reach this station."), *Name));
-			continue;
-		}
-		if (Fitting == 0)
-		{
-			Lines.Add(FString::Printf(TEXT("%s: no managed train fits (%s)."), *Name, *Problem));
-			continue;
-		}
-
-		if (bSupply)
-		{
-			const double Batch = BestCapacity * STNames::SendAtPercent(Rule.SendAtPercent) / 100.0;
-			if (Node.Stock - Node.Reserved < Batch * 0.5)
-			{
-				Lines.Add(FString::Printf(TEXT("%s: waiting for a batch, %s of %s at this station."), *Name, *STNames::Amount(Rule.Item, Node.Stock),
-					*STNames::Amount(Rule.Item, Batch)));
-				continue;
-			}
-			const bool bAnyNeeds = Partners.ContainsByPredicate([&](int32 Partner)
-			{
-				const FSTNode& Consumer = Nodes[Partner];
-				return !Consumer.bAnyItem && Consumer.Stock + Consumer.Reserved < Consumer.Capacity * Consumer.TargetPercent / 100.0;
-			});
-			if (!bAnyNeeds && Node.Stock < 0.9 * Node.Capacity)
-			{
-				Lines.Add(FString::Printf(TEXT("%s: every consumer is stocked to its target."), *Name));
-				continue;
-			}
-		}
-		else
-		{
-			const double Target = Node.Capacity * Node.TargetPercent / 100.0;
-			if (Node.Stock + Node.Reserved >= Target)
-			{
-				Lines.Add(FString::Printf(TEXT("%s: stocked. The station's %d platforms for it hold %s%s, target %s%s."), *Name, Node.Platforms.Num(),
-					*STNames::Amount(Rule.Item, Node.Stock), Node.Reserved > 0 ? *FString::Printf(TEXT(" with %s on the way"), *STNames::Amount(Rule.Item, Node.Reserved)) : TEXT(""),
-					*STNames::Amount(Rule.Item, Target), Node.bAutoTarget ? *FString::Printf(TEXT(" (automatic, %.0f %%: lasts until a train can bring more)"), Node.TargetPercent) : TEXT("")));
-				continue;
-			}
-			const bool bReady = Partners.ContainsByPredicate([&](int32 Partner) { return Nodes[Partner].Stock > Nodes[Partner].Reserved; });
-			if (!bReady)
-			{
-				Lines.Add(FString::Printf(TEXT("%s: no supplier has any ready."), *Name));
-				continue;
-			}
-		}
-		if (FreeFitting == 0)
-		{
-			Lines.Add(FString::Printf(TEXT("%s: all %d managed trains that fit are busy."), *Name, Fitting));
-			continue;
-		}
-		if (FreeLinedUp == 0)
-		{
-			Lines.Add(FString::Printf(TEXT("%s: %d free trains fit, but all hold cargo for other stations. One comes once it has delivered that; an empty train goes anywhere."),
-				*Name, FreeFitting));
-			continue;
-		}
-		Lines.Add(LastTry.IsEmpty()
-			? FString::Printf(TEXT("%s: %d free trains fit and their car patterns line up; a job should follow at the next dispatch round."), *Name, FreeLinedUp)
-			: FString::Printf(TEXT("%s: %d free trains fit and their car patterns line up, but the last one tried got no trip: %s"), *Name, FreeLinedUp, *LastTry.Left(300)));
-	}
-	return Lines;
 }
 
 FSTTrainView ASTSubsystem::MakeTrainView(const AFGTrain* Train, int32 AppliedEdit) const
@@ -369,11 +131,11 @@ FSTTrainView ASTSubsystem::MakeTrainView(const AFGTrain* Train, int32 AppliedEdi
 	FSTTrainView View;
 	View.Train = const_cast<AFGTrain*>(Train);
 	View.AppliedEdit = AppliedEdit;
-	const FSTTrainState* State = mTrains.FindByPredicate([Train](const FSTTrainState& Each) { return Each.Train == Train; });
+	const FSTTrainState* State = FindTrainState(Train);
 	View.bManaged = State && State->bManaged;
 	View.bKeepVanilla = State && State->bKeepVanilla;
 	View.bHeld = State && State->bHeld;
-	View.bHasJob = State && State->bHasJob && !State->Job.bPark;
+	View.bHasJob = State && State->bHasJob;
 	if (View.bKeepVanilla)
 	{
 		View.CannotManage = TEXT("it is set to keep vanilla (/st train keepvanilla off)");
@@ -382,52 +144,31 @@ FSTTrainView ASTSubsystem::MakeTrainView(const AFGTrain* Train, int32 AppliedEdi
 	{
 		View.CannotManage = TEXT("it has no locomotive that can dock");
 	}
-	if (State && State->bManaged)
-	{
-		View.Lines.Add(DescribeWork(*State));
-	}
 	if (!View.bManaged)
 	{
 		View.Status = View.bKeepVanilla ? TEXT("Kept vanilla: SmartTrains and its migration leave this train alone.") : TEXT("Not managed: the timetable is yours.");
 	}
-	else if (State->bHeld)
-	{
-		View.Status = State->bHasJob ? FString::Printf(TEXT("Held (Resume to go on with job %d: %s)."), State->Job.Id, *State->Job.Summary)
-			: FString(TEXT("Held: no new trips until Resume."));
-	}
-	else if (State->bHasJob)
-	{
-		View.Status = FString::Printf(TEXT("%sJob %d: %s"), mSettings.bObserveOnly ? TEXT("(observe only) ") : TEXT(""), State->Job.Id, *State->Job.Summary);
-		for (int32 Leg = 0; Leg < State->Job.Legs.Num(); ++Leg)
-		{
-			const FSTJobLeg& Each = State->Job.Legs[Leg];
-			const FString What = Each.HasWork() ? DescribeLeg(Train, Each, Leg < State->Job.Leg) : FString(TEXT("drive there"));
-			View.Lines.Add(FString::Printf(TEXT("%s %d. %s: %s%s"), Leg == State->Job.Leg ? TEXT(">") : (Leg < State->Job.Leg ? TEXT("v") : TEXT(" ")), Leg + 1,
-				*STLayout::Name(Each.Station.Get()), *What,
-				Leg >= State->Job.Leg ? *FString::Printf(TEXT(", ETA %.0f s"), FMath::Max(0.0, Each.PlannedArrival - Now())) : TEXT("")));
-		}
-	}
 	else
 	{
-		View.Status = FString::Printf(TEXT("%s%s: waiting for a job."), mSettings.bObserveOnly ? TEXT("(observe only) ") : TEXT(""),
-			State->Phase == ESTTrainPhase::Parked ? TEXT("Parked") : TEXT("Idle"));
-		if (const FString* Observed = mObserved.Find(const_cast<AFGTrain*>(Train)))
+		View.Status = FString::Printf(TEXT("%s%s"), mSettings.bObserveOnly ? TEXT("(observe only) ") : TEXT(""), *DescribeWork(*State));
+		if (State->bHasJob)
+		{
+			View.Lines.Add(FString::Printf(TEXT("Pattern: %s"), *State->DescribePattern()));
+			for (int32 Leg = 0; Leg < State->Job.Legs.Num(); ++Leg)
+			{
+				const FSTJobLeg& Each = State->Job.Legs[Leg];
+				View.Lines.Add(FString::Printf(TEXT("%s %d. %s: %s"), Leg == State->Job.Leg ? TEXT(">") : TEXT(" "), Leg + 1, *STLayout::Name(Each.Station.Get()),
+					Each.HasWork() ? *DescribeLeg(Train, Each, false) : TEXT("drive there")));
+			}
+		}
+		else if (const FString* Observed = mObserved.Find(const_cast<AFGTrain*>(Train)))
 		{
 			View.Lines.Add(TEXT("Would do: ") + *Observed);
-		}
-		if (const FString* Reason = mIdleReasons.Find(const_cast<AFGTrain*>(Train)))
-		{
-			View.Lines.Add(TEXT("Why no trip: ") + *Reason);
 		}
 	}
 	for (const TPair<UClass*, int32>& Pair : GetCargo(Train))
 	{
 		View.Lines.Add(FString::Printf(TEXT("Carries %s %s"), *STNames::Amount(Pair.Key, Pair.Value), *STNames::Item(Pair.Key)));
-	}
-	if (State && State->UnwantedCargoSince > 0.0)
-	{
-		View.Lines.Add(FString::Printf(TEXT("No trip has taken this cargo for %.0f min; it goes to a Sink platform once that is worth more than keeping it for a consumer."),
-			(Now() - State->UnwantedCargoSince) / 60.0));
 	}
 	return View;
 }
@@ -453,15 +194,6 @@ FSTStationView ASTSubsystem::MakeStationView(const AFGTrainStationIdentifier* St
 	for (FString& Line : Lines)
 	{
 		View.Lines.Add(Line.TrimStart());
-	}
-	int32 Waiting = 0;
-	for (const FSTTrainState& State : mTrains)
-	{
-		Waiting += State.bManaged && !State.bHasJob && State.LastStation == Station ? 1 : 0;
-	}
-	if (Waiting > 0)
-	{
-		View.Lines.Add(FString::Printf(TEXT("%d managed trains wait here for a job."), Waiting));
 	}
 	for (const FString& Line : DescribeStatus())
 	{

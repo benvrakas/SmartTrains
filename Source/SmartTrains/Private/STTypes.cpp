@@ -17,17 +17,6 @@ bool STNames::Unloads(ESTRole Role)
 	return Role == ESTRole::Demand || Role == ESTRole::Sink;
 }
 
-const TCHAR* STNames::Priority(ESTPriority Priority)
-{
-	switch (Priority)
-	{
-	case ESTPriority::Low: return TEXT("Low");
-	case ESTPriority::High: return TEXT("High");
-	case ESTPriority::Critical: return TEXT("Critical");
-	default: return TEXT("Normal");
-	}
-}
-
 const TCHAR* STNames::Phase(ESTTrainPhase Phase)
 {
 	switch (Phase)
@@ -35,6 +24,16 @@ const TCHAR* STNames::Phase(ESTTrainPhase Phase)
 	case ESTTrainPhase::Working: return TEXT("working");
 	case ESTTrainPhase::Parked: return TEXT("parked");
 	default: return TEXT("idle");
+	}
+}
+
+const TCHAR* STNames::JobKind(ESTJobKind Kind)
+{
+	switch (Kind)
+	{
+	case ESTJobKind::Deliver: return TEXT("deliver");
+	case ESTJobKind::Sink: return TEXT("sink");
+	default: return TEXT("loop");
 	}
 }
 
@@ -57,29 +56,6 @@ TOptional<ESTRole> STNames::ParseRole(const FString& Text)
 		return ESTRole::Off;
 	}
 	return {};
-}
-
-TOptional<ESTPriority> STNames::ParsePriority(const FString& Text)
-{
-	for (ESTPriority Priority : {ESTPriority::Low, ESTPriority::Normal, ESTPriority::High, ESTPriority::Critical})
-	{
-		if (Text.Equals(STNames::Priority(Priority), ESearchCase::IgnoreCase))
-		{
-			return Priority;
-		}
-	}
-	return {};
-}
-
-float STNames::PriorityWeight(ESTPriority Priority)
-{
-	switch (Priority)
-	{
-	case ESTPriority::Low: return 0.5f;
-	case ESTPriority::High: return 2.f;
-	case ESTPriority::Critical: return 8.f;
-	default: return 1.f;
-	}
 }
 
 FString STNames::Item(TSubclassOf<UFGItemDescriptor> Item)

@@ -40,10 +40,8 @@ private:
 	enum class ETab : uint8
 	{
 		Overview,
-		Groups,
-		Items,
-		Stations,
-		Platforms,
+		Consumers,
+		Suppliers,
 		Trains,
 	};
 
@@ -53,10 +51,8 @@ private:
 	void UpdateTabs(const FSTMonitorView& View);
 	void ShowTab(const FSTMonitorView& View);
 	void ShowOverview(const FSTMonitorView& View);
-	void ShowGroups(const FSTMonitorView& View);
-	void ShowItems(const FSTMonitorView& View);
-	void ShowStations(const FSTMonitorView& View);
-	void ShowPlatforms(const FSTMonitorView& View);
+	void ShowConsumers(const FSTMonitorView& View);
+	void ShowSuppliers(const FSTMonitorView& View);
 	void ShowTrains(const FSTMonitorView& View);
 
 	// Table pieces. Width 0 fills the rest of the line.
@@ -92,8 +88,7 @@ private:
 	FString mShown;
 	ETab mShownTab = ETab::Overview;
 
-	// The tab and the item filter, kept while the game runs.
+	// The tab, kept while the game runs.
 	static ETab sTab;
-	static bool sProblemsOnly;
 	static TWeakObjectPtr<USTMonitorWindow> sOpen;
 };

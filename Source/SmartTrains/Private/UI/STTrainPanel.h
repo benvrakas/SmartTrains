@@ -37,15 +37,12 @@ private:
 	UPROPERTY()
 	TObjectPtr<USTButton> mManage;
 
-	// Hold / Resume and Cancel job, shown while managed.
+	// Hold / Resume, shown while managed.
 	UPROPERTY()
 	TObjectPtr<class UHorizontalBox> mControls;
 
 	UPROPERTY()
 	TObjectPtr<USTButton> mHold;
-
-	UPROPERTY()
-	TObjectPtr<USTButton> mCancelJob;
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> mStatus;
