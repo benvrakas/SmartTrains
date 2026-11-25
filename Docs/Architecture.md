@@ -1,66 +1,133 @@
 # SmartTrains architecture
 
-Satisfactory SML mod, game CL 513885. Prefix `ST`, log category `LogSmartTrains`. The design and its decisions are
-in the plan (`C:\Users\benvr\.claude\plans\smarttrains.md`); this file records how the code implements them.
+Satisfactory SML mod. Prefix `ST`, log category `LogSmartTrains`. What the mod is meant to be is in the plan
+(`C:\Users\benvr\.claude\plans\trains-end-state.md`); this file records how the code implements it. The per-trip
+dispatcher of 0.6 to 0.43 (trip planner, flow plan, forecasts, parking, depot signals) was removed in 0.50.0; its
+notes are in the git history of this file.
 
 ## Pieces
 
 | File | What it does |
 |---|---|
-| `STTypes.h` | Saved data: platform settings (`FSTPlatformConfig`), station settings, train state and jobs, learned dock maps, trip and stay times, the migration undo record. |
-| `STStationSetup.*` | Station set-up: platform roles and items from what is attached, the factory's product and theoretical rate, and station names. |
-| `STGather.cpp` | The default dispatcher: trips built around one consumer station each. |
-| `STGroups.cpp` | Item groups: groups from the flow plan, train homes, the dispatch round, group readouts and settings. |
-| `STSubsystem.h`, `STSubsystem.cpp` | `ASTSubsystem` (server only, saved with the world): settings API, train monitoring, docking events, learning, rate sampling, readouts. |
-| `STDispatch.cpp` | The rest of `ASTSubsystem`: supply/demand nodes, the fit model, dispatching, the flow plan, writing timetables. |
-| `STTripPlanner.*` | Trip planning: car-by-car simulation, regret insertion. |
-| `STMinCostFlow.*` | Minimum-cost flow for the flow plan. |
-| `STThroughput.*` | The throughput monitor behind `/st monitor`. |
+| `STTypes.h` | Saved data: platform settings (`FSTPlatformConfig`), train state and jobs, learned dock maps, trip and stay times, the migration undo record. |
+| `STLoops.cpp` | The loop plan: factory scans, consumers and suppliers, the split of the trains, each train's job, writing timetables, the monitor view. |
+| `STLoopMath.*` | The plan's arithmetic (largest-remainder split, supplier allocation), apart from the game for the tests. |
+| `STSubsystem.h`, `STSubsystem.cpp` | `ASTSubsystem` (server only, saved with the world): settings API, train monitoring, docking events, learning, readouts. |
+| `STStationSetup.*`, `STTrace.*`, `STMinCostFlow.*` | Station set-up: platform roles and items from what is attached, the factory's product and theoretical rates (belt networks by maximum flow), and station names. |
 | `STLayout.*` | Station platform chains and train consists, walked the way the game docks. `FSTPlatformAccess` reads protected platform fields (access-transformer friend). |
 | `STTravel.*` | Track distances between stations by a directed search over the track network. |
-| `STBridges.*` | Freight Car Control and DynamicTimeTable, both reached by reflection only. |
+| `STBridges.*` | Freight Car Control, DynamicTimeTable and Auto Trains, reached by reflection only. |
 | `STMigration.*`, `STSaveTools.cpp` | The migration tool and the save copy commands. |
 | `STChatCommand.*` | `/st` (see `Commands.md`). |
 | `STConfig.*` | Mods menu settings. |
-| `STViews.h`, `STReadouts.cpp` | What the menus show: view structs, and the subsystem functions that fill them (`MakePlatformView`, `ExplainPlatform`, ...). |
+| `STViews.h`, `STReadouts.cpp` | What the menus show: view structs, and the subsystem functions that fill them. |
 | `STRemoteCallObject.*` | Carries menu edits to the server and readouts back. |
 | `STAccess.*` | Who may change what (admin-gated controls). |
-| `UI/*` | The panels added to vanilla menus, and the controls they are built from. |
+| `STDockHooks.*`, `STClipboardHooks.*` | SML hooks: dock start, and the game's copy/paste of settings. |
+| `UI/*` | The panels added to vanilla menus, the platform, migration and monitor windows, and the controls they are built from. |
 
-## 0.12.0: consumer-anchored trips
+## Loops
 
-Code: `STGather.cpp` (`ASTSubsystem::GatherRound`), `FSTTripPlanner::SetOnlyStation` and `GetConsumerStations`. The
-only dispatcher since 0.13.0 (0.12.0 kept 0.10's item groups behind a switch for comparison). Why: the user asked (2026-11-09) for as few rules as possible at close to the best efficiency. The IB logs
-showed planner sophistication didn't move throughput (0.7.1's horizon planner ran the same trips per 30 min as
-0.6.10), and most bugs came from mechanisms interacting (services, homes, lending). The shape is the user's DTT setup
-(one group per pull-based station, "[supplier group] -> factory") made automatic.
+`CheckLoops` runs every 5 s (server):
 
-The rules:
+1. **One factory scan** (`StepRateScan`): the station with Supply or Demand platforms scanned longest ago (or whose
+   platform settings changed, `mRatesDirty`), at most once per `RateScanSeconds` (30 min) each, through
+   `STSetup::ProposeStation` and `AnalyzeFactory`: `FFactory::InputRates` (what the factory uses at its most, this
+   station's share) and `Product` / `Rate` (what it makes at its most). Fluids come in m³ and are kept in litres
+   like inventories (`FStationRates`). A `FACTORY` line logs each scan.
+2. **The model** (`BuildLoopModel`, at most every 30 s or when something changed): platforms grouped by station.
+   - A **supplier** (`FSTSupplier`) per station and Supply item: the scan's rate for its product, else what the
+     machines behind its platforms make by their recipes (each machine once), in car loads per minute
+     (`GetCarCapacity`); unknown (-1) counts as enough.
+   - A **consumer** (`FSTConsumer`) per station with Demand platforms: a slot (`FSTLoopSlot`) per Demand platform in
+     platform order, its items (several: an item group), each item's rate (the scan's use, else the machines'
+     recipes, shared over the station's slots taking it) and the slot's rate (their sum). The consumer's rate is its
+     busiest slot's: a train brings one car per slot per round.
+   - **Sources** (`FSTLoopSource`): biggest consumers first, each slot item takes its rate from the suppliers of the
+     item on the same rail network, nearest first, within their spare rate (`STLoopMath::Allocate`).
+   - **Round trip:** from the consumer to the nearest supplier still to visit, and so on, then back, plus the stays
+     (`EstimateTravelSeconds`, `EstimateStaySeconds`). **Need** = rate x round trip.
+3. **The split** (`AssignTrains`): the available trains (managed, not held, not driven by hand) and the consumers
+   each fits (`FitsConsumer`). The targets are `STLoopMath::Split` of the trains that fit some consumer over the needs
+   of the consumers some train fits: largest remainder; with at least as many trains as consumers each gets one; with
+   fewer, the largest needs get one each (the rest are unserved, `FSTConsumer::Problem`).
+4. **Each train's job** (`UpdateTrainJob`): its loop, unless it is switching patterns.
 
-1. **Need.** The moves `BeginTrain` lists already are the need: a consumer below target at the rough arrival time (or
-   a nearly full supplier pushing), with a car that lines up at both ends.
-2. **Build.** For each consumer station the train can deliver to (`GetConsumerStations`), regret insertion runs with
-   only moves to that station (`SetOnlyStation`): pickups for the cars that line up with its platforms, from the
-   suppliers that pay best, while the trip's value per second rises. Each car carries one item, so a factory with
-   mixed inputs gets a gathering trip in its platform order; a one-item consumer gets a plain shuttle trip.
-3. **Choose.** The train runs the consumer's trip with the best score (value per second, the same objective as
-   since 0.8.0) that is worth running (value above `TrainSecondCost` x its time). Trains take turns as before (longest
-   waiting first, every round plans at least one).
-4. **After.** The job keeps its consumer (`FSTJob::AnchorStation`); re-plans after each stop only add deliveries
-   there. Cargo for elsewhere stays on board and is a move (cargo on board) for the next trip. With nothing worth a
-   trip the train settles (depot or in place).
-5. **Cargo first** (0.16.0). A train with cargo on board (a delivery whose platform had less room than planned) first
-   tries only consumer stations with a demand node for an item it carries, and only trips that unload some of it;
-   any consumer only when none of those is worth a trip now. On the IB server 12 of 160 trips after
-   `/st emptycars all` delivered under 90 % of their plan, and those trains then loaded for another factory beside
-   the leftovers.
+### Rebalancing
 
-There are no homes and no lending (the groups are only a readout of the flow plan). A
-consumer is served by whichever free train makes its trip pay best, so trains whose cars line up better and trains
-nearby win by themselves. Train-first turns can give a far train a consumer a nearer, later train would have served
-better; the reservations it makes lower that consumer's value for the others, and the next round corrects it.
+The trains are only split again when the split's inputs change (`mSplitInputs`): the consumers, their rates and
+number of sources, and the available trains with what each fits. Round trips are left out, so learned travel times
+don't move trains. On a new split, each train keeps its consumer while it fits there and the consumer isn't over its
+target; consumers short of their target take free trains that fit them, empty ones first, then the nearest
+(`EstimateTravelSeconds` from its last station); trains left over go where they fit furthest below their share. A
+train whose consumer changes logs a `LOOP` line; each split logs a `SPLIT` line.
 
-## 0.11.0: station set-up
+### A train's loop
+
+`MakeLoopJob`: the car beside each slot's platform (`FitsConsumer`, the first dock map), the item it carries (a
+group's item, and the supplier where there are several, picked by the train's rank among the consumer's trains so
+the loop's trains share them by rate, `PickByRank`), and the supplier it loads at: its source, else any source of the
+item where that car stands beside a Supply platform of it. Pickups are ordered nearest first from the consumer; the
+consumer is the last stop. Every car that has no work at a stop skips it (Freight Car Control). `FSTTrainState::CarSets`
+holds the pattern. `UpdateTrainJob` leaves a loop alone while its stops, cars and items stay the same.
+
+### Switching patterns
+
+A train given another consumer first gets rid of cargo its new loop doesn't carry in that car (`HoldsOtherCargo`):
+- **Deliver** (`ESTJobKind::Deliver`, `MakeUnloadJob`): at its old consumer (its loop's `AnchorStation`; without a
+  loop, the nearest consumer whose platforms take its cargo), load/unload once, so what doesn't fit stays.
+- **Sink:** after the Deliver stop, if it still holds such cargo, the nearest station with a Sink platform beside a car
+  holding cargo, unloading until empty.
+- Then its loop (after a Sink stop without another check). With no consumer or Sink platform for its cargo it starts
+  its loop with it, with a warning (`/st emptycars` clears it).
+
+### Timetables
+
+A loop is written once: all its stops, which the game's timetable repeats by itself. Pickup and delivery stops are
+*fully load/unload* with *duration and rule* and a duration of 0 (it leaves only with full or empty cars), filters set
+to the stop's items, `IgnoreFullLoadUnloadIfTransferBlockedByFilters` on. A Deliver stop is *load/unload once*.
+
+The game moves a timetable's current stop on when the train docks (`AFGTrain::Dock` calls
+`AFGRailroadTimeTable::IncrementCurrentStop` before `StartDocking`; nothing else does). So a job written while the
+train is docked at one of its stops starts from the stop after it (`WriteJob`); `MonitorTrains` reads the stop docked
+at as the one before the current. While a train is docked the station keeps its own copy of the docked stop's rules
+(`mCurrentDockedWithRuleSet`), so rewriting during a dock doesn't change the stay. Writing the same stops again is
+skipped (`WrittenStopKeys`). With Freight Car Control the stops go through its `ExternalSetStops` with the skipping
+cars; Auto Trains is told (`ExternalTimeTableChanged`).
+
+The stay ends by the game's rules (`AFGBuildableTrainPlatformCargo::CanCompleteDocking`): *fully load/unload* lets
+the train go when the car is full (loading) or empty (unloading), or the transfer is blocked by the none filter;
+*duration and rule* needs both. `[None]` is a filter list holding only a null class, "transfer nothing"; an empty list
+would mean "everything".
+
+- **Docking in place (0.39.0)**: a train standing in a station (not docked) can't dock by driving there.
+  The game reports a stopped train that stands in a station as `ETrainDockingState::TDS_ReadyToDock` (with self-driving
+  off too: 45 of 81 such cases, the OWNSTATION log line); `AFGTrain::Dock()` then docks it there, as the player's dock
+  button does. `WriteJob` calls `Dock()` after writing the timetable when the first stop is the station the train
+  stands in and it is ready (`DOCK ... docks where it stands` log line). `AFGTrain::TickAtc` ends with
+  `UpdateReadyToDock`, which sets ready to dock when the next connection ahead belongs to a station that `CanDock`s the
+  multiple-unit master, its distance is within `DOCK_DISTANCE` of `DOCK_STOP_OFFSET` and the speed is below
+  `DOCK_SPEED`. Trains standing too far out of the platforms (not ready) leave and come back.
+
+A train without a loop (it fits no consumer, its consumer went away, or no stop could be made) gets self-driving
+switched off where it stands (`Park`) with the reason kept for readouts (`FSTTrainState::IdleReason`).
+
+## Car patterns
+
+A consumer station's Demand platforms, in order from the station, are its pattern: platform *i* gives the item (or
+item group) of the car beside it when the train docks. A train fits a consumer when, in its first dock map there, a
+freight car of the right kind (solid or fluid) stands beside every Demand platform. Its loop gives each of those cars
+one item, and only those cars carry anything; the others skip every stop. `/st patterns` and the monitor's Consumers
+tab show every consumer's pattern and its trains.
+
+## Saves
+
+0.50.0 dropped the old dispatcher's saved fields (platform targets, least per visit, priority and manual rates; jobs'
+trip fields; trains' unwanted-cargo time); unknown properties are skipped when an older save loads. `mLoopsVersion`
+(0 in older saves) makes `PostLoadGame` drop every train's job, consumer and pattern once, so each managed train gets
+its loop. The Depot Signal class is gone: a save holding them loads without them.
+
+## Station set-up (0.11.0)
 
 Code: `STStationSetup.cpp` (namespace `STSetup` and `ASTSubsystem::SetUpStation`, `SetUpAllStations`, `SetNaming`).
 The player asked for it on 2026-11-09: build a station, connect it, and have SmartTrains set the platforms and name
@@ -167,7 +234,7 @@ window's Rename stations); never automatic.
   - **Number** (`PickNumber`): the number the station's name already has, if no other station has it; else the
     smallest from 1 that no other station's name has for the same area, product and role, with any rate
     (`MatchesName`). Setting up again keeps names stable while only the rate changes.
-- **Preview and apply:** the depot bar under the station name (first tab of the station menu) has Rename station
+- **Preview and apply:** the set-up bar under the station name (first tab of the station menu) has Rename station
   (`Server_SetUpStation` mode 0 previews the name, 1 renames). The lines come back in `FSTStationView::SetupLines`;
   `SetupReady` (1 while a name preview from the last 2 min can be applied) turns the button into its confirm step.
   Platforms are set one at a time (0.15.1: the station-wide Autodetect button is gone; `/st setup` and the migration
@@ -192,273 +259,6 @@ window's Rename stations); never automatic.
 - **Console:** `SmartTrains.Setup [apply] [keepname]` (an `FAutoConsoleCommandWithWorldAndArgs`) runs the
   all-stations set-up from a dedicated server's console, for headless tests.
 
-## Car patterns (0.18.0; item sets since 0.20.0)
-
-**Per car (0.35.3):** only cars holding cargo keep their pattern items; an empty car's are cleared each turn, and with
-Freight Car Control a cargo car beside a different demand platform skips that stop instead of ruling the consumer out
-(`MakeCarItems`; a consumer is still out when every car holds cargo and none lines up). IB 2026-11-16: trains holding
-a few hundred coal in two cars stood idle for hours with two empty cars, tied to the coal pattern.
-
-- **Pattern** (`FSTTrainState::CarSets`, saved, one `FSTCarItems` per freight car front to back): the items each car
-  carries in its group; empty where none are given yet. Usually one item; a sushi platform makes it several. Reset when
-  the number of cars changes. `DescribePattern`: "Iron | Wire + Cable | - | Wire". (0.18.0's one-item `CarPattern` is
-  no longer read, so trains start open after updating.)
-- **Lining up** (`FSTTripPlanner::MakeCarItems`): per car, the demand items of the platform beside it at the consumer
-  (the same whichever way the train docks, else none). A car with pattern items beside a demand platform whose items
-  aren't exactly the same set: the station is another group (false). A car may take its pattern items, else (open) the
-  demand platform's items beside it, else what it holds. It counts as mismatched if it holds an item outside that set.
-  The result goes to `SetCarItems`; in `SimulateWithSkips` a car beside a supply platform offering a planned item
-  outside its set, or holding something outside it, counts as harm, so it skips (FCC) or the trip fails. Within its set
-  a car may carry several items (loaded at one stop or several); without a set (tests) a car still never mixes.
-- **Groups come from cargo (0.33.0)**. One rule decides what a free train may do (`GatherRound`):
-  - **Holding cargo**, it keeps its pattern and tries the consumers that line up with it (one trip per consumer, the
-    best runs). With none worth a trip it plans a trip that loads nothing (`SetNoLoads`, no anchor) and delivers what
-    it holds: to consumers of it, or to a Sink platform when that is worth more than keeping the cargo ("Sinks are
-    priced (0.37.0)"; before, a Sink only when nothing consumes it or once the cargo counted as unwanted,
-    `LeftoverMinutes`, `SetSinksForCargo`). It never takes another pattern while it holds cargo.
-  - **Empty**, it has no group: its pattern is cleared at its turn, and it tries every consumer station, first those
-    no train serves (`IsConsumerServed`: no managed train on a trip anchored there, none given in the last
-    `ServedSeconds`, 600 s), then all. The trip chosen gives its cars their items (`PatternAfter`).
-  - `ReplanTrip` applies the car items from the job's anchor (no anchor: no loads).
-  - **Emptying trips are worth what they unload (0.33.1)**: like every trip they get `LoadValue` (2) per car load
-    delivered to a consumer (0.34.7; until then only emptying trips had it), and with `SetNoLoads` also `EmptyCarValue`
-    (10) per car emptied, so the trip goes to any consumer or sink with room whatever its target (`EmptyCarValue`
-    removed in 0.37.0: the tied-car value and `LoadValue` already pay for emptying a car). Without it, 0.33.0's emptying trips were valued like any trip (forecast gain, a quarter of
-    `TiedCarValue` for items needed soon) and rarely beat the stop cost: on the IB server, 2026-11-14, 33 of 38
-    trains stood idle holding leftovers and trips fell from about 22 to 6 per 10 minutes.
-  - What this replaced: an idle clock (5 minutes without a trip), "homeless" patterns no station takes, "spare" trains
-    whose group another train keeps, and queue rejections that reset the clock (0.18.0 to 0.32.0). Each was a patch
-    for a case the one before it made: trains waited for groups that no longer existed, left busy groups when a
-    supplier was full, or kept groups they had no trips in; the 0.28.0 patch helped stall the IB network on
-    2026-11-13. They all answered "when may a train leave its group", and the only real reason to stay is cargo that
-    lines up nowhere else. Platforms fill cars past the plan (that log: 561 pickups over plan, 260 of 1,481 unloads
-    short), so leftovers are normal; a train that changed group with them stood idle.
-  - A train parked in the station its trips would start at can't dock where it stands ("first stop is the station
-    the train stands in"): `WasKeptFromOwnStation` marks that station wanted, so it parks elsewhere and comes back
-    (0.31.1).
-- **Cargo in transit (0.33.2)**: cargo on managed trains with no job counts as stock on its way (`BuildNodes`): each
-  item goes to its consumers on the same rail network, up to their room after planned deliveries, as a `Planned` event
-  a travel time from the train's last station (`HeldCargoArriveSeconds`, 600 s, when unknown) with `HeldBy` set. The
-  forecast then sees those consumers covered, so no other train is loaded for them; the planner leaves a train's own
-  held cargo out when it plans that train, and `Reserve` drops it once the train has a trip. Why: VM joint run 2
-  (2026-11-14, 0.33.1) ended with 55 of 64 idle trains holding cargo, a dozen of them full of Coal and Sulfur for two
-  consumers that were full, while more trains were sent to load Coal; held cargo was invisible to everyone but the
-  train holding it.
-- **Autopilot fault (0.33.1)**: `MonitorTrains` switches autopilot back on for a managed train with a job that isn't
-  held, parked, derailed or driven by a player (AUTOPILOT warning). IB, 2026-11-14: after a restart one such train
-  stood 25 minutes on a through line and 12 trains queued behind it; Auto Trains reported it BLOCKED ("nobody
-  drives") but can't move a train, and SmartTrains only turned autopilot on when writing a timetable.
-- **Parked trains in the way (0.31.0)**: a parked train's booking is marked (`FSTBooking::bParked`); when it makes a
-  stop of any trip tried wait (`IsParkedInWay` in `SimulateWithSkips`), the planner notes the station
-  (`GetParkedInWay`), the dispatcher keeps it in `mWantedStations` for `WantedStationSeconds` (60 s, WANTED line), and
-  `GetNeededStations` counts it, so `ClearNeededBays` moves the parked train out; while it pulls out it holds the
-  station for `ParkedLeaveSeconds`. Before, a station counted as needed only once a job had a stop there, but a
-  parked train's booking always runs from now for `ParkedLeaveSeconds` (an hour, `DeadEndHoldSeconds`, in a dead-end
-  station), so a trip arriving within that time at a station with no waiting room was rejected ("would wait before
-  ... behind 1 trains (room for 0 before its switch)") and no job ever needed it. (The 0.31.0 notes blamed dead-end
-  stations; the main IB network has none, see the DEAD ENDS log line.) IB save,
-  2026-11-13: 32 of 38 trains idle, parked in stations for want of depot signals, suppliers full and consumers
-  starved, about two trips a minute.
-- **Never park on a through line (0.34.0)**: the travel search notes, from each station's forward search, every other
-  station whose track the shortest ways to the others run over (`FSTTravel::IsThroughStation`, Dijkstra with
-  predecessors). A train doesn't park in such a station (`SettleIdle`), `FindParkingStation` ranks stations off the
-  through lines first, and a train parked on one is moved (`ClearNeededBays`: "<station> is on a through line"). Why:
-  joint VM run 10 (2026-11-14): every BLOCKED report of Auto Trains was a SmartTrains train parked in a station on a
-  through line (unnamed Train Station 91-94 among them), chosen by 0.32.0's quiet-station preference; each was moved
-  only after a train had waited 20-35 s.
-- **Quiet stations for parking (0.32.0)**: `FindParkingStation` prefers stations no train has work at
-  (`mWorkStations`: a demand platform, or a supply of an item some platform demands; rebuilt each dispatch round),
-  then the nearest. Parked trains then seldom stand where a trip will want to go.
-- Why: platforms fill cars past the plan, so leftovers are normal; within a pattern they always line up.
-
-## 0.17.0: depot signals, hold, new trains
-
-- **Depot signal** (`STDepotSignal.*`): `ASTBuildableDepotSignal`, a C++ subclass of the native
-  `AFGBuildableRailroadSignal`. At game instance post-initialization (`STDepots::ResolveVanillaAssets`) its class
-  default gets every editable setting the vanilla `Build_RailroadBlockSignal_C` default has (declared in `AFGBuildable`
-  and below: hologram, interact widget, block or path, sounds; plus `mRailroadSignalSparesDataCDO`, the left/right-handed meshes, which isn't editable and is copied by hand: without it the hologram crashes on spawn (0.19.1)). Actors of a native class don't take the default's runtime changes,
-  so `ASTBuildableDepotSignal::PostInitProperties` copies the same settings from the default onto every new signal
-  (0.19.2; without it `AFGBuildableRailroadSignal::BeginPlay` read null signal data and crashed the server), and the vanilla signal component's mesh,
-  transform and materials. The vanilla blueprint has no components of its own beyond that one (dump:
-  `Tools/dump_signal_assets.py`), and the lights are the native class's. Descriptor and recipe copy the vanilla block
-  signal's (icons, build category, ingredients); since 0.19.0 it unlocks with the vanilla block signal: every 5 s the server makes its recipe available once the block
-  signal's is (`STDepots::KeepUnlocked`, also for saves that unlocked block signals before). The 0.17.0 AWESOME Shop
-  schematic is no longer registered; its class stays (a stub) so saves that bought it still load.
-- **Siding check** (`STDepots::Check`): the approach exit is the guarded connection (or one joined to it) whose facing
-  signal is this one; from there back along whole tracks until the siding's entry: a signal at a joint, or (since
-  0.20.1, with Auto Trains installed: `STAt::IsInstalled`, also true on clients) its switch. A platform's track or a track end on the way makes it unusable. Shown in the look-at text (runs on every client: tracks
-  and signals are replicated) and `/st depots`.
-- **Dead ends and chains (0.21.0)**: `Check` first walks forward from the signal; if the track ends there without a
-  switch the signal faces into a dead end (`bDeadEnd`): the spot runs to the next depot signal facing the same way, or
-  the track end (`Goal`). Otherwise the passing-siding walk back runs as before, and a depot signal at the entry joint is the spot's
-  `Neighbour`. `STDepots::Survey` links every spot to its neighbours (`Behind` toward the siding's entrance, `Ahead`
-  deeper in) and lists the trains with a vehicle on its tracks (so it holds after a restart, when `mDepotTrips` is
-  empty). `SendToDepotSignal` only offers a spot that is free, whose spots `Behind` are free (the way in), and whose
-  spot `Ahead` is taken or doesn't fit the train (far end first); dead ends only for push-pull trains with
-  **Dead-end depots** on. `GatherRound` skips a parked train for which `IsBoxedInAtDepot` finds a train (or a trip)
-  on its way out: the spots `Ahead` on a passing siding, `Behind` on a dead end. `MonitorTrains` parks a depot-bound
-  train near the spot's goal (`FDepotTrip::Goal`), not the signal, since a dead end's goal lies deep inside.
-- **Driving (0.22.0)**: one drive per trip (`FDepotTrip`: goal, route, stop signal), started, followed and ended by
-  `StartDepotDrive`, `GetDepotDriveState` and `EndDepotDrive`; everything else (spot choice, parking on arrival, the
-  no-way pause `mDepotNoWay` for `STDepots::NoWayRetrySeconds`) is shared. With Auto Trains loaded it drives the train
-  (`STAt::DriveTo` / `GetDriveState` / `CancelDrive`, its `ExternalDriveTo` API since 1.4.15: it empties the timetable,
-  plans the leg around the other trains and stops the train at the goal). Without it SmartTrains drives: an empty
-  timetable, the route as a path with no station and the game's follow-path state (`FSTPlatformAccess::FollowPath`;
-  the game follows such a path only in that state), and the spot's stop signal (`FSTDepotSiding::StopSignal`: the
-  depot signal on a passing siding, the signal at the far end of a dead end) held at stop (`STDepots::Hold`, kept there
-  by a hook on `AFGBuildableRailroadSignal::UpdateAspect`), so the game's automatic control brakes for it; arrived once
-  the train stands with an end within 60 m of the goal; the path given again every 5 s if the game dropped it. The
-  siding rules without Auto Trains (an entry signal after a passing siding's switch, a signal facing in at a dead end's
-  far end) make the spot a block of its own. A trip's timetable ends an Auto Trains drive by itself (`WriteJob` only
-  lets the stop signal go); unmanaging cancels it. Neither drive is saved: after loading an idle train is sent again.
-  Before 0.22.0 SmartTrains set the path without the follow-path state: the game ignores such a path, flags "no
-  timetable", and Auto Trains didn't manage the train either; on the IB save most depot-bound trains stood on the main
-  line and jammed the network.
-- **Parking** (`SendToDepotSignal`, in `SettleIdle` and `ClearNeededBays`): free depot signals (no other train in `mDepotTrips`) whose
-  siding fits the train (length + `STDepots::Margin`) on its track graph are goals of one Dijkstra over track exits from
-  the MU master's exit ahead (`STDepots::FindRoute`). The train's timetable is emptied, then the route is given to its
-  automatic control (`FSTPlatformAccess::SetTrainPath`, friend of `AFGTrain`: `mAtcData.SetPath`, no station, as Auto
-  Trains' routes), autopilot on, `LastStation` cleared (so bookings and bay clearing ignore it). `MonitorTrains` parks it
-  (autopilot off) once it stands still within 60 m of the signal or its path has run out. `WriteJob` (a new trip)
-  removes it from `mDepotTrips`. Untested in game: whether the autopilot keeps a path that ends at no station.
-- **Hold** (`FSTTrainState::bHeld`, saved): autopilot off; `GetFreeAt`, re-plans and `SettleIdle` skip it; `WriteJob`
-  leaves the autopilot off. Resume writes the job again. Someone switching the autopilot on ends the hold.
-  **Cancel job** and `/st emptycars` use `EndJob`.
-- **Manage new trains** (setting): every 5 s, trains with no `FSTTrainState`, freight cars, no timetable stops and a
-  locomotive that can dock are managed once their vehicle count hasn't changed for 30 s.
-- **Other train mods** (`USTGameWorldModule::NoteConflictingMods`, 20 s after the world's post-initialization): SML's
-  loaded mods matched by name; a warning in the log, and on clients a system chat line each.
-
-## 0.10.0: item groups (a readout since 0.13.0)
-
-Code: `STGroups.cpp`. 0.10.0 replaced 0.9's services with item groups that owned home trains (D'Hondt share-out,
-`AllocateHomes`), planned home work first and lent idle trains out (`GroupRound`, `LEND`), with per-item least/most
-limits and a per-train Stay switch. 0.12.0 replaced that dispatcher with consumer-anchored trips, which delivered about
-19 % more car loads on the IB save copy; 0.13.0 removed homes, lending, the limits, Stay and the switch back.
-
-What is left is a readout of the flow plan:
-
-- **Groups** (`FSTGroup`, rebuilt from every flow plan by `UpdateGroups`, not saved): one per item the flow plan
-  routes, with its routes (`FSTFlowRoute`: supplier, consumer, flow, round trip, trains needed, the trains that fit
-  it), the trains its routes need (`Needed`, smoothed: each plan moves it `NeededSmoothing` (0.35) of the way), and the
-  managed trains that fit them. A group whose routes leave the plan is kept for `GroupKeepSeconds` (15 min).
-- **Short** (`GetGroupShortfall`): ceil(needed - 0.15) (`GetGroupTarget`) less the trains working on the item now
-  (`CountWorkingFor`), and only while no train that fits it is idle. Idle fitting trains mean too little to move.
-- **Readouts:** monitor Groups tab and Overview tiles, `/st group [item]`, the platform and station readouts' group
-  lines. Logs: `GROUP <item> new|ends`.
-
-## 0.9.1: congestion from Auto Trains
-
-`STAt::GetTrackLoad` calls Auto Trains' `ExternalGetTrackLoad` (1.4.12): the busiest switch or crossing within 400 m of a
-station, as booked time over the next 180 s / 180 s, and the seconds trains wait there now. `ASTSubsystem::GetTrackLoad`
-caches it per station for 15 s (0 without Auto Trains). Used by the stop cost (`TrackLoadWeight` 2: a fully booked way in
-counts like two more trains there) and by the station readout.
-
-## 0.8.0: one way of deciding
-
-0.7.x added a mechanism per problem the server logs showed (shuttles, requests, repeats, loops, sink rules), and each
-fix exposed the next problem through how they interacted. 0.8.0 replaces them with general rules:
-
-- **One objective.** A trip's score is `Value - TrainSecondCost x duration`
-  (`STForecast::TrainSecondCost`, 0.01 car-load minutes per second), the same net the horizon search compares, so
-  regret insertion, re-plans and the search all optimise one thing. Value is the forecast cost removed (shortfall x
-  priority x `CostScale`, plus lost production x 0.25), less the stop cost, plus or minus tied cars. The over-target
-  bonus (0.2) and sink value (0.1) are gone; a re-plan now has to beat the kept rest by `ReplanMarginValue` in score.
-- **Idle trains park** (`SettleIdle`): a free depot signal (`SendToDepotSignal`); else it parks where it stands only
-  when it stands in a station no train needs (`GetNeededStations`: in a managed trip or drive to park still ahead, or
-  where another train is docked or parked). Moving, out on the line, or in a needed station, it drives to the nearest
-  parking station (`FindParkingStation`: not needed, not blocked, not the one it is in) and parks there. Before 0.22.2
-  a train still moving drove on to its timetable's current stop: after a one-stop trip that was the consumer it had
-  just left, so it parked inside it and the next delivery waited at the door (IB, Dune Desert Crystal Oscillator In 1).
-  `ClearNeededBays` moves a parked train (in a station, or out on the line) when a trip needs its station or Auto Trains
-  reports a train waiting for it (to a free depot signal, else `FindParkingStation`). A train still moving is never
-  parked where it is (autopilot off while under way leaves others planned around a train nobody drives): with no
-  station free of trains it drives to the nearest other station. Depot drives park only once arrived. Station depots (`FSTStationConfig::bDepot`,
-  `/st station depot`) were removed in 0.19.0; the saved `mStations` of older saves is ignored on load.
-- **Waiting room** (`FSTTravel::WalkApproach`, `GetWaitingRoom`): from each station's platform end, the walk follows the
-  track out until the first switch (a connection with more than one track), a track end or another station, adding
-  the length of track not owned by platforms. Room = that length / (train length + 5 m). The queue limit is the smaller
-  of **Most trains waiting before a station** and the room, so no trip is planned that would wait on more track than
-  there is. A depot is no special case: a parked train books its station like any train, and a short siding has no
-  room, so trains coming to unload into a depot's sink and trains coming to park there never queue behind each other.
-- **Junctions:** the switch where the walk ends (`GetJunction`) is shared by stations reached through it; `CountNear`
-  (stop cost) counts other trains booked at any of them, so trips spread over stations behind one switch.
-- **Sinks per car** (replaced in 0.37.0 by "Sinks are priced") (`CarHasConsumer`, `ItemHasConsumer`): cargo on board may go to a sink only if that car can't unload
-  it at any consumer of the item the train can reach (whichever way it docks there); a full supplier's goods only if no
-  consumer of the item exists. `Simulate` rejects a sink stop that breaks this. (0.7.7's one-hour rule let cargo
-  through whenever its consumers were full for now.)
-- **Loads capped** (`Simulate`): after a valid simulation, what a car would still hold of an item loaded on this trip is
-  taken off its pickups (`Caps`) and the trip simulated again, so cars load only what the trip unloads.
-- **Recipe rates and supply chain** (below).
-- **Snapshots** (below).
-
-### Recipe rates and supply chain
-
-- The machines come from `FSTPlatformConfig::Machines`, kept when the platform was set up from its belts and pipes
-  (Autodetect, station set-up, migration). Until 0.14.0 a background trace (`StepTraces`, one platform a second, each
-  again after 10 minutes) kept them, not saved.
-- `BuildNodes` gives each node the union of its platforms' machines and `RecipeRate`: what their recipes make (supply)
-  or use (demand) of the item at their clock speed (manufacturers only; extractors count 0).
-- The flow plan uses the recipe rate where a measurement is only a lower bound: a starved consumer (before: measured x
-  1.5) and a full supplier (on top of offering its stock).
-- `LinkSupplyChain`: a consumer that has stock but shares a machine with another consumer that is starved can't use
-  what it gets; its `CostScale` drops to `WaitingCostScale` (0.25) and `WaitsOn` names the missing item (monitor
-  "Supply chain" lines). Example from the server: Uranium Fuel Rod RSC 1A waiting on Encased Uranium Cells while that
-  cell's maker waits on sulfur.
-
-### Snapshots and replay
-
-`/st snapshot` sets `bSnapshotNext`; the next `GroupRound` adds each free train's `DescribeForReplay` (cars, cargo,
-platforms, dock maps, start) after `BeginTrain`, and `WriteSnapshot` writes them with the nodes, bookings, travel
-times, stays, items (form, stack) and settings to `Saved/SmartTrains/Snapshots`. The test `SmartTrains.Replay.Snapshots`
-rebuilds that situation (Docs/Testing.md) and plans each train again.
-
-## How trains are controlled
-
-SmartTrains never drives a train. It writes the managed train's timetable for each job and lets the game (and Auto
-Trains, if installed) drive and dock:
-
-- Pickup stop: *fully load*, leave after **Pickup: longest wait** at the latest (`IsDurationAndRule = false`), load
-  filter = the job's item, unload filter = `[None]`.
-- Delivery stop: *fully unload*, leave after **Delivery: longest wait** at the latest, unload filter = the item,
-  load filter = `[None]`.
-- Drive-only stop (depot, moving out of the way): *load/unload once*, no wait, both filters `[None]`.
-
-**Stays end when the work is done** (`ReleaseDockWhenDone`, every 0.25 s while a managed train is docked):
-- The stay ends at once when every car has moved its planned amount for this stop.
-- After the first 30 s, it also ends when nothing has moved for 20 s, e.g. a platform with no room left.
-- It ends through the station's `ClearRuleSetTimeRequirement`: the stop's time drops to 0, so "fully load/unload,
-  or N s" lets the train go. Logged as `DOCK <train> at <station>: ... the stay ends now`.
-- Stops are also written with `IgnoreFullLoadUnloadIfTransferBlockedByFilters`. A car only moves its filtered items,
-  so cargo kept for a later stop no longer holds up "fully".
-
-Before this, a train that unloaded what the platform had room for waited out the whole delivery wait. With the
-docking sequence that came to 3-4 minutes. Meanwhile it blocked the station for the trains behind it and locked its
-platforms and locomotive menu. The long stays also made the learned stay times, and every trip estimate built on
-them, far too long.
-
-`[None]` is a filter list holding only a null class. `IsLoadUnloadBlockedByNoneFilter` treats it as "transfer
-nothing" and such a platform doesn't hold the train. An empty list would mean "everything".
-
-How a stop ends was read from `AFGBuildableTrainPlatformCargo::CanCompleteDocking` (CL 513885):
-
-- *Fully load/unload*, duration *or* rule: the platform lets the train go when the car is full (loading) or empty
-  (unloading), when the transfer is blocked by the none filter, or when the stop's duration has passed.
-- *Fully*, duration *and* rule: both conditions must hold.
-- *Load/unload once*: only the duration is checked, after the one transfer.
-
-Field offsets used for this (platform): `+0x8d8` `mHasFullyLoadUnloadRule`, `+0x8dc` `mDockForDuration`, `+0x8e0`
-`mMustDockForDuration`, `+0x8e4` `mCurrentDockForDuration`. Bits at `+0x838`: `0x10` freight full, `0x20` freight
-empty. `+0x839` bit 0: blocked by none filter.
-
-The timetable is written with `SetStops` and `SetCurrentStop(0)`, or through Freight Car Control's
-`ExternalSetStops` when it is loaded. While a train is docked the station keeps its own copy of the docked stop's
-rules (`mCurrentDockedWithRuleSet`), so rewriting the timetable during a dock is safe. The next job can be written
-before the train leaves, and it departs straight for it.
-
-Parking: an idle managed train gets self-driving switched off where it stands, right after it leaves its last stop
-(the check runs every 0.25 s). It is switched back on with its next job.
-
 ## Fit model
 
 The game docks as follows (`AFGBuildableRailroadStation::DockVehiclesToPlatforms`, disassembled):
@@ -474,448 +274,16 @@ The game docks as follows (`AFGBuildableRailroadStation::DockVehiclesToPlatforms
 The docking locomotive is the train's MU master (`AFGTrain::Dock` passes `+0x490` to `StartDocking`).
 
 `STLayout::GetVehiclesBehind` and `GetPlatforms` repeat this, so the predicted dock map is exact for a train whose
-master is known. A push-pull train may arrive either way round. Until it has been seen at a station, a job only uses
-cars that fit both ways. Every real dock is read back from the platforms' `GetDockedActor` and stored per (train,
-station). A stored map is used while the train still has those vehicles. A dock that differs from the expectation
+master is known. A push-pull train may arrive either way round. Every real dock is read
+back from the platforms' `GetDockedActor` and stored per (train, station). A stored map is used while the train still has those vehicles. A dock that differs from the expectation
 logs `DOCK MAP MISMATCH`.
-
-A car **fits** a job (item X, pickup S, delivery D) when, at S, it stops beside a Supply platform with X, and at D,
-beside a Demand platform that accepts X. It must be empty or hold only X (it tops up), and the cargo type (solid or
-fluid) must match. A car
-that would **stray** sits at S beside a load-mode platform that has or supplies X but doesn't fit at D:
-
-- with Freight Car Control the job sets it to Skip at S;
-- without it the job is refused (decision 3 in the plan).
-
-A loaded train only gets delivery jobs for what it carries. Cars carrying X that aren't beside a Demand platform for
-X at D are handled the same way: skipped with Freight Car Control, otherwise the job is refused if they would unload
-into another platform.
-
-**No mixed cars** (trip planner, `Simulate`): a car comes out mixed only when an empty car loads several items at
-one stop from a platform with several items. The planner counts it as harm, so with Freight Car Control the car
-skips the stop and without it the trip is refused, when:
-- a car holding any item (`HoldsOtherItem`) stops beside a loading platform that would give it a different one,
-  even into free slots;
-- a car stops beside an unloading platform and holds anything the stop doesn't unload there. The platform would
-  take all of it.
-
-A configured platform only gives its own items: stray stock of another item isn't planned as a pickup. Before
-2026-11-06 a car with one free slot beside its aluminium ingots took a stack of concrete, so it would have unloaded
-aluminium into the concrete consumer.
-
-## Dispatching
-
-Every **Dispatch interval**, as soon as a train docks for its last stop or leaves a stop, and after platform
-settings change (`DispatchRound`):
-
-1. **Nodes:** one per (station, item, role), summing its platforms. Each node holds stock, capacity, rate (measured
-   or manual), whether it is starved, its priority, target and send-at. `Reserved` holds amounts promised to
-   running trips (per-car work of the stops still ahead).
-2. **Re-plans:** trips under way that left a stop since the last round, or all of them after a settings change,
-   are planned again from where the train is and what its cars hold (`ReplanTrip`, below).
-3. **Free trains:** managed trains with no trip; trains driving to a depot or out of the way; trains docked for
-   their last stop. A train is free from its station at the time its stay should end.
-4. **Moves** per free train (`FSTTripPlanner::BeginTrain`): supplier → consumer pairs of an item where at least one
-   car stops beside a supply platform for it at one end and a demand platform for it at the other, whichever way
-   the train docks; and deliveries of cargo already on board. A consumer must be below target at the rough arrival
-   time, unless the supplier is nearly full. Any-item sinks only take from nearly full suppliers, or unwanted cargo.
-5. **Trips** (`GroupRound`, "0.10.0: item groups"): home work first, then any work; each trip's amounts and station
-   stays are reserved before the next train is planned.
-- A trip never starts at the station the train is docked at, stands in, or left in the last 60 s
-  (`JustLeftAnchorSeconds`) unless it stands there parked.
-- For 10 s after a timetable write, a current stop the game moved on by one (the departure that followed the write)
-  is set back to the job's leg (`TIMETABLE` log line).
-6. Parked trains move to a depot, or else to the nearest station no trip uses, when a trip needs their station, or
-   (with Auto Trains) when a train has waited 20 s for them (`BLOCKING`).
-   - With Auto Trains the way out is checked first (`ExternalCheckLeg`). If it isn't clear (`REROUTE`): that parking
-     station is skipped for `RerouteAgainSeconds` (`FSTTrainState::ExitBlocked`), so the next round tries the next one;
-     the station is offered to no new trip for as long (`mBlockedStations`, skipped in `GatherRound`); and the trips
-     heading there end (`EndJob`), so their trains get a trip elsewhere or park out of the way and clear the door. With
-     every way out blocked it waits; each report is logged once (`LastExitReport`). Before 0.22.2 those trips re-planned
-     "from scratch", but only with deliveries to the same station, so they came straight back (and a train that couldn't
-     get out logged the same line every 3 s for hours). An unreachable station ends the trip the same way.
-   - A parked train books its station for 60 s. In a dead-end station (`IsDeadEnd`: no station reachable past its
-     building) it books it until it leaves, since a train sent there could neither get in nor let it out.
-
-### Forecast cost (`STForecast.*`, 0.7.0)
-
-Every node's stock is forecast over the next hour (`HorizonSeconds`): piecewise linear between the events planned for
-it (`FSTNode::Planned`: each job leg's arrival and planned amount; `Reserve` /
-`Release` keep it in step with the reservations), at its use or production rate (`GetRate`; a nearly full supplier
-can't measure production, so at least a car load per half hour), clamped to 0..capacity.
-
-- **Demand cost**: priority weight x the integral of max(0, target - stock) over the hour, in minutes short of a car
-  load (amount / car capacity for the item, so a car of sulfur counts like a car of concrete), or of the whole target
-  when the target is less than a car load (0.34.6): an empty platform costs at least one per minute. Before, a slow
-  consumer's automatic target was a fraction of a car, so even empty it cost less per minute than a train's time
-  (`TrainSecondCost`, 0.6 per minute) and no trip to it ever scored: on the IB server (2026-11-15) Iron Plate for
-  Nitric Acid (150/min, about 15 % of a car) sat empty all day beside a full supplier, and the chains behind it
-  (Silica, Aluminum Ingot, Aluminum Casing, Heat Sinks) starved with 33 of 35 trains idle.
-- **Supply cost**: production lost while full, x `LostLoadMinutes` (0.25 per car load): a tie-breaker only. The server
-  log of 2026-11-07 had most suppliers full with nobody needing their goods; weighting that like demand would send
-  trains to haul production to sinks instead of serving short platforms.
-- **Value of a stop** (`Simulate`): the drop in the node's cost when the delivery or pickup is added at its arrival
-  (`Gain`), on top of the events planned by other jobs and by earlier stops of the same trip. It replaced the urgency
-  and fairness weights: a delivery that ends a shortfall sooner is worth more, one to a platform that stays above its
-  target within the hour is worth nothing. Moves only go to consumers that fall below target within the hour
-  (`Deadline`). Trips still score value / time; the send-at batch rule stays.
-- **Targets from the belt scan (0.35.0)**: `StepFactoryScan` (each dispatch round) runs `STSetup::AnalyzeFactory`
-  quietly for the demand station scanned longest ago, each again after `FactoryScanSeconds` (30 minutes), and keeps per
-  station and item what the factory imports at its most rate, this station's share (`FFactory::InputRates`,
-  `mFactoryUse`). `ApplyAutoTargets` uses it first, then the machines' recipes, then measured use. The user's rule
-  (2026-11-16): stock levels follow the theoretical rate from the belt scan, not what the factory happens to use.
-  `AnalyzeFactory` now shares a platform's belt throughput out over its items (a platform with no item set counted its
-  belts in full for every item its machines take, doubling a two-input factory's inputs).
-- **Push (0.35.0, setting `Push`)**: an empty train tries one trip per supplier station (`GetSupplierStations`): its
-  cars get the supply items of the loading platforms beside them (`MakeSupplyCarItems`), and `Improve` adds moves from
-  that supplier only (`SetOnlyFrom`) to any consumer with room (the "falls below target within the hour" filter is
-  off), with the send-at batch at 100 % (full cars). A train holding cargo delivers it as in pull. Asked for by the user
-  (2026-11-16) as a toggle beside pull.
-- **Several per trip (0.35.0, setting `SeveralPerTrip`)**: after the best trip is found, cars it leaves empty and unused
-  get the items beside them at each other consumer (pull: `MakeCarItems` without the pattern) or supplier (push:
-  `MakeSupplyCarItems`); the trip is improved with moves to (from) both stations and kept if it scores higher. Cars skip
-  the stops that aren't theirs (Freight Car Control).
-- **Backhaul (0.35.0)**: after the best trip, `Improve` from its last stop on (`FirstMovable`) with moves from
-  suppliers within `BackhaulSeconds` (2 minutes) of that stop; kept if the trip scores higher and every car it loads
-  leaves at least `BackhaulFullShare` (90 %) full. VM run 24: without that, backhauls were mostly one-car top-ups and
-  deliveries with all four cars fell from 40 to 28.
-- **The job remembers the trip's shape**: `FSTJob::OtherStations` (second station, backhaul stops), `bPushTrip` and
-  `CarItems` (each car's planned items plus what it loads), so re-plans restrict moves to (pull) or from (push) the same
-  stations with the same car items.
-- **Top off (0.35.0)**: `MakeLegs` sets `FSTJobLeg::TopOffSeconds` for a pickup (not partial) when its supplier fills
-  more than `TrainSecondCost / LoadValue` car loads a second: the time to fill the cars' rest, at most
-  `LoadWaitSeconds`. `MakeRules` writes it as "fully load" for that long.
-- **Pickups count stock at the earliest arrival (0.35.9)**: `SimulateWithSkips` takes a pickup's available stock at
-  `Arrive - Wait` (the drive alone), not after the wait for other trains' bookings: the train drives off at once and
-  docks as soon as the station is free, then loads at most `LoadWaitSeconds` more. VM pair 8 (2026-11-17): long
-  gathering trips were planned to reach slow suppliers 10-15 minutes out and load what they would have made by then
-  (3315 Caterium from 240/min); the trains arrived 600-940 s early, loaded 200-580, and the rest of each trip failed
-  the batch rule at the re-plan ("less than a batch of ..."), 36 times in 30 minutes. The `JOB` line now ends with
-  each stop's drive and booking wait (`DescribeTimes`).
-- **Deciding before leaving (0.41.0)**: a train docked at its job's last stop is free there at the end of its expected
-  stay (`GetFreeAt`), with the cargo it will hold then: `GetTransferLeft` adds what the stop's planned transfer still has
-  to move to what its cars hold (`PrepareCars`). Such trains go first in `GatherRound` and get planning time over budget
-  (`bDeadline`). `CommitJob` keeps the old job open (`DockedJob`, `bDockedJobOpen`) and `WriteJob` writes the stop the
-  train is docked at again first (its timetable stop and `DockedSkipCars`) as the current one, so the game's move to the
-  next stop at departure lands on the new job's first stop and Auto Trains predicts the right leg. At departure
-  `OnUndocked` finishes the old job's last leg (counting, NOPROGRESS, SLOWDRAIN, stays, history, DONE) and the new job
-  goes on. A train that leaves its last stop with nothing chosen yet logs `DEPART ... with no next job chosen while
-  docked` and is planned after leaving, as before. Replaces 0.40.0's "stop done" (`bStopDone`, a `Dispatch` from
-  `MonitorTrains`, then `ClearRuleSetTimeRequirement`): the game ends a stay at the end of a load/unload cycle, the same
-  moment the planned transfer is done, so 157 of 189 last stops (test server, as-is half, 0.40.0) ended before
-  SmartTrains saw the transfer done, and the 32 that didn't left 0.3 s after it anyway. `ClearRuleSetTimeRequirement`
-  doesn't end a stay at once either: a train released after "nothing moved for 20 s" still left about 28 s later, at
-  the end of the next cycle (pairs B and C). Test server, 0.39.0: 91 of 113 trips were written within 10 s after the
-  previous job ended, i.e. after the train had left; one such departure (Red Jungle Encased Uranium Cell In 1 -> Out 1)
-  met the train arriving behind it nose to nose for good. Depot drives don't start from a dock.
-  0.42.0: a train still docked at its last stop with no trip in the rounds of its last `2 * DispatchSeconds` gets
-  `SettleDocked`: `ChooseParking` (the choice `SettleIdle` makes) and, for a drive to another station, `SendToStation`
-  now (it keeps the docked job open through `KeepDockedJob`, as `CommitJob` does). A train heading to park is free from
-  the station it is docked at, so a trip found before it leaves replaces the drive. Test server pair E (0.41.0): all 62
-  last stops left with nothing chosen went to parking right after leaving (38 parked where they stood, 24 drove off to
-  park, chosen after the train had pulled out).
-- **Parking ready to dock (0.43.0)**: a drive to park (`FSTJob::bPark`) used to end with a dock and an undock at once
-  (no transfer), after which the parked train stood in the station with docking state None and couldn't dock there
-  (`bAnchorHere`): 13 "OWNSTATION ... docking state 0" lines and `WantStation` evictions in pair F's as-is half
-  (2026-11-24), and parking trains shuffled between neighbouring supplier stations. From the game (1.2.5.1 server
-  DLL): `AFGTrain::TickAtc` ends with `UpdateReadyToDock`, which sets `TDS_ReadyToDock` when the ATC's next connection
-  ahead (`mAtcData.CurrentConnection`) belongs to a station whose `CanDock` accepts the multiple-unit master, the
-  distance to it is within `DOCK_DISTANCE` of `DOCK_STOP_OFFSET` and the speed is below `DOCK_SPEED`, else None;
-  `AFGTrain::Dock` needs `TDS_ReadyToDock`, clears the path, increments the timetable's current stop and calls
-  `StartDocking`. A before-hook on `AFGTrain::Dock` (`STDockHooks`, `KeepFromDocking`) cancels the dock of a train on a
-  drive to park that is ready to dock at that station, and the next `MonitorTrains` round finishes the job
-  (`bParkOnArrival`): it parks there undocked, still ready to dock ("DOCK ... not docked, it parks there ready to dock"
-  and "PARK ...: docking state N after parking ready to dock" lines), so a trip starting there docks in place.
-- **Docking in place (0.39.0)**: a train standing in a station (not docked) can't dock by driving there, so trips
-  starting at that station were refused (`bAnchorHere`, "first stop is the station the train stands in") and the
-  parked train was moved out and came back (`WantStation`, 78 times in a 30-minute as-is run on the test server, 0.38.1).
-  The game reports a stopped train that stands in a station as `ETrainDockingState::TDS_ReadyToDock` (with self-driving
-  off too: 45 of 81 such cases, the OWNSTATION log line); `AFGTrain::Dock()` then docks it there, as the player's dock
-  button does. `PrepareCars` counts a train as kept from its own station only when it isn't ready to dock; `WriteJob`
-  calls `Dock()` after writing the timetable when the first stop is the station the train stands in and it is ready
-  (`DOCK ... docks where it stands` log line). Trains standing too far out of the platforms (not ready) still leave and
-  come back.
-- **Leaving on time (0.38.0)**: `SimulateWithSkips` times a trip; if a stop would wait more than `WaitSlackSeconds`
-  (30 s, a docking gap) for other trains' bookings (waits for a parked train don't count: it is moved out), a train
-  that can wait where it stands (`bCanHold`: standing, not docked or just leaving) leaves that much later
-  (`FSTPlanResult::Hold`) and the trip is timed again, up to `HoldPasses` (4) times; a train that can't takes no such
-  trip; the rest of a trip under way (`AllowQueue`) keeps its waits. `CommitTrip` sets `FSTJob::ReleaseAt`;
-  `WriteJob` writes nothing before then (the train stands, self-driving off, phase Parked), `DispatchRound` writes
-  the timetable once it is due, `BuildBookings` books the station it waits at until then, and `ClearNeededBays`
-  releases it at once if its station is needed. Hold time counts as trip time in the score. Replaces the queue gate
-  (`QueueTrains` setting, `GetWaitingRoom` limit, `QueueLookSeconds`, `CountAhead`): on IB (2026-11-22/23) it
-  rejected trips 88,000 times in 22.5 h ("would wait before ... behind N trains (room for 0 before its switch)"), and
-  trains that did take a trip drove off and queued on the line anyway when bookings changed.
-- **Idle trains wait where they stand (0.37.0)**: on IB (2026-11-22/23, 22.5 h, ~40 trains) there were 4,073 trips
-  but 5,922 drives to park and 5,299 evictions; about 12 trains were always driving to a parking spot, 83 % of parks
-  were at supplier stations (staging), and 4,314 times a train parked at a supplier had to leave because a trip
-  started there. 43 % of Auto Trains' full brakes came within 0.5 s of a timetable write (trains driving to park got
-  new trips at speed). Now:
-  - `SettleIdle` parks a train where it stands when that station is off the through lines, fits it
-    (`GetStationRoom`) and no other train is planned to arrive there within `NeededSoonSeconds` (180 s); otherwise it
-    drives to the nearest station off the through lines, preferably one with no work, that no train arrives at within
-    `ParkQuietSeconds` (600 s).
-  - `GetNeededStations(Except, Within)` counts a stop ahead only if its `PlannedArrival` is within `Within`; the same
-    180 s decide when `ClearNeededBays` moves a parked train out ("making room at ..., another train arrives there
-    soon"). Before, any stop still ahead in any trip counted, however far off.
-  - `GetFreeAt`: a train driving to park or to a depot is free only while it stands, so its timetable is never
-    rewritten at speed.
-  - Staging (`mStagingStations`, `StagingSeconds`) is removed.
-- **Sinks are priced (0.37.0)**: unloading into a sink frees the car (the tied-car value) and costs `GetKeepValue`:
-  the most shortfall that cargo would still prevent at a consumer of it the car lines up with and the train can reach,
-  driving there from the train's start (`STForecast::Gain`, other trains' held cargo counted). The score decides, so
-  `CarHasConsumer`, `ItemHasConsumer`, `SetSinksForCargo`, the `LeftoverMinutes` rule (the setting is now a readout),
-  `bRelaxed` and `EmptyCarValue` are gone; a sink still takes a supplier's goods only while it is full. The tied-car
-  value uses the same per-car test (`IsWantedSoon`: a consumer the car lines up with runs short within the horizon;
-  before, any consumer of the item anywhere), so cargo a car can't deliver anywhere is valued the same as cargo nobody
-  wants. IB 2026-11-22/23: 399 trips (10 %) dumped Coal, Silica, Steel, Aluminum and Copper Ingots into Dune Desert Sink.
-- **Sinks take cargo no consumer needs soon (0.36.6, replaced in 0.37.0 by "Sinks are priced")**: `CarHasConsumer` kept a car's cargo from every sink while any
-  reachable consumer of the item existed. On IB (2026-11-18) about 20 trains held Coal that the one Coal consumer (No
-  Man's Land Coal In 1, 1,200/min at most) could not use for hours, and a new Sink was never chosen ("car 1 would
-  unload Coal into the sink at Dune Desert Sink, but it can deliver it to a consumer"). A consumer now counts only if
-  it runs short within `STForecast::HorizonSeconds` with the deliveries planned and other trains' held cargo; the
-  train's own cargo is left out. Trains planned one after another in a round see the held cargo of those that went
-  to the sink drop out, so the consumer still gets what it needs.
-- **Fluid factory use in liters (0.36.4)**: `StepFactoryScan` stored the belt/pipe scan's per-minute rates as they
-  come, m3 for fluids, in `mFactoryUse`, which `ApplyAutoTargets` divides by a capacity in liters. Every automatic
-  fluid target came out 1000 times too small and sat at `AutoTargetMinPercent` (10 %); the platform readout showed
-  "uses at most 2.4 m3/min" for 2,400 (IB, Dune Desert Cooling System In 1 Nitrogen Gas, 2026-11-18).
-- **Best 24 moves again (0.36.3)**: 0.35.8's moves kept by station are reverted. Emptied VM runs before it: 161, 178
-  car unloads; with it, on every later build: 140, 140, 129, 151, 121, 129 (as-is runs unchanged at 88-97). The
-  wider choice made 5-6-stop gathering trips that depend on many suppliers' timing.
-- **Auto Trains' drive times (0.36.2)**: `EstimateTravelSeconds` asked Auto Trains' `ExternalEstimateTravelSeconds`
-  with no train, and Auto Trains then times the drive at its default 500 cm/s (18 km/h). VM pair 11: drives on pairs
-  not driven before took a median 0.23 of the estimate (Train Station 91 -> Grass Fields Copper Ingot Out 1: 917 s
-  planned, 162 s driven). A managed train now stands in, so the drive is timed at real speeds.
-- **Trip times (0.36.1)**: a trip was timed from the train's last departure, so a train that stood parked for hours
-  learned a drive of hours (VM pair 10: "Train Station 96 -> Western Dune Forest Copper Ingot Out 1 took 24952 s"),
-  and the first sample of a pair was taken as is. Plans then expected first legs of 1100-2400 s that took 200-300 s:
-  45 of 256 arrivals came over 10 minutes early, loaded what the supplier held then and dropped the rest. Now a train
-  standing outside a station when it gets a job is timed from then; every sample counts at most `TripOutlierFactor`
-  (1.5) times the pair's estimate; a learned time that many times slower than a sample is replaced by it.
-- **Pickups booked later (0.36.0)**: `GetAvailable` used to subtract every pickup promised at a supplier, so a train
-  arriving early lost the stock to trains booked after it that counted on production until their own, later
-  arrival. `GetReserved` counts the pickups booked before the arrival in full and of later ones only what the rate
-  until each doesn't cover. VM pair 9 (2026-11-17): 42 trip remainders dropped as "less than a batch", 37 of them
-  at a supplier other open jobs also loaded at (Grass Fields Copper Ingot Out 1: six).
-- **Moves kept by station (0.35.8, reverted in 0.36.3)**: `BuildMoves` ranks a train's moves by solo score and keeps every move to the
-  consumer stations of the best `MaxMovesPerTrain` (24), instead of the best 24 moves. Trips are built around one
-  consumer station, so a second input that scores little alone (one car from far away) is still worth adding to a
-  trip going there. VM pair 7 (2026-11-17): trains found 154-163 moves and kept 24; 107 cars per 30 minutes left
-  empty beside empty demand platforms whose items suppliers held, 73 of them with no other train bringing the item
-  (e.g. Plastic for Grass Fields Iron Plate In 1 on trips bringing only Iron Ingot, and the reverse).
-- **Drain (0.35.7)**: the same rule for a delivery (not partial): while its consumer takes more than
-  `TrainSecondCost / LoadValue` car loads a second, `TopOffSeconds` is the time to take all the leg's cars, at most
-  `UnloadWaitSeconds`, and the game's "fully unload" ends it as soon as they are empty; a slower or backed-up consumer
-  (rate 0) gets one unload (`bPartial`). Only a consumer without a known rate (any-item platform) keeps the plain
-  `UnloadWaitSeconds` wait. It replaced "fluid deliveries unload once": VM pair 5 (2026-11-17) had Water trains leave
-  No Man's Land Water In 2 with water still aboard, park there, get moved out to make room and come back for the
-  rest, 11 times in 30 minutes, where about 17 s more docked at 2,400 m3/min would have emptied them.
-- **Backed-up factories (0.35.2)**: `LinkSupplyChain` marks a demand node whose machines' supply nodes are all at least
-  `BackedUpShare` (90 %) full (`FSTNode::BackedUp`): its `CostScale` drops to `WaitingCostScale` and its `Rate` to 0, so
-  room forecasts (`GetPlatformRoom`) count no drain. IB 2026-11-16: Coal for a Compacted Coal factory with no demand for
-  its product was planned at about twice what it took; leftovers tie trains to their cargo, and ~20 trains stood
-  holding coal.
-- **Automatic targets from theory only (0.35.2)**: `ApplyAutoTargets` uses `mFactoryUse`, else `RecipeRate`, never
-  measured use (user's rule); with neither, the 50 % fallback.
-- **Gating inputs (0.35.0)**: `LinkSupplyChain` multiplies a demand node's `CostScale` by 1 + the number of starved
-  consumers of what its machines make (`Gates`, at most `GatingCostScaleMax` 4).
-- **Parking fits (0.35.3)**: `GetStationRoom` (station track + platform tracks + `FApproach::WaitLength`) must be at least
-  the train's length for `FindParkingStation` to pick a station, and `ClearNeededBays` moves an idle train standing at a
-  station shorter than itself. IB 2026-11-16: a train parked at the one-platform "Turbofuel- Sulfur SNK" stood over the
-  next switch (Auto Trains report; also in faults.log of 11-12).
-- **Staging (0.35.0, removed in 0.37.0)**: each round `mStagingStations` lists suppliers whose stock reaches a send-at batch within
-  `StagingSeconds` (10 minutes) of an item some consumer falls below target of within the horizon.
-  `FindParkingStation` ranks off-through, quiet, then nearest to a staging supplier, then nearest to the train.
-- **Full docks (0.34.7)**: every car load delivered to a platform that wants the item adds `LoadValue` (2 car-load
-  minutes, by how full the car is), on top of the shortage it prevents. Docking takes the same time however much a
-  train moves, so the planner fills cars and adds a pickup for a factory's other platforms when the stop pays for
-  itself; full platforms still limit what a car unloads. Before, only the shortage up to the target counted: on the IB
-  server (2026-11-16) trains reached factories with two of four cars loaded, since the inputs for the other two weren't
-  below target yet. Sinks get no `LoadValue`: overflow to them stays a tie-breaker.
-- **Automatic target (0.30.0)**: a demand item's `TargetPercent` 0 means automatic (the default; on loading an older
-  save, targets at the old default 50 % become 0, `mTargetsVersion`). `ApplyAutoTargets` (end of `BuildNodes`) sets the
-  node's target to its use (its machines' recipes when known, at least what it measured; else `GetDemandRate`) over
-  the lead time, x `AutoTargetMargin` 1.25, as a share of capacity, kept within 10-90 % (50 % while no supplier is
-  reachable). Lead time: from the nearest supplier of the item there and back plus a stay at each end
-  (`EstimateTravelSeconds`, `EstimateStaySeconds`), cached per station and item for 5 minutes (`mLeadTimes`). Why:
-  a fixed 50 % meant very different times per item: on the IB save a High-Speed Connector factory's Silica platform
-  (9,600, at 324/min) counted as short with 15 minutes of use left, while its Copper (4,800, drained fast) counted only
-  when nearly gone. Manual targets (1-100 %) still apply; the platform menu steps below 10 % to automatic. Recipes
-  over measured use (0.34.7): on the IB server (2026-11-16) a Heat Sink factory waiting for Aluminum Casing used no
-  Rubber, so its Rubber platforms' target fell to 10 % and counted as stocked; the train that brought the casings went
-  off for Sulfur and the factory ran dry of Rubber next.
-- **Until the next train (0.29.0)**: a delivery's gain counts only the shortfall it prevents until another train
-  could bring the item (`NextDeliveryTime`: one more trip as long as this one, at least `NextDeliveryMinSeconds`,
-  10 minutes, after its arrival); pickups still use the whole hour. Over the whole hour a top-up looked valuable for
-  any platform that would dip below target some time in it, as if no train would come before then, so trips detoured
-  for slow items: on the IB save a High-Speed Connector trip went Copper -> Caterium -> Silica with Caterium about 18
-  minutes from its target at 63/min, delaying the copper the factory was starving for. Slow items now get a stop when
-  they would run short before the next train, i.e. close to their target and nearly a car load at a time.
-- **Queue limit look-ahead** (0.7.4): other trains' bookings count towards **Queue trains** only for arrivals within
-  `QueueLookSeconds` (5 minutes); later arrivals still wait for bookings but aren't rejected. In the 0.7.3 log trains
-  stood still only 3 % of their trip time, while 292 trips were rejected for "would queue at RockPow- Sulfur SNK" in
-  35 minutes: bookings of long plans 20 minutes ahead, whose times change anyway.
-- **Least load** (0.7.5): a car loads an item only if it takes at least `MinLoadShare` (a twentieth) of a car of it.
-  112 of 720 planned car transfers in the 0.7.4 log were 200 items or fewer, often top-ups like "loads 0 of 26".
-- **Slow-draining platforms** (0.7.4): an unloading platform that took less than half of what was planned
-  (`SlowDrainShare`) counts no drain in its predicted room for 30 minutes (`mSlowDrainUntil`, SLOWDRAIN lines). Room
-  assumed the node's use drained each platform in proportion to its stock; RockPow Coal P1 sat full while P2 drained.
-- **Stop cost** (0.7.3): each stop costs `StopCostValue` (1 car-load minute), once more for every other train booked
-  at that station within `StopNearSeconds` (2 minutes) of the visit. The server log of 2026-11-08 showed why: value
-  counted only how full each car got, so three trains bringing a car or two of sulfur each scored like one train
-  bringing four, while each visit held the station and the others queued (98 trips rejected for the queue at RockPow
-  Sulfur SNK in 40 minutes). A stop now has to carry enough to be worth holding its station.
-- **Tied cars** (0.7.3): a car still holding cargo after a trip can only take that item next. Each car's change in
-  `GetTiedShare` (0 empty, `NeededSoonShare` 0.25 when every item it holds is wanted by a demand platform within the
-  hour (`mNeededSoon`), else 1) is worth `TiedCarValue` (2 car-load minutes): a trip that empties a car gains it, one
-  that leaves leftovers pays it. It is a cost, not a rule, so no train detours just to dump a few items.
-
-**Commitment** (0.7.1): a re-plan after a stop replaces the rest of the trip only if it scores `ReplanThreshold` (1.1)
-times as much and is also worth `ReplanMarginValue` (5 car-load minutes) more, so small changes in the estimates don't
-switch trips.
-
-### Trip planning (`STTripPlanner.*`)
-
-**Queue limit** (`QueueTrains`, 2 trains; only while `LeaveAtOnce` is on): when a stop's arrival is pushed back by
-other trains' bookings or Auto Trains' station queue (`FirstFreeArrival`), the train waits on the line before the
-station, and so do the trains ahead of it except the docked one. `Simulate` fails a trip ("would queue at X behind N
-trains") when the trains ahead (`CountAhead`: bookings still there when it could get there, or docking before it can)
-are more than the limit. The waiting itself isn't limited: it counts as trip time, so it lowers the score. (Until
-0.6.8 the limit was a time, 60 s: each train ahead adds its stay and the arrival gap, so it meant one train ahead.)
-
-**Unreachable stations** (0.7.6): when the game reports no way to the station a managed train is heading for (no
-path, station unreachable, or unreachable with signals) for `UnreachableSeconds` (20 s), that station is left out for
-that train for `UnreachableMinutes` (30) (`FSTTrainState::Unreachable`, checked in `CanServe`, so trips, depots and
-depots all skip it), with an UNREACHABLE warning. A train driving to park settles again (another depot); a train on a
-trip is planned again from the cargo on board. SmartTrains' own track
-search doesn't know signals, so it can't see this beforehand; the game's pathfinder refuses a way only where it passes
-a one-way signal from behind. In the 0.7.5 log a train drove for 17 minutes towards a depot the game called unreachable
-with signals; the cause was the depot station built backwards: arriving in its direction meant driving the main line
-against a one-way signal. The warning names station facing first.
-
-**Delivery reservations per platform:** like pickups, a planned delivery records its platform. `GetPlatformRoom` is
-the platform's free room plus what its machines use before the train arrives, less the deliveries promised to it and
-its share of promises made at no known platform. Test: `SmartTrains.Planner.DeliveryReservations`.
-
-**Trip times:** `LearnTrip` keeps a moving average (30% per trip). Once a pair has two samples, one sample counts at
-most 1.5 times the estimate (`TripOutlierFactor`), so a trip held up in a queue doesn't skew the next plans.
-
-**Supply reservations per platform:** a planned pickup records the platform the car loads from (`FSTCarWork::Platform`,
-saved; `FSTPlanCarStep::LoadPlatform`). The supply node keeps those amounts per platform (`FSTNode::PlatformReserved`)
-besides the station total (`Reserved`). `GetPlatformAvailable` gives a platform its stock and its share of the rate,
-less the pickups promised there and its share of the promises with no known platform (jobs from older saves).
-`GetAvailable` is the sum over the station's platforms. Before, every promise was shared out over all platforms, so
-trains that could only reach platforms 1-3 used up platform 4's stock as well. Test:
-`SmartTrains.Planner.PlatformReservations`.
-
-A trip is a list of stops (at most **Most stops per trip**, each station once, and with more than two stops no longer
-than **Longest trip**: the limit only stops SmartTrains combining stops, a direct trip is never too long),
-each with the items loaded and unloaded there. These become the stop's load and unload filters.
-
-**Simulation** (`Simulate`): the stops' times come from travel estimates and stays, after the bookings of other
-trains. A booking (`FSTBooking`) runs from a train's arrival to the end of its stay. A train docked for its current
-stop books from when it docked; one running late books from now. `FirstFreeArrival` finds the first slot that keeps
-**Gap between trains at a station** to every other booking there. Then each car, stop by stop, beside the platform it meets there (from the dock maps):
-
-- At a loading platform, a car loads every filter item the platform holds or is set to supply, if it has room.
-  Freight cars hold solids or one fluid, never both. Loading from a platform without a supply role is harm.
-- At an unloading platform, a car unloads every filter item it carries. The platform must be a demand platform
-  that takes all of them (or an any-item sink); otherwise it is harm.
-- If the possible dock maps disagree, or the car would do harm, the car skips the stop through Freight Car Control.
-  Without FCC the trip is invalid. Maps that put a car beside different platforms agree when those platforms are
-  equivalent (same role, mode, form and items), as at a push-pull shuttle's station. Each dock map keeps its own
-  platform pools and room (`PoolKey`). A car plans the smallest of its amounts over the maps, and that amount comes
-  off its platform in every map.
-- Amounts come from the platform's stock plus its share of the node's production up to the end of the stay (a fluid
-  platform fed by pipes keeps filling while the train loads), less what other trips reserved. Unloads are limited by
-  the platform's free slots (a fluid platform also by the rest of its one slot; a train doesn't top up part-full
-  solid stacks). A car unloads at least 2 car slots of an item, or all it holds of it when that is less; a smaller
-  amount counts as nothing, since the stay ends at once when the platform has no room the moment the train docks.
-- A car's room comes from its wagon type (`STLayout::GetCarCapacity`): slots × stack for a solid, the wagon's fluid
-  capacity for a fluid. Its inventory now can't be used: a car set up for a fluid has one big slot.
-- A train docked at the last stop of its trip is planned only once it leaves, if that stop moves cargo
-  (`GetFreeAt`): platforms keep loading and unloading while it is docked, so what the stop moved is known only
-  afterwards. Its next trip starts from what the cars really hold. A last stop that moves nothing is planned while
-  docked, as before.
-- Cargo loaded on the trip that no later stop unloads is stranded: with FCC that car skips the pickup and the
-  simulation runs again; without FCC the trip is invalid.
-- **Batch:** per item, what loads must reach the send-at share of the loading cars' room, unless a critical
-  consumer is served or a supplier is nearly full.
-- **Value** of each delivery: priority weight × urgency × the share of a car it fills (the amount up to the
-  consumer's room ÷ the car's capacity for that item). Only how full the car is counts: 100 sulfur is worth 500
-  concrete, and a full car of fluid is worth a full car of any solid. Urgency is 1, plus up
-  to 2 for the share below target, plus 2 if starved, plus up to 2 for the time since the last delivery there (an
-  hour gives the full 2; fairness). Over target, it is worth 0.2 × weight for unwanted cargo or a nearly full
-  supplier; sinks are worth 0.1.
-- **Score** = value ÷ time from now to the end of the trip (at least 30 s).
-
-**Regret insertion** (`Improve`, after Ropke and Pisinger's insertion heuristics for pickup and delivery):
-
-- Every move not yet used is tried at every place. Its pickup goes at an existing stop of that station or as a new
-  stop anywhere, and its drop at an existing stop after it or a new stop after it.
-- Each round inserts the move with the largest regret: its best score minus the larger of its second best
-  placement and the current score. A move with only one workable place goes in before it is lost.
-- Only insertions that raise the trip's score count, so a trip grows only while its value per second rises. Planning
-  stops when nothing improves, or when the round's time budget (25 ms) is used up; the rest wait for the next round.
-
-**Turning a trip into a job** (`MakeLegs`): each stop gets per-car work (`FSTCarWork`: car, item, load or unload,
-planned amount). With FCC, every car without work at a stop skips it. A stop is "load/unload once" when it both loads and unloads, when a later stop moves the same item (a first pickup or a first drop of a split load), or when a
-delivery's consumer takes cargo too slowly for waiting to pay ("Drain").
-Otherwise it waits for full or empty cars, up to the load or unload wait.
-
-**Re-planning** (`ReplanTrip`): after every stop (`bReplan`) and after a platform setting changes (`bReplanAll`).
-The rest of the trip is checked without the trip limit, and additions may make the trip as long as its rest already
-is, so a running trip is never dropped for being long.
-The rest of the trip is simulated again from the cargo really on board, with its own reservations released first.
-Items that would move nothing and empty stops are trimmed, then regret insertion may add moves, such as delivering
-leftovers on the way. If the rest no longer works at all, it is planned again from the cargo on board. If nothing
-is left to do, the trip ends and the train is settled when the round ends (next trip, depot or park).
-
-**Sinks** (`ESTRole::Sink`, 0.6.9): a sink platform's config has one rule without an item. `BuildNodes` makes it a
-Demand node with `bAnyItem`.
-
-**Unwanted cargo:** a free train carrying cargo that no trip delivers is marked (`UnwantedCargoSince`). After
-**Unwanted cargo after** minutes, its cargo may go to consumers above target or to sinks. `/st status` warns when
-more than half the managed trains carry unwanted cargo.
-
-**Sinks keep what is needed** (0.7.7): a sink only gets an item no consumer needs within the forecast horizon
-(`mNeededSoon`): move generation skips sinks for such items (leftovers and full suppliers alike), and `Simulate` rejects
-a stop that would unload one into a sink (kept stops of older plans included). "Unwanted" only means
-no stop of the current trip unloads the item, so before 0.7.7 every leftover went to the sinks once the depots on the
-server became reachable: in 35 minutes 25 sink stops destroyed 19,500 coal, 11,000 concrete, 7,000 copper sheets,
-2,300 sulfur and 2,000 AI Limiters while their consumers waited, and trains queued onto the main line for the depot
-stations the sinks were in. Emptying a car also gains the tied-car value, which made dumping score above delivering
-later.
-
-**Flow plan** (every **Flow plan interval**): for each item, consumers are taken by priority tier, highest first.
-Each tier is an exact **minimum-cost flow** (`STMinCostFlow`, successive shortest paths with Bellman-Ford). Source
-→ supplier edges carry what is left of each supplier's rate, supplier → consumer edges cost the travel time, and
-consumer → sink edges carry the consumer's rate. Starved consumers count at 1.5 × their measured rate, and at least
-1 per minute. A supplier at least `FullSupplyShare` (90 %) full also offers its stock spread over `FullStockSeconds`
-(30 minutes), 0.7.5: a full platform takes nothing from its belts, so its measured rate is only what trains took. In
-the 0.7.4 log Coal SRC A was full 94 % of the time and counted 207/min against 685/min of demand, so the flow plan
-saw coal as 0.2 trains and coal went a few hundred at a time on other trips. Later tiers get what is left. Each
-route with a train that fits it becomes an `FSTFlowRoute` of its item's group: trains needed = flow × round trip ÷
-average load of the managed trains that fit it.
 
 ## Clock
 
 `Now()` is the world's time plus `mClockBase`. The world's time starts at 0 each session. `mClockAtSave` (saved)
 holds `Now()` at the last save, and `PostLoadGame` sets the base so the clock carries on from it. Every saved
-timestamp (planned arrivals, departures, unwanted cargo) stays meaningful after a load. A save from before the clock
+timestamp (departures, job starts) stays meaningful after a load. A save from before the clock
 existed continues from the latest time its trains hold.
-
-## Measuring
-
-Every second, for each item of each configured platform:
-
-- Supply: belts in = stock change + amount the docked car gained.
-- Demand: belts out = amount the docked car lost − stock change.
-
-Negative samples (measurement noise) count as 0. The rate is a moving average whose weight starts as 1 ÷ elapsed
-time (a plain average during the first window), then 1 ÷ window. A rate counts as known after 2 minutes or the
-window, whichever is shorter. A demand platform empty for 30 s is *starved*.
 
 ## Travel times
 
@@ -929,11 +297,9 @@ at the cost of that track's length.
 - A second search starts from the platform end, for push-pull trains that back out. Those routes get 30 s added.
 - Backing out (0.34.3): only push-pull trains may start a route by backing out of a station. `GetDistance` used to fall
   back to backing-out routes for every train when no forward route existed, so stations a one-locomotive train can't
-  reach got a travel time; on the IB server, 2026-11-15, idle trains were sent to park at Train Station 108-110 (only
-  reachable from their far end) and stood with "Signals are making the next Stop unreachable".
+  reach got a travel time.
 - One-way signals (0.34.1): a connection with a trailing signal and no facing signal is not driven through (the game's
-  one-way rule), so routes, dead ends and through stations hold on signalled networks without Auto Trains. Before,
-  the search ignored signals.
+  one-way rule), so routes hold on signalled networks without Auto Trains. Before, the search ignored signals.
 
 Time = distance ÷ **Speed estimate** + 20 s. It is replaced by the learned trip time once a train has driven that
 pair: the first sample, then a 0.3-weight moving average. Stays per station are learned the same way. A pair the search
@@ -962,11 +328,7 @@ Optional, by reflection (`STAt` in `STBridges.*`, Auto Trains' `Docs/API.md`). T
 | Call | Used for |
 |---|---|
 | `ExternalTimeTableChanged` | After every real timetable write (`WriteJob`). |
-| `ExternalGetWaitingFor` | `ClearNeededBays`: a parked managed train moves when a train has waited 20 s for it. |
-| `ExternalGetStationQueue` | Each dispatch round, for stations with roles (asked every 15 s per station): a booking from now until the queue's last train should have left. Covers trains SmartTrains doesn't manage. |
-| `ExternalEstimateTravelSeconds` | `EstimateTravelSeconds` for a pair no train has driven yet: Auto Trains' time replaces SmartTrains' estimate (cached 10 minutes). Never a "no way" from SmartTrains' search (checked first since 0.34.6): before 0.34.3 it did for push-pull trains, and a train in one dead-end bay was sent to the bay beside it, which the game can't drive. |
-| `ExternalCheckLeg` | Holding (dispatch step 7): before a trip of a train standing in a station is committed, its first leg is checked. Pending: try again next round. Blocked: hold, with Auto Trains' reason. Clear, or can't be asked: commit. |
-| `ExternalGetTroubledTrains` | The monitor's Trains tab: deadlocked, stuck, lost or stalled trains. |
+| `ExternalEstimateTravelSeconds` | `EstimateTravelSeconds` for a pair no train has driven yet: Auto Trains' time replaces SmartTrains' estimate (cached 10 minutes, a few per loop check). Never a "no way" from SmartTrains' search, which is checked first. |
 
 ## DynamicTimeTable
 
@@ -1030,7 +392,7 @@ widget blueprint hooks at `POST_INITIALIZATION`, and not on dedicated servers:
 | `BPW_Train_DockingStation_Fluid` | `CanvasPanel_0` at x 765 | `USTPlatformLauncher` |
 | `Widget_Locomotive_Menu` | `VerticalBox_1` (Timetable column), slot 3: under the stop list | `USTTrainPanel` |
 | `Widget_TrainStationNew` | `VerticalBox_2` (under the train and station lists) | `USTStationPanel` |
-| `Widget_TrainStationNew` | `VerticalBox_0` (first tab, under the name plate) | `USTStationDepotBar` (depot switch only) |
+| `Widget_TrainStationNew` | `VerticalBox_0` (first tab, under the name plate) | `USTStationSetupBar` (set-up buttons) |
 
 Panel names and positions come from the starter project's widget assets, dumped with Telescreen's `TSDumpWidgets`
 commandlet. It now also lists named-slot content, canvas slot layout and size box overrides
@@ -1039,12 +401,12 @@ auto-sized canvas slot, so the canvas, and with it the window, grows wider. The 
 second after it opens, to check that.
 
 - **Platform window** (`USTPlatformWindow`, the `USTPlatformPanel` content in a window on the viewport). The launcher beside the platform menu shows the role, items and one readout line, and opens it. The window keeps the input mode as the platform menu set it, so the menu behind it works; Close, Escape, or closing the platform menu close it. Its panel reads the platform and the font from the menu (`USTPanel::SetMenu`).
-- **Platform panel.** One role button (Off / Supply / Demand / Sink; click steps forward, right click back); per item: priority (click cycles, right
-  click goes back), least per visit or target in 10 % steps, and a manual rate (m³/min for fluids). Sinks have no item list.
-  The item picker lists the items on the platform first, then every item that available recipes make plus raw
-  resources, of the platform's form. Copy / Paste use the player's SmartTrains clipboard (below), and under them
-  "Copy to the station's other platforms" gives every platform of its kind in the station these settings once; all
-  three carry role and items.
+- **Platform panel.** One role button (Off / Supply / Demand / Sink; click steps forward, right click back) and the
+  item list with a readout line per item (stock, and the traced most rate in car loads per minute with what the loops
+  take). Sinks have no item list. The item picker lists the items on the platform first, then every item that
+  available recipes make plus raw resources, of the platform's form. Copy / Paste use the player's SmartTrains
+  clipboard (below), and under them "Copy to the station's other platforms" gives every platform of its kind in the
+  station these settings once; all three carry role and items.
 - **Clipboard** (`STClipboardHooks.cpp`). Each player has two slots on the server, freight and fluid
   (`USTRemoteCallObject::mFreightClipboard` / `mFluidClipboard`), as the game keeps one clipboard entry per building
   kind. The panel's Copy / Paste and the game's copy/paste-settings both use them: SML hooks after
@@ -1053,12 +415,12 @@ second after it opens, to check that.
   without a role copies "Off", so pasting it removes the target's role, as the game's paste makes the target like
   the source. Through the game's key the load/unload setting is then left as the game pasted it.
 - **Train panel.** In the Timetable column, inserted at slot 3 (`ParentSlotIndex`), under the stop list and above the
-  cancel docking, edit and self-driving buttons. It has the managed switch, one status line and the job's per-stop
-  lines, in a scroll box at most 230 px tall. (0.3.0 had it in the info column, where it covered the power and speed
+  cancel docking, edit and self-driving buttons. It has the managed switch, Hold / Resume, one status line (its loop, or why it has
+  none), its pattern and its loop's stops, in a scroll box at most 230 px tall. (0.3.0 had it in the info column, where it covered the power and speed
   stats and ran off the bottom.) "Keep vanilla" is only in chat and the migration tool. While the train is managed,
   the vanilla "Edit timetable" button is disabled on every refresh, and enabled again when the menu closes.
-- **Station panel.** Depot switch, layout, fleet status. The depot is per station, and a depot may have no platforms,
-  so it stays in the station menu; everything per platform is in the platform menus.
+- **Station panel.** Layout, the station's loop (as a consumer) and the network's status; everything per platform is
+  in the platform menus.
 - **Migration window** (`USTMigrationWindow`). Not part of any vanilla menu: `/st migrate` without a step sends
   `Client_OpenMigrationWindow` to the player, which adds the window to the viewport 0.2 s later (after the chat has
   closed and given the input back) and takes the input in UI-only mode. Close or Escape removes it and gives the
@@ -1077,74 +439,19 @@ second after it opens, to check that.
   - Ticks, opened stations, the tab and the filters live in the window. A fresh preview resets the ticks to the
     proposals and opens the Stations tab.
 
-## Without Freight Car Control
+## Monitor
 
-Every platform keeps its own role and items with or without Freight Car Control. The only difference is that without
-it no car can skip a stop: each car loads or unloads at the platform it stops beside, within the stop's filters. The
-planner's simulation already follows that rule. A trip where some car would load an item nobody planned, unload where
-it shouldn't, or work differently depending on how the train docks is invalid without FCC. With FCC that car skips the
-stop. 0.4.0 betas also had "Same for every platform in this station" (station linking); it was removed. The saved
-field is skipped when an older save loads. `/st platform copy` and the platform window's copy button still give the
-station's other platforms one platform's settings, once.
+`MakeMonitorView` builds the view from the loop plan as last worked out: tiles (managed trains, on their loop,
+switching patterns, without a loop, consumers, unserved consumers), fleet lines, and three tables:
+- **Consumers:** pattern, rate (car loads per minute), round trip, share of the need, trains; details: pattern,
+  suppliers taken, and the consumer's problem. Unserved first.
+- **Suppliers:** per station and item, its most rate and what the loops take; "Over its rate" when they take more.
+- **Trains:** state (on its loop, switching, no loop, held), its consumer, and what it does (`DescribeWork`: the stop
+  it heads for, or how long it has waited docked for full or empty cars).
 
-## Idle reasons
-
-A free train that gets no trip has its reasons recorded per round (`FSTTripPlanner::DescribeProblems`): every
-rejected candidate trip adds its reason, and the three most frequent are kept with their counts. The `IDLE` log line,
-the train panel and the monitor's idle list show them.
-
-## Throughput monitor
-
-`FSTThroughput` samples every 10 s and judges the last 30 minutes:
-
-- Fleet: managed trains driving a trip, at a stop of a trip, going to park, or idle. Busy = driving or at a stop.
-- Nodes (station, item, role, from `BuildNodes`): below target, starved, full (≥ 90 %), nearly empty (≤ 10 %).
-- Stations with roles: whether any train is docked. Arrivals of trip legs are recorded with their lateness against
-  the plan (`RecordArrival` from `OnDocked`).
-
-Verdict per item, first match:
-
-1. no demand platforms: "No demand"; no supply platforms: "No supply";
-2. less than a minute of samples: "Measuring";
-3. consumers below target less than 25 % of the time: "OK";
-4. no planned route, or no managed train fits one: "No train fits";
-5. suppliers nearly empty half the time, or supply rate under 90 % of demand: "Supply short"; consumers starved half
-   the time while suppliers aren't full and one freight car of the item takes over 30 minutes of supply to fill: "Low
-   supply" (starved consumers use nothing, so their demand can't be measured);
-6. suppliers full 30 % of the time (or the flow plan needs more trains than fit) while the fleet is busy 80 % of the
-   time: "Trains short";
-7. one of its stations congested (a train docked 85 % of the time, or arrivals 120 s late on average): "Congested";
-8. otherwise "No trips planned": supply and trains are there but trips aren't made, so the idle reasons tell why.
-
-Starvation or congestion: each demand sample records whether a delivery to it is on its way (`OnTheWay`: the node has
-reserved deliveries). A demand group (a station's platforms for one item) with a platform empty for 30 s counts as starved in that sample, and `AllEmpty` when all of them are empty. One starved half the window is "Starved", or "Partly starved" unless all were empty half the window; then ": trains held up" when a delivery was on its way
-for at least half of the time it was empty (congestion; with the station's average lateness), else ": no
-trips" (starvation; it points at the item's verdict). The item's details give the same split over its consumers.
-
-The window has six tabs:
-- **Overview:** tiles (item groups, groups short of trains, managed trains, busy share, idle trains, limited items,
-  congested stations), what limits deliveries with each row's advice, the fleet lines and the idle reasons.
-- **Groups:** every item the flow plan routes, with trains needed, trains working on it now and routes; details
-  list its routes and the trains moving it. Short groups first.
-- **Items:** a table with icon, limit, supply and demand per minute, trains needed / fitting, and time below target.
-  It can be filtered to items that need a look.
-- **Stations:** the docked share, arrivals and average lateness of every station with roles.
-- **Platforms:** starved and backed-up platforms.
-- **Trains:** every managed train with its state, last station and trip or idle reason.
-
-Tab headings count the rows that need a look. The view (`FSTMonitorView`) goes to `USTMonitorWindow` through `Server_RequestMonitor` / `Client_Monitor` once a second
-while the window is open. `/st monitor text` and the server console print the same report, and it is logged as
-`MONITOR` lines every 5 minutes while trains are managed.
-
-**Monitor additions (0.7.2)**: **Unreachable** rows (`AddUnreachable`) for supply platforms holding stock and demand platforms that ran
-out that no managed train has a car of their kind beside, in any way it docks (learned or predicted dock maps), such as
-Nitric Acid SRC P2/P3 on the server; and a **Fleet saturated** line when trains are on trips 85 % of the time or more.
-
-**Congestion (0.7.3)**: a driving train slower than `StandingSpeed` (1 m/s) counts as standing still (queueing for a
-station or held at signals). Busy means moving on a trip or at a stop; standing is shown apart. **Congested** shows
-when trains stand still on trips 15 % of the time or more (`StandingShare`); **Fleet saturated** only when they are not
-congested and busy 85 % of the time or more. 0.7.2 counted standing as busy and said to build more trains while the
-fleet queued at a few stations.
+The view goes to `USTMonitorWindow` (Overview, Consumers, Suppliers and Trains tabs) through
+`Server_RequestMonitor` / `Client_Monitor` once a second while the window is open. `/st monitor text` and the server
+console print the same report, logged as `MONITOR` lines every 5 minutes while trains are managed.
 
 ## Dock maps
 
@@ -1155,9 +462,9 @@ fleet queued at a few stations.
   replaces the prediction for that locomotive. Maps from older saves are told apart by their first docked vehicle.
 - Ways round not seen yet stay predicted, from the vehicles behind each locomotive that can dock.
 - If a learned map matches no prediction, only learned maps are used for that station.
-- A car is planned at a stop only if it meets a suitable platform in every map. Otherwise FCC skips it, or the trip
-  is invalid without FCC. The game reads a stop's rules when the train docks, so a wrong guess can't be fixed
-  during that dock; the mismatch is logged and learned, and the next re-plan works from it.
+- Loops use the first map: the way round the train was seen docking, else its lead locomotive's. The game reads a
+  stop's rules when the train docks, so a wrong guess can't be fixed during that dock; the mismatch is logged and
+  learned, and the next loop check works from it.
 
 ## Docking
 

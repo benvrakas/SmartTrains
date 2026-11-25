@@ -7,39 +7,31 @@ Who may use which command is in [Admin-only commands](#admin-only-commands) belo
 
 ## Readouts
 
-- `/st status`: managed trains, platform counts, Freight Car Control availability, and per item the planned flow,
-  trains needed and trains that fit.
-- `/st jobs`: each managed train's job, its current stop and ETA. In observe-only mode, idle trains show what they
-  would do.
-- `/st fit`: for the train you drive or look at, its consist and the dock map (which car stops beside which
-  platform) at every station with platform roles, seen or predicted.
-- `/st monitor`: opens the throughput monitor. For each item it shows what limits deliveries over the last half hour:
-  - not enough supply;
-  - not enough trains;
-  - no train that fits;
-  - a congested station.
-
-  It also lists starved and backed-up platforms, and why idle trains wait. `/st monitor text` prints it in chat;
-  from the server console it always prints.
+- `/st status`: platform counts, Freight Car Control availability, and the loop plan's fleet lines.
+- `/st jobs`: each managed train's loop (or migration step, or why it has none) and its stops.
+- `/st fit`: for the train you drive or look at, which consumers' patterns its cars line up with, and why not the
+  others.
+- `/st patterns`: every consumer's pattern (the item for the car beside each unloading platform) and the trains on its
+  loop.
+- `/st monitor`: opens the monitor: consumers (pattern, rate, round trip, share, trains), suppliers (rate, taken by
+  loops) and trains (state, consumer, what it does). `/st monitor text` prints it in chat; from the server console it
+  always prints.
 
 ## Platforms (look at a freight or fluid platform)
 
-- `/st platform`: shows the platform's role, its items with stock, rate and target, inbound trains and recent jobs.
+- `/st platform`: shows the platform's role, its items with stock and traced rate, the next train and recent stops.
 - `/st platform supply Iron Plate`: picked up by managed trains. Several items: `supply Iron Plate, Screw`.
-- `/st platform demand Coal target 60 priority high`: managed trains keep it at 60%.
-- `/st platform demand any`: a sink that takes surplus of any item (lowest priority).
-- Options:
-  - `target <percent>` or `target auto` (demand; automatic, the default, keeps enough to last until a train can bring more);
-  - `sendat <percent of a train load>` (supply; 0 = the default, 50 %);
-  - `priority low|normal|high|critical`;
-  - `rate <per minute>`, which replaces the measured rate (m³ for fluids).
+- `/st platform demand Coal`: managed trains deliver it here. Several items make an item group: the car beside the
+  platform carries one of them.
+- `/st platform sink`: trains switching patterns unload cargo here that their old consumer had no room for.
 - `/st platform off`: back to vanilla. The platform gets its own load/unload setting back.
 - `/st platform copy`: copies this platform's settings to the other platforms of its station of the same kind.
 
-Setting a role switches the platform to load (supply) or unload (demand).
+Setting a role switches the platform to load (supply) or unload (demand and sink).
 
 ## Stations (look at a station or one of its platforms)
 
+- `/st station`: its platform layout and, for a consumer, its loop (rate, round trip, trains).
 
 ## Station set-up
 
@@ -68,29 +60,10 @@ Setting a role switches the platform to load (supply) or unload (demand).
 - `/st train manage`: SmartTrains takes over its timetable. The old timetable and autopilot setting are saved.
 - `/st train unmanage`: gives the saved timetable and autopilot back.
 - `/st train keepvanilla on|off`: never managed or proposed by the migration tool.
-- `/st train hold` / `resume`: stops the managed train (autopilot off, no new trips) until resume, which carries on with
-  its job. `/st train canceljob` ends its job; it gets a new trip at the next dispatch round, or parks.
-- `/st depots`: every depot signal, its siding check and the train using it.
-- `/st patterns`: managed trains grouped by car pattern (the items each freight car carries, front to back), and every
-  consumer station's platforms in order from the station building.
-- `/st job <item> from <station> to <station>`: a test job for a managed train, using the cars that fit.
+- `/st train hold` / `resume`: stops the managed train (autopilot off, no loop) until resume, which carries on with
+  its job.
 - `/st emptycars`: deletes all cargo in the freight cars of the train you drive or look at (admin only, no undo).
-  `/st emptycars all confirm` does it for every managed train. A managed train's job ends, so the next dispatch round
-  gives it a new trip (or it parks). Logged as
-  `EMPTY <train> by <player>: removed ...`.
-
-## Item groups (readout)
-
-- `/st group`: every item the flow plan routes: trains needed, trains working on it now, routes, and `[short N]` when
-  it lacks trains while every train that fits it is busy.
-- `/st group <item>`: one item's routes (supplier, consumer, rate, trains needed).
-
-## Snapshots
-
-- `/st snapshot` (admin): the next dispatch round writes every free train's planning inputs (nodes, bookings, travel
-  times, cars, platforms, dock maps) to `Saved/SmartTrains/Snapshots/snapshot-<time>.json` on the server (log line
-  `SNAPSHOT`). Copy it to `Mods/SmartTrains/Tests/Snapshots` and the automated test `SmartTrains.Replay.Snapshots`
-  plans those trains again offline.
+  `/st emptycars all confirm` does it for every managed train. Logged as `EMPTY <train> by <player>: removed ...`.
 
 ## Migration (see Migration.md)
 
@@ -115,7 +88,7 @@ Apply asks for `confirm` unless `/st testcopy` or `/st backup` ran in this sessi
 
 - `/st settings`: the host's or dedicated server's settings with their keys and ranges. Settings changed from their
   default are marked `*`. It also says whether you count as an admin.
-- `/st set <setting> <value>`: changes one, e.g. `/st set ArrivalGapSeconds 45` or `/st set DetailedLog on`. The
+- `/st set <setting> <value>`: changes one, e.g. `/st set AverageSpeedKmh 100` or `/st set DetailedLog on`. The
   key's case doesn't matter, and a unique part of a key or name works. It takes effect within a second and is saved
   to the server's `Configs/SmartTrains.cfg`.
 
@@ -133,8 +106,8 @@ to the server with the admin password in the Server Manager. The server console 
   - `/st migrate apply` and `undo`, and Apply and Undo in the migration window;
   - `/st testcopy` and `/st backup`, also from the migration window.
 - **Admin only when "Only admins change SmartTrains" is on** (`/st set AdminsOnly on`, off by default): platform,
-  station and train changes, in chat and in the menus, including pasted settings and `/st job`.
-- **Open to everyone:** readouts (`status`, `jobs`, `fit`, `monitor`, `settings`), `/st migrate preview` and copying a
+  station and train changes, in chat and in the menus, including pasted settings.
+- **Open to everyone:** readouts (`status`, `jobs`, `fit`, `patterns`, `monitor`, `settings`), `/st migrate preview` and copying a
   platform's settings.
 
 A refused change is answered in chat or under the menu, and logged as `ACCESS refused: <player> (<level>) tried to

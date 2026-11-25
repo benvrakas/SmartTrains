@@ -1,11 +1,14 @@
-// Automation tests for the station set-up names (Docs/Testing.md).
+// Automation tests for the station set-up: names, the belt network's maximum flow, and sharing items out (Docs/Testing.md).
 
 #include "CoreMinimal.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "STMigration.h"
+#include "STMinCostFlow.h"
 #include "STStationSetup.h"
+#include "Tests/STTestItems.h"
 
 namespace
 {
@@ -50,6 +53,137 @@ bool FSTSetupNumberTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("keeps its own number"), STSetup::PickNumber(DefaultFormat, Area, Product, Role, TEXT("Grass Fields Caterium Ingot Out 5 (100)"), Taken), 5);
 	TestEqual(TEXT("its number taken by another: next free"), STSetup::PickNumber(DefaultFormat, Area, Product, Role, TEXT("Grass Fields Caterium Ingot Out 3 (90)"), Taken), 2);
 	TestEqual(TEXT("no {n}: no number"), STSetup::PickNumber(TEXT("{area} {product}"), Area, Product, Role, FString(), Taken), 0);
+	return true;
+}
+
+// Belt capacity's max flow: two platforms' belts (780 each) and a third merged onto two belts before a manifold of
+// machine belts; the two belts are the narrowest cut (the Dune Desert Circuit Board case, 2026-11-11).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTBeltMaxFlowTest, "SmartTrains.Setup.BeltMaxFlow", SetupTestFlags)
+bool FSTBeltMaxFlowTest::RunTest(const FString& Parameters)
+{
+	// 0 source, 1 sink, 2..4 platform outputs, 5 merger, 6 manifold, 7..9 machines.
+	FSTMinCostFlow Flow(10);
+	for (int32 Platform = 2; Platform <= 4; ++Platform)
+	{
+		Flow.AddEdge(0, Platform, 1e12, 0.0);
+		Flow.AddEdge(Platform, 5, 780.0, 0.0);
+	}
+	Flow.AddEdge(5, 6, 780.0, 0.0);
+	Flow.AddEdge(5, 6, 780.0, 0.0);
+	for (int32 Machine = 7; Machine <= 9; ++Machine)
+	{
+		Flow.AddEdge(6, Machine, 780.0, 0.0);
+		Flow.AddEdge(Machine, 1, 1e12, 0.0);
+	}
+	TestEqual(TEXT("two belts carry 1,560/min"), Flow.SolveMaxFlow(0, 1), 1560.0, 0.01);
+	const TArray<bool> Side = Flow.GetSourceSide(0);
+	TestTrue(TEXT("the merger is on the source side"), Side[5]);
+	TestFalse(TEXT("the manifold is past the cut"), Side[6]);
+	return true;
+}
+
+// Platforms of two stations feeding the same machines share their items out in proportion to car loads per minute:
+// a fast item gets most of them, a slow one still gets one; a platform set up before counts and is left alone.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTShareOutByRateTest, "SmartTrains.Setup.ShareOutByRate", SetupTestFlags)
+bool FSTShareOutByRateTest::RunTest(const FString& Parameters)
+{
+	UClass* Fast = USTTestSolid::StaticClass();
+	UClass* Slow = USTTestSolidB::StaticClass();
+	AActor* Machine = NewObject<AActor>(GetTransientPackage());
+	auto MakePreview = [&](bool bKeptSlow)
+	{
+		STMigration::FPreview Preview;
+		for (int32 StationIndex = 0; StationIndex < 2; ++StationIndex)
+		{
+			STMigration::FStationProposal& Station = Preview.Stations.AddDefaulted_GetRef();
+			for (int32 Index = 0; Index < 2; ++Index)
+			{
+				STMigration::FPlatformProposal& Platform = Station.Platforms.AddDefaulted_GetRef();
+				Platform.Index = Index;
+				Platform.Role = ESTRole::Demand;
+				Platform.Machines.Add(Machine);
+				if (bKeptSlow && StationIndex == 1 && Index == 1)
+				{
+					Platform.bKept = true;
+					Platform.Items = {Slow};
+					continue;
+				}
+				Platform.Items = {Fast};
+				Platform.SpreadChoices = {Fast, Slow};
+				Platform.SpreadRates = {1440.f, 144.f};
+			}
+		}
+		STMigration::ShareOutItems(Preview);
+		return Preview;
+	};
+	auto Count = [](const STMigration::FPreview& Preview, UClass* Item)
+	{
+		int32 Found = 0;
+		for (const STMigration::FStationProposal& Station : Preview.Stations)
+		{
+			for (const STMigration::FPlatformProposal& Platform : Station.Platforms)
+			{
+				Found += Platform.Items.Num() == 1 && Platform.Items[0].Get() == Item ? 1 : 0;
+			}
+		}
+		return Found;
+	};
+	const STMigration::FPreview Shared = MakePreview(false);
+	TestEqual(TEXT("the fast item gets three of the four platforms"), Count(Shared, Fast), 3);
+	TestEqual(TEXT("the slow item still gets one"), Count(Shared, Slow), 1);
+	TestTrue(TEXT("the first station's platforms all take the fast item"), Count(Shared, Fast) >= 2
+		&& Shared.Stations[0].Platforms[0].Items[0].Get() == Fast && Shared.Stations[0].Platforms[1].Items[0].Get() == Fast);
+	const STMigration::FPreview Kept = MakePreview(true);
+	TestEqual(TEXT("with a platform set up for the slow item, the other three take the fast one"), Count(Kept, Fast), 3);
+	TestTrue(TEXT("the set-up platform keeps its item"), Kept.Stations[1].Platforms[1].Items[0].Get() == Slow);
+	return true;
+}
+
+// Lanes: four platforms reach the same machines, one through their second input and three through their first (a
+// balancer per ingredient, IB Dune Desert Computer In 1). The three-platform lane takes the item used most, the
+// single one the other, whatever their order; a lane with a platform set up already gives its item to the rest.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSTShareOutLanesTest, "SmartTrains.Setup.ShareOutLanes", SetupTestFlags)
+bool FSTShareOutLanesTest::RunTest(const FString& Parameters)
+{
+	UClass* Boards = USTTestSolid::StaticClass();
+	UClass* Oscillators = USTTestSolidB::StaticClass();
+	AActor* Machine = NewObject<AActor>(GetTransientPackage());
+	auto MakePreview = [&](bool bKeptBoard)
+	{
+		STMigration::FPreview Preview;
+		STMigration::FStationProposal& Station = Preview.Stations.AddDefaulted_GetRef();
+		for (int32 Index = 0; Index < 4; ++Index)
+		{
+			STMigration::FPlatformProposal& Platform = Station.Platforms.AddDefaulted_GetRef();
+			Platform.Index = Index;
+			Platform.Role = ESTRole::Demand;
+			Platform.Machines.Add(Machine);
+			Platform.MachineInputs = {Index == 0 ? TEXT("Assembler|Input1") : TEXT("Assembler|Input0")};
+			Platform.BeltRate = 1560.0;
+			if (bKeptBoard && Index == 2)
+			{
+				Platform.bKept = true;
+				Platform.Items = {Boards};
+				continue;
+			}
+			// What the share-out by car loads alone would give: alternating.
+			Platform.Items = {Index % 2 == 0 ? Boards : Oscillators};
+			Platform.SpreadChoices = {Boards, Oscillators};
+			Platform.SpreadRates = {810.f, 270.f};
+		}
+		STMigration::ShareOutItems(Preview);
+		return Preview;
+	};
+	for (const bool bKept : {false, true})
+	{
+		const STMigration::FPreview Preview = MakePreview(bKept);
+		const TArray<STMigration::FPlatformProposal>& Platforms = Preview.Stations[0].Platforms;
+		TestTrue(FString::Printf(TEXT("the single-platform lane takes the less used item (kept: %d)"), bKept), Platforms[0].Items[0].Get() == Oscillators);
+		for (int32 Index = 1; Index < 4; ++Index)
+		{
+			TestTrue(FString::Printf(TEXT("platform %d in the three-platform lane takes the most used item (kept: %d)"), Index + 1, bKept), Platforms[Index].Items[0].Get() == Boards);
+		}
+	}
 	return true;
 }
 

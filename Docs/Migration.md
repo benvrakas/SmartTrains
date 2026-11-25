@@ -21,7 +21,7 @@ platforms' roles and items and the trains need migrating, and that the station s
   after the preview appears (`StepNaming`). With **Rename stations** on (window) or `rename` (chat), apply renames the
   ticked stations.
 - **Trains:** every train with a timetable that SmartTrains doesn't manage yet. Ticked when it has a locomotive that
-  can dock and isn't kept vanilla. A train that used to shuttle simply takes other trips when its route is stocked;
+  can dock and isn't kept vanilla. A managed train gets a loop for a consumer its cars line up with;
   untick any you want to keep on its own timetable.
 - **DynamicTimeTable:** not read any more. If it is installed, the preview says to uninstall it before managing
   trains, as both would write the same timetables.
@@ -30,7 +30,7 @@ platforms' roles and items and the trains need migrating, and that the station s
 
 A load platform is traced upstream to what produces, an unload platform downstream to what consumes. The walk goes
 through belts, lifts, splitters, mergers, pipes, junctions and pumps and stops at the first machine with a recipe
-(manufacturer, miner, pump). It reads the configured recipe and the clock speed, so the rate is a starting target.
+(manufacturer, miner, pump). It reads the configured recipe and the clock speed, which gives its rate.
 
 - **Smart and programmable splitters:** their sort rules are followed per output (`FSTPlatformAccess::
   GetAttachmentOutputIndex` reads `mOutputs` through the access transformer). An output only passes its items; "Any

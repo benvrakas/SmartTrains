@@ -1,178 +1,92 @@
 ## SmartTrains
 
-Timetables that make themselves. Give your freight and fluid platforms a role and the items they handle. SmartTrains
-works out what has to move where, groups trains and stations by the item each car carries, and sends each train where
-its cars are needed most, trip by trip, as your factory grows. You don't plan a train per factory.
+Trains that serve your factories on their own. Mark which platforms supply and which unload, and SmartTrains gives every
+consumer station trains that carry its car pattern, looping between its suppliers and it. How many trains each consumer
+gets follows how much it needs compared with the rest of your network. You don't plan a train per factory.
 
 **Beta.** Try it on a copy of your save first (`/st testcopy`).
 
 **Highly recommended:** [Auto Trains](https://ficsit.app/mod/AutoTrains) and
-[Freight Car Control](https://ficsit.app/mod/FreightCarControl). SmartTrains works without them, but much better with
-them (see below).
+[Freight Car Control](https://ficsit.app/mod/FreightCarControl). SmartTrains works without them (see below).
 
 ### How it works
 
 - **Platforms:** open a freight or fluid platform and click **Open SmartTrains settings**.
   - **Supply:** managed trains pick items up here.
-  - **Demand:** managed trains keep it stocked to a target.
-  - **Sink:** managed trains unload cargo here that has nowhere better to go, any item: cargo no factory the car can
-    reach needs soon, and production from full suppliers. Cargo a factory will need soon stays on the train for it.
+  - **Demand:** managed trains deliver here. Several items on one platform make an item group: the car beside it
+    carries one of them.
+  - **Sink:** a train switching to another station's loop unloads cargo here that its old station had no room for.
   - **Off:** vanilla.
-  - Each demand item is kept stocked automatically: enough to last until a train can bring more, from how fast the
-    factory can use it at its most (its machines, limited by its narrowest belt, as in station names) and how far its
-    nearest supplier is (or a fixed share you set).
-  - Each item gets a target and a priority (demand), or a **Least per visit** (supply, 50 % by default): a train
-    only picks up there when it can load at least that share of what its cars there carry.
-  - **Copy**, **Paste** and **Copy to the station's other platforms** carry every setting of the platform. Copy and
-    Paste are also right in the platform's own menu.
+  - **Copy**, **Paste** and **Copy to the station's other platforms** carry the platform's settings.
 - **Set up a station from its factory:** build the station and its platforms, connect the belts and pipes, and open
-  the station menu. Each platform's menu has **Autodetect**: it follows the belts and pipes to the machines and sets
-  the platform to load or unload. The item is what the platform holds; an empty platform gets the item its machines
-  take or make; platforms whose belts go to different inputs of the same machines (a balancer per ingredient) get
-  different items, the most used one where the most belts go. **Autodetect all platforms**, under the station's
-  name, does that for every platform of the station (click twice: it redoes platforms set up already).
-  **Rename station from its factory**, under the station's name, names it from what the factory makes, its map area,
-  a number and its most per minute, e.g. "Grass Fields Modular Frame Out 1 (288)"; a station whose cargo platforms
-  are all Sinks becomes e.g. "No Man's Land Sink 1". Each shows what it would do first;
-  click again to do it. The rate is the factory's theoretical most, limited by its
-  weakest link apart from the trains: the belts from its unloading platforms to the machines (the narrowest point on
-  the way, such as a merge onto fewer belts), or its machines. Large factories: raise **Factory scan depth** in the
-  mod settings if a rate comes out incomplete. A station that unloads one item shows how much of it the factory uses;
-  one that unloads several items shows no rate. `/st setup all`
-  does every station, and the migration window can rename stations the same way. The name format and words are
-  yours to choose (`/st setup format`, `/st setup words`).
+  the station menu. **Autodetect** (per platform, or **Autodetect all platforms** under the station's name) follows
+  the belts and pipes to the machines and sets each platform's role and item; the item a platform holds wins.
+  **Rename station from its factory** names it from what the factory makes, its map area, a number and its most per
+  minute, e.g. "Grass Fields Modular Frame Out 1 (288)". Each shows what it would do first; click again to do it.
+  `/st setup all` does every station; the name format and words are yours (`/st setup format`, `/st setup words`).
 - **Trains:** in the locomotive menu, switch **Managed by SmartTrains** on. SmartTrains writes its timetable; the
   game, or Auto Trains, drives it.
-- **Car patterns:** a consumer station's unloading platforms make a pattern, the item per car: car 1 iron, car 2
-  wire, car 3 nothing, car 4 wire. Each managed train has a pattern too, and only serves consumers whose platforms
-  line up with it, so a car only ever carries its one item. Stations with the same pattern share their trains. A
-  station with fewer platforms only has to line up with the front of the train; the other cars hang past the end.
-  - Cargo that lines up stays on board: a car the platform couldn't empty just takes less next time.
-  - **Sushi platforms** work too: a platform taking iron and coal makes that car's part of the pattern "iron + coal",
-    and the car carries both. Only platforms taking exactly the same items line up with it.
-  - Cargo is what ties a car to its item. A car holding cargo only takes trips that deliver it or let it skip the stop
-    (Freight Car Control); its empty cars take any trip. With nothing for its cargo, a train delivers what it holds and
-    loads nothing until it is empty.
-  - An empty train has no pattern and takes the best trip anywhere, going first to stations no train serves (no
-    train on a trip for them and none in the last 10 minutes), so a starved station gets a train before a busy one
-    gets a second.
-  - `/st patterns` lists the train groups and every consumer station's platforms in order.
-- **Trips:** every trip is built around one consumer station. A free train looks at each consumer in its pattern,
-  fills the cars that line up with that station's unloading platforms from the suppliers that pay best, and unloads
-  there. A factory with several inputs gets one gathering trip in its platform order; a one-item consumer gets a plain
-  shuttle trip. The train runs the trip worth the most per second. After every stop the rest of the trip is planned
-  again from what the cars really hold. With nothing worth a trip, it parks.
-- **Short of trains** in the monitor means an item's routes call for more trains than are moving it and no train
-  that fits is idle: then more trains help. Idle trains that fit mean there's too little to move, not too few trains.
-  `/st group` and the monitor's Groups tab show each item's routes, trains needed and trains moving it.
-- **Recipes:** SmartTrains follows each platform's belts and pipes to its machines. Their recipes give the real rate
-  of a full supplier or a starved consumer, and a consumer whose machines wait on another missing input counts its
-  shortage less until that input arrives.
-- **Each trip** loads only what it delivers, and as much of it as the platforms take: a docking takes as long however
-  much a train moves, so a fuller train counts for more, and a trip picks up for a factory's other platforms when the
-  extra stop pays.
-- **Pull or push** (Mods menu, **Push from suppliers**, off by default): pull builds each trip around a consumer that
-  will run short; push starts each trip from a supplier with full cars, which go to any consumers with room.
-- **Several consumers (pull) or suppliers (push) per trip** (Mods menu, off by default): the cars a trip leaves unused
-  may serve a second consumer (or, pushing, be filled at a second supplier); each car skips the stops that aren't its
-  own (Freight Car Control).
-- **Backhaul:** after its last stop a train may pick up close by and deliver that too, so it doesn't run back empty.
-- **Top off:** at a supplier that fills cars fast, a train waits for its cars to fill (up to **Pickup: longest wait**)
-  when the extra cargo is worth the wait.
-- **Bottleneck inputs first:** an input whose factory makes what starved consumers elsewhere wait for counts more, so
-  the item gating a chain gets its train first.
-- **Fit:** train length, the order of the cars and the order of the platforms are checked for every trip. Push-pull
-  trains, with a locomotive at each end, are handled both ways round.
-
-### Traffic
-
-- **Spacing:** trips are timed so trains arrive at a station at least **Gap between trains at a station** (Mods
-  menu, 30 s) apart.
-- **Leaving at once** (default): a train moves what it can in one transfer and leaves. Switch **Trains leave stations
-  at once** off for the old behaviour: deliveries and pickups wait up to their longest wait.
-- **Leaving on time:** trains don't queue on the line. A train whose next stations are busy waits where it stands and
-  leaves just in time to drive straight in. A train that can't wait where it is (still docked, or moving) doesn't take
-  such a trip; one already on a trip with cargo on board still goes and waits its turn.
-- **Trains with nothing to move wait where they are,** if that station fits them, isn't on a through line (a station
-  other trains drive through) and no other train is due there within 3 minutes. Otherwise they drive to the nearest
-  free **Depot Signal** whose siding fits them, else to the nearest station with no work and no train due, and leave
-  as soon as they get a trip. With Auto Trains (1.4.15 or later), Auto Trains drives them there;
-  without it they drive along your signals and stop at the depot signal, which shows red while a train parks there.
-  - **Depot Signal** (unlocked with the Block Signal, next to it in the build menu): marks a parking spot. Put it at
-    the exit of a passing siding; the spot runs back to the siding's switch. Without Auto Trains, also put a signal
-    after the switch, at the siding's entry, so a parked train doesn't hold up the main line. No station may lie on
-    the siding, and it must be at least 8 m longer than the train. With Auto Trains the game's "Signal loops into
-    itself" warning on it doesn't matter. Look at it to see whether it's ready and which trains fit, or why not;
-    `/st depots` lists them all.
-  - **Several trains on one siding:** build depot signals one after another along a long siding; each stretch between
-    them is a parking spot. Trains fill the spot furthest in first, and a parked train only leaves once the spots on its
-    way out are empty, so nobody gets boxed in.
-  - **Dead-end sidings (trains back out):** a depot signal at the entrance of a dead-end siding, facing in, makes it a
-    depot for trains with a locomotive at each end: they drive in and leave backwards. Without Auto Trains, put a
-    signal at the far end, facing in, for trains to stop at. **Dead-end depots** in the Mods menu switches this off.
-  - A train parked in a station that a trip needs, or on a through line, moves to a free depot signal, else to the
-    nearest station off the through lines that no trip needs.
-- **Dead ends:** a train parked in a dead-end station keeps it until it leaves, so no second train is sent into a
-  bay it couldn't enter.
+- **Car patterns:** a consumer station's unloading platforms, in order from the station, make its pattern: car 1 iron,
+  car 2 wire, and so on. Every train serving that station carries exactly that pattern, so a car only ever carries
+  its one item (or one of its group). A train only serves stations its cars line up with.
+- **Loops:** each train serving a consumer runs one loop, over and over: it fills each car at a supplier of its item,
+  waiting until the cars are full, then unloads everything at the consumer, waiting until the cars are empty. Its
+  timetable repeats by itself.
+- **How many trains each consumer gets:** what its factory uses at most, its theoretical rate from the belts and
+  machines behind it (the same scan that names stations), in car loads per minute, times how long its loop takes.
+  Every managed train is shared out over the consumers in that proportion: a consumer using twice as much, or twice as
+  far from its suppliers, gets twice the trains. Because the rate is the factory's most, not what it happens to use
+  right now, a factory starting up doesn't send trains back and forth.
+- **Suppliers:** each item comes from the nearest supplier with rate to spare, then the next nearest for the rest;
+  a supplier's most rate is shared out over the consumers that use it.
+- **Fewer trains than consumers:** the consumers with the smallest needs get none; the monitor lists them as
+  unserved.
+- **Changes are slow and clean:** trains are only shared out again when a factory's rate, a station's pattern or the
+  set of managed trains changes, and then as few trains as possible change station. A train switching station first
+  delivers what it holds to its old station, takes what that station had no room for to a Sink platform, and only
+  then starts its new loop, empty.
 
 ### Highly recommended mods
 
 Both are optional: SmartTrains finds them while the game runs and uses them when they're there.
 
-**[Auto Trains](https://ficsit.app/mod/AutoTrains)** drives the trains without signals and books track ahead.
-SmartTrains works with it:
-- Station queues, real travel times and which train waits for which feed into SmartTrains' trip timing.
-- With **Trains leave stations at once** off, SmartTrains also asks before a train leaves a station whether its
-  first leg can be driven now, around every other train, including trains coming the other way on a single track.
-  If not, the train waits in the station instead of meeting the other one head on.
-- A parked train moves out of the way when Auto Trains reports a train waiting for it.
-- The monitor shows trains Auto Trains reports as stuck or deadlocked.
+**[Auto Trains](https://ficsit.app/mod/AutoTrains)** drives the trains without signals. SmartTrains uses its travel
+times for each loop's round trip and tells it when a timetable changes. Without it, the game's own self-driving and
+your signals keep trains apart, as in vanilla: you need a properly signalled network.
 
-Auto Trains 1.3.9 or later.
-
-Without it, the game's own self-driving and your signals keep trains apart, as in vanilla: you need a properly
-signalled network, above all on single track.
-
-**[Freight Car Control](https://ficsit.app/mod/FreightCarControl)** (1.1.0 or later) lets each car skip a stop.
-- With it, a train may stop at a station where only some of its cars have work. The other cars skip that stop, so
-  cargo for later stops stays on board.
-- Without it, every car loads or unloads at the platform it stops beside, as in vanilla. A trip is only used if every
-  car fits the platform it stops beside: no car may load an item nobody planned, or unload where it shouldn't. Platforms
-  still have their own roles and items either way, but far fewer trips work, mostly at stations where platforms differ
-  along the train.
+**[Freight Car Control](https://ficsit.app/mod/FreightCarControl)** (1.1.0 or later) lets each car skip a stop: at a
+supplier only the cars loading its item stop at its platforms, so no car picks up an item it doesn't carry. Without
+it, every car loads or unloads at the platform it stops beside, as in vanilla, so loops work best where each
+supplier's platforms line up with the cars that load there.
 
 ### Tools
 
 - **Migration** (`/st migrate`): sets up a whole network at once, with preview, apply and undo: every station's
   platforms as Autodetect would, optionally every station's name, and which trains SmartTrains manages.
-  - It traces belts and pipes back to the machines behind each platform, and follows splitters, smart splitters,
-    Modular Load Balancers and lifts. Platforms whose belts reach the same machines share the items out.
-  - Change a platform afterwards in its own menu.
-- **Monitor** (`/st monitor`): a window with Overview, Groups, Items, Stations, Platforms and Trains tabs. It shows per item
-  what limits deliveries, with advice:
-  - not enough supply;
-  - not enough trains;
-  - no train that fits the platforms;
-  - a congested station.
-
-  It also lists starved and backed-up platforms, and why idle trains wait.
-- **Status and jobs** (`/st status`, `/st jobs`, `/st fit`): fleet advice, each train's trip, and which car stops
-  beside which platform.
+- **Monitor** (`/st monitor`): Overview, Consumers, Suppliers and Trains tabs. Each consumer's pattern, rate, round
+  trip, share and trains; each supplier's rate and what the loops take of it; each train's loop, or why it has none.
+- **Status, jobs, fit, patterns** (`/st status`, `/st jobs`, `/st fit`, `/st patterns`): the loop plan in chat, each
+  train's loop, which consumers a train fits, and every consumer's pattern with its trains.
 - **Empty cars** (`/st emptycars`, admin): deletes the cargo of the train you drive or look at;
-  `/st emptycars all confirm` empties every managed train. Emptied trains get new trips.
-- **Hold / Resume and Cancel job** in a managed train's locomotive menu: a held train stops and gets no trips until
-  Resume; Cancel job drops its trip so it gets a new one.
+  `/st emptycars all confirm` empties every managed train.
+- **Hold / Resume** in a managed train's locomotive menu: a held train stops and gets no loop until Resume.
 - **Manage new trains** (Mods menu, off by default): new trains with freight cars and no timetable are managed 30 s
   after you last added a car.
 
 ### Works with
 
-- **Auto Trains** (highly recommended): drives and routes the trains, and feeds its travel times and station queues
-  into SmartTrains' planning.
-- **Freight Car Control** (highly recommended): skips cars at stops.
+- **Auto Trains** (highly recommended).
+- **Freight Car Control** (highly recommended).
 - **Modular Stations.**
 - **DynamicTimeTable, Dynamic Train Routes, RailDispatch**: they also steer trains, so don't keep them installed
   with managed trains. SmartTrains names any it finds in chat after loading.
+
+### Updating from 0.43 or earlier
+
+0.50.0 replaces trip-by-trip dispatching with loops. Loading an older save drops the trips trains were on; each
+managed train then gets its loop. Platform roles and items carry over; the removed settings (targets, least per visit,
+priority, manual rates) are ignored. Depot Signals are gone: SmartTrains no longer parks trains, as every train has a
+loop. A save with Depot Signals loads without them.
 
 ### Multiplayer
 

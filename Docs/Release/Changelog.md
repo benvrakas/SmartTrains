@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.50.0 (beta)
+
+A rebuild around one idea: every consumer station gets trains that carry its car pattern, looping between its
+suppliers and it.
+
+- **Loops instead of trips.** Each managed train serves one consumer station. It fills each car at a supplier of that
+  car's item, waiting until the cars are full, then unloads at the consumer, waiting until they are empty, over and
+  over. Its timetable repeats by itself.
+- **Trains shared out by need.** A consumer's share of all managed trains follows what its factory uses at most (its
+  theoretical rate from the belts and machines behind it) times how long its loop takes. With fewer trains than
+  consumers, the smallest ones go unserved and the monitor says so.
+- **Suppliers by rate:** each item comes from the nearest supplier with rate to spare, then the next nearest.
+- **Slow, clean changes.** Trains are shared out again only when a factory's rate, a pattern or the set of trains
+  changes. A train switching station delivers what it holds to its old one first, takes what had no room to a Sink
+  platform, and starts its new loop empty.
+- **The monitor** shows consumers, suppliers and trains of the loop plan.
+- **Removed:** trip-by-trip planning and its settings (push from suppliers, several consumers or suppliers per trip,
+  backhaul, top off, bottleneck priority, gap between trains, leave at once, waits, trip limits), platform targets,
+  least per visit, priorities and manual rates, parking and moving parked trains, Depot Signals and dead-end depots,
+  Cancel job, `/st depots`, `/st group`, `/st job` and `/st snapshot`.
+- **Older saves:** the trips trains were on are dropped and each managed train gets its loop; platform roles and items
+  carry over. Depot Signals in a save are left out when it loads.
+
 ## 0.43.0 (beta)
 
 - **A train parked at a station can take the next trip that starts there.** A train sent to park at a station used

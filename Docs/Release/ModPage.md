@@ -9,7 +9,7 @@ Replace the [bracketed] placeholder before publishing.
 
 # SHORT DESCRIPTION
 
-Trains without fixed timetables: platforms say what they supply and need, and managed trains are sent where it's needed.
+Every consumer station gets looping trains that carry its car pattern, shared out by how much each one needs.
 
 # FULL DESCRIPTION
 

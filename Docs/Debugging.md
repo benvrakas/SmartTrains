@@ -15,25 +15,27 @@ the console.
 | `Subsystem ready` | Loaded; counts and whether Freight Car Control / DynamicTimeTable were found. |
 | `PLATFORM ... -> ...` | A platform's role or items changed, and by whom. |
 | `MANAGE` / `UNMANAGE` | A train was taken over or given back (saved stop count, autopilot). |
-| `JOB n <train>: ...` | A job was handed out, with its score parts. |
+| `FACTORY <station>: uses ... /min, makes ... /min` | A factory scan for the loop plan: the station's most rates, what limits them. |
+| `SPLIT n trains over m consumers: ...` | A new split of the trains: each consumer's trains and need. Only when its inputs change. |
+| `LOOP <train>: serves <station> (was ...)` / `no loop: <why>` | A train's consumer changed. |
+| `JOB n <train>: loop ...` / `switching patterns ...` | A train's job: its loop, or its Deliver or Sink stop first. |
 | `WRITE <train> job n: [...]` | The timetable written, and whether through Freight Car Control. |
-| `JOB n ...: docked at ... for leg i/n, +x s against plan` | Arrival, and how late against the plan. |
-| `JOB n ...: left ... after x s, loaded/unloaded ...` | What was actually moved. |
-| `JOB n ... DONE` | Delivered amount against plan, total time. |
+| `JOB n ...: docked at ..., stop i of n` | Arrival at a stop and what it moves there. |
+| `JOB n ...: left ... after x s: ...` | What was actually moved. |
+| `LOOP <train>: round n done` | A loop came round to its first stop again. |
+| `JOB n ... DONE` | A Deliver or Sink job ended. |
 | `TRIP A -> B took x s (estimate was y s ...)` | Travel time learning; big differences mean the speed estimate is off. |
-| `PARK` | A train's autopilot was switched off where it stands. |
+| `PARK` | A train without a loop got its autopilot switched off where it stands, with the reason. |
 | `WOULD JOB` | Observe-only mode: the job it would have given. |
-| `REPLAN <train> job n: [before] -> [after]` | The rest of a trip after a stop: trimmed, extended, or planned again. Stops are `Station (+loaded -unloaded)`. |
-| `... carries cargo no trip wants now` | A free train's cargo has no delivery; see "Unwanted cargo" in Architecture.md. |
-| `IDLE <train>: no trip: ...` | Why a free managed train got nothing, logged when the reason changes. Also in its locomotive menu ("Why no trip") and `/st jobs`. |
-| `DISPATCH: n free trains ... x ms` (Verbose) | One line per dispatch round: free trains, assignments, trips, planning time. |
-| `PLANNER <train>: n moves` (Verbose) | How many moves a free train had to choose from. |
-| `Dispatch: planning time (n ms) ran out` (Warning, at most every 5 min) | Free trains were left for later rounds; raise "Planning time per round". |
+| `FLEET ...` | Once a minute: managed trains moving loaded or empty, docked, standing, switching patterns, without a loop. |
+| `MONITOR ...` | Every 5 minutes: the monitor report (consumers, trains needing a look). |
+| `LOOPS model: ...` (Verbose) | The consumers and supplier items of the loop plan. |
 | `Settings: ...` / `Settings changed: Key=value (was ...)` | All Mods menu settings at start, then every change. |
 | `TRACE <platform> upstream/downstream: ...` (Verbose) | The migration tool's belt and pipe trace of a platform. |
 | `EXTERNAL TIMETABLE CHANGE` | Someone else changed a managed train's timetable; the job was written back. |
 | `DOCK MAP MISMATCH` | A train docked with different cars beside the platforms than expected. The new map is kept. |
-| `NO FIT` (VeryVerbose) | Why a train can't do a supplier → consumer pair. |
+| `SELFDRIVING <train>: <error> for N s` | A self-driving error that lasted 5 s, and `SDLE_NoError` when it clears. |
+| `PLAYER <train>: ...` | A player got into or out of the driver's seat; driving by hand takes it off its loop until autopilot is on. |
 | `MIGRATION` | Preview, apply and undo summaries; the CSV path. |
 | `Test copy` / `Backup` | Save copies and the session name being put back. |
 
@@ -54,28 +56,10 @@ the console.
   the parent is a vertical box (SML 3.12). So hooks into vertical boxes pass no slot setup, and the panels pad
   themselves (`USTPanel::GetOuterPadding`).
 
-## Known gaps (0.4.0)
+## Known gaps
 
-- Sushi supply platforms (one platform with several items) give a car every filter item they hold; the planner
-  allows for it, but the split between items in that car is only estimated until the re-plan after the stop.
 - A station that both supplies and takes the same item isn't supported.
-- A train that is parked counts as standing at the station where it last docked.
-
-- `SELFDRIVING <train>: <error> for N s`: a managed train's self-driving error (for example `SDLE_NoPath`,
-  `SDLE_StationUnreachable`) once it has lasted 5 s, and `SDLE_NoError` when a logged one clears. A train that stands
-  without moving usually shows one. Shorter errors aren't logged: a train re-routing as it leaves a station shows
-  `SDLE_NoPath` for 1-4 s.
-- `REPEAT <train>: not repeating its last trip: <why>`: a train with no new trip didn't run its last trip again, for
-  example none of its stops would move anything, another train runs the same stations, or it would queue. It waits
-  where it is and tries again every 30 s; the line is logged when the reason changes.
-- `PLAYER <train>: ...`: a player got into or out of a train's driver seat. With autopilot on the train keeps getting
-  trips; a player driving by hand (autopilot off) holds it, and it gets no new trip until autopilot is on.
-- `NOPROGRESS ... Platforms there: P1 unload, Demand [...], 12 of 48 slots used: ...`: a stop moved none of a planned
-  item. The platform list shows why, e.g. a demand platform full of other items, or set to the wrong mode. For a
-  train running its last trip again it is only in the detailed log.
-- `REQUEST <item> into P2 of <station> (<why it asks>, e.g. "below its target in 12 min at its use, with what is on the
-  way"): <train> empties its car on the way and brings it` (or `empties its car first`): a platform asked for a train
-  (Request a train) and this one serves it. `... ; no free train can serve it (N free; <train>: <why>)`, `... ; <train>
-  can bring it sooner than emptying a train`, `... ; a train is emptied for it in about N min`: why it has no trip
-  yet, logged when that changes. `<train>: its request cars still hold other cargo before the pickup; the rest is
-  planned again`, `... delivered N by <train>`, `... <train> no longer serves it (<why>)`: the rest of a request.
+- A loop uses the first dock map at each station: a push-pull train arriving the other way round puts other cars
+  beside the platforms. The mismatch is logged and learned.
+- Supplier choices follow the travel times as they are learned, so a train may change supplier (not consumer) when
+  the nearest supplier changes.

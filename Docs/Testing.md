@@ -1,180 +1,96 @@
-# In-game tests
+# Tests
 
-Automation tests for the station set-up names: `SmartTrains.Setup.Format` (filling the format, empty values and their
-brackets, rate formatting) and `SmartTrains.Setup.Number` (keeping a station's number, the smallest free one, rates
-ignored). Rates and products need a world: check them with `SmartTrains.Setup` on a test server and
-`D:\SFMod\TestEnv\compare-setup-names.py`, which compares the report with rates players wrote into station names.
+Test builds go on GitHub pre-releases and are installed with SDMM. Use a test copy (`/st testcopy`) or a creative
+world. Judge a run by the rules the mod keeps (Architecture.md, "Loops"), not by how much it moved.
 
-Test builds are installed locally (SmartTrains is not on SMR). Use a test copy (`/st testcopy`) or a creative world.
+## In game
 
-## M0: control and docking (0.1.0)
+### L1: dock maps
 
-1. **Dock map prediction.** Drive a train with 1 locomotive and 3 freight cars to a station with 4 platforms. Run
-   `/st fit`: each car should be predicted at P1, P2, P3. Let it dock, then run `/st fit` again: it should say
-   "seen" and show the same cars. Repeat with a push-pull train (locomotives at both ends) arriving each way. Look
-   for `DOCK MAP MISMATCH` in the log.
-2. **Manual job.**
-   - `/st platform supply Iron Plate` on a fed platform at station A.
-   - `/st platform demand Iron Plate` on a platform at station B.
-   - Drive a train, `/st train manage`, get out, `/st job Iron Plate from A to B`.
+Drive a train with 1 locomotive and 3 freight cars to a station with 4 platforms. Run `/st fit`: it lists the
+consumers its cars line up with. Let it dock: the log has a `Dock map` line and no `DOCK MAP MISMATCH`. Repeat with a
+push-pull train (locomotives at both ends) arriving each way.
 
-   The train should drive to A, load only iron plates, drive to B, unload, and then park (no depot signal) or go to a
-   depot signal. Check the `WRITE`, `docked`, `left` and `DONE` lines.
-3. **Stop rules.** At A, does the train leave once full or after 30 s? At B, once empty or after 120 s? Do platforms
-   at A in unload mode leave it alone (unload filter none)?
-4. **Re-docking at the same station.** Give a job whose pickup is the station the train stands at. Does it dock
-   again at once?
-5. **Unmanage.** `/st train unmanage`: is the old timetable back, with the autopilot as it was?
+### L2: one loop
 
-## M1: dispatching
+1. A supplier station A with a fed platform `/st platform supply Iron Plate` and a consumer B with
+   `/st platform demand Iron Plate`; set B up from its factory (station menu) so its rate is traced (`FACTORY` line).
+2. Manage a train with a freight car beside B's platform. Within 5 s: a `SPLIT` line, `LOOP <train>: serves B`, a
+   `JOB ... loop` and a `WRITE` line with both stops.
+3. The train fills at A until full, unloads at B until empty, and starts again on its own (`LOOP <train>: round N
+   done`). Its timetable is written once.
+4. Save and load: the loop goes on.
 
-1. Set two suppliers and one consumer for one item, and manage two trains. Wait for the rates to be measured (2
-   minutes). Trains should pick up and deliver on their own (`JOB` lines), the consumer should stay near its
-   target, and `/st status` should show the planned flow and trains needed.
-2. Set a Critical consumer that runs empty: it should be served first, even with part loads.
-3. Build a depot signal on a passing siding: idle trains should drive onto it and park at the signal.
-4. Without a free depot signal, make a parked train stand in a station a job needs: it should move to a free station.
-5. With Freight Car Control 1.0.4 or later: a station where only some cars fit should send the others as Skip
-   (`skipped cars` in `WRITE`). Without it, the same job should be refused (`NO FIT` at VeryVerbose).
-6. Observe only on: jobs are logged as `WOULD JOB`, trains untouched.
-7. Save and load: jobs continue, learned trips are kept.
+### L3: the split
 
-## M1b: migration
+1. Two consumers whose factories use 1x and 2x the same rate, about as far from their suppliers, and three managed
+   trains that fit both: the `SPLIT` line gives them 1 and 2.
+2. Make one consumer twice as far: its share grows.
+3. Unmanage trains until there are fewer than consumers: the smallest consumer shows as unserved (monitor
+   Consumers tab, red).
+4. Nothing changes: no new `SPLIT` line, no train changes consumer (learned travel times don't move trains).
 
-On a test copy of the user's network:
+### L4: switching patterns
 
-1. `/st migrate preview`.
-   - Are the quartz shuttle's stations flagged "used only by dedicated trains"?
-   - Are the pull-based trains ticked?
-   - Is the CSV written?
-2. Turn on Observe only, then `/st migrate apply all`, and watch the `WOULD JOB` lines.
+1. Give a loaded train another consumer (change a pattern, or unmanage the trains of another consumer): it first
+   delivers at its old consumer (`switching patterns ... deliver`), then goes to a Sink platform if cargo is left,
+   then starts the new loop empty.
+2. Without a Sink platform: a warning, and it starts its loop with the cargo.
+
+### L5: migration
+
+On a test copy of a network:
+1. `/st migrate preview`: the CSV is written; stations and trains are proposed.
+2. Turn on Observe only, `/st migrate apply all`, and watch the `WOULD JOB` lines.
 3. Turn off Observe only and watch the network.
-4. `/st migrate undo`: platforms and trains should be back as they were.
+4. `/st migrate undo`: platforms and trains are back as they were.
 
-## M2: menus (0.2.0)
+### L6: menus
 
 1. Start-up log: `4 of 4 UI hooks registered`.
-2. Freight platform menu: the SmartTrains panel stands right of the window, inside it (check the geometry log line).
-   - Set Supply, add an item through the picker (search works, items on the platform come first), step send-at,
-     cycle priority (right click goes back), type a manual rate and press Enter.
+2. Freight platform menu: the SmartTrains panel opens beside the window.
+   - Set Supply, add an item through the picker (search works, items on the platform come first).
    - The platform's load/unload switch follows the role. `/st platform` shows the same settings.
-   - Copy, open another platform, Paste.
-   - "Copy to the station's other platforms": every platform of that kind in the station gets these settings, once;
-     editing one afterwards changes only that one.
-   - The game's copy/paste-settings (keys or menu) on a platform also copies and pastes the SmartTrains settings: the
-     log shows `Game clipboard: copy from ...`, the panel shows "Copied SmartTrains settings: ...". A fluid
-     platform's settings don't paste onto a freight platform.
-   - The readout updates every second: stock, rate, inbound trains, and a reason when nothing comes.
-3. Fluid platform menu: same, with fluids only and m³/min.
-4. Locomotive menu (0.4.0): the SmartTrains section is in the Timetable column under the stop list; the power and
-   speed stats are clear. Turning Managed on locks "Edit timetable"; turning it off unlocks it and puts the old
-   timetable back. A train with `/st train keepvanilla on` shows why it can't be managed.
-5. Station menu: Rename from factory under the name; no depot switch, no pool tag and no migration tool there.
-6. `/st migrate`: the migration window opens over the game with the mouse free, and the player doesn't move while it
-   is open. Preview, untick a row, Apply (it asks for a second click without a test copy), Undo. Save a test copy and
-   a backup (beta tools on). Close and Escape both give the controls back.
+   - Copy, open another platform, Paste; "Copy to the station's other platforms" gives every platform of that kind
+     in the station these settings, once.
+   - The game's copy/paste-settings on a platform also copies and pastes the SmartTrains settings
+     (`Game clipboard: copy from ...`); a fluid platform's settings don't paste onto a freight platform.
+   - The readout updates every second: stock and the traced rate.
+3. Fluid platform menu: the same, with fluids only.
+4. Locomotive menu: the SmartTrains section is in the Timetable column under the stop list. Managed on locks "Edit
+   timetable"; off unlocks it and puts the old timetable back. Hold / Resume works. A train with
+   `/st train keepvanilla on` shows why it can't be managed.
+5. Station menu: the set-up bar under the name; the SmartTrains panel shows the layout and the station's loop.
+6. `/st migrate` and `/st monitor`: the windows open with the mouse free; Close and Escape give the controls back.
 7. Multiplayer, if possible: a client sees the same readouts, and the host logs its edits with its name.
-
-## M4: platform-to-platform trips (0.4.0)
-
-1. Station A supplies Copper Ingot on platform 1 and Wire on platform 2. Station B takes Copper Ingot on platform 1
-   and Wire on platform 2. With FCC, one train with two cars carries both on one trip. The `JOB` line lists
-   `A (+Copper Ingot +Wire) -> B (-Copper Ingot -Wire)`, and the locomotive menu shows per stop which car does what.
-2. Two suppliers of one item that each hold about half a load, one consumer below target: one trip picks up at both
-   (`A (+item) -> B (+item) -> C (-item)`). The first pickup is "load/unload once".
-3. One load, two consumers that each have room for about half: one pickup, two drops.
-4. Leftovers: let a consumer fill up during a delivery. The cars keep the rest; `REPLAN` shows it delivered to
-   another consumer on the way, or `carries cargo no trip wants now`. After **Unwanted cargo after** minutes it goes
-   to any consumer with room.
-5. Backhaul: a station that takes one item and supplies another. A train delivering there also picks up there if it
-   fits.
-6. Without FCC: a station whose platforms are all the same works for every car. A station set platform by platform
-   only gets trips where no car would move the wrong item; `/st jobs` and the platform menu explain the rest.
-7. Push-pull train: the first visit each way logs the learned map (`Dock map`), and `DOCK MAP MISMATCH` if the
-   prediction was wrong. The next trip uses it.
-8. Mods menu "Most stops per trip" = 2: only direct trips.
-9. Old save from 0.3.0 with a job running: the log says `Converted n job stops from an older save to per-car work`,
-   and the job carries on.
-
-## After 2026-11-05: push-pull, monitor, route inference
-
-1. Water push-pull shuttles: both trains get trips again (`JOB ... Water SRC ... -> Water SNK ...`). The water
-   platforms no longer say "no managed train fits" while a car holds water.
-2. A train with no trip: its `IDLE` line lists reasons with counts (`... (4 times); ...`).
-3. `/st monitor`: the window opens; after a minute items show verdicts. Starve a consumer by setting its supplier to
-   Off: within a few minutes it shows "No supply" or "Supply short". `/st monitor text` prints the same in chat, and
-   the log gets `MONITOR` lines every 5 minutes.
-4. Migration on a station with an empty platform that no belt reaches: the preview fills it from a train's route
-   ("inferred from ... route"), at medium confidence.
-5. Idle trains are named "ST: parked at <station>".
-6. A busy consumer with several trains heading for it: trains standing in stations show "holding at ..." in the
-   monitor's Trains tab, then leave so they arrive a gap after the train before. Fewer Auto Trains DEADLOCK and
-   "can't stop short" lines near that station.
 
 ## Test saves
 
-Test runs on the VM start from one save each series, so runs compare like with like
-(`D:\SFMod\TestEnv\LinuxServer\TESTING.md`). A save copied from a running network has most platforms full and
-factories backed up, so few trains have work. To make a starting save: load it, run `SmartTrains.EmptyCars` (managed
-trains' cargo) and `SmartTrains.EmptyPlatforms` (every freight and fluid platform) on the server console, then save
-it under a new name and use that as the series' baseline. Its runs don't compare with runs from other saves.
-
-For depot tests on a save without depot signals, `SmartTrains.PlaceDepotSignal X Y Z [radius m]` (server console,
-world cm as the log prints locations, radius 50 m by default) builds one on the nearest plain track joint (two tracks
-end to end, no signal) where `STDepots::Check` finds a usable spot, trying each joint both ways round, and logs the
-spot or why every joint failed. `SmartTrains.PlaceDepotSignal auto <count> [min length m]` (0.34.4) finds the spots
-itself: every plain joint whose spot (`STDepots::CheckAt`, no signal built) is a passing siding at least the minimum
-length (default: the longest train + 8 m), whose entry switch has another branch that reaches the siding's merge no
-longer than the siding's own way (so trains passing by take that branch); one per entry switch, longest spots first.
-On the VM, `~/make-depot-baseline.sh` uses it and keeps the result as `~/baseline-depots.sav`.
+Test runs start from one save each series, so runs compare like with like (`D:\SFMod\TestEnv\LinuxServer\TESTING.md`).
+To make a starting save: load it, run `SmartTrains.EmptyCars` (managed trains' cargo) and
+`SmartTrains.EmptyPlatforms` (every freight and fluid platform) on the server console, then save it under a new name.
 
 ## Automated tests
 
 `D:\SFMod\Tools\BuildScripts\sfmod test SmartTrains` builds the editor (FactoryEditor, Development), runs the
 `SmartTrains` automation tests and prints a pass/fail summary (`Source/SmartTrains/Private/Tests`). The report is in
 `SatisfactoryModLoader/Saved/Logs/SmartTrainsTests.log`. In the editor's console: `Automation RunTests SmartTrains`. The
-tests are compiled only where `WITH_DEV_AUTOMATION_TESTS` is on, so not into the packaged mod. Their two item classes
-(`USTTestSolid`, `USTTestFluid`) are abstract and hidden.
+tests are compiled only where `WITH_DEV_AUTOMATION_TESTS` is on, so not into the packaged mod. Their item classes
+(`USTTestSolid`, `USTTestSolidB`, `USTTestFluid`) are abstract and hidden.
 
 | Test | Checks |
 |---|---|
-| `SmartTrains.Planner.FirstFreeArrival` | Bookings with start and end and the arrival gap: a slot before, between or after bookings. |
-| `SmartTrains.Planner.PushPullIdenticalPlatforms` | A push-pull train at four identical platforms in both ways round: no car skipped, each platform's stock and room counted once per way round. |
-| `SmartTrains.Planner.WrongPlatformNeedsSkip` | A car beside a load-mode platform without a supply role: the trip is invalid without Freight Car Control, and the car skips with it. |
-| `SmartTrains.Planner.NoMixedCars` | A car holding one item skips a pickup of another and a consumer that would take its cargo too; an empty car still loads. Without Freight Car Control the trip is refused. |
-| `SmartTrains.Planner.PlatformReservations` | Pickups promised at one platform leave another platform's stock to the car beside it; promises with no platform are still shared out. |
-| `SmartTrains.Planner.DeliveryReservations` | A delivery promised to one platform uses up that platform's room only. |
-| `SmartTrains.Planner.SlotValue` | A full car is worth the same whatever it carries (fluids in litres no longer outscore solids). |
-| `SmartTrains.Planner.QueueTrains` | The queue limit counts the trains a train would wait behind: two are fine with the default, a third is too many. |
-| `SmartTrains.Planner.QueueLookAhead` | Bookings count towards the queue limit only for arrivals within five minutes. |
-| `SmartTrains.Planner.Forecast` | A delivery is worth more the sooner it ends a shortfall, a pickup only where the supplier would be full; the deadline is when stock first falls below target; a delivery counts only until the next train could come. |
-| `SmartTrains.Planner.TiedCarsAndBusyStations` | Cars holding cargo tie the train down, less so for items wanted soon; other trains' bookings near a visit count, the train's own don't. |
-| `SmartTrains.Planner.SmallLoad` | A car doesn't load less than a twentieth of a car of an item. |
-| `SmartTrains.Planner.SinkKeepsNeeded` | A sink only gets what a car can't unload at any consumer of it. |
-| `SmartTrains.Planner.SupplyChain` | A consumer whose machine also waits on a starved item counts its shortfall less. |
-| `SmartTrains.Planner.LongTripUnderWay` | A trip under way is checked against its own length, not the Most stops setting. |
-| `SmartTrains.FlowPlan.MinCostFlow` | The flow plan fills the cheap route first and sends all the consumer takes. |
-| `SmartTrains.Groups.Shortfall` | A group is short only while it has fewer trains than it wants and no fitting train is idle. |
-| `SmartTrains.Gather.MixedFactory` | A gathering trip for a factory with two inputs ends there, even when a nearer consumer of one item would score more alone. |
-| `SmartTrains.Gather.CarPattern` | A consumer whose platforms don't line up with the pattern is another group; a car skips a platform offering an item outside its pattern; cargo that doesn't line up is reported. |
-| `SmartTrains.Gather.SushiPattern` | Item sets per car: one car loads both items of a two-item platform; a car holding both lines up only where its platform takes both. |
+| `SmartTrains.Loops.Split` | Trains split in proportion to need by largest remainder; every train is given out; with enough trains even a tiny need gets one. |
+| `SmartTrains.Loops.Unserved` | With fewer trains than consumers the largest needs get one each, ties to the lower index; the rest are unserved. |
+| `SmartTrains.Loops.Suppliers` | An item comes from the nearest supplier with spare rate, then the next nearest; an unknown rate takes all that is left; what nobody has goes to the nearest. |
 | `SmartTrains.Setup.ShareOutByRate` | Platforms feeding the same machines share items by car loads per minute; a set-up platform counts and is left alone. |
 | `SmartTrains.Setup.ShareOutLanes` | Platforms reaching different inputs of the same machines get different items: the most used item where the most belts go. |
 | `SmartTrains.Setup.BeltMaxFlow` | The belt network's maximum flow and its narrowest cut (two belts after a merge). |
 | `SmartTrains.Setup.Format` | Station names fill the format, drop empty values with their brackets, format rates like the game. |
 | `SmartTrains.Setup.Number` | A station keeps its number; a new one takes the smallest free number. |
-| `SmartTrains.Replay.Snapshots` | Every snapshot in `Tests/Snapshots` is planned again; every plan must be valid (below). |
 
-Not covered by an automated test: the dispatcher's group rule (`GatherRound`: cargo keeps a pattern, empty trains take
-any trip), parking and moving parked trains, automatic targets, and cargo in transit. They need a live world; the VM
-runs check them (`D:\SFMod\TestEnv\JOINT-RUNS-2026-11-14.md`).
+Not covered by an automated test (they need a live world): the fit of a train's cars, the loop's stops, the
+rebalancing and switching patterns. Rates and products: check them with `SmartTrains.Setup` on a test server and
+`D:\SFMod\TestEnv\compare-setup-names.py`, which compares the report with rates players wrote into station names.
 
-**Replay** (`SmartTrains.Replay.Snapshots`, 0.8.0): every `*.json` in `Mods/SmartTrains/Tests/Snapshots` (written on the
-server by `/st snapshot`) is loaded and each free train in it is planned again: moves (`BuildMoves`, which needs no
-live train), regret insertion, simulation. Every plan must be valid; the plans are listed in the report. The editor
-has no game items, so each snapshot item gets one of 48 stand-in classes (`STReplayItems.h`) with its form and stack
-size set on the class default. Not replayed: the consumer choice (the replay plans each train with every move), waiting room (no track), Auto Trains. `fixture-two-stations.json`
-is a hand-made example.
-
-The editor's game classes are stubs: inventories report no slot sizes. The tests therefore give a fluid a 2,400 m3
-stack to stand in for a platform or car. Fluid slot sizes themselves (the 50 m3 bug) can only be checked in game.
+The editor's game classes are stubs: inventories report no slot sizes. Fluid slot sizes can only be checked in game.

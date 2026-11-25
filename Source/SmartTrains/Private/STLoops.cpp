@@ -57,12 +57,12 @@ namespace
 	}
 
 	// What Machines' recipes make (bProducts) or use of Item per minute at their clock speed. [/min]
-	double GetRecipeRate(const TArray<TObjectPtr<AActor>>& Machines, UClass* Item, bool bProducts)
+	double GetRecipeRate(const TSet<AActor*>& Machines, UClass* Item, bool bProducts)
 	{
 		double PerMinute = 0.0;
-		for (const TObjectPtr<AActor>& Machine : Machines)
+		for (const AActor* Machine : Machines)
 		{
-			const AFGBuildableManufacturer* Manufacturer = Cast<AFGBuildableManufacturer>(Machine.Get());
+			const AFGBuildableManufacturer* Manufacturer = Cast<AFGBuildableManufacturer>(Machine);
 			const TSubclassOf<UFGRecipe> Recipe = Manufacturer ? Manufacturer->GetCurrentRecipe() : nullptr;
 			const float Duration = Recipe ? UFGRecipe::GetManufacturingDuration(Recipe) : 0.f;
 			if (Duration <= 0.f)
@@ -307,33 +307,46 @@ void ASTSubsystem::BuildLoopModel()
 			ByStation.FindOrAdd(Station).Emplace(Index, &Config);
 		}
 	}
+	// The machines behind a station's platforms of one role and item, each once (platforms may share them).
+	auto MachinesOf = [](const TArray<TPair<int32, const FSTPlatformConfig*>>& Platforms, ESTRole Role, UClass* Item)
+	{
+		TSet<AActor*> Machines;
+		for (const TPair<int32, const FSTPlatformConfig*>& Platform : Platforms)
+		{
+			if (Platform.Value->Role == Role && Platform.Value->FindRule(Item))
+			{
+				for (const TObjectPtr<AActor>& Machine : Platform.Value->Machines)
+				{
+					Machines.Add(Machine.Get());
+				}
+			}
+		}
+		Machines.Remove(nullptr);
+		return Machines;
+	};
 	// Suppliers, per station and item.
 	for (TPair<AFGTrainStationIdentifier*, TArray<TPair<int32, const FSTPlatformConfig*>>>& Each : ByStation)
 	{
 		const FStationRates* Rates = mStationRates.Find(Each.Key);
-		TMap<UClass*, double> Recipe;
+		TSet<UClass*> Items;
 		for (const TPair<int32, const FSTPlatformConfig*>& Platform : Each.Value)
 		{
-			if (Platform.Value->Role != ESTRole::Supply)
-			{
-				continue;
-			}
 			for (const FSTItemRule& Rule : Platform.Value->Items)
 			{
-				if (Rule.Item)
+				if (Platform.Value->Role == ESTRole::Supply && Rule.Item)
 				{
-					Recipe.FindOrAdd(Rule.Item.Get()) += GetRecipeRate(Platform.Value->Machines, Rule.Item.Get(), true);
+					Items.Add(Rule.Item.Get());
 				}
 			}
 		}
-		for (const TPair<UClass*, double>& Item : Recipe)
+		for (UClass* Item : Items)
 		{
 			FSTSupplier& Supplier = mSuppliers.AddDefaulted_GetRef();
 			Supplier.Station = Each.Key;
-			Supplier.Item = Item.Key;
-			const double* Scanned = Rates ? Rates->Out.Find(Item.Key) : nullptr;
-			const double PerMinute = Scanned && *Scanned > 0.0 ? *Scanned : Item.Value;
-			Supplier.Rate = PerMinute > 0.0 ? ToCarLoads(Item.Key, PerMinute) : -1.0;
+			Supplier.Item = Item;
+			const double* Scanned = Rates ? Rates->Out.Find(Item) : nullptr;
+			const double PerMinute = Scanned && *Scanned > 0.0 ? *Scanned : GetRecipeRate(MachinesOf(Each.Value, ESTRole::Supply, Item), Item, true);
+			Supplier.Rate = PerMinute > 0.0 ? ToCarLoads(Item, PerMinute) : -1.0;
 		}
 	}
 	// Consumers: each station with Demand platforms, its slots in platform order.
@@ -370,16 +383,15 @@ void ASTSubsystem::BuildLoopModel()
 		{
 			continue;
 		}
-		// Rates: the scan's use of each item shared over the slots that take it, else the slot platform's machines.
+		// Rates: the station's use of each item (the scan's, else its machines' recipes) shared over the slots that take it.
 		const FStationRates* Rates = mStationRates.Find(Each.Key);
 		for (FSTLoopSlot& Slot : Consumer.Slots)
 		{
-			const FSTPlatformConfig* Config = FindPlatformConfig(Slot.Platform.Get());
 			for (const TWeakObjectPtr<UClass>& Item : Slot.Items)
 			{
 				const double* Scanned = Rates ? Rates->In.Find(Item) : nullptr;
-				const double PerMinute = Scanned && *Scanned > 0.0 ? *Scanned / FMath::Max(1, SlotsOf.FindRef(Item.Get()))
-					: (Config ? GetRecipeRate(Config->Machines, Item.Get(), false) : 0.0);
+				const double AtStation = Scanned && *Scanned > 0.0 ? *Scanned : GetRecipeRate(MachinesOf(Each.Value, ESTRole::Demand, Item.Get()), Item.Get(), false);
+				const double PerMinute = AtStation / FMath::Max(1, SlotsOf.FindRef(Item.Get()));
 				Slot.ItemRates.Add(ToCarLoads(Item.Get(), PerMinute));
 				Slot.Rate += Slot.ItemRates.Last();
 			}
@@ -971,7 +983,7 @@ void ASTSubsystem::UpdateTrainJob(FSTTrainState& State, ESTJobKind After)
 		{
 			EndJob(State, *Reason);
 		}
-		if (State.Phase != ESTTrainPhase::Parked && !Train->IsDocked())
+		if (State.Phase != ESTTrainPhase::Parked)
 		{
 			Park(State, *Reason);
 		}
