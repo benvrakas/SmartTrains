@@ -308,12 +308,12 @@ void ASTSubsystem::BuildLoopModel()
 		}
 	}
 	// The machines behind a station's platforms of one role and item, each once (platforms may share them).
-	auto MachinesOf = [](const TArray<TPair<int32, const FSTPlatformConfig*>>& Platforms, ESTRole Role, UClass* Item)
+	auto MachinesOf = [](const TArray<TPair<int32, const FSTPlatformConfig*>>& Platforms, ESTRole WantRole, UClass* Item)
 	{
 		TSet<AActor*> Machines;
 		for (const TPair<int32, const FSTPlatformConfig*>& Platform : Platforms)
 		{
-			if (Platform.Value->Role == Role && Platform.Value->FindRule(Item))
+			if (Platform.Value->Role == WantRole && Platform.Value->FindRule(Item))
 			{
 				for (const TObjectPtr<AActor>& Machine : Platform.Value->Machines)
 				{
