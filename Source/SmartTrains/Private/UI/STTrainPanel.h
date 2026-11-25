@@ -101,7 +101,7 @@ private:
 	void Send(uint8 Action);
 
 	UPROPERTY()
-	TObjectPtr<USTButton> mManage;
+	TObjectPtr<class USTSegment> mManage;
 
 	UPROPERTY()
 	TObjectPtr<USTButton> mHold;

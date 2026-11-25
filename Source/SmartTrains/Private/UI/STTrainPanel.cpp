@@ -25,6 +25,15 @@ namespace
 	constexpr float TrainPanelMaxHeight = 360.f;
 	// Width of one car tile. [px]
 	constexpr float CarTileWidth = 112.f;
+
+	// "1,200 / 6,400", or "1,680 / 2,400 m³" for a fluid (inventories count fluids in litres).
+	FString CarAmount(const FSTCarView& Car)
+	{
+		const double Scale = Car.bFluid ? 1000.0 : 1.0;
+		const FText Amount = FText::AsNumber(FMath::RoundToInt(Car.Amount / Scale));
+		const FText Capacity = FText::AsNumber(FMath::RoundToInt(Car.Capacity / Scale));
+		return FString::Printf(TEXT("%s / %s%s"), *Amount.ToString(), *Capacity.ToString(), Car.bFluid ? TEXT(" m³") : TEXT(""));
+	}
 }
 
 //~ USTTrainDisplay
@@ -143,7 +152,7 @@ void USTTrainDisplay::ShowTrain(const FSTTrainView& View)
 			SetFill(Widgets.Name);
 			SetVAlignCenter(Widgets.Name);
 			Widgets.Bar = MakeBar(Tile, 5.f, FMargin(0.f, 5.f, 0.f, 2.f));
-			Widgets.Amount = MakeTinted(Tile, FText::GetEmpty(), 9, STStyle::Muted, false, false);
+			Widgets.Amount = MakeTinted(Tile, FText::GetEmpty(), 9, STStyle::Muted, false, true);
 		}
 	}
 	for (int32 Index = 0; Index < View.Cars.Num() && Index < mCarWidgets.Num(); ++Index)
@@ -153,8 +162,7 @@ void USTTrainDisplay::ShowTrain(const FSTTrainView& View)
 		const float Fill = Car.Capacity > 0 ? static_cast<float>(Car.Amount) / Car.Capacity : 0.f;
 		Widgets.Bar->SetValue(Fill);
 		Widgets.Bar->SetPulse(Car.bActive);
-		Widgets.Amount->SetText(FText::FromString(Car.Amount <= 0 ? FString(TEXT("Empty"))
-			: FString::Printf(TEXT("%s / %s"), *STNames::Amount(Car.Item, Car.Amount), *STNames::Amount(Car.Item, Car.Capacity))));
+		Widgets.Amount->SetText(FText::FromString(Car.Amount <= 0 ? FString(TEXT("Empty")) : CarAmount(Car)));
 	}
 
 	// Stop rows: rebuilt when the stations change.
@@ -232,11 +240,17 @@ UWidget* USTTrainPanel::WrapRoot(UVerticalBox* Root)
 void USTTrainPanel::BuildContent(UVerticalBox* Root)
 {
 	UHorizontalBox* Bar = MakeTitleBar(Root, FText::GetEmpty(), 20.f);
-	mManage = MakeButton(Bar, LOCTEXT("ManageOff", "Managed: off"), [this]()
-	{
-		Send(static_cast<uint8>(bManaged ? ESTTrainAction::Unmanage : ESTTrainAction::Manage));
-	}, FMargin(6.f, 0.f, 0.f, 0.f));
-	SetVAlignCenter(mManage);
+	// A compact switch: the vanilla button is too wide for the column and covered the title.
+	USizeBox* ManageSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+	ManageSize->SetWidthOverride(118.f);
+	mManage = WidgetTree->ConstructWidget<USTSegment>(USTSegment::StaticClass());
+	mManage->SetText(LOCTEXT("ManageOff", "Managed: off"));
+	mManage->SetFont(GetFont(10, true));
+	mManage->OnClick = [this]() { Send(static_cast<uint8>(bManaged ? ESTTrainAction::Unmanage : ESTTrainAction::Manage)); };
+	ManageSize->AddChild(mManage);
+	Bar->AddChildToHorizontalBox(ManageSize);
+	SetSlotPadding(ManageSize, FMargin(6.f, 0.f, 0.f, 0.f));
+	SetVAlignCenter(ManageSize);
 	BuildTrainContent(Root);
 	mHold = MakeButton(Root, LOCTEXT("Hold", "Hold here"), [this]() { Send(static_cast<uint8>(bHeld ? ESTTrainAction::Resume : ESTTrainAction::Hold)); },
 		FMargin(0.f, 8.f, 0.f, 2.f));
@@ -333,6 +347,7 @@ void USTTrainPanel::Refresh(USTRemoteCallObject* RCO)
 	}
 	mFooter->SetText(FText::FromString(Footer));
 	mManage->SetText(View->bManaged ? LOCTEXT("ManageOn", "Managed: on") : LOCTEXT("ManageOff", "Managed: off"));
+	mManage->SetSelected(View->bManaged);
 	mManage->SetIsEnabled(View->bManaged || View->CannotManage.IsEmpty());
 	mHold->SetVisibility(View->bManaged ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	mHold->SetText(bHeld ? LOCTEXT("Resume", "Resume") : LOCTEXT("Hold", "Hold here"));

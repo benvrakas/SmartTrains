@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.52.1 (beta)
+
+- **Fixed: fill bars showed solid white** instead of the car's fill on a dark track.
+- **Fixed: the Managed switch covered the SmartTrains title** in the locomotive menu; it is a compact switch now,
+  orange while on.
+- **Fixed: a car's amount ran into the next tile**; it shows whole numbers ("1,680 / 2,400 m³") and wraps inside its
+  tile.
+
 ## 0.52.0 (beta)
 
 - **Trains no longer wait at a platform.** A loop's train loads what each supplier has and unloads what fits at its

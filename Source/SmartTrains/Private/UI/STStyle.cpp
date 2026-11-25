@@ -112,8 +112,9 @@ int32 USTBar::NativePaint(const FPaintArgs& Args, const FGeometry& AllottedGeome
 	const FVector2f Size = AllottedGeometry.GetLocalSize();
 	const float Radius = Size.Y * 0.5f;
 	const FSlateBrush Back = STStyle::Rounded(STStyle::Inset, Radius);
+	// MakeBox draws in the tint it is given, not the brush's colour.
 	FSlateDrawElement::MakeBox(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(Size, FSlateLayoutTransform()), &Back, ESlateDrawEffect::None,
-		InWidgetStyle.GetColorAndOpacityTint());
+		STStyle::Inset * InWidgetStyle.GetColorAndOpacityTint());
 	const float Width = Size.X * mShown;
 	if (Width >= 1.f)
 	{
@@ -125,7 +126,7 @@ int32 USTBar::NativePaint(const FPaintArgs& Args, const FGeometry& AllottedGeome
 		}
 		const FSlateBrush Front = STStyle::Rounded(Fill, Radius);
 		FSlateDrawElement::MakeBox(OutDrawElements, LayerId + 1, AllottedGeometry.ToPaintGeometry(FVector2f(FMath::Max(Width, Size.Y), Size.Y), FSlateLayoutTransform()),
-			&Front, ESlateDrawEffect::None, InWidgetStyle.GetColorAndOpacityTint());
+			&Front, ESlateDrawEffect::None, Fill * InWidgetStyle.GetColorAndOpacityTint());
 	}
 	return LayerId + 2;
 }
