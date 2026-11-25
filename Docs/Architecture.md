@@ -243,14 +243,17 @@ window's Rename stations); never automatic.
     (`AFGBuildableGeneratorFuel`, read like a machine group in `SetupAddMachine`) use what they burn at their most, 60 x
     their power at their clock speed over the fuel's energy (per litre for fluids), plus their supplemental water,
     within the station's own belts or pipes (0.55.0; before, the belts or pipes alone, so power plants were named for a
-    full belt and their loops had no rate); storage and sinks only have the station's belts or pipes. Loading what no
+    full belt and their loops had no rate). Anything else unloading into machines with no known use (storage, sinks,
+    machines without a recipe yet) has no rate; its belts or pipes only ever cap a known rate. Before 0.55.0 a new
+    factory whose 18 assemblers had no recipe yet was named for its four input belts (2,400/min). Loading what no
     reached machine makes, it is unknown and the name has no rate.
   - **Scan depth** (`ScanDepth` setting, 50,000 buildings and belt segments, 1,000 to 500,000): the limit of every
     flood fill, platform trace and belt capacity walk in set-up (`SetupScanDepth`); a walk cut short says so in the
     set-up notes.
 - **Which item names a station:** what it loads (only loading); the one item it unloads, with
   `FFactory::InputRate`, how much of it the factory uses at its most rate (its share of all trains bringing that
-  item, within its own belts), what its power plants burn when nothing is made, else its own belts; several unloaded items: the
+  item, within its own belts), what its power plants burn when nothing is made; no rate when its machines' use isn't known; several unloaded
+  items: the
   factory's product and rate. A loading station's rate is its share of the factory: its belts or pipes into its
   platforms against all loading platforms for the product that the factory's machines feed (`DownPlatforms`), so
   two stations loading from one factory don't both claim all of it.

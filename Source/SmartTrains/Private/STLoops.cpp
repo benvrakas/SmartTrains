@@ -24,8 +24,9 @@ namespace
 	constexpr double ModelSeconds = 30.0;
 	// Below this share of its rate from its suppliers, a consumer is shown as short of supply.
 	constexpr double SupplyShortShare = 0.9;
-	// A station's factory is scanned again for its most rates after this long. [s]
-	constexpr double RateScanSeconds = 1800.0;
+	// A station's factory is scanned again for its most rates after this long (one station per loop check), so a factory
+	// built or changed in steps catches up within minutes. [s]
+	constexpr double RateScanSeconds = 300.0;
 	// Auto Trains travel-time questions per loop check. [calls]
 	constexpr int32 AtTravelCallsPerCheck = 4;
 

@@ -979,16 +979,21 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 	if (!Factory.bManufactured)
 	{
 		// Unloading into machines that make nothing: power plants use what they burn at their most, within this station's
-		// own belts or pipes; others (storage, sinks) only have those belts or pipes to go by. Loading what no machine it
+		// own belts or pipes. Anything else (storage, sinks, machines without a recipe yet) has no known use, so no rate:
+		// its belts' capacity would claim a full belt (Docs/Architecture.md, "Station set-up"). Loading what no machine it
 		// reaches makes: unknown.
 		if (!bAnyDemand)
 		{
 			Factory.Limit = TEXT("no machine reached");
 			return Factory;
 		}
-		FString Text;
-		Factory.Rate = OwnThroughput(Product, true, Text);
-		Factory.Limit = Factory.Rate > 0.0 ? Text : FString(TEXT("nothing measurable attached"));
+		Factory.Rate = 0.0;
+		Factory.Limit = TEXT("no machine with a known use reached (storage, or machines without a recipe?)");
+		if (Factory.InputItem)
+		{
+			Factory.InputRate = 0.0;
+			Factory.InputLimit = Factory.Limit;
+		}
 		TMap<UClass*, double> Burned;
 		for (const FSetupMachineGroup& Group : GroupsOf(Down.Machines))
 		{
@@ -1199,7 +1204,13 @@ STSetup::FFactory STSetup::AnalyzeFactory(const ASTSubsystem& Subsystem, const S
 		const double Total = Caps.FindRef(Factory.InputItem.Get());
 		const double Share = Total > 0.0 ? OwnCaps.FindRef(Factory.InputItem.Get()) / Total : 1.0;
 		const double Used = ImportedAtRate.FindRef(Factory.InputItem.Get()) * Share;
-		if (Used > 0.0 && Used < Factory.InputRate * 0.999)
+		if (Used <= 0.0)
+		{
+			// Its machines' use of it isn't known (no recipe set yet, say): no rate, rather than its belts' capacity.
+			Factory.InputRate = 0.0;
+			Factory.InputLimit = TEXT("its machines' use isn't known (machines without a recipe?)");
+		}
+		else if (Factory.InputRate <= 0.0 || Used < Factory.InputRate * 0.999)
 		{
 			Factory.InputRate = Used;
 			Factory.InputLimit = FString::Printf(TEXT("what the factory uses at its most (%s/min of %s, limited by %s)"), *STSetup::FormatRate(Rate),

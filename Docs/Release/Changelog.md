@@ -11,7 +11,13 @@
 - **Power plants get their real rate.** A station unloading into generators was named and planned for its full
   belts or pipes, and its loop had no known rate at all. Now its rate is what its generators burn at their most
   (their power at their clock speed over the fuel's energy), plus the water coal generators take, within its own
-  belts or pipes. Storage and sinks still go by their belts or pipes.
+  belts or pipes.
+- **No rate instead of a full belt.** A station unloading into machines whose use isn't known (a new factory whose
+  machines have no recipe yet, storage, sinks) was named and planned for the full capacity of its input belts: a new
+  Modular Frame factory with 18 assemblers came out at 2,400/min. Now it has no rate until its machines' use is
+  known, and its belts only cap a known rate.
+- **Factories are scanned again every 5 minutes** instead of every 30, so a factory built or changed in steps (recipes
+  set after the station) catches up quickly. Rename the station again for its name to show the new rate.
 
 ## 0.54.2 (beta)
 
