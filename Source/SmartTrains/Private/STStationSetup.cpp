@@ -1785,12 +1785,19 @@ namespace
 		TEXT("Deletes the cargo of every managed train (no undo), as /st emptycars all confirm."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&RunEmptyCarsCommand));
 
-	// SmartTrains.EmptyPlatforms: deletes everything in every freight and fluid platform of the world, so a test save
-	// starts with stations waiting for trains instead of full and backed up (Docs/Testing.md, "Test saves").
+	// SmartTrains.EmptyPlatforms [supply]: deletes everything in every freight and fluid platform of the world (with
+	// "supply", only in Supply platforms), for test saves (Docs/Testing.md, "Test saves").
 	void RunEmptyPlatformsCommand(const TArray<FString>& Args, UWorld* World)
 	{
 		if (!World)
 		{
+			return;
+		}
+		const bool bSupplyOnly = Args.ContainsByPredicate([](const FString& Arg) { return Arg.Equals(TEXT("supply"), ESearchCase::IgnoreCase); });
+		const ASTSubsystem* Subsystem = ASTSubsystem::Get(World);
+		if (bSupplyOnly && !Subsystem)
+		{
+			UE_LOG(LogSmartTrains, Warning, TEXT("SmartTrains.EmptyPlatforms supply: no SmartTrains subsystem in this world"));
 			return;
 		}
 		int32 Platforms = 0;
@@ -1801,6 +1808,14 @@ namespace
 			if (!Inventory)
 			{
 				continue;
+			}
+			if (bSupplyOnly)
+			{
+				const FSTPlatformConfig* Config = Subsystem->FindPlatformConfig(*It);
+				if (!Config || Config->Role != ESTRole::Supply)
+				{
+					continue;
+				}
 			}
 			for (int32 Index = 0; Index < Inventory->GetSizeLinear(); ++Index)
 			{
@@ -1813,11 +1828,12 @@ namespace
 			Inventory->Empty();
 			++Platforms;
 		}
-		UE_LOG(LogSmartTrains, Log, TEXT("SmartTrains.EmptyPlatforms: %d platforms emptied, %lld items and litres removed"), Platforms, Removed);
+		UE_LOG(LogSmartTrains, Log, TEXT("SmartTrains.EmptyPlatforms%s: %d platforms emptied, %lld items and litres removed"), bSupplyOnly ? TEXT(" supply") : TEXT(""),
+			Platforms, Removed);
 	}
 
 	FAutoConsoleCommandWithWorldAndArgs GEmptyPlatformsCommand(TEXT("SmartTrains.EmptyPlatforms"),
-		TEXT("Deletes everything in every freight and fluid platform (no undo), for test saves."),
+		TEXT("Deletes everything in every freight and fluid platform (no undo), for test saves. With 'supply', only in Supply platforms."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&RunEmptyPlatformsCommand));
 
 	// SmartTrains.MigratePreview: the migration preview from the server console (names follow a few stations per step).

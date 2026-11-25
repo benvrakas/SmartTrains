@@ -69,6 +69,8 @@ On a test copy of a network:
 Test runs start from one save each series, so runs compare like with like (`D:\SFMod\TestEnv\LinuxServer\TESTING.md`).
 To make a starting save: load it, run `SmartTrains.EmptyCars` (managed trains' cargo) and
 `SmartTrains.EmptyPlatforms` (every freight and fluid platform) on the server console, then save it under a new name.
+`SmartTrains.EmptyPlatforms supply` empties only Supply platforms: consumers keep their stock, so the factories run on
+and draw on it from the start.
 
 ## Automated tests
 

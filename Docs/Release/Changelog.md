@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.50.1 (beta)
+
+- **Test tool:** the `SmartTrains.EmptyPlatforms` server console command takes `supply` to empty only Supply
+  platforms.
+
 ## 0.50.0 (beta)
 
 A rebuild around one idea: every consumer station gets trains that carry its car pattern, looping between its
