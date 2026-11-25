@@ -22,6 +22,8 @@ namespace
 	// How often the loops are checked; the consumers and suppliers are worked out again at most this often. [s]
 	constexpr float LoopSeconds = 5.f;
 	constexpr double ModelSeconds = 30.0;
+	// Below this share of its rate from its suppliers, a consumer is shown as short of supply.
+	constexpr double SupplyShortShare = 0.9;
 	// A station's factory is scanned again for its most rates after this long. [s]
 	constexpr double RateScanSeconds = 1800.0;
 	// Auto Trains travel-time questions per loop check. [calls]
@@ -482,6 +484,30 @@ void ASTSubsystem::BuildLoopModel()
 		Consumer.ModelProblem = Consumer.Problem;
 		Consumer.ModelCause = Consumer.Cause;
 	}
+	// What the suppliers can give: a supplier taken beyond its rate shares that rate out in proportion, and a consumer
+	// needs only the trains that carry what it can get, so no train runs near empty for want of supply.
+	for (FSTConsumer& Consumer : mConsumers)
+	{
+		double Wanted = 0.0;
+		double Given = 0.0;
+		for (const FSTLoopSource& Source : Consumer.Sources)
+		{
+			const FSTSupplier* Supplier = mSuppliers.IsValidIndex(Source.Supplier) ? &mSuppliers[Source.Supplier] : nullptr;
+			const double Share = Supplier && Supplier->Rate >= 0.0 && Supplier->Taken > Supplier->Rate ? Supplier->Rate / Supplier->Taken : 1.0;
+			Wanted += Source.Taken;
+			Given += Source.Taken * Share;
+		}
+		Consumer.Supply = Wanted > 0.0 ? FMath::Clamp(Given / Wanted, 0.0, 1.0) : 1.0;
+		Consumer.Need *= Consumer.Supply;
+		if (Consumer.Supply < SupplyShortShare && Consumer.ModelProblem.IsEmpty())
+		{
+			Consumer.ModelProblem = FString::Printf(TEXT("its suppliers can give %.0f %% of what it uses at most (they make less, or serve other loops too), so it gets trains for that"),
+				100.0 * Consumer.Supply);
+			Consumer.ModelCause = FString::Printf(TEXT("supply %.0f %%"), 100.0 * Consumer.Supply);
+			Consumer.Problem = Consumer.ModelProblem;
+			Consumer.Cause = Consumer.ModelCause;
+		}
+	}
 	UE_LOG(LogSmartTrains, Verbose, TEXT("LOOPS model: %d consumers, %d supplier items"), mConsumers.Num(), mSuppliers.Num());
 }
 
@@ -552,12 +578,18 @@ void ASTSubsystem::AssignTrains()
 			}
 		}
 	}
-	// A new split only when what it depends on changed: the consumers, their slots and rates, the trains and what they fit.
+	// A new split only when what it depends on changed: the consumers, their sources and priority, the trains and what
+	// they fit, or a consumer's rate (what its suppliers can give of it) by more than the Mods menu's share since the
+	// last split. Moving a train costs a round or more, so small changes don't move any.
 	FString Inputs;
+	bool bRateMoved = false;
 	for (int32 Index = 0; Index < mConsumers.Num(); ++Index)
 	{
 		const FSTConsumer& Consumer = mConsumers[Index];
-		Inputs += FString::Printf(TEXT("%p:%.3g:%d:%d;"), Consumer.Station.Get(), Consumer.Rate, Consumer.Sources.Num(), static_cast<int32>(Consumer.Priority));
+		Inputs += FString::Printf(TEXT("%p:%d:%d;"), Consumer.Station.Get(), Consumer.Sources.Num(), static_cast<int32>(Consumer.Priority));
+		const double Rate = Consumer.Rate * Consumer.Supply;
+		const double* Last = mSplitRates.Find(Consumer.Station);
+		bRateMoved |= !Last || FMath::Abs(Rate - *Last) > 0.01 * mSettings.ResplitPercent * FMath::Max3(Rate, *Last, 1e-3);
 	}
 	for (const FSTTrainState* State : Available)
 	{
@@ -568,7 +600,7 @@ void ASTSubsystem::AssignTrains()
 		}
 		Inputs += TEXT(";");
 	}
-	const bool bResplit = Inputs != mSplitInputs;
+	const bool bResplit = Inputs != mSplitInputs || bRateMoved;
 	// The targets: all trains that fit some consumer, split by need over the consumers some train fits.
 	TArray<double> Needs;
 	TArray<uint8> Tiers;
@@ -616,6 +648,11 @@ void ASTSubsystem::AssignTrains()
 	else
 	{
 		mSplitInputs = Inputs;
+		mSplitRates.Reset();
+		for (const FSTConsumer& Consumer : mConsumers)
+		{
+			mSplitRates.Add(Consumer.Station, Consumer.Rate * Consumer.Supply);
+		}
 		// Each train keeps its consumer while it fits there and the consumer isn't over its target.
 		TArray<FSTTrainState*> Free;
 		for (FSTTrainState* State : Available)
@@ -1028,10 +1065,7 @@ void ASTSubsystem::UpdateTrainJob(FSTTrainState& State, ESTJobKind After)
 		{
 			EndJob(State, *Reason);
 		}
-		if (State.Phase != ESTTrainPhase::Parked)
-		{
-			Park(State, *Reason);
-		}
+		StopAtStation(State, *Reason);
 		State.IdleReason = Reason;
 		return;
 	}
@@ -1119,22 +1153,32 @@ void ASTSubsystem::UpdateTrainJob(FSTTrainState& State, ESTJobKind After)
 		}
 		if (HasSinkStation(State))
 		{
-			// Every Sink it fits is taken and no consumer takes its cargo: it waits where it is and tries again next check.
-			if (State.bHasJob)
-			{
-				EndJob(State, TEXT("waits for a free Sink"));
-			}
-			if (State.Phase != ESTTrainPhase::Parked)
-			{
-				Park(State, TEXT("waits for a free Sink"));
-			}
-			State.IdleReason = TEXT("waits for a free Sink");
-			return;
+			// Every Sink it fits is taken and no consumer takes its cargo: it starts its loop with it and tries a Sink
+			// again after each round, so it never stands on the line waiting.
+			UE_LOG(LogSmartTrains, Log, TEXT("LOOP %s: every Sink for its leftover cargo is taken; it starts its loop with it and tries again after each round"),
+				*STLayout::Name(Train));
 		}
-		UE_LOG(LogSmartTrains, Warning, TEXT("LOOP %s: holds cargo its new loop doesn't carry and no consumer or Sink platform takes it; it starts its loop with it (/st emptycars clears it)"),
-			*STLayout::Name(Train));
+		else
+		{
+			UE_LOG(LogSmartTrains, Warning, TEXT("LOOP %s: holds cargo its new loop doesn't carry and no consumer or Sink platform takes it; it starts its loop with it (/st emptycars clears it)"),
+				*STLayout::Name(Train));
+		}
 	}
-	State.ClearingSince = -1.0;
+	else
+	{
+		State.ClearingSince = -1.0;
+	}
+	// Holding its loop's cargo (back from a depot signal full, or loaded when the loop was given): its consumer comes
+	// first.
+	if (Loop.Legs.Num() > 1)
+	{
+		const FSTJobLeg& Delivery = Loop.Legs.Last();
+		const bool bLoaded = Delivery.Work.ContainsByPredicate([](const FSTCarWork& Work) { return !Work.bLoad && CountInCar(Work.Car, Work.Item) > 0; });
+		if (bLoaded)
+		{
+			Loop.Leg = Loop.Legs.Num() - 1;
+		}
+	}
 	// The pattern its cars carry on the loop.
 	State.CarSets.Reset();
 	for (AFGFreightWagon* Car : GetCars(Train))
@@ -1182,6 +1226,7 @@ void ASTSubsystem::CommitJob(FSTTrainState& State, FSTJob&& Job, const FString& 
 	}
 	State.Job = MoveTemp(Job);
 	State.bHasJob = true;
+	State.bStopAtStation = false;
 	UE_LOG(LogSmartTrains, Log, TEXT("JOB %d %s"), State.Job.Id, *Line);
 	WriteJob(State, TEXT("new job"));
 }
@@ -1331,6 +1376,48 @@ void ASTSubsystem::FinishJob(FSTTrainState& State)
 	State.bHasJob = false;
 	State.Phase = ESTTrainPhase::Idle;
 	UpdateTrainJob(State, Done.Kind);
+}
+
+void ASTSubsystem::StopAtStation(FSTTrainState& State, const TCHAR* Why)
+{
+	AFGTrain* Train = State.Train;
+	if (!IsValid(Train) || State.Phase == ESTTrainPhase::Parked)
+	{
+		return;
+	}
+	// Docked, or with no station to drive to: it stops here. Otherwise it drives on and stops when it docks (OnDocked),
+	// never out on the line, where it would stand in other trains' way.
+	const AFGRailroadTimeTable* TimeTable = Train->GetTimeTable();
+	if (Train->IsDocked() || !TimeTable || TimeTable->GetNumStops() == 0)
+	{
+		Park(State, Why);
+		return;
+	}
+	if (!State.bStopAtStation)
+	{
+		State.bStopAtStation = true;
+		UE_LOG(LogSmartTrains, Log, TEXT("%s: no loop (%s); it stops at the next station it docks at"), *STLayout::Name(Train), Why);
+	}
+}
+
+bool ASTSubsystem::TrySinkAfterRound(FSTTrainState& State)
+{
+	if (!HoldsOtherCargo(State, State.Job))
+	{
+		State.ClearingSince = -1.0;
+		return false;
+	}
+	FSTJob ToSink;
+	AFGTrainStationIdentifier* Sink = FindSinkStation(State);
+	if (!Sink || !MakeUnloadJob(State, Sink, ESTJobKind::Sink, ToSink))
+	{
+		return false;
+	}
+	ToSink.Id = mNextJobId++;
+	ToSink.StartedAt = Now();
+	ToSink.LegStartedAt = ToSink.StartedAt;
+	CommitJob(State, MoveTemp(ToSink), FString::Printf(TEXT("%s: a Sink is free for the cargo its loop doesn't carry (%s)"), *STLayout::Name(State.Train), *ToSink.Summary));
+	return true;
 }
 
 void ASTSubsystem::Park(FSTTrainState& State, const TCHAR* Why)
@@ -1489,7 +1576,8 @@ FString ASTSubsystem::DescribeWork(const FSTTrainState& State) const
 	if (State.bDepot)
 	{
 		const FSTConsumer* Consumer = FindConsumer(State.LoopConsumer.Get());
-		return FString::Printf(TEXT("%s a depot signal: %s uses %.0f %% of its machines now"), State.Phase == ESTTrainPhase::Parked ? TEXT("waiting at") : TEXT("on its way to"),
+		return FString::Printf(TEXT("%s: %s uses %.0f %% of its machines now"), State.Phase == ESTTrainPhase::Parked ? TEXT("waiting full at a depot signal")
+			: mDepotTrips.Contains(State.Train) ? TEXT("on its way to a depot signal, full") : TEXT("spare, filling up at its suppliers before it parks"),
 			Consumer ? *STLayout::Name(Consumer->Station.Get()) : TEXT("its consumer"), Consumer ? 100.0 * Consumer->Use : 0.0);
 	}
 	if (!State.bHasJob)
@@ -1533,7 +1621,7 @@ FSTMonitorView ASTSubsystem::MakeMonitorView() const
 		Idle += State.bHasJob ? 0 : 1;
 		FSTMonitorRow& Row = View.Trains.AddDefaulted_GetRef();
 		Row.Title = STLayout::Name(State.Train);
-		Row.Verdict = State.bHeld ? TEXT("Held") : State.bDepot ? TEXT("At a depot") : !State.bHasJob ? TEXT("No loop") : State.Job.Kind == ESTJobKind::Loop ? TEXT("On its loop") : TEXT("Switching");
+		Row.Verdict = State.bHeld ? TEXT("Held") : State.bDepot ? (mDepotTrips.Contains(State.Train) ? TEXT("At a depot") : TEXT("Filling to park")) : !State.bHasJob ? TEXT("No loop") : State.Job.Kind == ESTJobKind::Loop ? TEXT("On its loop") : TEXT("Switching");
 		Row.Severity = !State.bHasJob && !State.bHeld ? 1 : 0;
 		Row.Columns.Add(State.LoopConsumer ? STLayout::Name(State.LoopConsumer.Get()) : FString(TEXT("-")));
 		Row.Details.Add(DescribeWork(State));

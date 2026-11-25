@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.54.1 (beta)
+
+- **No train stops on the main line any more.** A train left without a loop drives on to its next station and stops
+  there. 0.54.0 stopped a train waiting for a free Sink right where it stood; now it starts its new loop with the
+  leftover cargo and tries a free Sink after each round.
+- **Trains only for what the suppliers can give.** A consumer's share of trains counted its factory's most use even
+  when its suppliers couldn't keep up, so the extra trains ran near empty and only added traffic. Now it gets trains
+  for what its suppliers can give; the monitor shows "supply N %" when that's under 90 %.
+- **Fewer reshuffles.** Trains were shared out again whenever any factory's rate changed in the third digit (32 times
+  in 20 minutes on the test server), and every move costs a train at least a round. Now only when stations,
+  patterns, priorities or trains change, or a rate moves by more than **Share trains out again after a rate change
+  of** (new setting, 15 %).
+- **Spare trains park full.** A train its factory's current use doesn't need now fills up at its suppliers first
+  (going round them again, loading once per stop, skipping its factory), then waits at a free Depot Signal, and
+  delivers straight away when the factory picks up. Without a free Depot Signal it keeps circulating. New setting
+  **Spare trains: average a factory's use over** (5 minutes).
+
 ## 0.54.0 (beta)
 
 - **Trains switching loops no longer queue for a Sink.** A train given another station's loop used to unload at its

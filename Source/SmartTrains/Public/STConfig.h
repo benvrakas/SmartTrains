@@ -23,6 +23,10 @@ struct FSTSettings
 	bool bWaitForFullCars = false;
 	// Switching patterns: how long a train unloads leftover cargo at consumers before it may take it to a Sink. [min]
 	float SinkAfterMinutes = 10.f;
+	// A consumer's rate must change by more than this since the last split before trains are shared out again. [%]
+	float ResplitPercent = 15.f;
+	// Spare trains: a factory's use is averaged over this long, so a short stall doesn't send trains away. [min]
+	float UseAverageMinutes = 5.f;
 	// Average speed used for travel times until trips have been timed. [km/h]
 	float AverageSpeedKmh = 80.f;
 	// Stay assumed at a station until stays there have been timed. [s]

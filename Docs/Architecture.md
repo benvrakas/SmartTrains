@@ -46,7 +46,10 @@ notes are in the git history of this file.
    - **Sources** (`FSTLoopSource`): biggest consumers first, each slot item takes its rate from the suppliers of the
      item on the same rail network, nearest first, within their spare rate (`STLoopMath::Allocate`).
    - **Round trip:** from the consumer to the nearest supplier still to visit, and so on, then back, plus the stays
-     (`EstimateTravelSeconds`, `EstimateStaySeconds`). **Need** = rate x round trip.
+     (`EstimateTravelSeconds`, `EstimateStaySeconds`). **Need** = rate x round trip x supply share.
+   - **Supply share** (`FSTConsumer::Supply`): what its suppliers can give of it. A supplier taken beyond its rate
+     shares its rate out in proportion; below 90 % the consumer shows "supply N %". So no consumer gets trains that
+     would run near empty for want of supply.
 3. **The split** (`AssignTrains`): the available trains (managed, not held, not driven by hand) and the consumers
    each fits (`FitsConsumer`). The targets are `STLoopMath::SplitByPriority` of the trains that fit some consumer
    over the needs of the consumers some train fits (see Priority below); consumers left with none are unserved
@@ -67,9 +70,11 @@ so changing it splits again.
 
 ### Rebalancing
 
-The trains are only split again when the split's inputs change (`mSplitInputs`): the consumers, their rates and
-number of sources, and the available trains with what each fits. Round trips are left out, so learned travel times
-don't move trains. On a new split, each train keeps its consumer while it fits there and the consumer isn't over its
+The trains are only split again when the split's inputs change (`mSplitInputs`): the consumers, their number of
+sources and priority, and the available trains with what each fits; or when a consumer's rate times its supply share
+moved by more than **Share trains out again after a rate change of** (`ResplitPercent`, 15 %) since the last split
+(`mSplitRates`). Moving a train costs at least a round, so small rate changes (the server split 32 times in 20 minutes
+on rates changing in the third digit) move none. Round trips are left out, so learned travel times don't move trains. On a new split, each train keeps its consumer while it fits there and the consumer isn't over its
 target; consumers short of their target take free trains that fit them, empty ones first, then the nearest
 (`EstimateTravelSeconds` from its last station); trains left over go where they fit furthest below their share. A
 train whose consumer changes logs a `LOOP` line; each split logs a `SPLIT` line.
@@ -96,8 +101,16 @@ loads nothing meanwhile. `FSTTrainState::ClearingSince` marks when it started.
   goes on delivering, or, with no consumer either, waits where it stands and tries again next check. No train queues
   for a Sink. On 2026-11-25 ten trains switched at once and eight took their leftovers to the same Sink straight
   away; their queue on the main line joined a circle of waiting trains and stopped about 37 trains.
+- With every Sink taken and no consumer taking its cargo, it starts its loop with the cargo and tries a free Sink
+  after each round (`TrySinkAfterRound`). It never stands waiting.
 - Then its loop (after a Sink stop without another check). With no consumer or Sink platform for its cargo at all it
   starts its loop with it, with a warning (`/st emptycars` clears it).
+
+### No train stops on the line
+
+A train left without a loop is only stopped (autopilot off, `Park`) where it is docked, or when its timetable is
+empty. Otherwise it drives on to its timetable's next station and is stopped when it docks there (`StopAtStation`,
+`bStopAtStation`). 0.54.0's "waits for a free Sink" stopped trains where they stood, out on the line.
 
 ### Timetables
 
@@ -497,9 +510,13 @@ it as a parking spot (`STDepots::Check`); dead-end sidings aren't used. Spare tr
 - **Use** (`UpdateUse`, every loop check): the share of a consumer's traced machines (its Demand platforms'
   `Machines`) that want input: not on standby, powered (manufacturers), output not backed up (no full output stack).
   Averaged with a 300 s time constant, kept across loop models (`mUse`). Without traced machines it counts as 1.
-- **Wanted** = its trains times its use, rounded up, at least one. After a round (leaving its consumer, cars empty) a
-  train of a consumer running more than Wanted goes to the nearest free fitting spot (`MaybeSendToDepot`,
-  `SendToDepotSignal`): far end first, the way in clear. It keeps its consumer (`LoopConsumer`), marked `bDepot`
+- **Wanted** = its trains times its use, rounded up, at least one. Use is averaged over **Spare trains: average a
+  factory's use over** (`UseAverageMinutes`, 5).
+- **Spare trains park full** (`ParkIfSpare`, after its loop's last supplier): with more trains running than Wanted,
+  a full train (`IsLoopFull`: every loaded car at 98 % or more) goes to the nearest free fitting spot
+  (`SendToDepotSignal`): far end first, the way in clear. One not yet full goes round its suppliers again, skipping
+  its consumer, while a free spot fits it (`SendToDepotSignal` with `bCheckOnly`). It counts as spare (`bDepot`)
+  from the moment it is picked. Back on its loop, a train holding its loop's cargo starts at its consumer. It keeps its consumer (`LoopConsumer`), marked `bDepot`
   (saved), so it still counts for its share; Auto Trains drives it (`STAt::DriveTo`), or without Auto Trains the game
   along a path with the signal held at stop. Arrived, its autopilot goes off (Parked).
 - **Back** (`UpdateUse`): while a consumer runs fewer than Wanted, its depot trains with a clear way out

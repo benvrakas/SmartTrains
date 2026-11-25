@@ -67,6 +67,8 @@ struct FSTConsumer
 	FString ModelCause;
 	// Its station's priority.
 	ESTPriority Priority = ESTPriority::Medium;
+	// Share of its rate its suppliers can give (they make less, or serve other loops too); its need counts only that.
+	double Supply = 1.0;
 	// Share of its machines that want input now (powered, running, output not backed up), averaged over a few minutes.
 	double Use = 1.0;
 	// Trains its loop needs running for that use (at least one); the rest of its trains wait at depot signals.
@@ -283,16 +285,25 @@ private:
 	void FinishJob(FSTTrainState& State);
 	// Switches the train's autopilot off where it stands, with Why kept for readouts.
 	void Park(FSTTrainState& State, const TCHAR* Why);
+	// A train without a loop: parked if docked (or with nowhere to drive), else it drives on and is parked when it next
+	// docks, so it never stands out on the line.
+	void StopAtStation(FSTTrainState& State, const TCHAR* Why);
+	// After a round of its loop: a train still holding cargo its loop doesn't carry (every Sink was taken when it
+	// switched) goes to a Sink that is free now. True if it went.
+	bool TrySinkAfterRound(FSTTrainState& State);
 
 	//~ Depot signals (Docs/Architecture.md, "Depot signals"): trains a consumer's use doesn't need now wait there.
 	// Measures each consumer's Use and sets Wanted; wakes depot trains of consumers that need them back.
 	void UpdateUse();
-	// After a round of its loop: sends State's empty train to a depot signal if its consumer runs more trains than its use
-	// needs and a free spot fits it. True if it went.
-	bool MaybeSendToDepot(FSTTrainState& State);
+	// After its loop's last supplier: a train its consumer's use doesn't need now parks full. Full, it drives to a free
+	// depot signal; not yet full, it goes round its suppliers again (skipping its consumer) while a depot signal is
+	// free for it. True if its plan changed.
+	bool ParkIfSpare(FSTTrainState& State);
+	// Whether every car its loop loads is full.
+	bool IsLoopFull(const FSTTrainState& State) const;
 	// Sends State's train to the nearest free depot signal whose passing siding fits it. False if there is none or no
-	// way to one.
-	bool SendToDepotSignal(FSTTrainState& State, const TCHAR* Why);
+	// way to one. bCheckOnly: only whether a free one fits it.
+	bool SendToDepotSignal(FSTTrainState& State, const TCHAR* Why, bool bCheckOnly = false);
 	// Back to its loop from a depot signal.
 	void WakeFromDepot(FSTTrainState& State, const TCHAR* Why);
 	// A depot train's drive: parked once it stands at its spot; a drive that ends elsewhere puts it back on its loop.
@@ -419,6 +430,8 @@ private:
 	// The split's inputs when the trains were last assigned (consumers, slots, rates, trains): a new split only when it
 	// changes (Docs/Architecture.md, "Rebalancing").
 	FString mSplitInputs;
+	// Each consumer's rate (times its supply share) at the last split.
+	TMap<TWeakObjectPtr<AFGTrainStationIdentifier>, double> mSplitRates;
 	FTimerHandle mLoopTimer;
 	// When the consumers and suppliers were last worked out. [Now() s]
 	double mModelAt = -1.0e9;

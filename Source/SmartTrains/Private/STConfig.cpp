@@ -57,6 +57,10 @@ namespace
 		static const TArray<FNumberSetting> Settings = {
 			{TEXT("SinkAfterMinutes"), &FSTSettings::SinkAfterMinutes, 0.f, 240.f, LOCTEXT("SinkAfter", "Send leftovers to a Sink after (minutes)"),
 				LOCTEXT("SinkAfterTip", "A train switching to another station's loop first unloads cargo its new loop doesn't carry at stations that use it. Only after this many minutes (or when no station takes it) does it take what is left to a Sink, one train per Sink at a time, 0 to 240.")},
+			{TEXT("ResplitPercent"), &FSTSettings::ResplitPercent, 1.f, 100.f, LOCTEXT("Resplit", "Share trains out again after a rate change of (%)"),
+				LOCTEXT("ResplitTip", "Trains are shared out over the factories again only when a factory's rate, or what its suppliers can give of it, changes by more than this since the last time (or when stations, patterns, priorities or trains change), 1 to 100. Moving a train costs at least a round, so small changes move none.")},
+			{TEXT("UseAverageMinutes"), &FSTSettings::UseAverageMinutes, 1.f, 60.f, LOCTEXT("UseAverage", "Spare trains: average a factory's use over (minutes)"),
+				LOCTEXT("UseAverageTip", "How long a factory has to run below its most before its spare trains park at Depot Signals (and how quickly they come back), 1 to 60 minutes. Shorter reacts faster; longer ignores short stalls.")},
 			{TEXT("AverageSpeedKmh"), &FSTSettings::AverageSpeedKmh, 20.f, 300.f, LOCTEXT("Speed", "Speed estimate (km/h)"),
 				LOCTEXT("SpeedTip", "Average speed used to estimate travel times between stations (for each loop's round trip) until a trip between them has been timed, 20 to 300 km/h.")},
 			{TEXT("DefaultStaySeconds"), &FSTSettings::DefaultStaySeconds, 0.f, 600.f, LOCTEXT("Stay", "Station stay estimate (seconds)"),

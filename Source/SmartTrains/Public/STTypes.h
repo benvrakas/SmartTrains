@@ -44,7 +44,7 @@ enum class ESTPriority : uint8
 UENUM()
 enum class ESTTrainPhase : uint8
 {
-	// No loop: it stands where it is with its timetable as it was.
+	// No loop: its timetable as it was (driving on to its next station, where it is stopped).
 	Idle,
 	// Following its job's stops.
 	Working,
@@ -414,6 +414,8 @@ struct SMARTTRAINS_API FSTTrainState
 	double ExternalChangesSince = 0.0;
 	// Runtime only: why it has no loop, for readouts; empty when it has one.
 	FString IdleReason;
+	// Runtime only: without a loop, it drives on to its timetable's next station and stops there, never on the line.
+	bool bStopAtStation = false;
 };
 
 // Which vehicle stood beside each platform of a station the last time a train docked there.

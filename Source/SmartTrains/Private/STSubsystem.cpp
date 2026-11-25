@@ -818,6 +818,12 @@ void ASTSubsystem::OnDocked(FSTTrainState& State, AFGTrainStationIdentifier* Sta
 	if (!State.bHasJob || State.Job.Legs.Num() == 0)
 	{
 		UE_LOG(LogSmartTrains, Log, TEXT("%s docked at %s (%s, no job)"), *STLayout::Name(Train), *STLayout::Name(Station), STNames::Phase(State.Phase));
+		// Without a loop it stops here, in a station rather than out on the line.
+		if (State.bStopAtStation && !State.bHeld)
+		{
+			State.bStopAtStation = false;
+			Park(State, State.IdleReason.IsEmpty() ? TEXT("no loop") : *State.IdleReason);
+		}
 		return;
 	}
 	// The stop it docked at: its current leg, else the next one of the job with that station (a loop counts round).
@@ -890,6 +896,11 @@ void ASTSubsystem::FinishLeg(FSTTrainState& State, AFGTrainStationIdentifier* St
 	}
 	++State.Job.Leg;
 	State.Job.LegStartedAt = Now();
+	// Its loop's last supplier done: a spare train parks full instead of delivering (Docs/Architecture.md, "Depot signals").
+	if (State.Job.Kind == ESTJobKind::Loop && State.Job.Leg == State.Job.Legs.Num() - 1 && ParkIfSpare(State))
+	{
+		return;
+	}
 	if (State.Job.Leg < State.Job.Legs.Num())
 	{
 		return;
@@ -900,11 +911,7 @@ void ASTSubsystem::FinishLeg(FSTTrainState& State, AFGTrainStationIdentifier* St
 		State.Job.Leg = 0;
 		++State.Job.Rounds;
 		UE_LOG(LogSmartTrains, Log, TEXT("LOOP %s: round %d done (%s)"), *STLayout::Name(Train), State.Job.Rounds, *State.Job.Summary);
-		// Its consumer runs more trains than its use needs now: it waits at a depot signal if one is free.
-		if (Station == State.Job.AnchorStation.Get())
-		{
-			MaybeSendToDepot(State);
-		}
+		TrySinkAfterRound(State);
 		return;
 	}
 	FinishJob(State);

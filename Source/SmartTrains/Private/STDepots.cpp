@@ -18,8 +18,6 @@
 
 namespace
 {
-	// A consumer's use is averaged over about this long, so a short stall doesn't send trains away. [s]
-	constexpr double UseAverageSeconds = 300.0;
 	// A train sent to a depot signal counts as parked once it stands still this long after being sent. [s]
 	constexpr double DepotSettleSeconds = 5.0;
 	// Own drive (no Auto Trains): standing slower than this near its goal is arrived, and a dropped path is given again
@@ -27,6 +25,8 @@ namespace
 	constexpr float DepotStillSpeed = 50.f;
 	constexpr float DepotArriveDistance = 3000.f;
 	constexpr double DepotPathRetrySeconds = 10.0;
+	// A car counts as full from this share of what it holds at most (fluids and stacks rarely end exactly at the top).
+	constexpr double FullShare = 0.98;
 
 	// Whether Factory wants input now: running (not on standby), powered if it needs power, and its output not backed up.
 	bool WantsInput(const AFGBuildableFactory* Factory)
@@ -66,7 +66,7 @@ void ASTSubsystem::UpdateUse()
 	const double Time = Now();
 	const double Since = mUseSampledAt < 0.0 ? 0.0 : Time - mUseSampledAt;
 	mUseSampledAt = Time;
-	const double Blend = Since <= 0.0 ? 1.0 : 1.0 - FMath::Exp(-Since / UseAverageSeconds);
+	const double Blend = Since <= 0.0 ? 1.0 : 1.0 - FMath::Exp(-Since / (60.0 * FMath::Max(1.f, mSettings.UseAverageMinutes)));
 	for (FSTConsumer& Consumer : mConsumers)
 	{
 		int32 Machines = 0;
@@ -130,33 +130,78 @@ void ASTSubsystem::UpdateUse()
 	}
 }
 
-bool ASTSubsystem::MaybeSendToDepot(FSTTrainState& State)
+bool ASTSubsystem::IsLoopFull(const FSTTrainState& State) const
 {
-	const FSTConsumer* Consumer = FindConsumer(State.LoopConsumer.Get());
-	if (!Consumer || mSettings.bObserveOnly || State.bDepot || GetCargo(State.Train).Num() > 0)
+	bool bAny = false;
+	for (int32 Leg = 0; Leg < State.Job.Legs.Num(); ++Leg)
+	{
+		for (const FSTCarWork& Work : State.Job.Legs[Leg].Work)
+		{
+			if (!Work.bLoad)
+			{
+				continue;
+			}
+			bAny = true;
+			const double Capacity = STLayout::GetCarCapacity(Work.Car, Work.Item);
+			if (Capacity <= 0.0 || CountInCar(Work.Car, Work.Item) < Capacity * FullShare)
+			{
+				return false;
+			}
+		}
+	}
+	return bAny;
+}
+
+bool ASTSubsystem::ParkIfSpare(FSTTrainState& State)
+{
+	FSTConsumer* Consumer = mConsumers.FindByPredicate([&State](const FSTConsumer& Each) { return Each.Station.Get() == State.LoopConsumer.Get(); });
+	if (!Consumer || mSettings.bObserveOnly)
 	{
 		return false;
 	}
-	const int32 Running = Consumer->Trains.Num() - Consumer->AtDepot;
-	if (Running <= Consumer->Wanted)
+	// A spare train counts at the depot from the moment it is picked, so its consumer picks no more than it can spare.
+	const bool bPicked = State.bDepot;
+	if (!bPicked && Consumer->Trains.Num() - Consumer->AtDepot <= Consumer->Wanted)
 	{
 		return false;
 	}
+	auto Pick = [&](bool bOn)
+	{
+		if (State.bDepot != bOn)
+		{
+			State.bDepot = bOn;
+			Consumer->AtDepot += bOn ? 1 : -1;
+		}
+	};
 	const FString Why = FString::Printf(TEXT("%s uses %.0f %% of its machines now: %d of its %d trains are enough"), *STLayout::Name(Consumer->Station.Get()),
 		100.0 * Consumer->Use, Consumer->Wanted, Consumer->Trains.Num());
-	if (!SendToDepotSignal(State, *Why))
+	if (IsLoopFull(State))
 	{
+		Pick(true);
+		if (SendToDepotSignal(State, *Why))
+		{
+			return true;
+		}
+		Pick(false);
+		UE_LOG(LogSmartTrains, Log, TEXT("DEPOT %s: full but no free depot signal; it delivers as usual"), *STLayout::Name(State.Train));
 		return false;
 	}
-	State.bDepot = true;
-	if (FSTConsumer* Mutable = mConsumers.FindByPredicate([&State](const FSTConsumer& Each) { return Each.Station.Get() == State.LoopConsumer.Get(); }))
+	if (!SendToDepotSignal(State, *Why, true))
 	{
-		++Mutable->AtDepot;
+		Pick(false);
+		return false;
 	}
+	if (!bPicked)
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("DEPOT %s: spare (%s); fills up at its suppliers, then parks"), *STLayout::Name(State.Train), *Why);
+	}
+	Pick(true);
+	State.Job.Leg = 0;
+	WriteJob(State, TEXT("fills up before it parks"));
 	return true;
 }
 
-bool ASTSubsystem::SendToDepotSignal(FSTTrainState& State, const TCHAR* Why)
+bool ASTSubsystem::SendToDepotSignal(FSTTrainState& State, const TCHAR* Why, bool bCheckOnly)
 {
 	AFGTrain* Train = State.Train;
 	AFGLocomotive* Locomotive = IsValid(Train) ? Cast<AFGLocomotive>(Train->GetMultipleUnitMaster()) : nullptr;
@@ -214,9 +259,9 @@ bool ASTSubsystem::SendToDepotSignal(FSTTrainState& State, const TCHAR* Why)
 		Goals.Add(Spots[Index].Siding.Goal);
 		ByGoal.Add(Spots[Index].Siding.Goal, Spots[Index].Signal);
 	}
-	if (Goals.Num() == 0)
+	if (bCheckOnly || Goals.Num() == 0)
 	{
-		return false;
+		return Goals.Num() > 0;
 	}
 	const UFGRailroadTrackConnectionComponent* Reached = nullptr;
 	float Length = 0.f;

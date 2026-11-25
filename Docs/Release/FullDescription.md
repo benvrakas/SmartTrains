@@ -34,8 +34,8 @@ gets follows how much it needs compared with the rest of your network. You don't
   Trains, drives it. The menu shows its pattern as car tiles with fill bars, its loop's stops and how many trains share
   its pattern; while you ride it, the same shows as a card at the top right of the screen.
 - **Depot Signals** (build menu, next to the Block Signal): when a factory runs well below its most (machines on
-  standby, without power or backed up), its spare trains wait at the nearest free depot signal's passing siding and go
-  back when it picks up. Without one they keep circulating.
+  standby, without power or backed up), its spare trains fill up at its suppliers and wait full at the nearest free
+  depot signal's passing siding, then deliver straight away when it picks up. Without one they keep circulating.
 - **Car patterns:** a consumer station's unloading platforms, in order from the station, make its pattern: car 1 iron,
   car 2 wire, and so on. Every train serving that station carries exactly that pattern, so a car only ever carries
   its one item (or one of its group). A train only serves stations its cars line up with.
@@ -50,7 +50,8 @@ gets follows how much it needs compared with the rest of your network. You don't
   far from its suppliers, gets twice the trains. Because the rate is the factory's most, not what it happens to use
   right now, a factory starting up doesn't send trains back and forth.
 - **Suppliers:** each item comes from the nearest supplier with rate to spare, then the next nearest for the rest;
-  a supplier's most rate is shared out over the consumers that use it.
+  a supplier's most rate is shared out over the consumers that use it. A consumer whose suppliers can't keep up gets
+  trains only for what they can give, so no train runs near empty.
 - **Fewer trains than consumers:** the consumers with the smallest needs get none, Low priority ones first; the
   monitor lists them as unserved and says why.
 - **Changes are slow and clean:** trains are only shared out again when a factory's rate, a station's pattern or the
