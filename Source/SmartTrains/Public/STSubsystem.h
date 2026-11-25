@@ -223,8 +223,8 @@ public:
 	const TArray<FSTSupplier>& GetSuppliers() const { return mSuppliers; }
 	// The consumer whose station is Station, or nullptr.
 	const FSTConsumer* FindConsumer(const AFGTrainStationIdentifier* Station) const;
-	// Whether Train's cars line up with Consumer's pattern (a freight car of the right kind beside every slot's
-	// platform); OutCars gets the car beside each slot, OutWhy why not.
+	// Whether Train's cars line up with Consumer's pattern (a freight car beside every slot's platform, whatever it
+	// holds); OutCars gets the car beside each slot, OutWhy why not.
 	bool FitsConsumer(const AFGTrain* Train, const FSTConsumer& Consumer, TArray<AFGFreightWagon*>& OutCars, FString& OutWhy) const;
 
 	//~ Begin AActor

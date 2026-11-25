@@ -130,7 +130,9 @@ switched off where it stands (`Park`) with the reason kept for readouts (`FSTTra
 
 A consumer station's Demand platforms, in order from the station, are its pattern: platform *i* gives the item (or
 item group) of the car beside it when the train docks. A train fits a consumer when, in its first dock map there, a
-freight car of the right kind (solid or fluid) stands beside every Demand platform. Its loop gives each of those cars
+freight car stands beside every Demand platform, fluid platforms included: a freight car carries items or fluid,
+whichever it is given, and cargo its new loop doesn't carry is unloaded first (`HoldsOtherCargo`), so the fit
+ignores what a car holds (it would otherwise change every time a car empties, and split the trains again). Its loop gives each of those cars
 one item, and only those cars carry anything; the others skip every stop. `/st patterns` and the monitor's Consumers
 tab show every consumer's pattern and its trains.
 

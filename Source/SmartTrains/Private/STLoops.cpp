@@ -516,13 +516,8 @@ bool ASTSubsystem::FitsConsumer(const AFGTrain* Train, const FSTConsumer& Consum
 			OutCars.Reset();
 			return false;
 		}
-		if ((STLayout::GetCargoType(Car) == EFreightCargoType::FCT_Liquid) != Slot.bFluid)
-		{
-			OutWhy = FString::Printf(TEXT("the car beside platform %d is a %s car, the platform a %s one"), Slot.Index + 1, Slot.bFluid ? TEXT("solid") : TEXT("fluid"),
-				Slot.bFluid ? TEXT("fluid") : TEXT("solid"));
-			OutCars.Reset();
-			return false;
-		}
+		// A freight car carries items or fluid, whichever it is given; cargo its loop doesn't carry is unloaded first
+		// (HoldsOtherCargo), so what it holds now doesn't matter.
 		OutCars.Add(Car);
 	}
 	return true;
@@ -586,14 +581,15 @@ void ASTSubsystem::AssignTrains()
 		Tiers.Add(static_cast<uint8>(Consumer.Priority));
 		if (Fitting[Index] == 0 && Consumer.Problem.IsEmpty())
 		{
-			// The cars it needs: one of the right kind beside each unloading platform.
-			TArray<FString> Cars;
+			// The platforms it needs a freight car beside.
+			TArray<FString> Platforms;
 			for (const FSTLoopSlot& Slot : Consumer.Slots)
 			{
-				Cars.Add(FString::Printf(TEXT("a %s car beside platform %d"), Slot.bFluid ? TEXT("fluid") : TEXT("freight"), Slot.Index + 1));
+				Platforms.Add(FString::FromInt(Slot.Index + 1));
 			}
-			Consumer.Problem = FString::Printf(TEXT("no managed train fits its pattern: it needs %s"), *FString::Join(Cars, TEXT(", ")));
-			Consumer.Cause = TEXT("no train has the right cars");
+			Consumer.Problem = FString::Printf(TEXT("no managed train on its rail network has a freight car beside platform%s %s"), Platforms.Num() > 1 ? TEXT("s") : TEXT(""),
+				*FString::Join(Platforms, TEXT(", ")));
+			Consumer.Cause = TEXT("no train has cars beside its platforms");
 		}
 		Needs.Add(Fitting[Index] > 0 ? Consumer.Need : 0.0);
 	}
