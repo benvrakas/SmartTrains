@@ -1462,7 +1462,7 @@ FSTMonitorView ASTSubsystem::MakeMonitorView() const
 		Idle += State.bHasJob ? 0 : 1;
 		FSTMonitorRow& Row = View.Trains.AddDefaulted_GetRef();
 		Row.Title = STLayout::Name(State.Train);
-		Row.Verdict = State.bHeld ? TEXT("Held") : !State.bHasJob ? TEXT("No loop") : State.Job.Kind == ESTJobKind::Loop ? TEXT("On its loop") : TEXT("Switching");
+		Row.Verdict = State.bHeld ? TEXT("Held") : State.bDepot ? TEXT("At a depot") : !State.bHasJob ? TEXT("No loop") : State.Job.Kind == ESTJobKind::Loop ? TEXT("On its loop") : TEXT("Switching");
 		Row.Severity = !State.bHasJob && !State.bHeld ? 1 : 0;
 		Row.Columns.Add(State.LoopConsumer ? STLayout::Name(State.LoopConsumer.Get()) : FString(TEXT("-")));
 		Row.Details.Add(DescribeWork(State));
@@ -1498,6 +1498,18 @@ FSTMonitorView ASTSubsystem::MakeMonitorView() const
 		Row.Columns.Add(bCounted && TotalNeed > 0.0 && Consumer.Need > 0.0 ? FString::Printf(TEXT("%.0f%%"), 100.0 * Consumer.Need / TotalNeed) : FString(TEXT("-")));
 		Row.Columns.Add(FString::Printf(TEXT("%d"), Consumer.Trains.Num()));
 		Row.Details.Add(FString::Printf(TEXT("Pattern: %s"), *FString::Join(Pattern, TEXT(" | "))));
+		for (const FSTLoopSlot& Slot : Consumer.Slots)
+		{
+			Row.Pattern.Add(Slot.Items.Num() > 0 ? TSubclassOf<UFGItemDescriptor>(Slot.Items[0].Get()) : TSubclassOf<UFGItemDescriptor>());
+		}
+		Row.Trains = Consumer.Trains.Num();
+		Row.Target = Consumer.Target;
+		Row.AtDepot = Consumer.AtDepot;
+		Row.Use = static_cast<float>(Consumer.Use);
+		if (Consumer.AtDepot > 0)
+		{
+			Row.Details.Add(FString::Printf(TEXT("%d of its trains wait at depot signals: its machines want %.0f %% of their input now"), Consumer.AtDepot, 100.0 * Consumer.Use));
+		}
 		TArray<FString> Sources;
 		for (const FSTLoopSource& Source : Consumer.Sources)
 		{
@@ -1541,6 +1553,12 @@ FSTMonitorView ASTSubsystem::MakeMonitorView() const
 	Tile(TEXT("on their loop"), Looping, 0);
 	Tile(TEXT("switching patterns"), Switching, 0);
 	Tile(TEXT("without a loop"), Idle, Idle > 0 ? 1 : 0);
+	int32 AtDepots = 0;
+	for (const FSTTrainState& State : mTrains)
+	{
+		AtDepots += State.bManaged && State.bDepot ? 1 : 0;
+	}
+	Tile(TEXT("at depot signals"), AtDepots, 0);
 	Tile(TEXT("consumers"), mConsumers.Num(), 0);
 	Tile(TEXT("unserved consumers"), Unserved, Unserved > 0 ? 2 : 0);
 	View.Summary.Add(FString::Printf(TEXT("%d managed trains: %d on their loop, %d switching patterns, %d without a loop"), Managed, Looping, Switching, Idle));
@@ -1640,4 +1658,91 @@ TArray<FString> ASTSubsystem::DescribePatterns() const
 		Lines.Add(TEXT("No consumers yet: give a station's unloading platforms the Demand role."));
 	}
 	return Lines;
+}
+
+//~ Train readout layout
+
+float ASTSubsystem::SecondsToStop(const FSTTrainState& State) const
+{
+	const FSTJob& Job = State.Job;
+	const AFGTrainStationIdentifier* Next = State.bHasJob && Job.Legs.IsValidIndex(Job.Leg) ? Job.Legs[Job.Leg].Station.Get() : nullptr;
+	if (!Next || !IsValid(State.Train))
+	{
+		return -1.f;
+	}
+	if (State.Train->IsDocked() && State.DockedStation.Get() == Next)
+	{
+		return 0.f;
+	}
+	const float Travel = State.LastStation ? EstimateTravelSeconds(State.LastStation.Get(), Next, IsPushPull(State.Train)) : -1.f;
+	return Travel < 0.f ? -1.f : FMath::Max(0.f, Travel - static_cast<float>(Now() - State.LastDepartureAt));
+}
+
+void ASTSubsystem::FillTrainLayout(const FSTTrainState* State, FSTTrainView& View) const
+{
+	if (!State || !State->bManaged)
+	{
+		View.State = 0;
+		return;
+	}
+	View.State = State->bHeld ? 3 : State->bDepot ? 5 : !State->bHasJob ? 4 : State->Job.Kind == ESTJobKind::Loop ? 1 : 2;
+	const FSTConsumer* Consumer = FindConsumer(State->LoopConsumer.Get());
+	if (Consumer)
+	{
+		View.Consumer = STLayout::Name(Consumer->Station.Get());
+		View.PatternTrains = Consumer->Trains.Num();
+		View.PatternTarget = Consumer->Target;
+		View.PatternAtDepot = Consumer->AtDepot;
+		View.Rate = static_cast<float>(Consumer->Rate);
+		View.RoundTrip = static_cast<float>(Consumer->RoundTrip);
+		View.Use = static_cast<float>(Consumer->Use);
+	}
+	AFGTrain* Train = State->Train;
+	const bool bDocked = IsValid(Train) && Train->IsDocked();
+	const FSTJob& Job = State->Job;
+	const FSTJobLeg* Here = State->bHasJob && Job.Legs.IsValidIndex(Job.Leg) ? &Job.Legs[Job.Leg] : nullptr;
+	// The cars of its pattern in train order: the item each delivers on its loop (or carries).
+	for (AFGFreightWagon* Car : GetCars(Train))
+	{
+		UClass* Item = nullptr;
+		if (State->bHasJob && Job.Legs.Num() > 0)
+		{
+			for (const FSTCarWork& Work : Job.Legs.Last().Work)
+			{
+				Item = Work.Car == Car ? Work.Item.Get() : Item;
+			}
+		}
+		if (!Item)
+		{
+			for (const TPair<UClass*, int32>& Held : GetCarCargo(Car))
+			{
+				Item = Held.Key;
+			}
+		}
+		if (!Item)
+		{
+			continue;
+		}
+		FSTCarView& Each = View.Cars.AddDefaulted_GetRef();
+		Each.Item = Item;
+		Each.Amount = CountInCar(Car, Item);
+		Each.Capacity = static_cast<int32>(STLayout::GetCarCapacity(Car, Item));
+		Each.bFluid = STLayout::GetCargoType(Car) == EFreightCargoType::FCT_Liquid;
+		Each.bActive = bDocked && Here && State->DockedStation.Get() == Here->Station.Get()
+			&& Here->Work.ContainsByPredicate([Car](const FSTCarWork& Work) { return Work.Car == Car; });
+	}
+	for (int32 Leg = 0; State->bHasJob && Leg < Job.Legs.Num(); ++Leg)
+	{
+		const FSTJobLeg& Each = Job.Legs[Leg];
+		FSTStopView& Stop = View.Stops.AddDefaulted_GetRef();
+		Stop.Station = STLayout::Name(Each.Station.Get());
+		Stop.Kind = Each.GetItems(true).Num() > 0 ? 0 : Each.GetItems(false).Num() > 0 ? 1 : 2;
+		for (UClass* Item : Each.GetItems(Stop.Kind == 0))
+		{
+			Stop.Items.Add(Item);
+		}
+		Stop.bCurrent = Leg == Job.Leg;
+		Stop.bDocked = Stop.bCurrent && bDocked && State->DockedStation.Get() == Each.Station.Get();
+	}
+	View.NextSeconds = SecondsToStop(*State);
 }

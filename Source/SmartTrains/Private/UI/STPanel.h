@@ -6,8 +6,13 @@
 #include "Styling/SlateColor.h"
 #include "STPanel.generated.h"
 
+class UBorder;
+class UHorizontalBox;
+class UImage;
 class UPanelWidget;
+class USTBar;
 class USTButton;
+class USTLogo;
 class USTRemoteCallObject;
 class USTRow;
 class USTTextInput;
@@ -68,6 +73,54 @@ protected:
 	// Shows Lines in Text, one per line.
 	static void SetLines(UTextBlock* Text, const TArray<FString>& Lines);
 
+	//~ The SmartTrains look (UI/STStyle.h).
+	// A box with rounded corners in Color holding a vertical box (returned), Padding inside it.
+	UVerticalBox* MakeCard(UPanelWidget* Parent, const FLinearColor& Color, const FMargin& Padding = FMargin(8.f), const FMargin& Spacing = FMargin(0.f, 3.f),
+		UBorder** OutBorder = nullptr);
+	UVerticalBox* MakeVBox(UPanelWidget* Parent, const FMargin& Spacing = FMargin(0.f));
+	UHorizontalBox* MakeHBox(UPanelWidget* Parent, const FMargin& Spacing = FMargin(0.f));
+	// A small muted caps label over a section ("PATTERN").
+	UTextBlock* MakeLabel(UPanelWidget* Parent, const FText& Text, const FMargin& Spacing = FMargin(0.f, 6.f, 0.f, 3.f));
+	// A text in Color (kept when the panel copies the menu's font), bold or not.
+	UTextBlock* MakeTinted(UPanelWidget* Parent, const FText& Text, int32 Size, const FLinearColor& Color, bool bBold = false, bool bWrap = true,
+		const FMargin& Spacing = FMargin(0.f));
+	// Recolours a text made by the panel, keeping that colour from then on.
+	void Tint(UTextBlock* Text, const FLinearColor& Color);
+
+	// A pill with a dark text on a colour (a state).
+	struct FBadge
+	{
+		UBorder* Box = nullptr;
+		UTextBlock* Text = nullptr;
+	};
+	FBadge MakeBadge(UPanelWidget* Parent, const FMargin& Spacing = FMargin(0.f));
+	static void SetBadge(const FBadge& Badge, const FText& Text, const FLinearColor& Color);
+
+	// A tile with a big value over a muted label.
+	struct FStat
+	{
+		UTextBlock* Value = nullptr;
+		UTextBlock* Label = nullptr;
+	};
+	FStat MakeStat(UPanelWidget* Parent, const FText& Label, const FMargin& Spacing = FMargin(0.f));
+
+	// A fill bar Height tall that fills its slot's width.
+	USTBar* MakeBar(UPanelWidget* Parent, float Height = 6.f, const FMargin& Spacing = FMargin(0.f, 3.f));
+	USTLogo* MakeLogo(UPanelWidget* Parent, float Size);
+	// An item icon Size square; SetIcon fills it (nothing shown for no item).
+	UImage* MakeIcon(UPanelWidget* Parent, float Size, const FMargin& Spacing = FMargin(0.f));
+	static void SetIcon(UImage* Image, UClass* Item);
+	// The panel's title bar: the logo, "SMARTTRAINS" and Title; returns the bar so a caller can add to its right.
+	UHorizontalBox* MakeTitleBar(UPanelWidget* Parent, const FText& Title, float LogoSize = 22.f);
+
+	// Slot settings for a child of a vertical, horizontal, scroll or wrap box.
+	static void SetSlotPadding(UWidget* Child, const FMargin& Padding);
+	// Lets Child take Fill of the box's spare room (horizontal or vertical box), else size to its content.
+	static void SetFill(UWidget* Child, float Fill = 1.f);
+	static void SetVAlignCenter(UWidget* Child);
+
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
 	// Shows the server's last message for a few seconds, red if it is an error.
 	virtual void ShowServerMessage(USTRemoteCallObject* RCO);
 
@@ -75,7 +128,7 @@ protected:
 	void RefreshSoon();
 
 	// Font and colour for texts made outside MakeText (rows), at Size.
-	FSlateFontInfo GetFont(int32 Size) const;
+	FSlateFontInfo GetFont(int32 Size, bool bBold = false) const;
 	FSlateColor GetTextColor() const { return mTextColor; }
 
 	UPROPERTY()
@@ -94,6 +147,9 @@ private:
 	{
 		TWeakObjectPtr<UTextBlock> Text;
 		int32 Size = 11;
+		bool bBold = false;
+		bool bOwnColor = false;
+		FLinearColor Color = FLinearColor::White;
 	};
 	TArray<FStyledText> mStyled;
 	FSlateFontInfo mFont;
@@ -106,4 +162,6 @@ private:
 	uint32 mShownRevision = MAX_uint32;
 	bool bActive = false;
 	bool bWarnedNoRCO = false;
+	// Time since shown, for the fade-in. [s]
+	float mShownFor = 0.f;
 };

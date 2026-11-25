@@ -2,11 +2,101 @@
 
 #include "CoreMinimal.h"
 #include "STTypes.h"
+#include "Resources/FGItemDescriptor.h"
 #include "STViews.generated.h"
 
 class AFGBuildableTrainPlatformCargo;
 class AFGTrain;
 class AFGTrainStationIdentifier;
+
+// One car of a train's pattern, as the UI draws it: its item, what it holds of it and how much fits.
+USTRUCT()
+struct SMARTTRAINS_API FSTCarView
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TSubclassOf<UFGItemDescriptor> Item;
+
+	UPROPERTY()
+	int32 Amount = 0;
+
+	UPROPERTY()
+	int32 Capacity = 0;
+
+	UPROPERTY()
+	bool bFluid = false;
+
+	// Its cargo moves now (docked where it loads or unloads).
+	UPROPERTY()
+	bool bActive = false;
+};
+
+// One stop of a train's loop.
+USTRUCT()
+struct SMARTTRAINS_API FSTStopView
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FString Station;
+
+	// 0 picks up, 1 delivers, 2 drives there.
+	UPROPERTY()
+	uint8 Kind = 0;
+
+	UPROPERTY()
+	TArray<TSubclassOf<UFGItemDescriptor>> Items;
+
+	UPROPERTY()
+	bool bCurrent = false;
+
+	UPROPERTY()
+	bool bDocked = false;
+};
+
+// One platform of a station, in order from the station.
+USTRUCT()
+struct SMARTTRAINS_API FSTPlatformChip
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	int32 Index = 0;
+
+	UPROPERTY()
+	ESTRole Role = ESTRole::Off;
+
+	UPROPERTY()
+	TArray<TSubclassOf<UFGItemDescriptor>> Items;
+
+	UPROPERTY()
+	bool bFluid = false;
+};
+
+// Where a consumer's item comes from, or what a supplier station offers of one item.
+USTRUCT()
+struct SMARTTRAINS_API FSTSourceView
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FString Station;
+
+	UPROPERTY()
+	TSubclassOf<UFGItemDescriptor> Item;
+
+	// Travel from there to the consumer, -1 if not known. [s]
+	UPROPERTY()
+	float Seconds = -1.f;
+
+	// A supplier's most rate, -1 if not known, and what loops take of it. [car loads/min]
+	UPROPERTY()
+	float Rate = -1.f;
+
+	UPROPERTY()
+	float Taken = 0.f;
+};
 
 // What the server sends a player's menu about one platform (Docs/Architecture.md, "UI").
 USTRUCT()
@@ -46,6 +136,21 @@ struct SMARTTRAINS_API FSTPlatformView
 
 	UPROPERTY()
 	bool bFcc = false;
+
+	// Its item's most rate here (supplied, or used by the consumer), -1 if not known. [per minute]
+	UPROPERTY()
+	float RatePerMinute = -1.f;
+
+	// Loops taking from it (Supply) or trains on its station's loop (Demand).
+	UPROPERTY()
+	int32 Loops = 0;
+
+	// The next train to work here, empty if none, and its arrival, -1 if not known (0 docked). [s]
+	UPROPERTY()
+	FString NextTrain;
+
+	UPROPERTY()
+	float NextSeconds = -1.f;
 
 	// Last edit number of this player the server had applied when it made the view.
 	UPROPERTY()
@@ -103,6 +208,44 @@ struct SMARTTRAINS_API FSTTrainView
 	UPROPERTY()
 	TArray<FString> Lines;
 
+	// 0 not managed, 1 on its loop, 2 switching patterns, 3 held, 4 no loop, 5 at or heading to a depot signal.
+	UPROPERTY()
+	uint8 State = 0;
+
+	// Its consumer, empty without one.
+	UPROPERTY()
+	FString Consumer;
+
+	UPROPERTY()
+	TArray<FSTCarView> Cars;
+
+	UPROPERTY()
+	TArray<FSTStopView> Stops;
+
+	// Its consumer's loop: trains on it, the share it should have, how many wait at a depot signal now.
+	UPROPERTY()
+	int32 PatternTrains = 0;
+
+	UPROPERTY()
+	int32 PatternTarget = 0;
+
+	UPROPERTY()
+	int32 PatternAtDepot = 0;
+
+	// Its consumer's most rate [car loads/min], the loop's round trip [s] and the share of its machines that want input.
+	UPROPERTY()
+	float Rate = 0.f;
+
+	UPROPERTY()
+	float RoundTrip = 0.f;
+
+	UPROPERTY()
+	float Use = 1.f;
+
+	// Until it gets to its current stop, -1 if not known, 0 docked there. [s]
+	UPROPERTY()
+	float NextSeconds = -1.f;
+
 	UPROPERTY()
 	int32 AppliedEdit = 0;
 };
@@ -135,6 +278,44 @@ struct SMARTTRAINS_API FSTStationView
 
 	UPROPERTY()
 	bool bBetaTools = false;
+
+	UPROPERTY()
+	TArray<FSTPlatformChip> Platforms;
+
+	// It is a consumer (its loop's numbers below), and a supplier (Supplies).
+	UPROPERTY()
+	bool bConsumer = false;
+
+	UPROPERTY()
+	float Rate = 0.f;
+
+	UPROPERTY()
+	float RoundTrip = 0.f;
+
+	// Its share of all managed trains' need, -1 if it has none. [0..1]
+	UPROPERTY()
+	float Share = -1.f;
+
+	UPROPERTY()
+	float Use = 1.f;
+
+	UPROPERTY()
+	int32 Trains = 0;
+
+	UPROPERTY()
+	int32 Target = 0;
+
+	UPROPERTY()
+	int32 AtDepot = 0;
+
+	UPROPERTY()
+	FString Problem;
+
+	UPROPERTY()
+	TArray<FSTSourceView> Suppliers;
+
+	UPROPERTY()
+	TArray<FSTSourceView> Supplies;
 
 	UPROPERTY()
 	int32 AppliedEdit = 0;
@@ -314,6 +495,22 @@ struct SMARTTRAINS_API FSTMonitorRow
 
 	UPROPERTY()
 	TArray<FString> Details;
+
+	// Consumers: their pattern (one item per slot), trains, target, how many wait at a depot signal and their use.
+	UPROPERTY()
+	TArray<TSubclassOf<UFGItemDescriptor>> Pattern;
+
+	UPROPERTY()
+	int32 Trains = 0;
+
+	UPROPERTY()
+	int32 Target = 0;
+
+	UPROPERTY()
+	int32 AtDepot = 0;
+
+	UPROPERTY()
+	float Use = 1.f;
 };
 
 // The monitor's content ("/st monitor"): the loop plan as last worked out.

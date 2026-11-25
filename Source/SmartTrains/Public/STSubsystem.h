@@ -126,6 +126,10 @@ public:
 	//~ Readouts for the menus (sent through USTRemoteCallObject). AppliedEdit is echoed for the receiving player.
 	FSTPlatformView MakePlatformView(const AFGBuildableTrainPlatformCargo* Platform, int32 AppliedEdit) const;
 	FSTTrainView MakeTrainView(const AFGTrain* Train, int32 AppliedEdit) const;
+	// The train view's cars, stops, state and its consumer's loop numbers (UI).
+	void FillTrainLayout(const FSTTrainState* State, FSTTrainView& View) const;
+	// Seconds until State's train gets to its current stop: 0 docked there, -1 if not known.
+	float SecondsToStop(const FSTTrainState& State) const;
 	FSTStationView MakeStationView(const AFGTrainStationIdentifier* Station, int32 AppliedEdit) const;
 
 	//~ Readouts for chat and the migration report.

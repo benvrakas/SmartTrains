@@ -7,6 +7,8 @@
 #include "SmartTrains.h"
 #include "STLayout.h"
 #include "STSubsystem.h"
+#include "FGFreightWagon.h"
+#include "Buildables/FGBuildableTrainPlatform.h"
 
 int32 ASTSubsystem::CopyPlatformToStation(AFGBuildableTrainPlatformCargo* Platform, const FString& Cause, FString& OutResult)
 {
@@ -86,6 +88,28 @@ FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCa
 	{
 		return View;
 	}
+	// Its first item's most rate here, from the station's last factory scan (fluids in m3 like the game's menus).
+	UClass* First = Config->Items.Num() > 0 ? Config->Items[0].Item.Get() : nullptr;
+	if (const FStationRates* Rates = First && Identifier ? mStationRates.Find(const_cast<AFGTrainStationIdentifier*>(Identifier)) : nullptr)
+	{
+		const double* Rate = (Config->Role == ESTRole::Supply ? Rates->Out : Rates->In).Find(First);
+		View.RatePerMinute = Rate ? static_cast<float>(*Rate / (STNames::IsFluid(First) ? 1000.0 : 1.0)) : -1.f;
+	}
+	if (Config->Role == ESTRole::Demand)
+	{
+		View.Loops = Consumer ? Consumer->Trains.Num() : 0;
+	}
+	else if (Config->Role == ESTRole::Supply)
+	{
+		for (const FSTConsumer& Each : mConsumers)
+		{
+			const bool bTakes = Each.Sources.ContainsByPredicate([&](const FSTLoopSource& Source)
+			{
+				return mSuppliers.IsValidIndex(Source.Supplier) && mSuppliers[Source.Supplier].Station.Get() == Identifier && Source.Item.Get() == First;
+			});
+			View.Loops += bTakes ? 1 : 0;
+		}
+	}
 	if (Config->Role == ESTRole::Demand)
 	{
 		if (!Consumer)
@@ -113,6 +137,12 @@ FSTPlatformView ASTSubsystem::MakePlatformView(const AFGBuildableTrainPlatformCa
 			{
 				View.Lines.Add(FString::Printf(TEXT("Next: %s, %s %s %s"), *STLayout::Name(State.Train), *STLayout::DescribeVehicle(State.Train, Work.Car),
 					Work.bLoad ? TEXT("loads") : TEXT("unloads"), *STNames::Item(Work.Item)));
+				const float Seconds = SecondsToStop(State);
+				if (View.NextTrain.IsEmpty() || (Seconds >= 0.f && (View.NextSeconds < 0.f || Seconds < View.NextSeconds)))
+				{
+					View.NextTrain = STLayout::Name(State.Train);
+					View.NextSeconds = Seconds;
+				}
 			}
 		}
 	}
@@ -170,6 +200,7 @@ FSTTrainView ASTSubsystem::MakeTrainView(const AFGTrain* Train, int32 AppliedEdi
 	{
 		View.Lines.Add(FString::Printf(TEXT("Carries %s %s"), *STNames::Amount(Pair.Key, Pair.Value), *STNames::Item(Pair.Key)));
 	}
+	FillTrainLayout(State, View);
 	return View;
 }
 
@@ -198,6 +229,71 @@ FSTStationView ASTSubsystem::MakeStationView(const AFGTrainStationIdentifier* St
 	for (const FString& Line : DescribeStatus())
 	{
 		View.NetworkLines.Add(Line.TrimStart());
+	}
+	const AFGBuildableRailroadStation* Building = Station ? Station->GetStation() : nullptr;
+	const TArray<AFGBuildableTrainPlatform*> Platforms = STLayout::GetPlatforms(Building);
+	for (int32 Index = 0; Index < Platforms.Num(); ++Index)
+	{
+		const AFGBuildableTrainPlatformCargo* Cargo = Cast<AFGBuildableTrainPlatformCargo>(Platforms[Index]);
+		if (!Cargo)
+		{
+			continue;
+		}
+		FSTPlatformChip& Chip = View.Platforms.AddDefaulted_GetRef();
+		Chip.Index = Index;
+		Chip.bFluid = STLayout::GetPlatformCargoType(Cargo) == EFreightCargoType::FCT_Liquid;
+		if (const FSTPlatformConfig* Config = FindPlatformConfig(Cargo))
+		{
+			Chip.Role = Config->Role;
+			for (const FSTItemRule& Rule : Config->Items)
+			{
+				if (Rule.Item)
+				{
+					Chip.Items.Add(Rule.Item);
+				}
+			}
+		}
+	}
+	double TotalNeed = 0.0;
+	for (const FSTConsumer& Each : mConsumers)
+	{
+		TotalNeed += Each.Trains.Num() > 0 || Each.Target > 0 ? Each.Need : 0.0;
+	}
+	if (const FSTConsumer* Consumer = FindConsumer(Station))
+	{
+		View.bConsumer = true;
+		View.Rate = static_cast<float>(Consumer->Rate);
+		View.RoundTrip = static_cast<float>(Consumer->RoundTrip);
+		View.Share = TotalNeed > 0.0 && (Consumer->Trains.Num() > 0 || Consumer->Target > 0) ? static_cast<float>(Consumer->Need / TotalNeed) : -1.f;
+		View.Use = static_cast<float>(Consumer->Use);
+		View.Trains = Consumer->Trains.Num();
+		View.Target = Consumer->Target;
+		View.AtDepot = Consumer->AtDepot;
+		View.Problem = Consumer->Problem;
+		for (const FSTLoopSource& Source : Consumer->Sources)
+		{
+			if (!mSuppliers.IsValidIndex(Source.Supplier))
+			{
+				continue;
+			}
+			FSTSourceView& Each = View.Suppliers.AddDefaulted_GetRef();
+			Each.Station = STLayout::Name(mSuppliers[Source.Supplier].Station.Get());
+			Each.Item = Source.Item.Get();
+			Each.Seconds = EstimateTravelSeconds(mSuppliers[Source.Supplier].Station.Get(), Station);
+			Each.Rate = static_cast<float>(mSuppliers[Source.Supplier].Rate);
+			Each.Taken = static_cast<float>(Source.Taken);
+		}
+	}
+	for (const FSTSupplier& Supplier : mSuppliers)
+	{
+		if (Supplier.Station.Get() == Station)
+		{
+			FSTSourceView& Each = View.Supplies.AddDefaulted_GetRef();
+			Each.Station = STLayout::Name(Station);
+			Each.Item = Supplier.Item.Get();
+			Each.Rate = static_cast<float>(Supplier.Rate);
+			Each.Taken = static_cast<float>(Supplier.Taken);
+		}
 	}
 	return View;
 }
