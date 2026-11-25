@@ -129,4 +129,9 @@ void USTRideHud::Refresh(USTRemoteCallObject* RCO)
 	ShowTrain(*View);
 }
 
+void USTRideHud::SetTrain(AFGTrain* InTrain)
+{
+	mTrain = InTrain;
+}
+
 #undef LOCTEXT_NAMESPACE
