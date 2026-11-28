@@ -35,6 +35,10 @@ namespace STStationTab
 	// page has its size), and logs them.
 	void UpdateOffsets(const FParts& Parts);
 
+	// Logs every widget from Root down to the pages' own children: visibility, opacity, render transform, clipping,
+	// desired size and laid-out size and position (which part of the menu doesn't draw). When says what happened.
+	void LogRender(const UWidget* Root, const FParts& Parts, const TCHAR* When);
+
 	// Logs what the sliding tabs slide by: the active page, each page's size and visibility, the offsets, the strip's
 	// position and width. When says what happened.
 	void LogState(const FParts& Parts, const TCHAR* When);

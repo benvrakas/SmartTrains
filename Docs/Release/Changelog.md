@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.55.5 (beta)
+
+- **The station menu still shows the world through it with the SmartTrains tab added.** This build doesn't fix it
+  yet: it logs the whole menu, piece by piece, each time a tab is opened, to find the part that doesn't draw.
+  0.55.4's change is taken out again (the pages were never see-through themselves).
+
 ## 0.55.4 (beta)
 
 - **Fixed: the station menu showed the world through it** from the moment it opened, on the Train Station tab too.

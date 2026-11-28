@@ -151,6 +151,35 @@ namespace
 		return Width;
 	}
 
+	// One widget's line for LogRender and its children, down to the pages' children.
+	void LogRenderTree(const UWidget* Widget, const UPanelWidget* Pages, int32 Depth, int32 BelowPages)
+	{
+		if (!Widget || Depth > 60 || BelowPages > 1)
+		{
+			return;
+		}
+		const FWidgetTransform& Transform = Widget->GetRenderTransform();
+		const bool bMoved = !Transform.Translation.IsNearlyZero() || !Transform.Scale.Equals(FVector2D(1.0, 1.0)) || Transform.Angle != 0.f || !Transform.Shear.IsNearlyZero();
+		const FGeometry& Geometry = Widget->GetCachedGeometry();
+		UE_LOG(LogSmartTrains, Log, TEXT("Station render %s%s %s op %.2f%s%s desired %s laid %s at %s"), *FString::ChrN(Depth * 2, TEXT(' ')), *Describe(Widget),
+			*StaticEnum<ESlateVisibility>()->GetNameStringByValue(static_cast<int64>(Widget->GetVisibility())), Widget->GetRenderOpacity(),
+			bMoved ? *FString::Printf(TEXT(" moved %s scaled %s turned %.0f"), *Transform.Translation.ToString(), *Transform.Scale.ToString(), Transform.Angle) : TEXT(""),
+			Widget->GetClipping() != EWidgetClipping::Inherit ? *FString::Printf(TEXT(" clip %d"), static_cast<int32>(Widget->GetClipping())) : TEXT(""),
+			*Widget->GetDesiredSize().ToString(), *Geometry.GetLocalSize().ToString(), *Geometry.GetAbsolutePosition().ToString());
+		const int32 Next = BelowPages > 0 || Widget == Pages ? BelowPages + 1 : 0;
+		if (const UPanelWidget* Panel = Cast<UPanelWidget>(Widget))
+		{
+			for (int32 Index = 0; Index < Panel->GetChildrenCount(); ++Index)
+			{
+				LogRenderTree(Panel->GetChildAt(Index), Pages, Depth + 1, Next);
+			}
+		}
+		else if (const UUserWidget* User = Cast<UUserWidget>(Widget); User && User->WidgetTree)
+		{
+			LogRenderTree(User->WidgetTree->RootWidget, Pages, Depth + 1, Next);
+		}
+	}
+
 	FString ExportProperty(const FProperty* Property, const void* Value)
 	{
 		FString Text;
@@ -281,20 +310,12 @@ void STStationTab::UpdateOffsets(const FParts& Parts)
 			*IndexOffsetProperty.ToString());
 	}
 	LogState(Parts, bSet ? TEXT("page offsets set") : TEXT("page offsets set (the tabs' own pass not found)"));
+}
 
-	// Remaking the buttons selects the open page again with a fade, out of it and into it at once; it ends faded out and
-	// the window shows nothing. The open page, the strip and the tabs are made fully opaque again.
-	const FIntProperty* Active = FindFProperty<FIntProperty>(Parts.Tabs->GetClass(), ActiveIndexProperty);
-	UWidget* Open = Active && Parts.Pages ? Parts.Pages->GetChildAt(Active->GetPropertyValue_InContainer(Parts.Tabs)) : nullptr;
-	UWidget* Strip = Cast<UWidget>(STWidgetUtils::GetObjectProperty(Parts.Tabs, TEXT("mContentScaleBox")));
-	for (UWidget* Each : {static_cast<UWidget*>(Parts.Tabs), Strip, static_cast<UWidget*>(Parts.Pages), Open})
-	{
-		if (Each && Each->GetRenderOpacity() < 0.999f)
-		{
-			UE_LOG(LogSmartTrains, Log, TEXT("Station tab: %s was %.2f opaque; made fully opaque"), *Describe(Each), Each->GetRenderOpacity());
-			Each->SetRenderOpacity(1.f);
-		}
-	}
+void STStationTab::LogRender(const UWidget* Root, const FParts& Parts, const TCHAR* When)
+{
+	UE_LOG(LogSmartTrains, Log, TEXT("Station render: %s"), When);
+	LogRenderTree(Root, Parts.Pages, 0, 0);
 }
 
 void STStationTab::LogState(const FParts& Parts, const TCHAR* When)

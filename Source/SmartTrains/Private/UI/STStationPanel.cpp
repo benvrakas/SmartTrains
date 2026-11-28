@@ -34,9 +34,8 @@ namespace
 	// Width of the SmartTrains tab's page in the station menu, as wide as the Timetable page (its list and map), so the
 	// window keeps room for three tab buttons. [slate units]
 	constexpr float StationTabPageWidth = 900.f;
-	// Wait before the tabs work out their page positions again, so the new page has its size and the tabs' switch to the
-	// open page (started by remaking the buttons) is done. [s]
-	constexpr float StationTabOffsetDelay = 0.6f;
+	// Wait before the tabs work out their page positions again, so the new page has its size. [s]
+	constexpr float StationTabOffsetDelay = 0.3f;
 }
 
 namespace
@@ -473,6 +472,8 @@ void USTStationSetupBar::OnStationTabChanged(UWidget* PreviouslyActiveWidget, UW
 		World->GetTimerManager().SetTimer(mTabLogTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
 		{
 			STStationTab::LogState(mTabParts, TEXT("tab slid"));
+			const UUserWidget* Menu = GetMenu();
+			STStationTab::LogRender(Menu && Menu->WidgetTree ? Menu->WidgetTree->RootWidget : nullptr, mTabParts, TEXT("tab slid"));
 		}), 1.0f, false);
 	}
 }
