@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.55.4 (beta)
+
+- **Fixed: the station menu showed the world through it** from the moment it opened, on the Train Station tab too.
+  Adding the SmartTrains tab makes the menu select its open page again with a fade, out of the page and into it at
+  the same time, and the page ended faded out. The open page is now made fully visible again once the tab is added.
+  0.55.3's page positions stay: they were wrong as well, for the SmartTrains tab itself.
+
 ## 0.55.3 (beta)
 
 - **Fixed: the SmartTrains tab of the station menu showed an empty window.** The menu places its pages side by side

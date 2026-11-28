@@ -281,6 +281,20 @@ void STStationTab::UpdateOffsets(const FParts& Parts)
 			*IndexOffsetProperty.ToString());
 	}
 	LogState(Parts, bSet ? TEXT("page offsets set") : TEXT("page offsets set (the tabs' own pass not found)"));
+
+	// Remaking the buttons selects the open page again with a fade, out of it and into it at once; it ends faded out and
+	// the window shows nothing. The open page, the strip and the tabs are made fully opaque again.
+	const FIntProperty* Active = FindFProperty<FIntProperty>(Parts.Tabs->GetClass(), ActiveIndexProperty);
+	UWidget* Open = Active && Parts.Pages ? Parts.Pages->GetChildAt(Active->GetPropertyValue_InContainer(Parts.Tabs)) : nullptr;
+	UWidget* Strip = Cast<UWidget>(STWidgetUtils::GetObjectProperty(Parts.Tabs, TEXT("mContentScaleBox")));
+	for (UWidget* Each : {static_cast<UWidget*>(Parts.Tabs), Strip, static_cast<UWidget*>(Parts.Pages), Open})
+	{
+		if (Each && Each->GetRenderOpacity() < 0.999f)
+		{
+			UE_LOG(LogSmartTrains, Log, TEXT("Station tab: %s was %.2f opaque; made fully opaque"), *Describe(Each), Each->GetRenderOpacity());
+			Each->SetRenderOpacity(1.f);
+		}
+	}
 }
 
 void STStationTab::LogState(const FParts& Parts, const TCHAR* When)
@@ -293,15 +307,15 @@ void STStationTab::LogState(const FParts& Parts, const TCHAR* When)
 	for (int32 Index = 0; Parts.Pages && Index < Parts.Pages->GetChildrenCount(); ++Index)
 	{
 		const UWidget* Page = Parts.Pages->GetChildAt(Index);
-		Sizes += FString::Printf(TEXT(" [%d %s, shown %.0f wide, %s]"), Index, Page ? *Page->GetDesiredSize().ToString() : TEXT("-"), ShownWidth(Page),
-			Page ? *StaticEnum<ESlateVisibility>()->GetNameStringByValue(static_cast<int64>(Page->GetVisibility())) : TEXT("-"));
+		Sizes += FString::Printf(TEXT(" [%d %s, shown %.0f wide, %s, opacity %.2f]"), Index, Page ? *Page->GetDesiredSize().ToString() : TEXT("-"), ShownWidth(Page),
+			Page ? *StaticEnum<ESlateVisibility>()->GetNameStringByValue(static_cast<int64>(Page->GetVisibility())) : TEXT("-"), Page ? Page->GetRenderOpacity() : 0.f);
 	}
 	FString Strip;
 	if (const UWidget* Scale = Cast<UWidget>(STWidgetUtils::GetObjectProperty(Parts.Tabs, TEXT("mContentScaleBox"))))
 	{
 		if (const UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(Scale->Slot))
 		{
-			Strip += FString::Printf(TEXT(" at %s"), *Slot->GetPosition().ToString());
+			Strip += FString::Printf(TEXT(" at %s, opacity %.2f (tabs %.2f)"), *Slot->GetPosition().ToString(), Scale->GetRenderOpacity(), Parts.Tabs->GetRenderOpacity());
 		}
 	}
 	if (const USizeBox* Box = Cast<USizeBox>(STWidgetUtils::GetObjectProperty(Parts.Tabs, TEXT("mSizeBox"))))

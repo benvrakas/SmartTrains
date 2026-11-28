@@ -34,8 +34,9 @@ namespace
 	// Width of the SmartTrains tab's page in the station menu, as wide as the Timetable page (its list and map), so the
 	// window keeps room for three tab buttons. [slate units]
 	constexpr float StationTabPageWidth = 900.f;
-	// Wait before the tabs work out their page positions again, so the new page has its size. [s]
-	constexpr float StationTabOffsetDelay = 0.3f;
+	// Wait before the tabs work out their page positions again, so the new page has its size and the tabs' switch to the
+	// open page (started by remaking the buttons) is done. [s]
+	constexpr float StationTabOffsetDelay = 0.6f;
 }
 
 namespace
