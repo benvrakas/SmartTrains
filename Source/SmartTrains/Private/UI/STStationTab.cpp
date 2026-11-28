@@ -3,6 +3,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/ScaleBox.h"
 #include "Components/SizeBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/OverlaySlot.h"
@@ -154,18 +155,19 @@ namespace
 	// One widget's line for LogRender and its children, down to the pages' children.
 	void LogRenderTree(const UWidget* Widget, const UPanelWidget* Pages, int32 Depth, int32 BelowPages)
 	{
-		if (!Widget || Depth > 60 || BelowPages > 1)
+		// The header and the hint bar are left out: they draw.
+		if (!Widget || Depth > 60 || BelowPages > 2 || Widget->GetFName() == TEXT("CanvasPanel_1") || Widget->GetFName() == TEXT("mGamepadHintSizeBox"))
 		{
 			return;
 		}
 		const FWidgetTransform& Transform = Widget->GetRenderTransform();
 		const bool bMoved = !Transform.Translation.IsNearlyZero() || !Transform.Scale.Equals(FVector2D(1.0, 1.0)) || Transform.Angle != 0.f || !Transform.Shear.IsNearlyZero();
 		const FGeometry& Geometry = Widget->GetCachedGeometry();
-		UE_LOG(LogSmartTrains, Log, TEXT("Station render %s%s %s op %.2f%s%s desired %s laid %s at %s"), *FString::ChrN(Depth * 2, TEXT(' ')), *Describe(Widget),
+		UE_LOG(LogSmartTrains, Log, TEXT("Station render %s%s %s op %.2f%s%s desired %s laid %s at %s drawn %s"), *FString::ChrN(Depth * 2, TEXT(' ')), *Describe(Widget),
 			*StaticEnum<ESlateVisibility>()->GetNameStringByValue(static_cast<int64>(Widget->GetVisibility())), Widget->GetRenderOpacity(),
 			bMoved ? *FString::Printf(TEXT(" moved %s scaled %s turned %.0f"), *Transform.Translation.ToString(), *Transform.Scale.ToString(), Transform.Angle) : TEXT(""),
 			Widget->GetClipping() != EWidgetClipping::Inherit ? *FString::Printf(TEXT(" clip %d"), static_cast<int32>(Widget->GetClipping())) : TEXT(""),
-			*Widget->GetDesiredSize().ToString(), *Geometry.GetLocalSize().ToString(), *Geometry.GetAbsolutePosition().ToString());
+			*Widget->GetDesiredSize().ToString(), *Geometry.GetLocalSize().ToString(), *Geometry.GetAbsolutePosition().ToString(), *Geometry.GetAbsoluteSize().ToString());
 		const int32 Next = BelowPages > 0 || Widget == Pages ? BelowPages + 1 : 0;
 		if (const UPanelWidget* Panel = Cast<UPanelWidget>(Widget))
 		{
@@ -316,6 +318,42 @@ void STStationTab::LogRender(const UWidget* Root, const FParts& Parts, const TCH
 {
 	UE_LOG(LogSmartTrains, Log, TEXT("Station render: %s"), When);
 	LogRenderTree(Root, Parts.Pages, 0, 0);
+	if (const UScaleBox* Scale = Cast<UScaleBox>(STWidgetUtils::GetObjectProperty(Parts.Tabs, TEXT("mContentScaleBox"))))
+	{
+		UE_LOG(LogSmartTrains, Log, TEXT("Station render: strip scale box stretch %d, direction %d, user scale %.2f"), static_cast<int32>(Scale->GetStretch()),
+			static_cast<int32>(Scale->GetStretchDirection()), Scale->GetUserSpecifiedScale());
+	}
+	// The row of pages as Slate holds it, against the pages UMG holds: a page whose Slate widget isn't in the row is drawn
+	// nowhere.
+	const TSharedPtr<SWidget> Row = Parts.Pages ? Parts.Pages->GetCachedWidget() : nullptr;
+	FChildren* Children = Row.IsValid() ? Row->GetChildren() : nullptr;
+	UE_LOG(LogSmartTrains, Log, TEXT("Station render: row %s with %d Slate children, %d pages"), Row.IsValid() ? *Row->GetTypeAsString() : TEXT("none"),
+		Children ? Children->Num() : -1, Parts.Pages ? Parts.Pages->GetChildrenCount() : -1);
+	for (int32 Index = 0; Children && Index < Children->Num(); ++Index)
+	{
+		const TSharedRef<const SWidget> Child = Children->GetChildAt(Index);
+		int32 Page = INDEX_NONE;
+		for (int32 Each = 0; Each < Parts.Pages->GetChildrenCount(); ++Each)
+		{
+			const UWidget* Widget = Parts.Pages->GetChildAt(Each);
+			if (Widget && Widget->GetCachedWidget().Get() == &Child.Get())
+			{
+				Page = Each;
+			}
+		}
+		const FGeometry& Geometry = Child->GetCachedGeometry();
+		UE_LOG(LogSmartTrains, Log, TEXT("Station render: row child %d %s is page %d, %s, op %.2f, desired %s, drawn %s at %s"), Index, *Child->GetTypeAsString(), Page,
+			*Child->GetVisibility().ToString(), Child->GetRenderOpacity(), *Child->GetDesiredSize().ToString(), *Geometry.GetAbsoluteSize().ToString(),
+			*Geometry.GetAbsolutePosition().ToString());
+	}
+	for (int32 Each = 0; Parts.Pages && Each < Parts.Pages->GetChildrenCount(); ++Each)
+	{
+		const UWidget* Widget = Parts.Pages->GetChildAt(Each);
+		const TSharedPtr<SWidget> Own = Widget ? Widget->GetCachedWidget() : nullptr;
+		const TSharedPtr<SWidget> Parent = Own.IsValid() ? Own->GetParentWidget() : nullptr;
+		UE_LOG(LogSmartTrains, Log, TEXT("Station render: page %d Slate widget %s, its parent %s (%s the row)"), Each, Own.IsValid() ? *Own->GetTypeAsString() : TEXT("none"),
+			Parent.IsValid() ? *Parent->GetTypeAsString() : TEXT("none"), Parent.IsValid() && Parent == Row ? TEXT("is") : TEXT("not"));
+	}
 }
 
 void STStationTab::LogState(const FParts& Parts, const TCHAR* When)

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.55.6 (beta)
+
+- **The station menu still shows the world through it with the SmartTrains tab added.** Another logging build: the
+  last log showed the menu laid out in the right place but its pages never drawn; this one logs why.
+
 ## 0.55.5 (beta)
 
 - **The station menu still shows the world through it with the SmartTrains tab added.** This build doesn't fix it

@@ -462,7 +462,11 @@ lines: visibility, opacity, render transform, clipping, desired and laid-out siz
 
 Open (0.53.3 to 0.55.5): with the tab added, the window draws nothing below its tab bar, on every tab, though the
 pages' visibility, opacity, offsets and the window's width are all right (0.55.4 log). 0.55.4 made the pages fully
-opaque again on the guess that the tabs' fade left them transparent; they never were, so 0.55.5 took it out again. If the menu isn't laid out that way, the panel goes under the set-up bar, and the
+opaque again on the guess that the tabs' fade left them transparent; they never were, so 0.55.5 took it out again.
+0.55.5's dump: the window, the tabs, the strip and the row of pages (`HorizontalBox_0`) are laid out at the window's
+place (row 1494 x 769), but no page has ever been drawn, not even the open Train Station page (its cached geometry is
+empty). 0.55.6 adds each widget's drawn size, the strip's scale box settings, and the row as Slate holds it against
+the pages UMG holds (`Station render: row child`, `page N Slate widget`). If the menu isn't laid out that way, the panel goes under the set-up bar, and the
 log has the menu's widget tree (`UI tree` lines). Layout read with `TSDumpWidgets` on 2026-11-25.
 
 Panel names and positions come from the starter project's widget assets, dumped with Telescreen's `TSDumpWidgets`
