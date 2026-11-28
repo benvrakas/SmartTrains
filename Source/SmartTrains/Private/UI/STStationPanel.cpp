@@ -467,16 +467,6 @@ void USTStationSetupBar::InstallTab()
 void USTStationSetupBar::OnStationTabChanged(UWidget* PreviouslyActiveWidget, UWidget* ActiveWidget)
 {
 	STStationTab::SyncRow(mTabParts, TEXT("tab changed"));
-	STStationTab::LogState(mTabParts, TEXT("tab changed"));
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().SetTimer(mTabLogTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
-		{
-			STStationTab::LogState(mTabParts, TEXT("tab slid"));
-			const UUserWidget* Menu = GetMenu();
-			STStationTab::LogRender(Menu && Menu->WidgetTree ? Menu->WidgetTree->RootWidget : nullptr, mTabParts, TEXT("tab slid"));
-		}), 1.0f, false);
-	}
 }
 
 bool USTStationSetupBar::OnShown()

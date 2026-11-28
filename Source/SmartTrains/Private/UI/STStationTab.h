@@ -36,15 +36,7 @@ namespace STStationTab
 	// the pages in another order or miss some, and the window then shows the wrong page. Returns true if rebuilt.
 	bool SyncRow(const FParts& Parts, const TCHAR* When);
 
-	// Sets each page's position in the sliding tabs from the widths the pages before it have when shown (after the new
-	// page has its size), and logs them.
+	// Has the sliding tabs work out each page's position again (after the new page has its size), with the drawn row
+	// rebuilt first if needed, and logs the pages' widths and positions.
 	void UpdateOffsets(const FParts& Parts);
-
-	// Logs every widget from Root down to the pages' own children: visibility, opacity, render transform, clipping,
-	// desired size and laid-out size and position (which part of the menu doesn't draw). When says what happened.
-	void LogRender(const UWidget* Root, const FParts& Parts, const TCHAR* When);
-
-	// Logs what the sliding tabs slide by: the active page, each page's size and visibility, the offsets, the strip's
-	// position and width. When says what happened.
-	void LogState(const FParts& Parts, const TCHAR* When);
 }

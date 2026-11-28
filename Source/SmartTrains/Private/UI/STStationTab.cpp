@@ -1,10 +1,6 @@
 #include "UI/STStationTab.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"
-#include "Components/CanvasPanel.h"
-#include "Components/CanvasPanelSlot.h"
-#include "Components/ScaleBox.h"
-#include "Components/SizeBox.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/OverlaySlot.h"
@@ -22,8 +18,6 @@ namespace
 	const FName TabListProperty(TEXT("mTabs"));
 	const FName TabsContainerProperty(TEXT("Widget_TabsContainer"));
 	const FName ButtonSizeProperty(TEXT("mButtonSize"));
-	const FName ButtonCanvasProperty(TEXT("mContainer"));
-	const FName ActiveIndexProperty(TEXT("mActiveIndex"));
 	const FName IndexOffsetProperty(TEXT("mIndexOffset"));
 
 	bool bTreeLogged = false;
@@ -111,86 +105,6 @@ namespace
 		UE_LOG(LogSmartTrains, Log, TEXT("Station tab: tab buttons %.0f wide instead of %.0f"), Value->X, Old);
 	}
 
-	// Logs the tab buttons as laid out (position and size of each).
-	void LogButtons(const UUserWidget* Window)
-	{
-		const UUserWidget* Container = Cast<UUserWidget>(STWidgetUtils::GetObjectProperty(Window, TabsContainerProperty));
-		const UPanelWidget* Buttons = Cast<UPanelWidget>(STWidgetUtils::GetObjectProperty(Container, ButtonCanvasProperty));
-		for (int32 Index = 0; Buttons && Index < Buttons->GetChildrenCount(); ++Index)
-		{
-			const UWidget* Button = Buttons->GetChildAt(Index);
-			const UCanvasPanelSlot* Slot = Button ? Cast<UCanvasPanelSlot>(Button->Slot) : nullptr;
-			UE_LOG(LogSmartTrains, Log, TEXT("Station tab: button %d at %s size %s"), Index,
-				Slot ? *Slot->GetPosition().ToString() : TEXT("-"), Slot ? *Slot->GetSize().ToString() : TEXT("-"));
-		}
-	}
-
-	// Page's width when shown. The Timetable page keeps its content collapsed until it is opened, so it measures 0 wide
-	// then; a canvas page's width is worked out from its children's slots as the canvas does, collapsed or not.
-	double ShownWidth(const UWidget* Page)
-	{
-		if (!Page)
-		{
-			return 0.0;
-		}
-		double Width = Page->GetDesiredSize().X;
-		if (const UCanvasPanel* Canvas = Cast<UCanvasPanel>(Page); Canvas && Width <= 0.0)
-		{
-			for (int32 Index = 0; Index < Canvas->GetChildrenCount(); ++Index)
-			{
-				const UWidget* Child = Canvas->GetChildAt(Index);
-				const UCanvasPanelSlot* Slot = Child ? Cast<UCanvasPanelSlot>(Child->Slot) : nullptr;
-				if (!Slot)
-				{
-					continue;
-				}
-				const FAnchors Anchors = Slot->GetAnchors();
-				const FMargin Offsets = Slot->GetOffsets();
-				const double Size = Slot->GetAutoSize() ? Child->GetDesiredSize().X : Offsets.Right;
-				const bool bDocked = Anchors.Minimum.X == Anchors.Maximum.X && (Anchors.Minimum.X == 0.f || Anchors.Minimum.X == 1.f);
-				Width = FMath::Max(Width, Size + (bDocked ? FMath::Abs(Offsets.Left) : 0.0));
-			}
-		}
-		return Width;
-	}
-
-	// One widget's line for LogRender and its children, down to the pages' children.
-	void LogRenderTree(const UWidget* Widget, const UPanelWidget* Pages, int32 Depth, int32 BelowPages)
-	{
-		// The header and the hint bar are left out: they draw.
-		if (!Widget || Depth > 60 || BelowPages > 2 || Widget->GetFName() == TEXT("CanvasPanel_1") || Widget->GetFName() == TEXT("mGamepadHintSizeBox"))
-		{
-			return;
-		}
-		const FWidgetTransform& Transform = Widget->GetRenderTransform();
-		const bool bMoved = !Transform.Translation.IsNearlyZero() || !Transform.Scale.Equals(FVector2D(1.0, 1.0)) || Transform.Angle != 0.f || !Transform.Shear.IsNearlyZero();
-		const FGeometry& Geometry = Widget->GetCachedGeometry();
-		UE_LOG(LogSmartTrains, Log, TEXT("Station render %s%s %s op %.2f%s%s desired %s laid %s at %s drawn %s"), *FString::ChrN(Depth * 2, TEXT(' ')), *Describe(Widget),
-			*StaticEnum<ESlateVisibility>()->GetNameStringByValue(static_cast<int64>(Widget->GetVisibility())), Widget->GetRenderOpacity(),
-			bMoved ? *FString::Printf(TEXT(" moved %s scaled %s turned %.0f"), *Transform.Translation.ToString(), *Transform.Scale.ToString(), Transform.Angle) : TEXT(""),
-			Widget->GetClipping() != EWidgetClipping::Inherit ? *FString::Printf(TEXT(" clip %d"), static_cast<int32>(Widget->GetClipping())) : TEXT(""),
-			*Widget->GetDesiredSize().ToString(), *Geometry.GetLocalSize().ToString(), *Geometry.GetAbsolutePosition().ToString(), *Geometry.GetAbsoluteSize().ToString());
-		const int32 Next = BelowPages > 0 || Widget == Pages ? BelowPages + 1 : 0;
-		if (const UPanelWidget* Panel = Cast<UPanelWidget>(Widget))
-		{
-			for (int32 Index = 0; Index < Panel->GetChildrenCount(); ++Index)
-			{
-				LogRenderTree(Panel->GetChildAt(Index), Pages, Depth + 1, Next);
-			}
-		}
-		else if (const UUserWidget* User = Cast<UUserWidget>(Widget); User && User->WidgetTree)
-		{
-			LogRenderTree(User->WidgetTree->RootWidget, Pages, Depth + 1, Next);
-		}
-	}
-
-	FString ExportProperty(const FProperty* Property, const void* Value)
-	{
-		FString Text;
-		Property->ExportTextItem_Direct(Text, Value, nullptr, nullptr, PPF_None);
-		return Text;
-	}
-
 	void CopySlot(const UPanelSlot* From, UPanelSlot* To)
 	{
 		const UHorizontalBoxSlot* A = Cast<UHorizontalBoxSlot>(From);
@@ -270,12 +184,9 @@ bool STStationTab::AddTab(const FParts& Parts, UWidget* Page, const FText& Title
 	const int32 Added = Helper.AddValue();
 	List.Texture->SetObjectPropertyValue_InContainer(Helper.GetRawPtr(Added), Icon);
 	List.Text->SetPropertyValue_InContainer(Helper.GetRawPtr(Added), Title);
-	SyncRow(Parts, TEXT("page added"));
 	FitButtons(Parts.Window, Pages, Helper.Num());
 	const bool bInit = CallNoParams(Parts.Window, TEXT("InitTabs"));
 	UE_LOG(LogSmartTrains, Log, TEXT("Station tab: page %d added, %d tabs listed, buttons remade %d"), Pages, Helper.Num(), bInit);
-	LogButtons(Parts.Window);
-	SyncRow(Parts, TEXT("buttons remade"));
 	return true;
 }
 
@@ -325,7 +236,7 @@ void STStationTab::UpdateOffsets(const FParts& Parts)
 {
 	// As the tabs do themselves: every page shown and measured, the offsets worked out, the others hidden again. Measured
 	// while hidden, a page counts as 0 wide and the window slides to the wrong place.
-	if (!Parts.Tabs)
+	if (!Parts.Tabs || !Parts.Pages)
 	{
 		return;
 	}
@@ -334,110 +245,23 @@ void STStationTab::UpdateOffsets(const FParts& Parts)
 	Parts.Tabs->ForceLayoutPrepass();
 	const bool bSet = CallNoParams(Parts.Tabs, TEXT("SetupIndexOffset"));
 	CallNoParams(Parts.Tabs, TEXT("HideNonActiveIndexes"));
-	// The tabs take each page's offset from the measured widths before it, and the Timetable page measures 0 wide until
-	// it is opened: each page's offset is set again from the widths the pages before it have when shown.
-	const FMapProperty* Map = FindFProperty<FMapProperty>(Parts.Tabs->GetClass(), IndexOffsetProperty);
-	const FIntProperty* Key = Map ? CastField<FIntProperty>(Map->KeyProp) : nullptr;
-	const FNumericProperty* Value = Map ? CastField<FNumericProperty>(Map->ValueProp) : nullptr;
-	if (Key && Value && Value->IsFloatingPoint() && Parts.Pages)
-	{
-		FScriptMapHelper Helper(Map, Map->ContainerPtrToValuePtr<void>(Parts.Tabs));
-		double Running = 0.0;
-		for (int32 Index = 0; Index < Parts.Pages->GetChildrenCount(); ++Index)
-		{
-			const int32 At = Helper.FindMapIndexWithKey(&Index);
-			if (At != INDEX_NONE)
-			{
-				Value->SetFloatingPointPropertyValue(Helper.GetValuePtr(At), -Running);
-			}
-			Running += ShownWidth(Parts.Pages->GetChildAt(Index));
-		}
-	}
-	else
-	{
-		UE_LOG(LogSmartTrains, Warning, TEXT("Station tab: the tabs' page offsets (%s) aren't a map of index to position; left as the tabs set them"),
-			*IndexOffsetProperty.ToString());
-	}
-	LogState(Parts, bSet ? TEXT("page offsets set") : TEXT("page offsets set (the tabs' own pass not found)"));
-}
-
-void STStationTab::LogRender(const UWidget* Root, const FParts& Parts, const TCHAR* When)
-{
-	UE_LOG(LogSmartTrains, Log, TEXT("Station render: %s"), When);
-	LogRenderTree(Root, Parts.Pages, 0, 0);
-	if (const UScaleBox* Scale = Cast<UScaleBox>(STWidgetUtils::GetObjectProperty(Parts.Tabs, TEXT("mContentScaleBox"))))
-	{
-		UE_LOG(LogSmartTrains, Log, TEXT("Station render: strip scale box stretch %d, direction %d, user scale %.2f"), static_cast<int32>(Scale->GetStretch()),
-			static_cast<int32>(Scale->GetStretchDirection()), Scale->GetUserSpecifiedScale());
-	}
-	// The row of pages as Slate holds it, against the pages UMG holds: a page whose Slate widget isn't in the row is drawn
-	// nowhere.
-	const TSharedPtr<SWidget> Row = Parts.Pages ? Parts.Pages->GetCachedWidget() : nullptr;
-	FChildren* Children = Row.IsValid() ? Row->GetChildren() : nullptr;
-	UE_LOG(LogSmartTrains, Log, TEXT("Station render: row %s with %d Slate children, %d pages"), Row.IsValid() ? *Row->GetTypeAsString() : TEXT("none"),
-		Children ? Children->Num() : -1, Parts.Pages ? Parts.Pages->GetChildrenCount() : -1);
-	for (int32 Index = 0; Children && Index < Children->Num(); ++Index)
-	{
-		const TSharedRef<const SWidget> Child = Children->GetChildAt(Index);
-		int32 Page = INDEX_NONE;
-		for (int32 Each = 0; Each < Parts.Pages->GetChildrenCount(); ++Each)
-		{
-			const UWidget* Widget = Parts.Pages->GetChildAt(Each);
-			if (Widget && Widget->GetCachedWidget().Get() == &Child.Get())
-			{
-				Page = Each;
-			}
-		}
-		const FGeometry& Geometry = Child->GetCachedGeometry();
-		UE_LOG(LogSmartTrains, Log, TEXT("Station render: row child %d %s is page %d, %s, op %.2f, desired %s, drawn %s at %s"), Index, *Child->GetTypeAsString(), Page,
-			*Child->GetVisibility().ToString(), Child->GetRenderOpacity(), *Child->GetDesiredSize().ToString(), *Geometry.GetAbsoluteSize().ToString(),
-			*Geometry.GetAbsolutePosition().ToString());
-	}
-	for (int32 Each = 0; Parts.Pages && Each < Parts.Pages->GetChildrenCount(); ++Each)
-	{
-		const UWidget* Widget = Parts.Pages->GetChildAt(Each);
-		const TSharedPtr<SWidget> Own = Widget ? Widget->GetCachedWidget() : nullptr;
-		const TSharedPtr<SWidget> Parent = Own.IsValid() ? Own->GetParentWidget() : nullptr;
-		UE_LOG(LogSmartTrains, Log, TEXT("Station render: page %d Slate widget %s, its parent %s (%s the row)"), Each, Own.IsValid() ? *Own->GetTypeAsString() : TEXT("none"),
-			Parent.IsValid() ? *Parent->GetTypeAsString() : TEXT("none"), Parent.IsValid() && Parent == Row ? TEXT("is") : TEXT("not"));
-	}
-}
-
-void STStationTab::LogState(const FParts& Parts, const TCHAR* When)
-{
-	if (!Parts.Tabs)
-	{
-		return;
-	}
-	FString Sizes;
-	for (int32 Index = 0; Parts.Pages && Index < Parts.Pages->GetChildrenCount(); ++Index)
+	// One line per menu: each page's width and where the tabs place it.
+	FString Widths;
+	for (int32 Index = 0; Index < Parts.Pages->GetChildrenCount(); ++Index)
 	{
 		const UWidget* Page = Parts.Pages->GetChildAt(Index);
-		Sizes += FString::Printf(TEXT(" [%d %s, shown %.0f wide, %s, opacity %.2f]"), Index, Page ? *Page->GetDesiredSize().ToString() : TEXT("-"), ShownWidth(Page),
-			Page ? *StaticEnum<ESlateVisibility>()->GetNameStringByValue(static_cast<int64>(Page->GetVisibility())) : TEXT("-"), Page ? Page->GetRenderOpacity() : 0.f);
-	}
-	FString Strip;
-	if (const UWidget* Scale = Cast<UWidget>(STWidgetUtils::GetObjectProperty(Parts.Tabs, TEXT("mContentScaleBox"))))
-	{
-		if (const UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(Scale->Slot))
-		{
-			Strip += FString::Printf(TEXT(" at %s, opacity %.2f (tabs %.2f)"), *Slot->GetPosition().ToString(), Scale->GetRenderOpacity(), Parts.Tabs->GetRenderOpacity());
-		}
-	}
-	if (const USizeBox* Box = Cast<USizeBox>(STWidgetUtils::GetObjectProperty(Parts.Tabs, TEXT("mSizeBox"))))
-	{
-		Strip += FString::Printf(TEXT(", window %.0f wide"), Box->GetWidthOverride());
+		Widths += FString::Printf(TEXT(" %.0f"), Page ? Page->GetDesiredSize().X : 0.0);
 	}
 	FString Offsets;
-	if (const FMapProperty* Map = FindFProperty<FMapProperty>(Parts.Tabs->GetClass(), IndexOffsetProperty))
+	const FMapProperty* Map = FindFProperty<FMapProperty>(Parts.Tabs->GetClass(), IndexOffsetProperty);
+	const FNumericProperty* Value = Map ? CastField<FNumericProperty>(Map->ValueProp) : nullptr;
+	if (Value && Value->IsFloatingPoint())
 	{
 		FScriptMapHelper Helper(Map, Map->ContainerPtrToValuePtr<void>(Parts.Tabs));
 		for (FScriptMapHelper::FIterator It(Helper); It; ++It)
 		{
-			Offsets += FString::Printf(TEXT(" [%s: %s]"), *ExportProperty(Map->KeyProp, Helper.GetKeyPtr(It)), *ExportProperty(Map->ValueProp, Helper.GetValuePtr(It)));
+			Offsets += FString::Printf(TEXT(" %.0f"), Value->GetFloatingPointPropertyValue(Helper.GetValuePtr(It)));
 		}
 	}
-	const FIntProperty* Active = FindFProperty<FIntProperty>(Parts.Tabs->GetClass(), ActiveIndexProperty);
-	UE_LOG(LogSmartTrains, Log, TEXT("Station tab: %s; active %d, strip %s%s, pages%s, offsets%s"), When,
-		Active ? Active->GetPropertyValue_InContainer(Parts.Tabs) : -1, *Parts.Tabs->GetDesiredSize().ToString(), *Strip, *Sizes, *Offsets);
+	UE_LOG(LogSmartTrains, Log, TEXT("Station tab: page offsets worked out again (%d): pages%s wide, at%s"), bSet, *Widths, *Offsets);
 }

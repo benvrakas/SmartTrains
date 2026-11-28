@@ -446,33 +446,25 @@ hook for it: the set-up bar adds it when the menu is shown. The menu's window (`
 menu's `Widget_SlidingTabs`, whose `mContent` slot holds `HorizontalBox_0` with one page per tab (`Overlay_1` Train
 Station, `CanvasPanel_127` Timetable). The set-up bar adds a canvas panel as the last page, built like the Timetable
 page: one overlay (the game's dark content background and a scroll box with the panel) anchored over the page's
-height and 900 wide, so the page asks for its width only and the strip keeps the Train Station page's height. It appends a "SmartTrains" entry with the first tab's icon to `mTabs`, narrows the tabs container's
-`mButtonSize` so three buttons take the width two had (the buttons are a fixed width each and the window is only as
-wide as its page, so the third was cut off), calls `InitTabs`, and after 0.3 s works the page offsets out again as
-the tabs do: `ShowAllIndexes`, a layout prepass, `SetupIndexOffset`, `HideNonActiveIndexes`. The tabs' offsets
-(`mIndexOffset`, page index to position) come from each page's measured width, and the Timetable page keeps its
-content collapsed until it is opened, so it measures 0 wide and the SmartTrains page got the Timetable page's
-position: clicking SmartTrains slid to the hidden Timetable page, an empty window (log, 0.55.2:
-`offsets [0: 0] [1: -594] [2: -594]`, Timetable `X=0`). So each offset is then set again from the widths the pages
-before it have when shown, a canvas page's from its children's slots as the canvas measures it (collapsed children
-included). The log states the buttons' layout, each page's size, shown width, visibility and opacity and the
-offsets, after the offsets are set, on each tab change and once its slide is done (the tabs' `OnActiveTabChanged`);
-once the slide is done it also lists every widget from the menu down to the pages' children (`Station render`
-lines: visibility, opacity, render transform, clipping, desired and laid-out size, position).
+height and 900 wide, so the page asks for its width only and the window keeps the Train Station page's height. It
+appends a "SmartTrains" entry with the first tab's icon to `mTabs`, narrows the tabs container's `mButtonSize` so
+three buttons take the width two had (the buttons are a fixed width each and the window is only as wide as its page,
+so a third was cut off), calls `InitTabs`, binds the tabs' `OnActiveTabChanged`, and after 0.3 s has the tabs work
+the page offsets (`mIndexOffset`, page index to position) out again as they do themselves: `ShowAllIndexes`, a layout
+prepass, `SetupIndexOffset`, `HideNonActiveIndexes` (measured while hidden, a page counts as 0 wide). The log states
+each page's width and position once per menu.
 
-Open (0.53.3 to 0.55.5): with the tab added, the window draws nothing below its tab bar, on every tab, though the
-pages' visibility, opacity, offsets and the window's width are all right (0.55.4 log). 0.55.4 made the pages fully
-opaque again on the guess that the tabs' fade left them transparent; they never were, so 0.55.5 took it out again.
-0.55.5's dump: the window, the tabs, the strip and the row of pages (`HorizontalBox_0`) are laid out at the window's
-place (row 1494 x 769), but no page has ever been drawn, not even the open Train Station page (its cached geometry is
-empty). 0.55.6's dump found why: UMG's row lists [Train Station, Timetable, SmartTrains], but the Slate row it draws
-held [SmartTrains, Train Station] and no Timetable at all. Moving a child in UMG (`InsertChildAt`, `ShiftChild`,
-engine `PanelWidget.cpp`) reorders UMG's list only; adding and removing reach Slate. So the window at position 0
-showed the hidden SmartTrains page: empty on every tab. Since 0.55.7 `STStationTab::SyncRow` compares the drawn row
-with UMG's list after the page is added, after the buttons are remade, before the offsets and on each tab change,
-and rebuilds the drawn row in UMG's order when they differ (`ClearChildren`, then each slot's `BuildSlot`), logging
-which pages it held. If the menu isn't laid out that way, the panel goes under the set-up bar, and the
-log has the menu's widget tree (`UI tree` lines). Layout read with `TSDumpWidgets` on 2026-11-25.
+The drawn row of pages can differ from UMG's: moving a child in UMG (`InsertChildAt`, `ShiftChild`, engine
+`PanelWidget.cpp`) reorders UMG's list only, while adding and removing a child reach Slate. After the page is added,
+the tabs switch to the open page (after `InitTabs` returns), and by then the drawn row held [SmartTrains, Train
+Station] with no Timetable, while UMG listed [Train Station, Timetable, SmartTrains]. The window at position 0 showed
+the hidden SmartTrains page, so every tab was empty and the Timetable page measured 0 wide (0.53.3 to 0.55.6).
+`STStationTab::SyncRow` compares the drawn row with UMG's list on every tab change and before the offsets, and
+rebuilds it in UMG's order when they differ (`ClearChildren`, then each slot's `BuildSlot`), logging which pages it
+held. Before the cause was found, 0.55.2 to 0.55.6 tried a taller-window cause, offsets from the pages' shown widths
+and opaque pages; those were taken out again in 0.55.8 (the narrower buttons and the canvas page stay). If the menu
+isn't laid out as described, the panel goes under the set-up bar, and the log has the menu's widget tree (`UI tree`
+lines). Layout read with `TSDumpWidgets` on 2026-11-25.
 
 Panel names and positions come from the starter project's widget assets, dumped with Telescreen's `TSDumpWidgets`
 commandlet. It now also lists named-slot content, canvas slot layout and size box overrides

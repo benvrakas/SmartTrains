@@ -112,9 +112,9 @@ protected:
 
 	// The menu's tab parts once the tab is added (they live as long as the menu, which holds this bar).
 	STStationTab::FParts mTabParts;
-	FTimerHandle mTabLogTimer;
 
-	// Bound to the sliding tabs' OnActiveTabChanged: logs the tabs' state now and once the slide is done.
+	// Bound to the sliding tabs' OnActiveTabChanged: the tabs switch pages after remaking their buttons and on each click,
+	// and the drawn row of pages is checked against the menu's then (STStationTab::SyncRow).
 	UFUNCTION()
 	void OnStationTabChanged(UWidget* PreviouslyActiveWidget, UWidget* ActiveWidget);
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.55.8 (beta)
+
+- The station menu fix of 0.55.7 confirmed in game; the logging builds' extra logging and the earlier attempts that
+  turned out not to be the cause are taken out again.
+
 ## 0.55.7 (beta)
 
 - **Fixed: the station menu showed the world through it** with the SmartTrains tab added, on every tab. The menu
