@@ -446,14 +446,17 @@ hook for it: the set-up bar adds it when the menu is shown. The menu's window (`
 menu's `Widget_SlidingTabs`, whose `mContent` slot holds `HorizontalBox_0` with one page per tab (`Overlay_1` Train
 Station, `CanvasPanel_127` Timetable). The set-up bar adds a canvas panel as the last page, built like the Timetable
 page: one overlay (the game's dark content background and a scroll box with the panel) anchored over the page's
-height and 900 wide, so the page asks for its width only and the strip keeps the Train Station page's height. (0.54.x
-used a size box around a scroll box: the page asked for the panel's whole height, the window grew to the screen's
-height, the tabs' scale box shrank the strip, and the slide offsets no longer matched, so the window showed an empty
-stretch.) It appends a "SmartTrains" entry with the first tab's icon to `mTabs`, narrows the tabs container's
+height and 900 wide, so the page asks for its width only and the strip keeps the Train Station page's height. It appends a "SmartTrains" entry with the first tab's icon to `mTabs`, narrows the tabs container's
 `mButtonSize` so three buttons take the width two had (the buttons are a fixed width each and the window is only as
 wide as its page, so the third was cut off), calls `InitTabs`, and after 0.3 s works the page offsets out again as
-the tabs do: `ShowAllIndexes`, a layout prepass, `SetupIndexOffset`, `HideNonActiveIndexes` (measured while hidden, a
-page counts as 0 wide). The log states the buttons' layout and each page's size and offset. If the menu isn't laid out that way, the panel goes under the set-up bar, and the
+the tabs do: `ShowAllIndexes`, a layout prepass, `SetupIndexOffset`, `HideNonActiveIndexes`. The tabs' offsets
+(`mIndexOffset`, page index to position) come from each page's measured width, and the Timetable page keeps its
+content collapsed until it is opened, so it measures 0 wide and the SmartTrains page got the Timetable page's
+position: clicking SmartTrains slid to the hidden Timetable page, an empty window (log, 0.55.2:
+`offsets [0: 0] [1: -594] [2: -594]`, Timetable `X=0`). So each offset is then set again from the widths the pages
+before it have when shown, a canvas page's from its children's slots as the canvas measures it (collapsed children
+included). The log states the buttons' layout, each page's size, shown width and visibility and the offsets, after
+the offsets are set, on each tab change and once its slide is done (the tabs' `OnActiveTabChanged`). If the menu isn't laid out that way, the panel goes under the set-up bar, and the
 log has the menu's widget tree (`UI tree` lines). Layout read with `TSDumpWidgets` on 2026-11-25.
 
 Panel names and positions come from the starter project's widget assets, dumped with Telescreen's `TSDumpWidgets`

@@ -31,6 +31,11 @@ namespace STStationTab
 	// icon, then has the window remake its tab buttons. Returns false (logged) if the window's tab list can't be changed.
 	bool AddTab(const FParts& Parts, UWidget* Page, const FText& Title);
 
-	// Has the sliding tabs work out each page's position again (after the new page has its size).
+	// Sets each page's position in the sliding tabs from the widths the pages before it have when shown (after the new
+	// page has its size), and logs them.
 	void UpdateOffsets(const FParts& Parts);
+
+	// Logs what the sliding tabs slide by: the active page, each page's size and visibility, the offsets, the strip's
+	// position and width. When says what happened.
+	void LogState(const FParts& Parts, const TCHAR* When);
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.55.3 (beta)
+
+- **Fixed: the SmartTrains tab of the station menu showed an empty window.** The menu places its pages side by side
+  and slides to the one you click, working out where each starts from the widths of the pages before it. The
+  Timetable page measures no width until it has been opened, so the SmartTrains page was placed where the Timetable
+  page starts, and the window slid to the hidden Timetable page. Pages are now placed by the width they have when
+  shown. (0.55.2's taller-window cause was wrong; its narrower tab buttons stay, so all three fit.)
+
 ## 0.55.2 (beta)
 
 - **Fixed: the station menu showed the world through it** with the SmartTrains tab added, and cut that tab's button

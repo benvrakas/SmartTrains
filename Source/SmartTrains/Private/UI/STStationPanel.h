@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "UI/STPanel.h"
+#include "UI/STStationTab.h"
 #include "STStationPanel.generated.h"
 
 class AFGTrainStationIdentifier;
@@ -99,7 +100,7 @@ protected:
 	// Adds the SmartTrains tab once per menu widget; without the menu's tabs, the panel goes under this bar instead.
 	void InstallTab();
 
-	// The tab's page: a size box around a scroll box with the station panel.
+	// The tab's page: a canvas with the content background and a scroll box with the station panel.
 	UPROPERTY()
 	TObjectPtr<class UCanvasPanel> mTabPage;
 
@@ -108,6 +109,14 @@ protected:
 	TObjectPtr<USTStationPanel> mFallbackPanel;
 
 	FTimerHandle mOffsetTimer;
+
+	// The menu's tab parts once the tab is added (they live as long as the menu, which holds this bar).
+	STStationTab::FParts mTabParts;
+	FTimerHandle mTabLogTimer;
+
+	// Bound to the sliding tabs' OnActiveTabChanged: logs the tabs' state now and once the slide is done.
+	UFUNCTION()
+	void OnStationTabChanged(UWidget* PreviouslyActiveWidget, UWidget* ActiveWidget);
 
 	virtual void BuildContent(UVerticalBox* Root) override;
 	virtual bool OnShown() override;

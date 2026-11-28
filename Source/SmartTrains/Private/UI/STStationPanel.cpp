@@ -431,6 +431,13 @@ void USTStationSetupBar::InstallTab()
 		}
 		if (STStationTab::AddTab(Parts, mTabPage, Title))
 		{
+			mTabParts = Parts;
+			if (FMulticastDelegateProperty* Changed = FindFProperty<FMulticastDelegateProperty>(Parts.Tabs->GetClass(), TEXT("OnActiveTabChanged")))
+			{
+				FScriptDelegate Delegate;
+				Delegate.BindUFunction(this, GET_FUNCTION_NAME_CHECKED(USTStationSetupBar, OnStationTabChanged));
+				Changed->AddDelegate(MoveTemp(Delegate), Parts.Tabs);
+			}
 			// Once the new page has its size, the tabs work out where each page sits again.
 			if (UWorld* World = GetWorld())
 			{
@@ -454,6 +461,18 @@ void USTStationSetupBar::InstallTab()
 	{
 		Box->AddChildToVerticalBox(Panel);
 		mFallbackPanel = Panel;
+	}
+}
+
+void USTStationSetupBar::OnStationTabChanged(UWidget* PreviouslyActiveWidget, UWidget* ActiveWidget)
+{
+	STStationTab::LogState(mTabParts, TEXT("tab changed"));
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(mTabLogTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			STStationTab::LogState(mTabParts, TEXT("tab slid"));
+		}), 1.0f, false);
 	}
 }
 

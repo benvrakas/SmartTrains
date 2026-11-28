@@ -1,7 +1,9 @@
 #include "UI/STStationTab.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"
+#include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/SizeBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/OverlaySlot.h"
 #include "Components/PanelWidget.h"
@@ -120,6 +122,35 @@ namespace
 		}
 	}
 
+	// Page's width when shown. The Timetable page keeps its content collapsed until it is opened, so it measures 0 wide
+	// then; a canvas page's width is worked out from its children's slots as the canvas does, collapsed or not.
+	double ShownWidth(const UWidget* Page)
+	{
+		if (!Page)
+		{
+			return 0.0;
+		}
+		double Width = Page->GetDesiredSize().X;
+		if (const UCanvasPanel* Canvas = Cast<UCanvasPanel>(Page); Canvas && Width <= 0.0)
+		{
+			for (int32 Index = 0; Index < Canvas->GetChildrenCount(); ++Index)
+			{
+				const UWidget* Child = Canvas->GetChildAt(Index);
+				const UCanvasPanelSlot* Slot = Child ? Cast<UCanvasPanelSlot>(Child->Slot) : nullptr;
+				if (!Slot)
+				{
+					continue;
+				}
+				const FAnchors Anchors = Slot->GetAnchors();
+				const FMargin Offsets = Slot->GetOffsets();
+				const double Size = Slot->GetAutoSize() ? Child->GetDesiredSize().X : Offsets.Right;
+				const bool bDocked = Anchors.Minimum.X == Anchors.Maximum.X && (Anchors.Minimum.X == 0.f || Anchors.Minimum.X == 1.f);
+				Width = FMath::Max(Width, Size + (bDocked ? FMath::Abs(Offsets.Left) : 0.0));
+			}
+		}
+		return Width;
+	}
+
 	FString ExportProperty(const FProperty* Property, const void* Value)
 	{
 		FString Text;
@@ -225,12 +256,57 @@ void STStationTab::UpdateOffsets(const FParts& Parts)
 	Parts.Tabs->ForceLayoutPrepass();
 	const bool bSet = CallNoParams(Parts.Tabs, TEXT("SetupIndexOffset"));
 	CallNoParams(Parts.Tabs, TEXT("HideNonActiveIndexes"));
-	// What the tabs slide by: each page's size and offset, the active page, the whole strip's size.
+	// The tabs take each page's offset from the measured widths before it, and the Timetable page measures 0 wide until
+	// it is opened: each page's offset is set again from the widths the pages before it have when shown.
+	const FMapProperty* Map = FindFProperty<FMapProperty>(Parts.Tabs->GetClass(), IndexOffsetProperty);
+	const FIntProperty* Key = Map ? CastField<FIntProperty>(Map->KeyProp) : nullptr;
+	const FNumericProperty* Value = Map ? CastField<FNumericProperty>(Map->ValueProp) : nullptr;
+	if (Key && Value && Value->IsFloatingPoint() && Parts.Pages)
+	{
+		FScriptMapHelper Helper(Map, Map->ContainerPtrToValuePtr<void>(Parts.Tabs));
+		double Running = 0.0;
+		for (int32 Index = 0; Index < Parts.Pages->GetChildrenCount(); ++Index)
+		{
+			const int32 At = Helper.FindMapIndexWithKey(&Index);
+			if (At != INDEX_NONE)
+			{
+				Value->SetFloatingPointPropertyValue(Helper.GetValuePtr(At), -Running);
+			}
+			Running += ShownWidth(Parts.Pages->GetChildAt(Index));
+		}
+	}
+	else
+	{
+		UE_LOG(LogSmartTrains, Warning, TEXT("Station tab: the tabs' page offsets (%s) aren't a map of index to position; left as the tabs set them"),
+			*IndexOffsetProperty.ToString());
+	}
+	LogState(Parts, bSet ? TEXT("page offsets set") : TEXT("page offsets set (the tabs' own pass not found)"));
+}
+
+void STStationTab::LogState(const FParts& Parts, const TCHAR* When)
+{
+	if (!Parts.Tabs)
+	{
+		return;
+	}
 	FString Sizes;
 	for (int32 Index = 0; Parts.Pages && Index < Parts.Pages->GetChildrenCount(); ++Index)
 	{
 		const UWidget* Page = Parts.Pages->GetChildAt(Index);
-		Sizes += FString::Printf(TEXT(" [%d %s]"), Index, Page ? *Page->GetDesiredSize().ToString() : TEXT("-"));
+		Sizes += FString::Printf(TEXT(" [%d %s, shown %.0f wide, %s]"), Index, Page ? *Page->GetDesiredSize().ToString() : TEXT("-"), ShownWidth(Page),
+			Page ? *StaticEnum<ESlateVisibility>()->GetNameStringByValue(static_cast<int64>(Page->GetVisibility())) : TEXT("-"));
+	}
+	FString Strip;
+	if (const UWidget* Scale = Cast<UWidget>(STWidgetUtils::GetObjectProperty(Parts.Tabs, TEXT("mContentScaleBox"))))
+	{
+		if (const UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(Scale->Slot))
+		{
+			Strip += FString::Printf(TEXT(" at %s"), *Slot->GetPosition().ToString());
+		}
+	}
+	if (const USizeBox* Box = Cast<USizeBox>(STWidgetUtils::GetObjectProperty(Parts.Tabs, TEXT("mSizeBox"))))
+	{
+		Strip += FString::Printf(TEXT(", window %.0f wide"), Box->GetWidthOverride());
 	}
 	FString Offsets;
 	if (const FMapProperty* Map = FindFProperty<FMapProperty>(Parts.Tabs->GetClass(), IndexOffsetProperty))
@@ -242,6 +318,6 @@ void STStationTab::UpdateOffsets(const FParts& Parts)
 		}
 	}
 	const FIntProperty* Active = FindFProperty<FIntProperty>(Parts.Tabs->GetClass(), ActiveIndexProperty);
-	UE_LOG(LogSmartTrains, Log, TEXT("Station tab: page offsets worked out again (%d); active %d, strip %s, pages%s, offsets%s"), bSet,
-		Active ? Active->GetPropertyValue_InContainer(Parts.Tabs) : -1, *Parts.Tabs->GetDesiredSize().ToString(), *Sizes, *Offsets);
+	UE_LOG(LogSmartTrains, Log, TEXT("Station tab: %s; active %d, strip %s%s, pages%s, offsets%s"), When,
+		Active ? Active->GetPropertyValue_InContainer(Parts.Tabs) : -1, *Parts.Tabs->GetDesiredSize().ToString(), *Strip, *Sizes, *Offsets);
 }
