@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.55.7 (beta)
+
+- **Fixed: the station menu showed the world through it** with the SmartTrains tab added, on every tab. The menu
+  keeps two lists of its pages: the one it works with and the one it draws. Moving a page changes only the first, so
+  the drawn one ended up with the SmartTrains page first, the Train Station page second and no Timetable page, and
+  the window showed the hidden SmartTrains page. SmartTrains now rebuilds the drawn list in the menu's order whenever
+  they differ.
+
 ## 0.55.6 (beta)
 
 - **The station menu still shows the world through it with the SmartTrains tab added.** Another logging build: the

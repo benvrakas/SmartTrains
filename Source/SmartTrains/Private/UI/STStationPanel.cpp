@@ -466,6 +466,7 @@ void USTStationSetupBar::InstallTab()
 
 void USTStationSetupBar::OnStationTabChanged(UWidget* PreviouslyActiveWidget, UWidget* ActiveWidget)
 {
+	STStationTab::SyncRow(mTabParts, TEXT("tab changed"));
 	STStationTab::LogState(mTabParts, TEXT("tab changed"));
 	if (UWorld* World = GetWorld())
 	{

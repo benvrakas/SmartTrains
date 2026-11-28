@@ -465,8 +465,13 @@ pages' visibility, opacity, offsets and the window's width are all right (0.55.4
 opaque again on the guess that the tabs' fade left them transparent; they never were, so 0.55.5 took it out again.
 0.55.5's dump: the window, the tabs, the strip and the row of pages (`HorizontalBox_0`) are laid out at the window's
 place (row 1494 x 769), but no page has ever been drawn, not even the open Train Station page (its cached geometry is
-empty). 0.55.6 adds each widget's drawn size, the strip's scale box settings, and the row as Slate holds it against
-the pages UMG holds (`Station render: row child`, `page N Slate widget`). If the menu isn't laid out that way, the panel goes under the set-up bar, and the
+empty). 0.55.6's dump found why: UMG's row lists [Train Station, Timetable, SmartTrains], but the Slate row it draws
+held [SmartTrains, Train Station] and no Timetable at all. Moving a child in UMG (`InsertChildAt`, `ShiftChild`,
+engine `PanelWidget.cpp`) reorders UMG's list only; adding and removing reach Slate. So the window at position 0
+showed the hidden SmartTrains page: empty on every tab. Since 0.55.7 `STStationTab::SyncRow` compares the drawn row
+with UMG's list after the page is added, after the buttons are remade, before the offsets and on each tab change,
+and rebuilds the drawn row in UMG's order when they differ (`ClearChildren`, then each slot's `BuildSlot`), logging
+which pages it held. If the menu isn't laid out that way, the panel goes under the set-up bar, and the
 log has the menu's widget tree (`UI tree` lines). Layout read with `TSDumpWidgets` on 2026-11-25.
 
 Panel names and positions come from the starter project's widget assets, dumped with Telescreen's `TSDumpWidgets`

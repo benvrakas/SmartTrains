@@ -31,6 +31,11 @@ namespace STStationTab
 	// icon, then has the window remake its tab buttons. Returns false (logged) if the window's tab list can't be changed.
 	bool AddTab(const FParts& Parts, UWidget* Page, const FText& Title);
 
+	// Rebuilds the row of pages as Slate draws it in the pages' order when the two differ, and logs it (When says what
+	// happened). Moving a child in UMG (InsertChildAt, ShiftChild) reorders UMG's list only, so the drawn row can hold
+	// the pages in another order or miss some, and the window then shows the wrong page. Returns true if rebuilt.
+	bool SyncRow(const FParts& Parts, const TCHAR* When);
+
 	// Sets each page's position in the sliding tabs from the widths the pages before it have when shown (after the new
 	// page has its size), and logs them.
 	void UpdateOffsets(const FParts& Parts);

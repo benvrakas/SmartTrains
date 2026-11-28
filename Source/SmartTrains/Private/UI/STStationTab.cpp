@@ -5,12 +5,14 @@
 #include "Components/CanvasPanelSlot.h"
 #include "Components/ScaleBox.h"
 #include "Components/SizeBox.h"
+#include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/OverlaySlot.h"
 #include "Components/PanelWidget.h"
 #include "Components/VerticalBoxSlot.h"
 #include "SmartTrains.h"
 #include "UI/STWidgetUtils.h"
+#include "Widgets/SBoxPanel.h"
 
 namespace
 {
@@ -268,10 +270,54 @@ bool STStationTab::AddTab(const FParts& Parts, UWidget* Page, const FText& Title
 	const int32 Added = Helper.AddValue();
 	List.Texture->SetObjectPropertyValue_InContainer(Helper.GetRawPtr(Added), Icon);
 	List.Text->SetPropertyValue_InContainer(Helper.GetRawPtr(Added), Title);
+	SyncRow(Parts, TEXT("page added"));
 	FitButtons(Parts.Window, Pages, Helper.Num());
 	const bool bInit = CallNoParams(Parts.Window, TEXT("InitTabs"));
 	UE_LOG(LogSmartTrains, Log, TEXT("Station tab: page %d added, %d tabs listed, buttons remade %d"), Pages, Helper.Num(), bInit);
 	LogButtons(Parts.Window);
+	SyncRow(Parts, TEXT("buttons remade"));
+	return true;
+}
+
+bool STStationTab::SyncRow(const FParts& Parts, const TCHAR* When)
+{
+	const UHorizontalBox* Box = Cast<UHorizontalBox>(Parts.Pages);
+	const TSharedPtr<SWidget> Live = Box ? Box->GetCachedWidget() : nullptr;
+	if (!Live.IsValid() || Live->GetType() != FName(TEXT("SHorizontalBox")))
+	{
+		return false;
+	}
+	const TSharedRef<SHorizontalBox> Row = StaticCastSharedRef<SHorizontalBox>(Live.ToSharedRef());
+	FChildren* Children = Row->GetChildren();
+	bool bSame = Children->Num() == Box->GetChildrenCount();
+	FString Drawn;
+	for (int32 Index = 0; Index < Children->Num(); ++Index)
+	{
+		const SWidget* Child = &Children->GetChildAt(Index).Get();
+		int32 Page = INDEX_NONE;
+		for (int32 Each = 0; Each < Box->GetChildrenCount(); ++Each)
+		{
+			if (Box->GetChildAt(Each) && Box->GetChildAt(Each)->GetCachedWidget().Get() == Child)
+			{
+				Page = Each;
+			}
+		}
+		bSame = bSame && Page == Index;
+		Drawn += FString::Printf(TEXT(" %d"), Page);
+	}
+	if (bSame)
+	{
+		return false;
+	}
+	Row->ClearChildren();
+	for (UPanelSlot* Each : Box->GetSlots())
+	{
+		if (UHorizontalBoxSlot* Slot = Cast<UHorizontalBoxSlot>(Each))
+		{
+			Slot->BuildSlot(Row);
+		}
+	}
+	UE_LOG(LogSmartTrains, Log, TEXT("Station tab: %s: the drawn row held pages [%s ] of %d; rebuilt in order"), When, *Drawn, Box->GetChildrenCount());
 	return true;
 }
 
@@ -283,6 +329,7 @@ void STStationTab::UpdateOffsets(const FParts& Parts)
 	{
 		return;
 	}
+	SyncRow(Parts, TEXT("before the offsets"));
 	CallNoParams(Parts.Tabs, TEXT("ShowAllIndexes"));
 	Parts.Tabs->ForceLayoutPrepass();
 	const bool bSet = CallNoParams(Parts.Tabs, TEXT("SetupIndexOffset"));
