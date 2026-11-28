@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.55.2 (beta)
+
+- **Fixed: the station menu showed the world through it** with the SmartTrains tab added, and cut that tab's button
+  off. The SmartTrains page asked for the height of everything on it, which stretched the whole window to the
+  screen's height and threw the page positions off, so the window slid to an empty stretch. The page now takes the
+  Train Station page's height and scrolls, as the Timetable page does, and the three tab buttons are narrowed to fit
+  the window.
+
 ## 0.55.1 (beta)
 
 - **Platform menus no longer show the last platform's numbers.** The game reuses its menus, so the rate on the

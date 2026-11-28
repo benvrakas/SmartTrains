@@ -15,6 +15,11 @@ namespace
 	const FName TabsProperty(TEXT("Widget_SlidingTabs"));
 	const FName ContentSlot(TEXT("mContent"));
 	const FName TabListProperty(TEXT("mTabs"));
+	const FName TabsContainerProperty(TEXT("Widget_TabsContainer"));
+	const FName ButtonSizeProperty(TEXT("mButtonSize"));
+	const FName ButtonCanvasProperty(TEXT("mContainer"));
+	const FName ActiveIndexProperty(TEXT("mActiveIndex"));
+	const FName IndexOffsetProperty(TEXT("mIndexOffset"));
 
 	bool bTreeLogged = false;
 
@@ -82,6 +87,44 @@ namespace
 			}
 		}
 		return List;
+	}
+
+	// The window's tab buttons are a fixed width each (the tabs container's mButtonSize): narrowed so After tabs take the
+	// width Before tabs had.
+	void FitButtons(const UUserWidget* Window, int32 Before, int32 After)
+	{
+		UUserWidget* Container = Cast<UUserWidget>(STWidgetUtils::GetObjectProperty(Window, TabsContainerProperty));
+		const FStructProperty* Size = Container ? FindFProperty<FStructProperty>(Container->GetClass(), ButtonSizeProperty) : nullptr;
+		if (!Size || Size->Struct != TBaseStructure<FVector2D>::Get() || Before <= 0 || After <= Before)
+		{
+			UE_LOG(LogSmartTrains, Warning, TEXT("Station tab: the tab buttons' size wasn't found (%s); the last tab may be cut off"), *Describe(Container));
+			return;
+		}
+		FVector2D* Value = Size->ContainerPtrToValuePtr<FVector2D>(Container);
+		const double Old = Value->X;
+		Value->X = Old * Before / After;
+		UE_LOG(LogSmartTrains, Log, TEXT("Station tab: tab buttons %.0f wide instead of %.0f"), Value->X, Old);
+	}
+
+	// Logs the tab buttons as laid out (position and size of each).
+	void LogButtons(const UUserWidget* Window)
+	{
+		const UUserWidget* Container = Cast<UUserWidget>(STWidgetUtils::GetObjectProperty(Window, TabsContainerProperty));
+		const UPanelWidget* Buttons = Cast<UPanelWidget>(STWidgetUtils::GetObjectProperty(Container, ButtonCanvasProperty));
+		for (int32 Index = 0; Buttons && Index < Buttons->GetChildrenCount(); ++Index)
+		{
+			const UWidget* Button = Buttons->GetChildAt(Index);
+			const UCanvasPanelSlot* Slot = Button ? Cast<UCanvasPanelSlot>(Button->Slot) : nullptr;
+			UE_LOG(LogSmartTrains, Log, TEXT("Station tab: button %d at %s size %s"), Index,
+				Slot ? *Slot->GetPosition().ToString() : TEXT("-"), Slot ? *Slot->GetSize().ToString() : TEXT("-"));
+		}
+	}
+
+	FString ExportProperty(const FProperty* Property, const void* Value)
+	{
+		FString Text;
+		Property->ExportTextItem_Direct(Text, Value, nullptr, nullptr, PPF_None);
+		return Text;
 	}
 
 	void CopySlot(const UPanelSlot* From, UPanelSlot* To)
@@ -163,8 +206,10 @@ bool STStationTab::AddTab(const FParts& Parts, UWidget* Page, const FText& Title
 	const int32 Added = Helper.AddValue();
 	List.Texture->SetObjectPropertyValue_InContainer(Helper.GetRawPtr(Added), Icon);
 	List.Text->SetPropertyValue_InContainer(Helper.GetRawPtr(Added), Title);
+	FitButtons(Parts.Window, Pages, Helper.Num());
 	const bool bInit = CallNoParams(Parts.Window, TEXT("InitTabs"));
 	UE_LOG(LogSmartTrains, Log, TEXT("Station tab: page %d added, %d tabs listed, buttons remade %d"), Pages, Helper.Num(), bInit);
+	LogButtons(Parts.Window);
 	return true;
 }
 
@@ -180,5 +225,23 @@ void STStationTab::UpdateOffsets(const FParts& Parts)
 	Parts.Tabs->ForceLayoutPrepass();
 	const bool bSet = CallNoParams(Parts.Tabs, TEXT("SetupIndexOffset"));
 	CallNoParams(Parts.Tabs, TEXT("HideNonActiveIndexes"));
-	UE_LOG(LogSmartTrains, Log, TEXT("Station tab: page offsets worked out again (%d)"), bSet);
+	// What the tabs slide by: each page's size and offset, the active page, the whole strip's size.
+	FString Sizes;
+	for (int32 Index = 0; Parts.Pages && Index < Parts.Pages->GetChildrenCount(); ++Index)
+	{
+		const UWidget* Page = Parts.Pages->GetChildAt(Index);
+		Sizes += FString::Printf(TEXT(" [%d %s]"), Index, Page ? *Page->GetDesiredSize().ToString() : TEXT("-"));
+	}
+	FString Offsets;
+	if (const FMapProperty* Map = FindFProperty<FMapProperty>(Parts.Tabs->GetClass(), IndexOffsetProperty))
+	{
+		FScriptMapHelper Helper(Map, Map->ContainerPtrToValuePtr<void>(Parts.Tabs));
+		for (FScriptMapHelper::FIterator It(Helper); It; ++It)
+		{
+			Offsets += FString::Printf(TEXT(" [%s: %s]"), *ExportProperty(Map->KeyProp, Helper.GetKeyPtr(It)), *ExportProperty(Map->ValueProp, Helper.GetValuePtr(It)));
+		}
+	}
+	const FIntProperty* Active = FindFProperty<FIntProperty>(Parts.Tabs->GetClass(), ActiveIndexProperty);
+	UE_LOG(LogSmartTrains, Log, TEXT("Station tab: page offsets worked out again (%d); active %d, strip %s, pages%s, offsets%s"), bSet,
+		Active ? Active->GetPropertyValue_InContainer(Parts.Tabs) : -1, *Parts.Tabs->GetDesiredSize().ToString(), *Sizes, *Offsets);
 }

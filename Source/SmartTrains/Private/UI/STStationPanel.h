@@ -101,7 +101,7 @@ protected:
 
 	// The tab's page: a size box around a scroll box with the station panel.
 	UPROPERTY()
-	TObjectPtr<class USizeBox> mTabPage;
+	TObjectPtr<class UCanvasPanel> mTabPage;
 
 	// The station panel under this bar when the menu has no room for a tab.
 	UPROPERTY()

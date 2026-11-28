@@ -13,6 +13,8 @@
 #include "UI/STControls.h"
 #include "UI/STStyle.h"
 #include "Components/Border.h"
+#include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Components/Overlay.h"
 #include "Components/OverlaySlot.h"
 #include "Components/SizeBox.h"
@@ -403,10 +405,15 @@ void USTStationSetupBar::InstallTab()
 	if (bFound)
 	{
 		// The page: the game's dark content background under a scroll box with the panel, as wide as the Timetable page.
-		mTabPage = Menu->WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
-		mTabPage->SetWidthOverride(StationTabPageWidth);
+		// Like the Timetable page it is a canvas whose content stretches over the page's height, so it asks for its width
+		// only and the window keeps the Train Station page's height.
+		mTabPage = Menu->WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass());
 		UOverlay* Layers = Menu->WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass());
-		mTabPage->AddChild(Layers);
+		if (UCanvasPanelSlot* LayersSlot = mTabPage->AddChildToCanvas(Layers))
+		{
+			LayersSlot->SetAnchors(FAnchors(0.f, 0.f, 0.f, 1.f));
+			LayersSlot->SetOffsets(FMargin(0.f, 0.f, StationTabPageWidth, 0.f));
+		}
 		if (UWidget* Background = STWidgetUtils::CreateVanillaWidget(Menu->WidgetTree, STWidgetUtils::ContentBackgroundClass))
 		{
 			if (UOverlaySlot* BackgroundSlot = Layers->AddChildToOverlay(Background))
